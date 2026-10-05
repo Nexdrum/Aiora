@@ -4,6 +4,8 @@
 #include <GLES3/gl3.h>
 
 #include <array>
+#include <cmath>
+#include <cstdint>
 
 #include "AudioEngine.h"
 #include "NativeUi.h"
@@ -13,11 +15,26 @@ namespace {
 
 constexpr char kTag[] = "AIORA";
 constexpr size_t kMaxPointers = 16;
+constexpr int64_t kLongPressMs = 500;
 
 struct PointerVoice {
     int32_t pointerId{-1};
     int midi{-1};
     int voiceId{-1};
+};
+
+struct RollGesture {
+    int32_t pointerId{-1};
+    float downX{0.0f};
+    float downY{0.0f};
+    float lastX{0.0f};
+    float lastY{0.0f};
+    float accumX{0.0f};
+    float accumY{0.0f};
+    int64_t downTimeMs{0};
+    bool moved{false};
+
+    void clear() noexcept { *this = {}; pointerId = -1; }
 };
 
 struct NativeState {
@@ -30,6 +47,7 @@ struct NativeState {
     bool drawable{false};
     aiora::NativeUi ui{};
     std::array<PointerVoice, kMaxPointers> touches{};
+    RollGesture rollGesture{};
 };
 
 void createDefaultProject() {
@@ -55,7 +73,6 @@ void ensureDrumTrackSelected() {
             return;
         }
     }
-
     project.addTrack(true);
 }
 
@@ -118,6 +135,7 @@ void releaseAllTouches(NativeState& state) {
         touch = {};
     }
     state.ui.clearPitchActivity();
+    state.rollGesture.clear();
 }
 
 void destroySurface(NativeState& state) {
@@ -126,12 +144,8 @@ void destroySurface(NativeState& state) {
     if (state.display != EGL_NO_DISPLAY) {
         eglMakeCurrent(
             state.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        if (state.context != EGL_NO_CONTEXT) {
-            eglDestroyContext(state.display, state.context);
-        }
-        if (state.surface != EGL_NO_SURFACE) {
-            eglDestroySurface(state.display, state.surface);
-        }
+        if (state.context != EGL_NO_CONTEXT) eglDestroyContext(state.display, state.context);
+        if (state.surface != EGL_NO_SURFACE) eglDestroySurface(state.display, state.surface);
         eglTerminate(state.display);
     }
     state.display = EGL_NO_DISPLAY;
@@ -165,12 +179,8 @@ PointerVoice* allocateTouch(NativeState& state, int32_t pointerId) {
 }
 
 void stopTouch(NativeState& state, PointerVoice& touch) {
-    if (touch.voiceId >= 0) {
-        aiora::AudioEngine::instance().noteOff(touch.voiceId);
-    }
-    if (touch.midi >= 0) {
-        state.ui.setPitchActive(touch.midi, false);
-    }
+    if (touch.voiceId >= 0) aiora::AudioEngine::instance().noteOff(touch.voiceId);
+    if (touch.midi >= 0) state.ui.setPitchActive(touch.midi, false);
     touch = {};
 }
 
@@ -187,6 +197,85 @@ void startPitch(NativeState& state, PointerVoice& touch, int midi) {
     } else {
         touch.voiceId = aiora::AudioEngine::instance().noteOn(midi, 0.85f);
     }
+}
+
+int noteAtCell(int track, int midi, int step) {
+    auto& project = aiora::ProjectCore::instance();
+    const int count = project.noteCount(track);
+    for (int n = 0; n < count; ++n) {
+        if (project.noteMidi(track, n) != midi) continue;
+        const float start = project.noteStart(track, n);
+        const float length = project.noteLength(track, n);
+        if (static_cast<float>(step) >= start &&
+            static_cast<float>(step) < start + length) {
+            return n;
+        }
+    }
+    return -1;
+}
+
+void handleRollTap(NativeState& state, float x, float y, bool longPress) {
+    auto& project = aiora::ProjectCore::instance();
+    const int track = project.selectedTrack();
+    if (track < 0) return;
+
+    const auto hit = state.ui.hitRollCell(x, y);
+    if (!hit) return;
+
+    const int note = noteAtCell(track, hit->midi, hit->step);
+    const auto mode = state.ui.rollMode();
+
+    if (mode == aiora::RollMode::Notes) {
+        if (note >= 0) project.deleteNote(track, note);
+        else project.addNote(track, hit->midi, static_cast<float>(hit->step), 1.0f);
+        aiora::AudioEngine::instance().syncProject();
+        return;
+    }
+
+    if (note < 0) return;
+
+    const int kind = static_cast<int>(mode) - 1;
+    const float start = project.noteStart(track, note);
+    const float length = project.noteLength(track, note);
+    const float relative = std::clamp(
+        static_cast<float>(hit->step) - start,
+        0.0f,
+        std::max(0.0f, length - 1.0f));
+
+    int nearest = -1;
+    float nearestDistance = 1.0e9f;
+    const int points = project.curvePointCount(track, note, kind);
+    for (int p = 0; p < points; ++p) {
+        const float d = std::fabs(project.curvePointStep(track, note, kind, p) - relative);
+        if (d < nearestDistance) {
+            nearestDistance = d;
+            nearest = p;
+        }
+    }
+
+    if (nearest >= 0 && nearestDistance <= 0.3f) {
+        if (longPress) {
+            project.updateCurvePoint(
+                track,
+                note,
+                kind,
+                nearest,
+                project.curvePointStep(track, note, kind, nearest),
+                project.curvePointValue(track, note, kind, nearest),
+                !project.curvePointFree(track, note, kind, nearest));
+        } else {
+            project.deleteCurvePoint(track, note, kind, nearest);
+        }
+        aiora::AudioEngine::instance().syncProject();
+        return;
+    }
+
+    float value = 0.0f;
+    if (mode == aiora::RollMode::Velocity || mode == aiora::RollMode::Mod) {
+        value = std::fabs(hit->normalizedAcross - 0.5f) * 2.0f;
+    }
+    project.addCurvePoint(track, note, kind, relative, value, longPress);
+    aiora::AudioEngine::instance().syncProject();
 }
 
 bool handleUiTap(NativeState& state, float x, float y) {
@@ -212,9 +301,12 @@ bool handleUiTap(NativeState& state, float x, float y) {
 
     if (const auto pad = state.ui.hitPadQuick(x, y)) {
         const int track = project.selectedTrack();
-        if (track >= 0 && project.trackIsDrums(track)) {
-            project.selectPad(track, *pad);
-        }
+        if (track >= 0 && project.trackIsDrums(track)) project.selectPad(track, *pad);
+        return true;
+    }
+
+    if (const auto mode = state.ui.hitRollMode(x, y)) {
+        state.ui.setRollMode(*mode);
         return true;
     }
 
@@ -225,10 +317,7 @@ void handlePointerPosition(
     NativeState& state,
     int32_t pointerId,
     float x,
-    float y,
-    bool allowUiTap) {
-
-    if (allowUiTap && handleUiTap(state, x, y)) return;
+    float y) {
 
     auto* touch = allocateTouch(state, pointerId);
     if (!touch) return;
@@ -237,6 +326,52 @@ void handlePointerPosition(
         startPitch(state, *touch, *midi);
     } else if (touch->voiceId >= 0 || touch->midi >= 0) {
         stopTouch(state, *touch);
+    }
+}
+
+void beginRollGesture(
+    NativeState& state,
+    int32_t pointerId,
+    float x,
+    float y,
+    int64_t timeMs) {
+
+    state.rollGesture.pointerId = pointerId;
+    state.rollGesture.downX = x;
+    state.rollGesture.downY = y;
+    state.rollGesture.lastX = x;
+    state.rollGesture.lastY = y;
+    state.rollGesture.accumX = 0.0f;
+    state.rollGesture.accumY = 0.0f;
+    state.rollGesture.downTimeMs = timeMs;
+    state.rollGesture.moved = false;
+}
+
+void moveRollGesture(NativeState& state, float x, float y) {
+    auto& g = state.rollGesture;
+    if (g.pointerId < 0) return;
+
+    const float dx = x - g.lastX;
+    const float dy = y - g.lastY;
+    g.lastX = x;
+    g.lastY = y;
+    g.accumX += dx;
+    g.accumY += dy;
+
+    const float totalDx = x - g.downX;
+    const float totalDy = y - g.downY;
+    if (std::hypot(totalDx, totalDy) > 8.0f) g.moved = true;
+
+    const float threshold = std::max(16.0f, state.ui.rollCellPixels() * 0.72f);
+    while (std::fabs(g.accumX) >= threshold) {
+        const int delta = g.accumX < 0.0f ? 1 : -1;
+        state.ui.scrollRoll(delta, 0);
+        g.accumX += g.accumX < 0.0f ? threshold : -threshold;
+    }
+    while (std::fabs(g.accumY) >= threshold) {
+        const int delta = g.accumY < 0.0f ? 1 : -1;
+        state.ui.scrollRoll(0, delta);
+        g.accumY += g.accumY < 0.0f ? threshold : -threshold;
     }
 }
 
@@ -255,25 +390,50 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         case AMOTION_EVENT_ACTION_POINTER_DOWN: {
             const size_t index = action == AMOTION_EVENT_ACTION_DOWN ? 0u : actionIndex;
             const int32_t pointerId = AMotionEvent_getPointerId(event, index);
-            handlePointerPosition(
-                state,
-                pointerId,
-                AMotionEvent_getX(event, index),
-                AMotionEvent_getY(event, index),
-                true);
+            const float x = AMotionEvent_getX(event, index);
+            const float y = AMotionEvent_getY(event, index);
+
+            if (handleUiTap(state, x, y)) return 1;
+
+            if (state.ui.page() == aiora::NativePage::Roll) {
+                if (state.rollGesture.pointerId < 0) {
+                    beginRollGesture(
+                        state,
+                        pointerId,
+                        x,
+                        y,
+                        static_cast<int64_t>(AMotionEvent_getEventTime(event)));
+                }
+                return 1;
+            }
+
+            handlePointerPosition(state, pointerId, x, y);
             return 1;
         }
 
         case AMOTION_EVENT_ACTION_MOVE: {
+            if (state.ui.page() == aiora::NativePage::Roll &&
+                state.rollGesture.pointerId >= 0) {
+                const size_t count = AMotionEvent_getPointerCount(event);
+                for (size_t i = 0; i < count; ++i) {
+                    if (AMotionEvent_getPointerId(event, i) == state.rollGesture.pointerId) {
+                        moveRollGesture(
+                            state,
+                            AMotionEvent_getX(event, i),
+                            AMotionEvent_getY(event, i));
+                        break;
+                    }
+                }
+                return 1;
+            }
+
             const size_t count = AMotionEvent_getPointerCount(event);
             for (size_t i = 0; i < count; ++i) {
-                const int32_t pointerId = AMotionEvent_getPointerId(event, i);
                 handlePointerPosition(
                     state,
-                    pointerId,
+                    AMotionEvent_getPointerId(event, i),
                     AMotionEvent_getX(event, i),
-                    AMotionEvent_getY(event, i),
-                    false);
+                    AMotionEvent_getY(event, i));
             }
             return 1;
         }
@@ -282,6 +442,20 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         case AMOTION_EVENT_ACTION_POINTER_UP: {
             const size_t index = action == AMOTION_EVENT_ACTION_UP ? 0u : actionIndex;
             const int32_t pointerId = AMotionEvent_getPointerId(event, index);
+            const float x = AMotionEvent_getX(event, index);
+            const float y = AMotionEvent_getY(event, index);
+
+            if (state.rollGesture.pointerId == pointerId) {
+                const int64_t heldMs =
+                    static_cast<int64_t>(AMotionEvent_getEventTime(event)) -
+                    state.rollGesture.downTimeMs;
+                if (!state.rollGesture.moved) {
+                    handleRollTap(state, x, y, heldMs >= kLongPressMs);
+                }
+                state.rollGesture.clear();
+                return 1;
+            }
+
             if (auto* touch = findTouch(state, pointerId)) stopTouch(state, *touch);
             return 1;
         }
@@ -343,6 +517,7 @@ void android_main(android_app* app) {
     NativeState state;
     state.app = app;
     for (auto& touch : state.touches) touch.pointerId = -1;
+    state.rollGesture.clear();
 
     app->userData = &state;
     app->onAppCmd = handleCommand;
