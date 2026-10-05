@@ -601,6 +601,34 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
     }
 
+    if(state.ui.page()==aiora::NativePage::Synth || state.ui.page()==aiora::NativePage::Fx){
+        const auto editorPage=state.ui.page()==aiora::NativePage::Synth
+            ?aiora::EditorPage::Synth:aiora::EditorPage::Fx;
+        if(const auto transfer=aiora::NativeEditor::instance().hitPatchTransfer(editorPage,x,y)){
+            if(*transfer==aiora::PatchTransferAction::CopyPatch){
+                const std::string json=aiora::serializePatchJson(project.selectedPatch());
+                const bool ok=clipboardSetText(state.app?state.app->activity:nullptr,json);
+                __android_log_print(ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,kTag,
+                    ok?"copied AIORA patch JSON":"could not copy AIORA patch JSON");
+            }else{
+                const std::string json=clipboardGetText(state.app?state.app->activity:nullptr);
+                aiora::Patch imported;
+                std::string error;
+                if(!json.empty()&&aiora::deserializePatchJson(json,imported,&error)
+                    &&project.replaceSelectedPatch(std::move(imported))){
+                    audio.syncProject();
+                    previewEditorPatch(state);
+                    scheduleAutosave(state,0);
+                    __android_log_print(ANDROID_LOG_INFO,kTag,"pasted AIORA patch JSON");
+                }else{
+                    __android_log_print(ANDROID_LOG_WARN,kTag,"patch paste failed: %s",
+                        error.empty()?"clipboard does not contain AIORA patch JSON":error.c_str());
+                }
+            }
+            return true;
+        }
+    }
+
     if (const auto pad = state.ui.hitPadQuick(x, y)) {
         const int track = project.selectedTrack();
         if (track >= 0 && project.trackIsDrums(track)) {
