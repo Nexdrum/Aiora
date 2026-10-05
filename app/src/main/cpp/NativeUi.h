@@ -20,21 +20,6 @@ public:
     static constexpr int kGridHigh = 86;
     static constexpr int kGridNotes = 49;
 
-    void resize(int width, int height) noexcept;
-    void setPage(NativePage page) noexcept { page_ = page; }
-    [[nodiscard]] NativePage page() const noexcept { return page_; }
-
-    void setPitchActive(int midi, bool active) noexcept;
-    void clearPitchActivity() noexcept;
-
-    void render() const noexcept;
-
-    [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
-    [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
-
-    [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
-
-private:
     struct Rect {
         float x{};
         float y{};
@@ -52,6 +37,21 @@ private:
         float b{};
     };
 
+    void resize(int width, int height) noexcept;
+    void setPage(NativePage page) noexcept { page_ = page; }
+    [[nodiscard]] NativePage page() const noexcept { return page_; }
+
+    void setPitchActive(int midi, bool active) noexcept;
+    void clearPitchActivity() noexcept;
+
+    void render() const noexcept;
+
+    [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
+
+    [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
+
+private:
     [[nodiscard]] Rect navRect(int index) const noexcept;
     [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
     [[nodiscard]] Rect contentRect() const noexcept;
