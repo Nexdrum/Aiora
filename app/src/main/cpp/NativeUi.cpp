@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 
 #include "ProjectCore.h"
 
@@ -13,9 +14,15 @@ namespace {
 constexpr NativeUi::Rgb kBg{0.0627f, 0.0706f, 0.0863f};
 constexpr NativeUi::Rgb kTop{0.0784f, 0.0902f, 0.1137f};
 constexpr NativeUi::Rgb kPanel{0.0863f, 0.1020f, 0.1294f};
+constexpr NativeUi::Rgb kRollBg{0.0471f, 0.0549f, 0.0706f};
+constexpr NativeUi::Rgb kCell{0.1020f, 0.1216f, 0.1608f};
+constexpr NativeUi::Rgb kBeat{0.1255f, 0.1490f, 0.2039f};
+constexpr NativeUi::Rgb kBar{0.1412f, 0.1725f, 0.2275f};
 constexpr NativeUi::Rgb kButton{0.1373f, 0.1569f, 0.2000f};
 constexpr NativeUi::Rgb kCyan{0.0f, 0.80f, 0.80f};
 constexpr NativeUi::Rgb kOrange{1.0f, 0.6667f, 0.0f};
+constexpr NativeUi::Rgb kWhite{0.91f, 0.925f, 0.945f};
+constexpr NativeUi::Rgb kPurple{0.788f, 0.557f, 1.0f};
 constexpr NativeUi::Rgb kMuted{0.35f, 0.39f, 0.47f};
 
 constexpr std::array<NativeUi::Rgb, 12> kPitchColors{{
@@ -170,6 +177,90 @@ NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
     };
 }
 
+NativeUi::Rect NativeUi::rollModeRect(int index) const noexcept {
+    const auto content = contentRect();
+    const float gap = std::max(3.0f, width_ * 0.004f);
+    const float h = std::clamp(content.h * 0.11f, 34.0f, 48.0f);
+    const float available = std::max(0.0f, content.w - gap * 5.0f);
+    const float w = available / 4.0f;
+    return {
+        content.x + gap + index * (w + gap),
+        content.y,
+        w,
+        h
+    };
+}
+
+NativeUi::Rect NativeUi::rollViewportRect() const noexcept {
+    auto content = contentRect();
+    const float gap = std::max(4.0f, height_ * 0.010f);
+    const float modeH = rollModeRect(0).h;
+    content.y += modeH + gap;
+    content.h = std::max(0.0f, content.h - modeH - gap);
+    return content;
+}
+
+float NativeUi::rollCellPixels() const noexcept {
+    const auto viewport = rollViewportRect();
+    const float gutter = rollGutterPixels();
+    const float header = rollHeaderPixels();
+    const float byWidth = std::max(1.0f, (viewport.w - gutter) / 9.0f);
+    const float byHeight = std::max(1.0f, (viewport.h - header) / 10.0f);
+    return std::clamp(std::min(byWidth, byHeight), 22.0f, 36.0f);
+}
+
+float NativeUi::rollGutterPixels() const noexcept {
+    return std::clamp(width_ * 0.075f, 34.0f, 52.0f);
+}
+
+float NativeUi::rollHeaderPixels() const noexcept {
+    return std::clamp(height_ * 0.075f, 32.0f, 48.0f);
+}
+
+std::vector<int> NativeUi::rollColumns() const {
+    auto& project = ProjectCore::instance();
+    const int track = project.selectedTrack();
+    std::vector<int> columns;
+
+    if (track >= 0 && project.trackIsDrums(track)) {
+        const int pads = project.padCount(track);
+        for (int p = 0; p < pads; ++p) {
+            int lo = project.padLow(track, p);
+            int hi = project.padHigh(track, p);
+            if (lo > hi) std::swap(lo, hi);
+            if (lo < 0 || hi < 0) continue;
+            for (int midi = lo; midi <= hi; ++midi) columns.push_back(midi);
+        }
+        std::sort(columns.begin(), columns.end());
+        columns.erase(std::unique(columns.begin(), columns.end()), columns.end());
+    }
+
+    if (columns.empty()) {
+        columns.reserve(97);
+        for (int midi = 14; midi <= 110; ++midi) columns.push_back(midi);
+    }
+    return columns;
+}
+
+int NativeUi::rollTotalRows() const noexcept {
+    return std::max(64, ProjectCore::instance().playLengthSteps() + 32);
+}
+
+void NativeUi::scrollRoll(int pitchDelta, int stepDelta) noexcept {
+    const auto columns = rollColumns();
+    const auto viewport = rollViewportRect();
+    const float cell = rollCellPixels();
+    const int visibleCols = std::max(
+        1, static_cast<int>(std::floor((viewport.w - rollGutterPixels()) / cell)));
+    const int visibleRows = std::max(
+        1, static_cast<int>(std::floor((viewport.h - rollHeaderPixels()) / cell)));
+
+    const int maxPitch = std::max(0, static_cast<int>(columns.size()) - visibleCols);
+    const int maxStep = std::max(0, rollTotalRows() - visibleRows);
+    rollPitchOffset_ = std::clamp(rollPitchOffset_ + pitchDelta, 0, maxPitch);
+    rollStepOffset_ = std::clamp(rollStepOffset_ + stepDelta, 0, maxStep);
+}
+
 NativeUi::Rgb NativeUi::pitchColor(int midi) const noexcept {
     const int pc = ((midi % 12) + 12) % 12;
     return kPitchColors[static_cast<size_t>(pc)];
@@ -303,6 +394,120 @@ void NativeUi::drawDrums() const noexcept {
     drawGrid();
 }
 
+void NativeUi::drawRoll() const noexcept {
+    auto& project = ProjectCore::instance();
+    const auto content = contentRect();
+    fillRect(content, kPanel);
+
+    for (int i = 0; i < 4; ++i) {
+        const auto mode = static_cast<RollMode>(i);
+        const Rgb modeColor =
+            mode == rollMode_
+                ? (mode == RollMode::Bend ? kCyan :
+                   mode == RollMode::Velocity ? kWhite :
+                   mode == RollMode::Mod ? kPurple : kOrange)
+                : kButton;
+        fillRect(rollModeRect(i), modeColor);
+    }
+
+    const int track = project.selectedTrack();
+    if (track < 0) return;
+
+    const auto viewport = rollViewportRect();
+    fillRect(viewport, kRollBg);
+
+    const auto columns = rollColumns();
+    const float cell = rollCellPixels();
+    const float gutter = rollGutterPixels();
+    const float header = rollHeaderPixels();
+    const int visibleCols = std::max(
+        1, static_cast<int>(std::floor((viewport.w - gutter) / cell)));
+    const int visibleRows = std::max(
+        1, static_cast<int>(std::floor((viewport.h - header) / cell)));
+
+    const int pitchOffset = std::clamp(
+        rollPitchOffset_, 0, std::max(0, static_cast<int>(columns.size()) - visibleCols));
+    const int stepOffset = std::clamp(
+        rollStepOffset_, 0, std::max(0, rollTotalRows() - visibleRows));
+
+    fillRect({viewport.x, viewport.y, gutter - 1.0f, header - 1.0f}, kPanel);
+
+    for (int c = 0; c < visibleCols && pitchOffset + c < static_cast<int>(columns.size()); ++c) {
+        const int midi = columns[static_cast<size_t>(pitchOffset + c)];
+        const float x = viewport.x + gutter + c * cell;
+        fillRect({x, viewport.y, cell - 1.0f, header - 2.0f}, kPanel);
+        fillRect({x, viewport.y + header - 4.0f, cell - 1.0f, 3.0f}, pitchColor(midi));
+        if (((midi % 12) + 12) % 12 == 2) {
+            fillRect({x + cell * 0.42f, viewport.y + 5.0f, cell * 0.16f, header * 0.35f}, kMuted);
+        }
+    }
+
+    const int beatLen = std::max(1, project.divisions());
+    const int barLen = std::max(1, project.beats()) * beatLen;
+
+    for (int r = 0; r < visibleRows; ++r) {
+        const int step = stepOffset + r;
+        const float y = viewport.y + header + r * cell;
+        const Rgb rowColor =
+            step % barLen == 0 ? kBar :
+            step % beatLen == 0 ? kBeat : kCell;
+
+        fillRect({viewport.x, y, gutter - 2.0f, cell - 1.0f}, rowColor);
+        for (int c = 0; c < visibleCols && pitchOffset + c < static_cast<int>(columns.size()); ++c) {
+            const float x = viewport.x + gutter + c * cell;
+            fillRect({x, y, cell - 1.0f, cell - 1.0f}, rowColor);
+        }
+    }
+
+    const int notes = project.noteCount(track);
+    for (int n = 0; n < notes; ++n) {
+        const int midi = project.noteMidi(track, n);
+        const auto it = std::lower_bound(columns.begin(), columns.end(), midi);
+        if (it == columns.end() || *it != midi) continue;
+        const int colIndex = static_cast<int>(std::distance(columns.begin(), it));
+        const int visibleCol = colIndex - pitchOffset;
+        if (visibleCol < 0 || visibleCol >= visibleCols) continue;
+
+        const float start = project.noteStart(track, n);
+        const float length = std::max(1.0f, project.noteLength(track, n));
+        if (start + length <= stepOffset || start >= stepOffset + visibleRows) continue;
+
+        const float x = viewport.x + gutter + visibleCol * cell + 1.0f;
+        const float y = viewport.y + header + (start - stepOffset) * cell + 1.0f;
+        const float h = std::max(cell, length * cell) - 2.0f;
+        fillRect({x, y, cell - 3.0f, h}, pitchColor(midi));
+        fillRect({x, y + h - 3.0f, cell - 3.0f, 3.0f}, kTop);
+
+        if (rollMode_ == RollMode::Notes) continue;
+        const int kind = static_cast<int>(rollMode_) - 1;
+        const int points = project.curvePointCount(track, n, kind);
+        const Rgb pointColor =
+            rollMode_ == RollMode::Bend ? kCyan :
+            rollMode_ == RollMode::Velocity ? kWhite : kPurple;
+
+        for (int p = 0; p < points; ++p) {
+            const float relStep = project.curvePointStep(track, n, kind, p);
+            const float value = project.curvePointValue(track, n, kind, p);
+            const bool free = project.curvePointFree(track, n, kind, p);
+            const float py = viewport.y + header + (start + relStep + 0.5f - stepOffset) * cell;
+            if (py < viewport.y + header || py > viewport.y + viewport.h) continue;
+
+            if (rollMode_ == RollMode::Bend) {
+                const float px = x + (cell - 3.0f) * 0.5f +
+                    std::clamp(value / 12.0f, -1.0f, 1.0f) * (cell * 0.42f);
+                const float s = free ? 7.0f : 5.0f;
+                fillRect({px - s * 0.5f, py - s * 0.5f, s, s}, pointColor);
+            } else {
+                const float half = std::clamp(value, 0.0f, 1.0f) * (cell * 0.42f);
+                const float center = x + (cell - 3.0f) * 0.5f;
+                const float s = free ? 7.0f : 5.0f;
+                fillRect({center - half - s * 0.5f, py - s * 0.5f, s, s}, pointColor);
+                fillRect({center + half - s * 0.5f, py - s * 0.5f, s, s}, pointColor);
+            }
+        }
+    }
+}
+
 void NativeUi::drawPlaceholder() const noexcept {
     const auto content = contentRect();
     fillRect(content, kPanel);
@@ -347,6 +552,9 @@ void NativeUi::render() const noexcept {
             break;
         case NativePage::Drums:
             drawDrums();
+            break;
+        case NativePage::Roll:
+            drawRoll();
             break;
         case NativePage::Play:
             fillRect(contentRect(), kPanel);
@@ -412,6 +620,45 @@ std::optional<int> NativeUi::hitPadQuick(float x, float y) const noexcept {
         if (padQuickRect(i, count).contains(x, y)) return i;
     }
     return std::nullopt;
+}
+
+std::optional<RollMode> NativeUi::hitRollMode(float x, float y) const noexcept {
+    if (page_ != NativePage::Roll) return std::nullopt;
+    for (int i = 0; i < 4; ++i) {
+        if (rollModeRect(i).contains(x, y)) return static_cast<RollMode>(i);
+    }
+    return std::nullopt;
+}
+
+std::optional<RollCellHit> NativeUi::hitRollCell(float x, float y) const noexcept {
+    if (page_ != NativePage::Roll) return std::nullopt;
+
+    const auto viewport = rollViewportRect();
+    const float cell = rollCellPixels();
+    const float gutter = rollGutterPixels();
+    const float header = rollHeaderPixels();
+    if (x < viewport.x + gutter || y < viewport.y + header ||
+        x >= viewport.x + viewport.w || y >= viewport.y + viewport.h) {
+        return std::nullopt;
+    }
+
+    const auto columns = rollColumns();
+    const int visibleCol = static_cast<int>(std::floor((x - viewport.x - gutter) / cell));
+    const int visibleRow = static_cast<int>(std::floor((y - viewport.y - header) / cell));
+    const int colIndex = rollPitchOffset_ + visibleCol;
+    const int step = rollStepOffset_ + visibleRow;
+    if (visibleCol < 0 || visibleRow < 0 ||
+        colIndex < 0 || colIndex >= static_cast<int>(columns.size()) ||
+        step < 0 || step >= rollTotalRows()) {
+        return std::nullopt;
+    }
+
+    const float cellLeft = viewport.x + gutter + visibleCol * cell;
+    return RollCellHit{
+        columns[static_cast<size_t>(colIndex)],
+        step,
+        std::clamp((x - cellLeft) / cell, 0.0f, 1.0f)
+    };
 }
 
 int NativeUi::padIndexForMidi(int midi) noexcept {
