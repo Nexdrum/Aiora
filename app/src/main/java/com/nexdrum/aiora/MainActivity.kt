@@ -4,7 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,11 +31,14 @@ class MainActivity : ComponentActivity() {
 private val AioraBg = Color(0xFF101216)
 private val AioraPanel = Color(0xFF161A21)
 private val AioraCyan = Color(0xFF00CCCC)
+private val Muted = Color(0xFF9AA3B5)
+private val presets = listOf("Spectrachord Init", "Subula", "Spectrello", "Nebular", "Nexdrum")
 
 @Composable
 private fun AioraApp() {
     var page by remember { mutableStateOf("Tracks") }
     var voice by remember { mutableIntStateOf(-1) }
+    var preset by remember { mutableIntStateOf(NativeBridge.factoryPreset()) }
     val pages = listOf("Tracks", "Drums", "Roll", "Synth", "FX", "Play")
 
     MaterialTheme(colorScheme = darkColorScheme(primary = AioraCyan, background = AioraBg, surface = AioraPanel)) {
@@ -44,7 +49,7 @@ private fun AioraApp() {
             ) {
                 Text("AIORA", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
-                Text("Native • ${NativeBridge.sampleRate()} Hz", style = MaterialTheme.typography.labelSmall, color = Color(0xFF9AA3B5))
+                Text("Oboe • ${NativeBridge.sampleRate()} Hz", style = MaterialTheme.typography.labelSmall, color = Muted)
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 pages.forEach { p ->
@@ -63,12 +68,29 @@ private fun AioraApp() {
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(page, style = MaterialTheme.typography.titleLarge)
-                    Text("Native shell is live. Web AIORA remains the behavioral reference while each page is ported into this surface.", color = Color(0xFF9AA3B5))
+                    Text("Native Spectrachord preview", color = Muted)
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        presets.forEachIndexed { i, name ->
+                            FilterChip(
+                                selected = preset == i,
+                                onClick = {
+                                    if (voice >= 0) { NativeBridge.noteOff(voice); voice = -1 }
+                                    preset = i
+                                    NativeBridge.setFactoryPreset(i)
+                                },
+                                label = { Text(name) }
+                            )
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { if (voice < 0) voice = NativeBridge.noteOn(62, 0.85f) }) { Text("Preview D") }
                         OutlinedButton(onClick = { if (voice >= 0) { NativeBridge.noteOff(voice); voice = -1 } }) { Text("Release") }
                         OutlinedButton(onClick = { NativeBridge.panic(); voice = -1 }) { Text("Panic") }
                     }
+                    Text("Factory patches are now rendered by the native six-operator engine; the page bodies are still placeholders while the DAW UI is ported.", style = MaterialTheme.typography.bodySmall, color = Muted)
                 }
             }
         }
