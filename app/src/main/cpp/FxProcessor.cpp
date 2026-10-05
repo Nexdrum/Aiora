@@ -47,8 +47,17 @@ void FxProcessor::reset() noexcept {
 }
 
 std::array<float,2> FxProcessor::process(float input) noexcept {
-    float dry=input;
-    if(fx_.distortion>0.005f)dry=std::tanh(dry*(1.0f+fx_.distortion*8.0f));
+    return processStereo(input,input);
+}
+
+std::array<float,2> FxProcessor::processStereo(float left,float right) noexcept {
+    float dryL=left,dryR=right;
+    if(fx_.distortion>0.005f){
+        const float drive=1.0f+fx_.distortion*8.0f;
+        dryL=std::tanh(dryL*drive);
+        dryR=std::tanh(dryR*drive);
+    }
+    const float mono=(dryL+dryR)*0.5f;
 
     float d=0.0f;
     if(!delay_.empty()&&fx_.delay>0.005f){
@@ -56,23 +65,23 @@ std::array<float,2> FxProcessor::process(float input) noexcept {
         const size_t delaySamples=std::clamp<size_t>(static_cast<size_t>(sec*sampleRate_),1,delay_.size()-1);
         const size_t rp=(delayWrite_+delay_.size()-delaySamples)%delay_.size();
         d=delay_[rp];
-        delay_[delayWrite_]=dry+d*std::clamp(fx_.delayFeedback,0.0f,0.85f);
+        delay_[delayWrite_]=mono+d*std::clamp(fx_.delayFeedback,0.0f,0.85f);
         delayWrite_=(delayWrite_+1)%delay_.size();
-    } else if(!delay_.empty()) {
-        delay_[delayWrite_]=dry;delayWrite_=(delayWrite_+1)%delay_.size();
+    }else if(!delay_.empty()){
+        delay_[delayWrite_]=mono;delayWrite_=(delayWrite_+1)%delay_.size();
     }
     const float delayWet=d*(0.3f*std::clamp(fx_.delay,0.0f,1.0f));
 
     float rl=0.0f,rr=0.0f;
     if(fx_.reverb>0.005f){
-        for(auto& c:combL_)rl+=c.process(dry*0.25f);
-        for(auto& c:combR_)rr+=c.process(dry*0.25f);
+        for(auto& c:combL_)rl+=c.process(mono*0.25f);
+        for(auto& c:combR_)rr+=c.process(mono*0.25f);
         for(auto& a:allL_)rl=a.process(rl);
         for(auto& a:allR_)rr=a.process(rr);
         const float rw=0.48f*std::clamp(fx_.reverb,0.0f,1.0f);
         rl*=rw;rr*=rw;
     }
-    return {dry+delayWet+rl,dry+delayWet+rr};
+    return {dryL+delayWet+rl,dryR+delayWet+rr};
 }
 
 } // namespace aiora

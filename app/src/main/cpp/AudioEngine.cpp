@@ -12,6 +12,12 @@ constexpr char kTag[] = "AIORA";
 constexpr int kPresetCount = static_cast<int>(FactoryPreset::Count);
 int clampPreset(int index) noexcept { return std::clamp(index,0,kPresetCount-1); }
 int clampPad(int index) noexcept { return std::clamp(index,0,static_cast<int>(nexdrumKit().size())-1); }
+std::pair<float,float> panGain(float gain,float pan) noexcept {
+    constexpr float kPi=3.14159265358979323846f;
+    const float p=std::clamp(pan,-1.0f,1.0f);
+    const float angle=(p+1.0f)*kPi*0.25f;
+    return {gain*std::cos(angle),gain*std::sin(angle)};
+}
 }
 
 AudioEngine& AudioEngine::instance(){static AudioEngine engine;return engine;}
@@ -47,7 +53,13 @@ int AudioEngine::noteOn(int midi,float velocity) noexcept {
     e.id=id;
     e.midi=std::clamp(midi,0,127);
     e.value=std::clamp(velocity,0.0f,1.0f);
-    e.patch=ProjectCore::instance().selectedDspPatch();
+    auto& project=ProjectCore::instance();
+    e.patch=project.selectedDspPatch();
+    const int track=project.selectedTrack();
+    if(track>=0){
+        const auto [l,r]=panGain(project.trackVolume(track),project.trackPan(track));
+        e.gainLeft=l;e.gainRight=r;
+    }
     events_.push(e);
     return id;
 }
@@ -68,6 +80,9 @@ int AudioEngine::noteOnPad(int padIndex,int midi,float velocity) noexcept {
         const int hi=std::max(project.padLow(track,p),project.padHigh(track,p));
         e.midi=std::clamp(midi,lo,hi);
         e.patch=project.padDspPatch(track,p);
+        const float gain=project.trackVolume(track)*project.padVolume(track,p);
+        const float pan=std::clamp(project.trackPan(track)+project.padPan(track,p),-1.0f,1.0f);
+        const auto [l,r]=panGain(gain,pan);e.gainLeft=l;e.gainRight=r;
     }else{
         const auto& pad=nexdrumKit()[static_cast<size_t>(p)];
         e.midi=std::clamp(midi,std::min(pad.lowMidi,pad.highMidi),std::max(pad.lowMidi,pad.highMidi));
@@ -129,11 +144,11 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             for(auto&slot:voices_)if(slot.voice.active()&&slot.voice.id()==e.id){slot.voice.release();return;}return;
         case EventType::NoteOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=1;slot.gainRight=1;slot.transport=false;configureFx(e.patch.fx);return;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.transport=false;configureFx(e.patch.fx);return;
         }
         case EventType::PadOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=1;slot.gainRight=1;slot.transport=false;configureFx(e.patch.fx);return;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.transport=false;configureFx(e.patch.fx);return;
         }
         case EventType::Snapshot:{
             auto*incoming=reinterpret_cast<PlaybackSnapshot*>(e.pointer);if(!incoming)return;auto*old=playback_;playback_=incoming;
@@ -153,7 +168,7 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
 std::array<float,2> AudioEngine::renderFrame() noexcept {
     float left=0,right=0;for(auto&slot:voices_)if(slot.voice.active()){const float s=slot.voice.render();left+=s*slot.gainLeft;right+=s*slot.gainRight;}
     if(transportPlaying_.load(std::memory_order_relaxed)&&playback_){const float master=playback_->masterVolume;return {std::tanh(left*master),std::tanh(right*master)};}
-    const auto wet=previewFx_.process((left+right)*0.165f);return wet;
+    return previewFx_.processStereo(left*0.165f,right*0.165f);
 }
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audioData,int32_t numFrames){

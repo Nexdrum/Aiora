@@ -49,6 +49,10 @@ public:
     void setTrackPan(int index, float value);
 
     bool loadNexdrumKit(int trackIndex);
+    int addDrumPad(int trackIndex);
+    bool deleteDrumPad(int trackIndex, int padIndex);
+    bool setPadCenter(int trackIndex, int padIndex, int midi);
+    bool setPadIcon(int trackIndex, int padIndex, const std::string& icon);
     int padCount(int trackIndex) const;
     int selectedPad(int trackIndex) const;
     bool selectPad(int trackIndex, int padIndex);

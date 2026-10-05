@@ -194,7 +194,50 @@ void ProjectCore::setTrackPan(int index,float value){std::scoped_lock lock(mutex
 bool ProjectCore::loadNexdrumKit(int trackIndex) {
     std::scoped_lock lock(mutex_);if(!validTrack(trackIndex))return false;
     auto& t=project_.tracks[trackIndex];t.drums=true;t.patch=makeFactoryPatch(FactoryPreset::Nexdrum);
-    const auto& kit=nexdrumKit();t.pads.assign(kit.begin(),kit.end());t.selectedPad=6;return true;
+    const auto& kit=nexdrumKit();t.pads.assign(kit.begin(),kit.end());
+    for(size_t i=0;i<t.pads.size();++i)if(t.pads[i].id.empty())t.pads[i].id="pad"+std::to_string(i+1);
+    t.selectedPad=6;return true;
+}
+int ProjectCore::addDrumPad(int trackIndex){
+    std::scoped_lock lock(mutex_);if(!validTrack(trackIndex))return -1;
+    auto& t=project_.tracks[trackIndex];if(!t.drums||t.pads.size()>=24)return -1;
+    std::array<bool,kGridHigh-kGridLow+1> taken{};
+    for(const auto& p:t.pads){
+        const int lo=std::max(kGridLow,std::min(p.lowMidi,p.highMidi));
+        const int hi=std::min(kGridHigh,std::max(p.lowMidi,p.highMidi));
+        for(int m=lo;m<=hi;++m)taken[static_cast<size_t>(m-kGridLow)]=true;
+    }
+    static constexpr std::array<int,12> suggested{38,42,45,43,49,51,47,39,52,59,56,66};
+    int midi=-1;
+    for(int m:suggested)if(m>=kGridLow&&m<=kGridHigh&&!taken[static_cast<size_t>(m-kGridLow)]){midi=m;break;}
+    if(midi<0)for(int m=kGridLow;m<=kGridHigh;++m)if(!taken[static_cast<size_t>(m-kGridLow)]){midi=m;break;}
+    if(midi<0)return -1;
+    static constexpr std::array<const char*,12> icons{"kick","snare","tom","floortom","hihat","crash","ride","bongo","conga","clap","shaker","cowbell"};
+    DrumPad p;p.centerMidi=midi;p.lowMidi=midi;p.highMidi=midi;p.icon=icons[t.pads.size()%icons.size()];
+    p.patch=makeFactoryPatch(FactoryPreset::SpectrachordInit);p.patch.fundamentalMidi=midi;p.patch.name=std::string(p.icon)+" pad";
+    p.id="pad"+std::to_string(t.pads.size()+1);
+    t.pads.push_back(std::move(p));t.selectedPad=static_cast<int>(t.pads.size())-1;return t.selectedPad;
+}
+bool ProjectCore::deleteDrumPad(int trackIndex,int padIndex){
+    std::scoped_lock lock(mutex_);if(!validPad(trackIndex,padIndex))return false;
+    auto& t=project_.tracks[trackIndex];const auto& p=t.pads[padIndex];
+    const int lo=std::min(p.lowMidi,p.highMidi),hi=std::max(p.lowMidi,p.highMidi);
+    t.notes.erase(std::remove_if(t.notes.begin(),t.notes.end(),[&](const Note& n){return n.midi>=lo&&n.midi<=hi;}),t.notes.end());
+    t.pads.erase(t.pads.begin()+padIndex);
+    t.selectedPad=t.pads.empty()?0:std::clamp(padIndex,0,static_cast<int>(t.pads.size())-1);
+    return true;
+}
+bool ProjectCore::setPadCenter(int trackIndex,int padIndex,int midi){
+    std::scoped_lock lock(mutex_);if(!validPad(trackIndex,padIndex))return false;
+    midi=std::clamp(midi,kGridLow,kGridHigh);if(!rangeFree(trackIndex,padIndex,midi,midi))return false;
+    auto& pad=project_.tracks[trackIndex].pads[padIndex];const int old=pad.centerMidi;
+    pad.centerMidi=midi;pad.lowMidi=midi;pad.highMidi=midi;pad.patch.fundamentalMidi=midi;
+    for(auto& n:project_.tracks[trackIndex].notes)if(n.midi==old)n.midi=midi;
+    return true;
+}
+bool ProjectCore::setPadIcon(int trackIndex,int padIndex,const std::string& icon){
+    std::scoped_lock lock(mutex_);if(!validPad(trackIndex,padIndex)||icon.empty())return false;
+    project_.tracks[trackIndex].pads[padIndex].icon=icon.substr(0,24);return true;
 }
 int ProjectCore::padCount(int trackIndex) const {std::scoped_lock lock(mutex_);return validTrack(trackIndex)?static_cast<int>(project_.tracks[trackIndex].pads.size()):0;}
 int ProjectCore::selectedPad(int trackIndex) const {std::scoped_lock lock(mutex_);return validTrack(trackIndex)?project_.tracks[trackIndex].selectedPad:-1;}

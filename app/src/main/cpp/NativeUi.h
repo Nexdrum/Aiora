@@ -71,6 +71,13 @@ public:
     void setPitchActive(int midi, bool active) noexcept;
     void clearPitchActivity() noexcept;
 
+    bool drumPointerDown(float x, float y);
+    bool drumPointerMove(float x, float y);
+    bool drumPointerUp();
+    bool drumPitchTap(int midi);
+    void resetDrumRangeArm() noexcept { drumRangeArmed_ = false; }
+    [[nodiscard]] bool drumRangeMode() const noexcept;
+
     void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
     [[nodiscard]] RollMode rollMode() const noexcept { return rollMode_; }
     void scrollRoll(int pitchDelta, int stepDelta) noexcept;
@@ -98,6 +105,10 @@ private:
     [[nodiscard]] Rect trackRect(int index, int count) const noexcept;
     [[nodiscard]] Rect addTrackRect(TrackAddKind kind) const noexcept;
     [[nodiscard]] Rect padQuickRect(int index, int count) const noexcept;
+    [[nodiscard]] Rect drumEditorRect() const noexcept;
+    [[nodiscard]] Rect drumActionRect(int index) const noexcept;
+    [[nodiscard]] Rect drumSliderRect(int index) const noexcept;
+    [[nodiscard]] Rect drumIconRect(int index) const noexcept;
 
     [[nodiscard]] Rect rollModeRect(int index) const noexcept;
     [[nodiscard]] Rect rollViewportRect() const noexcept;
@@ -111,6 +122,7 @@ private:
     void drawGrid() const noexcept;
     void drawTracks() const noexcept;
     void drawPadQuick() const noexcept;
+    void drawDrumEditor() const noexcept;
     void drawDrums() const noexcept;
     void drawRoll() const noexcept;
     void drawPlaceholder() const noexcept;
@@ -119,6 +131,10 @@ private:
     int height_{0};
     NativePage page_{NativePage::Play};
     std::array<bool, kGridNotes> active_{};
+
+    bool drumRangeArmed_{false};
+    int drumActiveSlider_{-1};
+    bool drumControlChanged_{false};
 
     RollMode rollMode_{RollMode::Notes};
     int rollPitchOffset_{0};

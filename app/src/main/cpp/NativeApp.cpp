@@ -54,6 +54,7 @@ struct NativeState {
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
     int32_t editorPointerId{-1};
+    int32_t drumControlPointerId{-1};
     int editorPreviewVoice{-1};
     int64_t editorPreviewStopMs{0};
     std::string autosavePath{};
@@ -172,22 +173,35 @@ void serviceEditorPreview(NativeState& state) {
     }
 }
 
-void previewEditorPatch(NativeState& state) {
+void previewDrumPitch(NativeState& state,int midi) {
     if(state.editorPreviewVoice>=0){
         aiora::AudioEngine::instance().noteOff(state.editorPreviewVoice);
         state.editorPreviewVoice=-1;
     }
+    auto& project=aiora::ProjectCore::instance();const int track=project.selectedTrack();
+    if(track<0||!project.trackIsDrums(track))return;
+    const int pad=project.selectedPad(track);
+    if(pad<0||pad>=project.padCount(track))return;
+    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOnPad(pad,midi,0.88f);
+    if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
+}
+
+void previewEditorPatch(NativeState& state) {
     auto& project=aiora::ProjectCore::instance();
     const int track=project.selectedTrack();
     if(track<0)return;
 
     if(project.trackIsDrums(track)){
         const int pad=project.selectedPad(track);
-        if(pad>=0)state.editorPreviewVoice=aiora::AudioEngine::instance().noteOnPad(
-            pad,project.padCenter(track,pad),0.88f);
-    }else{
-        state.editorPreviewVoice=aiora::AudioEngine::instance().noteOn(60,0.82f);
+        if(pad>=0&&pad<project.padCount(track))previewDrumPitch(state,project.padCenter(track,pad));
+        return;
     }
+
+    if(state.editorPreviewVoice>=0){
+        aiora::AudioEngine::instance().noteOff(state.editorPreviewVoice);
+        state.editorPreviewVoice=-1;
+    }
+    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOn(60,0.82f);
     if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
 }
 
@@ -202,6 +216,8 @@ void releaseAllTouches(NativeState& state) {
     state.rollGesture.clear();
     aiora::NativeEditor::instance().cancel();
     state.editorPointerId=-1;
+    state.drumControlPointerId=-1;
+    state.ui.drumPointerUp();
     if(state.editorPreviewVoice>=0){
         audio.noteOff(state.editorPreviewVoice);
         state.editorPreviewVoice=-1;
@@ -400,6 +416,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
     if (const auto nav = state.ui.hitNav(x, y)) {
         releaseAllTouches(state);
         state.ui.setPage(*nav);
+        state.ui.resetDrumRangeArm();
         if (*nav == aiora::NativePage::Drums) ensureDrumTrackSelected();
         return true;
     }
@@ -407,6 +424,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
     if (state.ui.page() == aiora::NativePage::Tracks) {
         if (const auto track = state.ui.hitTrack(x, y)) {
             project.selectTrack(*track);
+            state.ui.resetDrumRangeArm();
             return true;
         }
         if (const auto add = state.ui.hitAddTrack(x, y)) {
@@ -420,12 +438,24 @@ bool handleUiTap(NativeState& state, float x, float y) {
         const int track = project.selectedTrack();
         if (track >= 0 && project.trackIsDrums(track)) {
             project.selectPad(track, *pad);
+            state.ui.resetDrumRangeArm();
             scheduleAutosave(state);
             if(state.ui.page()==aiora::NativePage::Synth || state.ui.page()==aiora::NativePage::Fx){
                 previewEditorPatch(state);
             }
         }
         return true;
+    }
+
+    if(state.ui.page()==aiora::NativePage::Drums){
+        if(const auto midi=state.ui.hitPitch(x,y)){
+            if(state.ui.drumPitchTap(*midi)){
+                audio.syncProject();
+                scheduleAutosave(state);
+                previewDrumPitch(state,*midi);
+            }
+            return true;
+        }
     }
 
     if (const auto mode = state.ui.hitRollMode(x, y)) {
@@ -516,6 +546,11 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
 
+            if(state.ui.page()==aiora::NativePage::Drums&&state.ui.drumPointerDown(x,y)){
+                state.drumControlPointerId=pointerId;
+                return 1;
+            }
+
             if (handleUiTap(state, x, y)) return 1;
 
             if (state.ui.page() == aiora::NativePage::Synth ||
@@ -545,6 +580,17 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_MOVE: {
+            if(state.drumControlPointerId>=0){
+                const size_t count=AMotionEvent_getPointerCount(event);
+                for(size_t i=0;i<count;++i){
+                    if(AMotionEvent_getPointerId(event,i)==state.drumControlPointerId){
+                        state.ui.drumPointerMove(AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
+                        break;
+                    }
+                }
+                return 1;
+            }
+
             if(state.editorPointerId>=0){
                 const size_t count=AMotionEvent_getPointerCount(event);
                 for(size_t i=0;i<count;++i){
@@ -590,6 +636,17 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
 
+            if(state.drumControlPointerId==pointerId){
+                const bool changed=state.ui.drumPointerUp();
+                state.drumControlPointerId=-1;
+                if(changed){
+                    aiora::AudioEngine::instance().syncProject();
+                    scheduleAutosave(state);
+                    previewEditorPatch(state);
+                }
+                return 1;
+            }
+
             if(state.editorPointerId==pointerId){
                 const bool changed=aiora::NativeEditor::instance().pointerUp();
                 state.editorPointerId=-1;
@@ -617,6 +674,14 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_CANCEL:
+            if(state.drumControlPointerId>=0){
+                const bool changed=state.ui.drumPointerUp();
+                state.drumControlPointerId=-1;
+                if(changed){
+                    aiora::AudioEngine::instance().syncProject();
+                    scheduleAutosave(state);
+                }
+            }
             aiora::NativeEditor::instance().cancel();
             state.editorPointerId=-1;
             releaseAllTouches(state);

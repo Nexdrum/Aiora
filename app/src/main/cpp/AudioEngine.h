@@ -50,6 +50,8 @@ private:
         float value{0.8f};
         uintptr_t pointer{0};
         DspPatch patch{};
+        float gainLeft{1.0f};
+        float gainRight{1.0f};
     };
     struct VoiceSlot {
         SpectrachordVoice voice{};

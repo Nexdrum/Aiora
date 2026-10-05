@@ -12,6 +12,7 @@ public:
     void reset() noexcept;
     void set(const Fx& fx) noexcept { fx_ = fx; }
     std::array<float,2> process(float input) noexcept;
+    std::array<float,2> processStereo(float left, float right) noexcept;
 
 private:
     struct Comb {
