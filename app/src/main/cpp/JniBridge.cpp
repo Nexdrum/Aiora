@@ -28,6 +28,16 @@ Java_com_nexdrum_aiora_NativeBridge_panic(JNIEnv*, jobject) {
     AudioEngine::instance().panic();
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_nexdrum_aiora_NativeBridge_setFactoryPreset(JNIEnv*, jobject, jint index) {
+    AudioEngine::instance().setFactoryPreset(index);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_nexdrum_aiora_NativeBridge_factoryPreset(JNIEnv*, jobject) {
+    return AudioEngine::instance().factoryPreset();
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_nexdrum_aiora_NativeBridge_sampleRate(JNIEnv*, jobject) {
     return AudioEngine::instance().sampleRate();
