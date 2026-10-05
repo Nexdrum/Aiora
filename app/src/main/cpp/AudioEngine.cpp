@@ -32,7 +32,10 @@ bool AudioEngine::start(){
     if(result!=oboe::Result::OK||!stream_){__android_log_print(ANDROID_LOG_ERROR,kTag,"openStream failed: %s",oboe::convertToText(result));stream_.reset();return false;}
     const int sr=stream_->getSampleRate();sampleRate_.store(sr,std::memory_order_relaxed);
     for(auto&slot:voices_)slot.voice.prepare(static_cast<float>(sr));
-    previewFx_.prepare(static_cast<float>(sr));configureFxForPreset(selectedPreset_.load(std::memory_order_relaxed));
+    previewFx_.prepare(static_cast<float>(sr));
+    masterFx_.prepare(static_cast<float>(sr));
+    for(auto& bus:playbackFx_)bus.processor.prepare(static_cast<float>(sr));
+    configureFxForPreset(selectedPreset_.load(std::memory_order_relaxed));
     const auto burst=stream_->getFramesPerBurst();if(burst>0)stream_->setBufferSizeInFrames(burst*3);
     result=stream_->requestStart();
     if(result!=oboe::Result::OK){__android_log_print(ANDROID_LOG_ERROR,kTag,"requestStart failed: %s",oboe::convertToText(result));stream_->close();stream_.reset();return false;}
@@ -41,7 +44,8 @@ bool AudioEngine::start(){
 
 void AudioEngine::stop(){
     std::shared_ptr<oboe::AudioStream> old;{std::scoped_lock lock(streamMutex_);old=std::move(stream_);}if(old){old->requestStop();old->close();}
-    transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)slot.voice.kill();previewFx_.reset();
+    transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)slot.voice.kill();
+    previewFx_.reset();masterFx_.reset();for(auto&bus:playbackFx_)bus.processor.reset();playbackFxCount_=0;
     Event pending;while(events_.pop(pending))if(pending.type==EventType::Snapshot&&pending.pointer)delete reinterpret_cast<PlaybackSnapshot*>(pending.pointer);
     if(playback_){delete playback_;playback_=nullptr;}collectRetiredSnapshots();
 }
@@ -123,7 +127,7 @@ void AudioEngine::triggerStep(int step) noexcept {
         const uint32_t gate=static_cast<uint32_t>(std::max<double>(sampleRate_.load(std::memory_order_relaxed)*0.09,e.lengthSteps*transportSamplesPerStep_));
         const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
         slot.voice.start(id,e.patch,e.midi,pressure,gate,static_cast<float>(transportSamplesPerStep_),e.automation);slot.voice.setAge(++ageCounter_);
-        slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.transport=true;
+        slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=e.fxBus;slot.transport=true;
     }
 }
 
@@ -138,37 +142,83 @@ void AudioEngine::advanceTransport() noexcept {
 void AudioEngine::applyEvent(const Event&e) noexcept {
     switch(e.type){
         case EventType::Panic:
-            for(auto&slot:voices_)slot.voice.kill();previewFx_.reset();return;
+            for(auto&slot:voices_)slot.voice.kill();
+            previewFx_.reset();masterFx_.reset();for(auto&bus:playbackFx_)bus.processor.reset();
+            return;
         case EventType::Preset:configureFxForPreset(e.source);return;
         case EventType::NoteOff:
             for(auto&slot:voices_)if(slot.voice.active()&&slot.voice.id()==e.id){slot.voice.release();return;}return;
         case EventType::NoteOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.transport=false;configureFx(e.patch.fx);return;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;configureFx(e.patch.fx);return;
         }
         case EventType::PadOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.transport=false;configureFx(e.patch.fx);return;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;configureFx(e.patch.fx);return;
         }
         case EventType::Snapshot:{
             auto*incoming=reinterpret_cast<PlaybackSnapshot*>(e.pointer);if(!incoming)return;auto*old=playback_;playback_=incoming;
+            playbackFxCount_=std::min<int32_t>(static_cast<int32_t>(playback_->fxBuses.size()),static_cast<int32_t>(playbackFx_.size()));
+            for(int i=0;i<playbackFxCount_;++i){playbackFx_[static_cast<size_t>(i)].processor.reset();playbackFx_[static_cast<size_t>(i)].processor.set(playback_->fxBuses[static_cast<size_t>(i)]);}
+            for(int i=playbackFxCount_;i<static_cast<int>(playbackFx_.size());++i)playbackFx_[static_cast<size_t>(i)].processor.reset();
+            Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);
+            masterFx_.reset();masterFx_.set(masterFxCfg);
             transportSamplesPerStep_=static_cast<double>(std::max(1,sampleRate_.load(std::memory_order_relaxed)))*60.0/(std::max(12.0f,playback_->bpm)*std::max(1,playback_->divisions));
             transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);
             if(old&&!retiredSnapshots_.push(old)){/* rare UI-side collection starvation: keep old allocated rather than deleting on RT */}
             if(transportPlaying_.load(std::memory_order_relaxed)){for(auto&slot:voices_)if(slot.transport)slot.voice.kill();triggerStep(0);}return;
         }
         case EventType::Play:
-            if(!playback_)return;for(auto&slot:voices_)if(slot.transport)slot.voice.kill();transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);
+            if(!playback_)return;
+            for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
+            for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();
+            masterFx_.reset();
+            {Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);masterFx_.set(masterFxCfg);}
+            transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);
             transportPlaying_.store(true,std::memory_order_relaxed);triggerStep(0);return;
         case EventType::StopTransport:
-            transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport)slot.voice.kill();transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);return;
+            transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
+            for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();masterFx_.reset();
+            transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);return;
     }
 }
 
 std::array<float,2> AudioEngine::renderFrame() noexcept {
-    float left=0,right=0;for(auto&slot:voices_)if(slot.voice.active()){const float s=slot.voice.render();left+=s*slot.gainLeft;right+=s*slot.gainRight;}
-    if(transportPlaying_.load(std::memory_order_relaxed)&&playback_){const float master=playback_->masterVolume;return {std::tanh(left*master),std::tanh(right*master)};}
-    return previewFx_.processStereo(left*0.165f,right*0.165f);
+    std::array<float,kMaxPlaybackFxBuses> busLeft{};
+    std::array<float,kMaxPlaybackFxBuses> busRight{};
+    float transportLeft=0.0f,transportRight=0.0f;
+    float previewLeft=0.0f,previewRight=0.0f;
+
+    for(auto&slot:voices_){
+        if(!slot.voice.active())continue;
+        const float sample=slot.voice.render();
+        const float l=sample*slot.gainLeft;
+        const float r=sample*slot.gainRight;
+        if(slot.transport&&transportPlaying_.load(std::memory_order_relaxed)){
+            if(slot.fxBus>=0&&slot.fxBus<playbackFxCount_){
+                busLeft[static_cast<size_t>(slot.fxBus)]+=l;
+                busRight[static_cast<size_t>(slot.fxBus)]+=r;
+            }else{
+                transportLeft+=l;transportRight+=r;
+            }
+        }else{
+            previewLeft+=l;previewRight+=r;
+        }
+    }
+
+    if(transportPlaying_.load(std::memory_order_relaxed)&&playback_){
+        for(int i=0;i<playbackFxCount_;++i){
+            const auto wet=playbackFx_[static_cast<size_t>(i)].processor.processStereo(
+                busLeft[static_cast<size_t>(i)],busRight[static_cast<size_t>(i)]);
+            transportLeft+=wet[0];transportRight+=wet[1];
+        }
+        const auto masterWet=masterFx_.processStereo(transportLeft,transportRight);
+        const float master=playback_->masterVolume;
+        transportLeft=masterWet[0]*master;transportRight=masterWet[1]*master;
+    }
+
+    const auto preview=previewFx_.processStereo(previewLeft*0.165f,previewRight*0.165f);
+    return {std::tanh(transportLeft+preview[0]),std::tanh(transportRight+preview[1])};
 }
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audioData,int32_t numFrames){

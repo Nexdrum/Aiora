@@ -57,7 +57,11 @@ private:
         SpectrachordVoice voice{};
         float gainLeft{1.0f};
         float gainRight{1.0f};
+        int16_t fxBus{-1};
         bool transport{false};
+    };
+    struct PlaybackFxBus {
+        FxProcessor processor{};
     };
 
     void applyEvent(const Event&) noexcept;
@@ -74,6 +78,9 @@ private:
     SpscQueue<PlaybackSnapshot*, 256> retiredSnapshots_;
     std::array<VoiceSlot, 48> voices_{};
     FxProcessor previewFx_{};
+    FxProcessor masterFx_{};
+    std::array<PlaybackFxBus, kMaxPlaybackFxBuses> playbackFx_{};
+    int32_t playbackFxCount_{0};
     PlaybackSnapshot* playback_{nullptr};
     std::atomic<int32_t> nextVoiceId_{1};
     std::atomic<int32_t> sampleRate_{48000};

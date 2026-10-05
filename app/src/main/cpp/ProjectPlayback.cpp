@@ -46,9 +46,13 @@ DspCurve levelCurve(const std::vector<CurvePoint>& source,float length) {
     return out;
 }
 
-const DrumPad* padFor(const Track& track,int midi) {
-    for(const auto& pad:track.pads){const int lo=std::min(pad.lowMidi,pad.highMidi),hi=std::max(pad.lowMidi,pad.highMidi);if(midi>=lo&&midi<=hi)return &pad;}
-    return nullptr;
+int padIndexFor(const Track& track,int midi) {
+    for(int i=0;i<static_cast<int>(track.pads.size());++i){
+        const auto& pad=track.pads[static_cast<size_t>(i)];
+        const int lo=std::min(pad.lowMidi,pad.highMidi),hi=std::max(pad.lowMidi,pad.highMidi);
+        if(midi>=lo&&midi<=hi)return i;
+    }
+    return -1;
 }
 
 std::pair<float,float> panGain(float gain,float pan) {
@@ -72,22 +76,36 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
     snap->masterReverb=project_.masterReverb;
     snap->steps.resize(static_cast<size_t>(snap->lengthSteps));
 
+    auto addFxBus=[&](const Fx& fx)->int {
+        if(snap->fxBuses.size()>=kMaxPlaybackFxBuses)return -1;
+        snap->fxBuses.push_back(fx);
+        return static_cast<int>(snap->fxBuses.size())-1;
+    };
+
     const bool anySolo=std::any_of(project_.tracks.begin(),project_.tracks.end(),[](const Track&t){return t.solo;});
     for(const auto& track:project_.tracks){
         if(track.mute || (anySolo&&!track.solo))continue;
+        const int melodicBus=track.drums?-1:addFxBus(track.patch.fx);
+        std::vector<int> padBuses(track.pads.size(),-2);
+
         for(const auto& note:track.notes){
             const int step=std::clamp(static_cast<int>(std::lround(note.startStep)),0,snap->lengthSteps-1);
             PlaybackEvent event;
             event.midi=note.midi;
             event.lengthSteps=std::max(1.0f,note.lengthSteps);
-            const DrumPad* pad=track.drums?padFor(track,note.midi):nullptr;
-            if(track.drums && !pad)continue;
-            if(pad){
-                event.patch=toDspPatch(pad->patch);
-                event.automation.bend=bendCurve(note,pad);
-                const auto [l,r]=panGain(track.volume*pad->volume,std::clamp(track.pan+pad->pan,-1.0f,1.0f));
+
+            const int padIndex=track.drums?padIndexFor(track,note.midi):-1;
+            if(track.drums && padIndex<0)continue;
+            if(padIndex>=0){
+                const auto& pad=track.pads[static_cast<size_t>(padIndex)];
+                if(padBuses[static_cast<size_t>(padIndex)]==-2)padBuses[static_cast<size_t>(padIndex)]=addFxBus(pad.patch.fx);
+                event.fxBus=static_cast<int16_t>(padBuses[static_cast<size_t>(padIndex)]);
+                event.patch=toDspPatch(pad.patch);
+                event.automation.bend=bendCurve(note,&pad);
+                const auto [l,r]=panGain(track.volume*pad.volume,std::clamp(track.pan+pad.pan,-1.0f,1.0f));
                 event.gainLeft=l;event.gainRight=r;
             }else{
+                event.fxBus=static_cast<int16_t>(melodicBus);
                 event.patch=toDspPatch(track.patch);
                 event.automation.bend=bendCurve(note,nullptr);
                 const auto [l,r]=panGain(track.volume,track.pan);
