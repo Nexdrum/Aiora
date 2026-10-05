@@ -46,6 +46,23 @@ object NativeBridge {
     external fun setPadPan(trackIndex: Int, padIndex: Int, value: Float)
     external fun setPadRange(trackIndex: Int, padIndex: Int, low: Int, high: Int): Boolean
 
+    external fun noteCount(trackIndex: Int): Int
+    external fun addNote(trackIndex: Int, midi: Int, startStep: Float, lengthSteps: Float): Int
+    external fun deleteNote(trackIndex: Int, noteIndex: Int): Boolean
+    external fun updateNote(trackIndex: Int, noteIndex: Int, midi: Int, startStep: Float, lengthSteps: Float): Boolean
+    external fun noteMidi(trackIndex: Int, noteIndex: Int): Int
+    external fun noteStart(trackIndex: Int, noteIndex: Int): Float
+    external fun noteLength(trackIndex: Int, noteIndex: Int): Float
+    external fun curvePointCount(trackIndex: Int, noteIndex: Int, curveKind: Int): Int
+    external fun curvePointStep(trackIndex: Int, noteIndex: Int, curveKind: Int, pointIndex: Int): Float
+    external fun curvePointValue(trackIndex: Int, noteIndex: Int, curveKind: Int, pointIndex: Int): Float
+    external fun curvePointFree(trackIndex: Int, noteIndex: Int, curveKind: Int, pointIndex: Int): Boolean
+    external fun addCurvePoint(trackIndex: Int, noteIndex: Int, curveKind: Int, step: Float, value: Float, free: Boolean): Int
+    external fun updateCurvePoint(trackIndex: Int, noteIndex: Int, curveKind: Int, pointIndex: Int, step: Float, value: Float, free: Boolean): Boolean
+    external fun deleteCurvePoint(trackIndex: Int, noteIndex: Int, curveKind: Int, pointIndex: Int): Boolean
+    external fun lastStep(): Float
+    external fun playLengthSteps(): Int
+
     external fun bpm(): Float
     external fun beats(): Int
     external fun divisions(): Int
