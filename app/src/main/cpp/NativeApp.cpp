@@ -3,7 +3,6 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 
-#include <algorithm>
 #include <array>
 
 #include "AudioEngine.h"
@@ -32,6 +31,33 @@ struct NativeState {
     aiora::NativeUi ui{};
     std::array<PointerVoice, kMaxPointers> touches{};
 };
+
+void createDefaultProject() {
+    auto& project = aiora::ProjectCore::instance();
+    project.reset();
+    project.addTrack(false);
+    project.addTrack(false);
+    project.addTrack(false);
+    project.addTrack(false);
+    project.addTrack(true);
+    project.selectTrack(0);
+}
+
+void ensureDrumTrackSelected() {
+    auto& project = aiora::ProjectCore::instance();
+    const int selected = project.selectedTrack();
+    if (selected >= 0 && project.trackIsDrums(selected)) return;
+
+    const int count = project.trackCount();
+    for (int i = 0; i < count; ++i) {
+        if (project.trackIsDrums(i)) {
+            project.selectTrack(i);
+            return;
+        }
+    }
+
+    project.addTrack(true);
+}
 
 bool createSurface(NativeState& state) {
     const EGLint cfgAttrs[] = {
@@ -150,9 +176,7 @@ void stopTouch(NativeState& state, PointerVoice& touch) {
 
 void startPitch(NativeState& state, PointerVoice& touch, int midi) {
     if (touch.midi == midi && touch.voiceId >= 0) return;
-    if (touch.voiceId >= 0 || touch.midi >= 0) {
-        stopTouch(state, touch);
-    }
+    if (touch.voiceId >= 0 || touch.midi >= 0) stopTouch(state, touch);
 
     touch.midi = midi;
     state.ui.setPitchActive(midi, true);
@@ -165,20 +189,46 @@ void startPitch(NativeState& state, PointerVoice& touch, int midi) {
     }
 }
 
+bool handleUiTap(NativeState& state, float x, float y) {
+    auto& project = aiora::ProjectCore::instance();
+
+    if (const auto nav = state.ui.hitNav(x, y)) {
+        releaseAllTouches(state);
+        state.ui.setPage(*nav);
+        if (*nav == aiora::NativePage::Drums) ensureDrumTrackSelected();
+        return true;
+    }
+
+    if (state.ui.page() == aiora::NativePage::Tracks) {
+        if (const auto track = state.ui.hitTrack(x, y)) {
+            project.selectTrack(*track);
+            return true;
+        }
+        if (const auto add = state.ui.hitAddTrack(x, y)) {
+            project.addTrack(*add == aiora::TrackAddKind::Drums);
+            return true;
+        }
+    }
+
+    if (const auto pad = state.ui.hitPadQuick(x, y)) {
+        const int track = project.selectedTrack();
+        if (track >= 0 && project.trackIsDrums(track)) {
+            project.selectPad(track, *pad);
+        }
+        return true;
+    }
+
+    return false;
+}
+
 void handlePointerPosition(
     NativeState& state,
     int32_t pointerId,
     float x,
     float y,
-    bool allowNav) {
+    bool allowUiTap) {
 
-    if (allowNav) {
-        if (const auto nav = state.ui.hitNav(x, y)) {
-            releaseAllTouches(state);
-            state.ui.setPage(*nav);
-            return;
-        }
-    }
+    if (allowUiTap && handleUiTap(state, x, y)) return;
 
     auto* touch = allocateTouch(state, pointerId);
     if (!touch) return;
@@ -232,9 +282,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         case AMOTION_EVENT_ACTION_POINTER_UP: {
             const size_t index = action == AMOTION_EVENT_ACTION_UP ? 0u : actionIndex;
             const int32_t pointerId = AMotionEvent_getPointerId(event, index);
-            if (auto* touch = findTouch(state, pointerId)) {
-                stopTouch(state, *touch);
-            }
+            if (auto* touch = findTouch(state, pointerId)) stopTouch(state, *touch);
             return 1;
         }
 
@@ -292,8 +340,6 @@ void handleCommand(android_app* app, int32_t command) {
 } // namespace
 
 void android_main(android_app* app) {
-    app_dummy();
-
     NativeState state;
     state.app = app;
     for (auto& touch : state.touches) touch.pointerId = -1;
@@ -306,7 +352,7 @@ void android_main(android_app* app) {
         ANDROID_LOG_INFO, kTag,
         "AIORA C++ NativeActivity boot");
 
-    aiora::ProjectCore::instance().reset();
+    createDefaultProject();
 
     while (true) {
         int events = 0;
