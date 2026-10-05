@@ -101,9 +101,9 @@ private fun AioraApp() {
                             }
                         )
                         "Drums" -> NativeDrumsView(revision = revision, onChanged = changed)
+                        "Roll" -> NativePianoRollView(revision = revision, onChanged = changed)
                         "Play" -> PerformanceGrid(preset)
                         "Synth", "FX" -> EditorPreview(preset, selectedPad)
-                        "Roll" -> Text("The native vertical piano roll is the next port layer: same D-centered columns and per-note ∿ / V / M curves.", color = Muted)
                     }
                 }
             }
