@@ -10,6 +10,7 @@ add_library(aiora SHARED
     JniBridge.cpp
     NexdrumKit.cpp
     ProjectCore.cpp
+    ProjectPlayback.cpp
     SpectrachordVoice.cpp
 )
 
