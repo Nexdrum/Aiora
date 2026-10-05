@@ -5,7 +5,10 @@ find_package(oboe REQUIRED CONFIG)
 
 add_library(aiora SHARED
     AudioEngine.cpp
+    FactoryPresets.cpp
+    FxProcessor.cpp
     JniBridge.cpp
+    SpectrachordVoice.cpp
 )
 
 target_include_directories(aiora PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
