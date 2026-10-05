@@ -147,6 +147,9 @@ struct Track {
     float pan{0.0f};
     Patch patch{};
     std::vector<DrumPad> pads;
+    int32_t selectedPad{0};
+    int32_t drumZoneLow{-1};
+    int32_t drumZoneHigh{-1};
     std::vector<Note> notes;
 };
 
