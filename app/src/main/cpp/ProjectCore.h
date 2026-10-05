@@ -43,6 +43,23 @@ public:
     void setPadPan(int trackIndex, int padIndex, float value);
     bool setPadRange(int trackIndex, int padIndex, int low, int high);
 
+    int noteCount(int trackIndex) const;
+    int addNote(int trackIndex, int midi, float startStep, float lengthSteps);
+    bool deleteNote(int trackIndex, int noteIndex);
+    bool updateNote(int trackIndex, int noteIndex, int midi, float startStep, float lengthSteps);
+    int noteMidi(int trackIndex, int noteIndex) const;
+    float noteStart(int trackIndex, int noteIndex) const;
+    float noteLength(int trackIndex, int noteIndex) const;
+    int curvePointCount(int trackIndex, int noteIndex, int curveKind) const;
+    float curvePointStep(int trackIndex, int noteIndex, int curveKind, int pointIndex) const;
+    float curvePointValue(int trackIndex, int noteIndex, int curveKind, int pointIndex) const;
+    bool curvePointFree(int trackIndex, int noteIndex, int curveKind, int pointIndex) const;
+    int addCurvePoint(int trackIndex, int noteIndex, int curveKind, float step, float value, bool free);
+    bool updateCurvePoint(int trackIndex, int noteIndex, int curveKind, int pointIndex, float step, float value, bool free);
+    bool deleteCurvePoint(int trackIndex, int noteIndex, int curveKind, int pointIndex);
+    float lastStep() const;
+    int playLengthSteps() const;
+
     float bpm() const;
     int beats() const;
     int divisions() const;
@@ -65,7 +82,9 @@ private:
     static std::string autoName(int index);
     bool validTrack(int index) const noexcept;
     bool validPad(int trackIndex, int padIndex) const noexcept;
+    bool validNote(int trackIndex, int noteIndex) const noexcept;
     bool rangeFree(int trackIndex, int padIndex, int low, int high) const noexcept;
+    bool pitchAllowed(int trackIndex, int midi) const noexcept;
 
     mutable std::mutex mutex_;
     Project project_{};
