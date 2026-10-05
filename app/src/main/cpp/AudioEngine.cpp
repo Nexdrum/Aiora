@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "FactoryPresets.h"
+#include "NexdrumKit.h"
 #include <algorithm>
 #include <android/log.h>
 
@@ -8,6 +9,7 @@ namespace {
 constexpr char kTag[] = "AIORA";
 constexpr int kPresetCount = static_cast<int>(FactoryPreset::Count);
 int clampPreset(int index) noexcept { return std::clamp(index, 0, kPresetCount - 1); }
+int clampPad(int index) noexcept { return std::clamp(index, 0, static_cast<int>(nexdrumKit().size()) - 1); }
 }
 
 AudioEngine& AudioEngine::instance() {
@@ -75,6 +77,12 @@ int AudioEngine::noteOn(int midi, float velocity) noexcept {
     return id;
 }
 
+int AudioEngine::noteOnPad(int padIndex, int midi, float velocity) noexcept {
+    const int id = nextVoiceId_.fetch_add(1, std::memory_order_relaxed);
+    events_.push({EventType::PadOn, id, std::clamp(midi, 0, 127), clampPad(padIndex), std::clamp(velocity, 0.0f, 1.0f)});
+    return id;
+}
+
 void AudioEngine::noteOff(int voiceId) noexcept {
     events_.push({EventType::NoteOff, voiceId, 0, 0, 0.0f});
 }
@@ -96,8 +104,12 @@ SpectrachordVoice& AudioEngine::allocateVoice() noexcept {
     });
 }
 
+void AudioEngine::configureFx(const Fx& fx) noexcept {
+    previewFx_.set(fx);
+}
+
 void AudioEngine::configureFxForPreset(int preset) noexcept {
-    previewFx_.set(factoryBank()[static_cast<size_t>(clampPreset(preset))].fx);
+    configureFx(factoryBank()[static_cast<size_t>(clampPreset(preset))].fx);
 }
 
 void AudioEngine::applyEvent(const Event& e) noexcept {
@@ -107,16 +119,26 @@ void AudioEngine::applyEvent(const Event& e) noexcept {
             previewFx_.reset();
             return;
         case EventType::Preset:
-            configureFxForPreset(e.preset);
+            configureFxForPreset(e.source);
             return;
         case EventType::NoteOff:
             for (auto& v : voices_) if (v.active() && v.id() == e.id) { v.release(); return; }
             return;
         case EventType::NoteOn: {
+            const auto& patch = factoryBank()[static_cast<size_t>(clampPreset(e.source))];
             auto& v = allocateVoice();
-            v.start(e.id, factoryBank()[static_cast<size_t>(clampPreset(e.preset))], e.midi, e.value);
+            v.start(e.id, patch, e.midi, e.value);
             v.setAge(++ageCounter_);
-            configureFxForPreset(e.preset);
+            configureFx(patch.fx);
+            return;
+        }
+        case EventType::PadOn: {
+            const auto& pad = nexdrumKit()[static_cast<size_t>(clampPad(e.source))];
+            const int midi = std::clamp(e.midi, std::min(pad.lowMidi,pad.highMidi), std::max(pad.lowMidi,pad.highMidi));
+            auto& v = allocateVoice();
+            v.start(e.id, pad.patch, midi, e.value);
+            v.setAge(++ageCounter_);
+            configureFx(pad.patch.fx);
             return;
         }
     }
