@@ -9,6 +9,7 @@
 namespace aiora {
 
 enum class EditorPage : uint8_t { Synth, Fx };
+enum class PatchTransferAction : uint8_t { CopyPatch, PastePatch };
 
 class NativeEditor {
 public:
@@ -31,6 +32,9 @@ public:
     bool pointerUp();
     void cancel() noexcept;
 
+    [[nodiscard]] std::optional<PatchTransferAction> hitPatchTransfer(
+        EditorPage page, float x, float y) const noexcept;
+
 private:
     NativeEditor() = default;
 
@@ -50,7 +54,9 @@ private:
     struct Range { float lo{},hi{}; };
 
     [[nodiscard]] Rect contentRect() const noexcept;
+    [[nodiscard]] Rect editorRect() const noexcept;
     [[nodiscard]] Rect bodyRect() const noexcept;
+    [[nodiscard]] Rect patchTransferRect(int index) const noexcept;
 
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
     [[nodiscard]] Rect operatorSelectRect(int index) const noexcept;
@@ -85,6 +91,7 @@ private:
     void drawSlider(Rect rect,float norm,Rgb accent) const noexcept;
     void drawButton(Rect rect,bool active,Rgb accent) const noexcept;
     void drawPadReservedBackground() const noexcept;
+    void drawPatchTransfer() const noexcept;
 
     int width_{0};
     int height_{0};
