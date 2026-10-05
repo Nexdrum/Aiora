@@ -71,6 +71,10 @@ public:
     void setPitchActive(int midi, bool active) noexcept;
     void clearPitchActivity() noexcept;
 
+    bool trackPointerDown(float x, float y);
+    bool trackPointerMove(float x, float y);
+    bool trackPointerUp();
+
     bool drumPointerDown(float x, float y);
     bool drumPointerMove(float x, float y);
     bool drumPointerUp();
@@ -103,7 +107,9 @@ private:
     [[nodiscard]] Rect gridAreaRect() const noexcept;
     [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
     [[nodiscard]] Rect trackRect(int index, int count) const noexcept;
+    [[nodiscard]] Rect trackPartRect(int index, int count, int part) const noexcept;
     [[nodiscard]] Rect addTrackRect(TrackAddKind kind) const noexcept;
+    [[nodiscard]] Rect masterSliderRect(int index) const noexcept;
     [[nodiscard]] Rect padQuickRect(int index, int count) const noexcept;
     [[nodiscard]] Rect drumEditorRect() const noexcept;
     [[nodiscard]] Rect drumActionRect(int index) const noexcept;
@@ -131,6 +137,10 @@ private:
     int height_{0};
     NativePage page_{NativePage::Play};
     std::array<bool, kGridNotes> active_{};
+
+    int trackActiveSlider_{-1};
+    int trackActiveIndex_{-1};
+    bool trackControlChanged_{false};
 
     bool drumRangeArmed_{false};
     int drumActiveSlider_{-1};

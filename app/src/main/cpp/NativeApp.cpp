@@ -54,6 +54,7 @@ struct NativeState {
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
     int32_t editorPointerId{-1};
+    int32_t trackControlPointerId{-1};
     int32_t drumControlPointerId{-1};
     int editorPreviewVoice{-1};
     int64_t editorPreviewStopMs{0};
@@ -216,7 +217,9 @@ void releaseAllTouches(NativeState& state) {
     state.rollGesture.clear();
     aiora::NativeEditor::instance().cancel();
     state.editorPointerId=-1;
+    state.trackControlPointerId=-1;
     state.drumControlPointerId=-1;
+    state.ui.trackPointerUp();
     state.ui.drumPointerUp();
     if(state.editorPreviewVoice>=0){
         audio.noteOff(state.editorPreviewVoice);
@@ -546,6 +549,11 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
 
+            if(state.ui.page()==aiora::NativePage::Tracks&&state.ui.trackPointerDown(x,y)){
+                state.trackControlPointerId=pointerId;
+                return 1;
+            }
+
             if(state.ui.page()==aiora::NativePage::Drums&&state.ui.drumPointerDown(x,y)){
                 state.drumControlPointerId=pointerId;
                 return 1;
@@ -580,6 +588,17 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_MOVE: {
+            if(state.trackControlPointerId>=0){
+                const size_t count=AMotionEvent_getPointerCount(event);
+                for(size_t i=0;i<count;++i){
+                    if(AMotionEvent_getPointerId(event,i)==state.trackControlPointerId){
+                        state.ui.trackPointerMove(AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
+                        break;
+                    }
+                }
+                return 1;
+            }
+
             if(state.drumControlPointerId>=0){
                 const size_t count=AMotionEvent_getPointerCount(event);
                 for(size_t i=0;i<count;++i){
@@ -636,6 +655,16 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
 
+            if(state.trackControlPointerId==pointerId){
+                const bool changed=state.ui.trackPointerUp();
+                state.trackControlPointerId=-1;
+                if(changed){
+                    aiora::AudioEngine::instance().syncProject();
+                    scheduleAutosave(state);
+                }
+                return 1;
+            }
+
             if(state.drumControlPointerId==pointerId){
                 const bool changed=state.ui.drumPointerUp();
                 state.drumControlPointerId=-1;
@@ -674,6 +703,14 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_CANCEL:
+            if(state.trackControlPointerId>=0){
+                const bool changed=state.ui.trackPointerUp();
+                state.trackControlPointerId=-1;
+                if(changed){
+                    aiora::AudioEngine::instance().syncProject();
+                    scheduleAutosave(state);
+                }
+            }
             if(state.drumControlPointerId>=0){
                 const bool changed=state.ui.drumPointerUp();
                 state.drumControlPointerId=-1;

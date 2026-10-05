@@ -456,7 +456,7 @@ std::string serializeProjectJson(const Project& project){
     for(size_t ti=0;ti<project.tracks.size();++ti){
         if(ti)w.raw(",");const auto&t=project.tracks[ti];
         w.raw("{\"name\":");w.string(t.name);w.raw(",\"kind\":");w.string(t.drums?"drums":"melodic");w.raw(",\"patch\":");writePatch(w,t.patch);
-        w.raw(",\"vol\":");w.number(t.volume);w.raw(",\"panV\":");w.number(t.pan);w.raw(",\"selPad\":");w.number(t.selectedPad);
+        w.raw(",\"vol\":");w.number(t.volume);w.raw(",\"panV\":");w.number(t.pan);w.raw(",\"mute\":");w.boolean(t.mute);w.raw(",\"solo\":");w.boolean(t.solo);w.raw(",\"selPad\":");w.number(t.selectedPad);
         if(t.drumZoneLow>=0&&t.drumZoneHigh>=0){w.raw(",\"drumZone\":[");w.number(t.drumZoneLow);w.raw(",");w.number(t.drumZoneHigh);w.raw("]");}else w.raw(",\"drumZone\":null");
         w.raw(",\"pads\":[");
         for(size_t pi=0;pi<t.pads.size();++pi){
@@ -482,7 +482,7 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
         out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);out.masterReverb=clampf(num(root.get("mrev"),0),0,1,0);
         for(size_t ti=0;ti<std::min<size_t>(10,tracks->array.size());++ti){
             const auto& jt=tracks->array[ti];if(jt.type!=Json::Type::Object)continue;
-            Track t;t.name=str(jt.get("name"),"Track "+std::to_string(ti+1)).substr(0,40);t.drums=str(jt.get("kind"),"melodic")=="drums";t.volume=clampf(num(jt.get("vol"),.8),0,1,.8f);t.pan=clampf(num(jt.get("panV"),0),-1,1,0);
+            Track t;t.name=str(jt.get("name"),"Track "+std::to_string(ti+1)).substr(0,40);t.drums=str(jt.get("kind"),"melodic")=="drums";t.volume=clampf(num(jt.get("vol"),.8),0,1,.8f);t.pan=clampf(num(jt.get("panV"),0),-1,1,0);t.mute=boolean(jt.get("mute"),false);t.solo=boolean(jt.get("solo"),false);
             t.patch=makeFactoryPatch(t.drums?FactoryPreset::Nexdrum:FactoryPreset::SpectrachordInit);
             if(const Json* p=jt.get("patch")){Patch decoded;if(readPatch(*p,decoded))t.patch=std::move(decoded);}
             if(const Json* z=jt.get("drumZone");z&&z->type==Json::Type::Array&&z->array.size()>=2){t.drumZoneLow=clampi(num(&z->array[0],-1),14,110,-1);t.drumZoneHigh=clampi(num(&z->array[1],-1),14,110,-1);if(t.drumZoneLow>t.drumZoneHigh)std::swap(t.drumZoneLow,t.drumZoneHigh);}

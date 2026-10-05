@@ -161,34 +161,44 @@ NativeUi::Rect NativeUi::gridRect(int visualRow, int column) const noexcept {
 }
 
 NativeUi::Rect NativeUi::addTrackRect(TrackAddKind kind) const noexcept {
-    const auto content = contentRect();
-    const float gap = std::max(5.0f, width_ * 0.008f);
-    const float h = std::clamp(content.h * 0.13f, 38.0f, 58.0f);
-    const float w = (content.w - gap * 3.0f) * 0.5f;
-    const int side = kind == TrackAddKind::Drums ? 1 : 0;
-    return {
-        content.x + gap + side * (w + gap),
-        content.y + content.h - h - gap,
-        w,
-        h
-    };
+    const auto content=contentRect();
+    const float gap=std::max(5.0f,width_*0.008f);
+    const float h=std::clamp(content.h*0.12f,34.0f,52.0f);
+    const float w=(content.w-gap*3.0f)*0.5f;
+    const int side=kind==TrackAddKind::Drums?1:0;
+    return {content.x+gap+side*(w+gap),content.y+content.h-h-gap,w,h};
 }
 
-NativeUi::Rect NativeUi::trackRect(int index, int count) const noexcept {
-    const auto content = contentRect();
-    const float gap = std::max(5.0f, height_ * 0.010f);
-    const auto add = addTrackRect(TrackAddKind::Melodic);
-    const float top = content.y + gap;
-    const float bottom = add.y - gap;
-    const float usable = std::max(0.0f, bottom - top);
-    const int rows = std::max(1, count);
-    const float rowH = std::min(70.0f, std::max(30.0f, (usable - gap * (rows - 1)) / rows));
-    return {
-        content.x + gap,
-        top + index * (rowH + gap),
-        std::max(0.0f, content.w - gap * 2.0f),
-        rowH
-    };
+NativeUi::Rect NativeUi::masterSliderRect(int index) const noexcept {
+    const auto content=contentRect();const float gap=std::max(4.0f,height_*0.008f);
+    const auto add=addTrackRect(TrackAddKind::Melodic);
+    const float h=std::clamp(content.h*0.085f,28.0f,38.0f);
+    const float w=(content.w-gap*3.0f)*0.5f;
+    return {content.x+gap+index*(w+gap),add.y-h-gap,w,h};
+}
+
+NativeUi::Rect NativeUi::trackRect(int index,int count) const noexcept {
+    const auto content=contentRect();
+    const float gap=std::max(3.0f,height_*0.007f);
+    const auto master=masterSliderRect(0);
+    const float top=content.y+gap;
+    const float bottom=master.y-gap;
+    const float usable=std::max(0.0f,bottom-top);
+    const int rows=std::max(1,count);
+    const float rowH=std::min(60.0f,std::max(20.0f,(usable-gap*(rows-1))/rows));
+    return {content.x+gap,top+index*(rowH+gap),std::max(0.0f,content.w-gap*2.0f),rowH};
+}
+
+NativeUi::Rect NativeUi::trackPartRect(int index,int count,int part) const noexcept {
+    const auto r=trackRect(index,count);const float gap=std::max(2.0f,r.h*0.08f);
+    const float controlsX=r.x+r.w*0.38f;
+    const float button=std::clamp(r.h*0.72f,14.0f,30.0f);
+    const float controlsW=std::max(0.0f,r.x+r.w-controlsX-gap);
+    const float sliderW=std::max(28.0f,(controlsW-button*3.0f-gap*4.0f)*0.5f);
+    if(part==0)return {controlsX,r.y+(r.h-button)*0.5f,sliderW,button};
+    if(part==1)return {controlsX+sliderW+gap,r.y+(r.h-button)*0.5f,sliderW,button};
+    const float bx=controlsX+sliderW*2.0f+gap*2.0f+(part-2)*(button+gap);
+    return {bx,r.y+(r.h-button)*0.5f,button,button};
 }
 
 NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
@@ -418,54 +428,128 @@ void NativeUi::drawGrid() const noexcept {
 }
 
 void NativeUi::drawTracks() const noexcept {
-    auto& project = ProjectCore::instance();
-    const auto content = contentRect();
-    fillRect(content, kPanel);
+    auto& project=ProjectCore::instance();
+    const auto content=contentRect();fillRect(content,kPanel);
+    auto& overlay=NativeOverlay::instance();
 
-    const int count = project.trackCount();
-    const int selected = project.selectedTrack();
-    for (int i = 0; i < count; ++i) {
-        const auto rect = trackRect(i, count);
-        const bool drum = project.trackIsDrums(i);
-        const bool isSelected = i == selected;
-        const auto edge = isSelected ? kCyan : (drum ? mix(kButton, kOrange, 0.35f) : kButton);
-        fillRect(rect, edge);
+    const int count=project.trackCount();
+    const int selected=project.selectedTrack();
+    for(int i=0;i<count;++i){
+        const auto rect=trackRect(i,count);
+        const bool drum=project.trackIsDrums(i),isSelected=i==selected;
+        fillRect(rect,isSelected?kCyan:(drum?mix(kButton,kOrange,0.35f):kButton));
+        const float inset=std::max(2.0f,rect.h*0.055f);
+        fillRect({rect.x+inset,rect.y+inset,std::max(0.0f,rect.w-inset*2.0f),std::max(0.0f,rect.h-inset*2.0f)},isSelected?mix(kPanel,kCyan,0.12f):kPanel);
 
-        const float inset = std::max(2.0f, rect.h * 0.055f);
-        Rect inner{
-            rect.x + inset,
-            rect.y + inset,
-            std::max(0.0f, rect.w - inset * 2.0f),
-            std::max(0.0f, rect.h - inset * 2.0f)
-        };
-        fillRect(inner, isSelected ? mix(kPanel, kCyan, 0.12f) : kPanel);
-
-        const float markerW = std::max(8.0f, rect.w * 0.025f);
-        fillRect(
-            {rect.x + rect.w - markerW - inset, rect.y + inset, markerW, rect.h - inset * 2.0f},
-            drum ? kOrange : kCyan);
-
-        if (project.trackMute(i)) {
-            fillRect({rect.x + inset, rect.y + inset, markerW, rect.h - inset * 2.0f}, kMuted);
-        }
-        if (project.trackSolo(i)) {
-            fillRect({rect.x + inset * 2.0f + markerW, rect.y + inset, markerW, rect.h - inset * 2.0f}, kOrange);
-        }
-
-        auto& overlay=NativeOverlay::instance();
+        std::string name=project.trackName(i);
+        if(name.size()>18)name=name.substr(0,18);
         overlay.addText(
-            project.trackName(i),
-            rect.x+inset*2.0f,
-            rect.y+(rect.h-7.0f*std::max(1.0f,rect.h/30.0f))*0.5f,
-            std::max(1.0f,rect.h/30.0f),
-            overlayColor(isSelected?kWhite:(drum?kOrange:kCyan)));
+            name,rect.x+inset*2.0f,
+            rect.y+(rect.h-7.0f*std::max(0.72f,rect.h/34.0f))*0.5f,
+            std::max(0.72f,rect.h/34.0f),overlayColor(isSelected?kWhite:(drum?kOrange:kCyan)));
+
+        const float values[2]={project.trackVolume(i),(project.trackPan(i)+1.0f)*0.5f};
+        const Rgb sliderColors[2]={kOrange,kCyan};
+        const char* sliderLabels[2]={"V","P"};
+        for(int p=0;p<2;++p){
+            const auto sr=trackPartRect(i,count,p);fillRect(sr,kButton);
+            const float labelW=std::min(16.0f,sr.w*0.18f);
+            const Rect bar{sr.x+labelW+3.0f,sr.y+sr.h*0.40f,std::max(2.0f,sr.w-labelW-7.0f),std::max(3.0f,sr.h*0.20f)};
+            fillRect(bar,kMuted);fillRect({bar.x,bar.y,bar.w*std::clamp(values[p],0.0f,1.0f),bar.h},sliderColors[p]);
+            const float knob=std::max(4.0f,sr.h*0.38f);
+            fillRect({bar.x+bar.w*values[p]-knob*0.5f,sr.y+(sr.h-knob)*0.5f,knob,knob},kWhite);
+            overlay.addText(sliderLabels[p],sr.x+2.0f,sr.y+sr.h*0.31f,std::max(0.55f,sr.h/36.0f),overlayColor(kWhite));
+        }
+
+        const bool flags[3]={project.trackMute(i),project.trackSolo(i),true};
+        const Rgb accents[3]={kMuted,kOrange,kRed};
+        const char* labels[3]={"M","S","X"};
+        for(int p=0;p<3;++p){
+            const auto br=trackPartRect(i,count,p+2);
+            fillRect(br,flags[p]?mix(kButton,accents[p],0.72f):kButton);
+            overlay.addTextCentered(labels[p],{br.x,br.y,br.w,br.h},std::max(0.62f,br.h/28.0f),overlayColor(kWhite));
+        }
     }
 
-    fillRect(addTrackRect(TrackAddKind::Melodic), mix(kButton, kCyan, 0.28f));
-    fillRect(addTrackRect(TrackAddKind::Drums), mix(kButton, kOrange, 0.32f));
-    auto& overlay=NativeOverlay::instance();
-    overlay.addTextCentered("+ TRACK",{addTrackRect(TrackAddKind::Melodic).x,addTrackRect(TrackAddKind::Melodic).y,addTrackRect(TrackAddKind::Melodic).w,addTrackRect(TrackAddKind::Melodic).h},1.35f,overlayColor(kCyan));
-    overlay.addTextCentered("+ DRUM",{addTrackRect(TrackAddKind::Drums).x,addTrackRect(TrackAddKind::Drums).y,addTrackRect(TrackAddKind::Drums).w,addTrackRect(TrackAddKind::Drums).h},1.35f,overlayColor(kOrange));
+    for(int i=0;i<2;++i){
+        const auto mr=masterSliderRect(i);
+        const float value=i==0?project.masterVolume():project.masterReverb();
+        const Rgb accent=i==0?kOrange:kPurple;
+        fillRect(mr,kButton);
+        const float labelW=std::min(64.0f,mr.w*0.28f);
+        const Rect bar{mr.x+labelW+4.0f,mr.y+mr.h*0.40f,std::max(2.0f,mr.w-labelW-8.0f),std::max(3.0f,mr.h*0.20f)};
+        fillRect(bar,kMuted);fillRect({bar.x,bar.y,bar.w*value,bar.h},accent);
+        const float knob=std::max(5.0f,mr.h*0.42f);
+        fillRect({bar.x+bar.w*value-knob*0.5f,mr.y+(mr.h-knob)*0.5f,knob,knob},kWhite);
+        overlay.addText(i==0?"MASTER":"REVERB",mr.x+4.0f,mr.y+mr.h*0.31f,std::max(0.62f,mr.h/36.0f),overlayColor(kWhite));
+    }
+
+    const auto addTrack=addTrackRect(TrackAddKind::Melodic),addDrum=addTrackRect(TrackAddKind::Drums);
+    fillRect(addTrack,mix(kButton,kCyan,0.28f));fillRect(addDrum,mix(kButton,kOrange,0.32f));
+    overlay.addTextCentered("+ TRACK",{addTrack.x,addTrack.y,addTrack.w,addTrack.h},1.15f,overlayColor(kCyan));
+    overlay.addTextCentered("+ DRUM",{addDrum.x,addDrum.y,addDrum.w,addDrum.h},1.15f,overlayColor(kOrange));
+}
+
+bool NativeUi::trackPointerDown(float x,float y){
+    if(page_!=NativePage::Tracks)return false;
+    auto& project=ProjectCore::instance();trackControlChanged_=false;trackActiveSlider_=-1;trackActiveIndex_=-1;
+
+    for(int i=0;i<2;++i){
+        const auto r=masterSliderRect(i);if(!r.contains(x,y))continue;
+        const float labelW=std::min(64.0f,r.w*0.28f);
+        const float start=r.x+labelW+4.0f;
+        const float width=std::max(2.0f,r.w-labelW-8.0f);
+        const float n=std::clamp((x-start)/width,0.0f,1.0f);
+        if(i==0)project.setMasterVolume(n);else project.setMasterReverb(n);
+        trackActiveSlider_=i+2;trackControlChanged_=true;return true;
+    }
+
+    const int count=project.trackCount();
+    for(int t=0;t<count;++t){
+        for(int p=0;p<5;++p){
+            const auto r=trackPartRect(t,count,p);if(!r.contains(x,y))continue;
+            if(p<2){
+                const float labelW=std::min(16.0f,r.w*0.18f);
+                const float start=r.x+labelW+3.0f;
+                const float width=std::max(2.0f,r.w-labelW-7.0f);
+                const float n=std::clamp((x-start)/width,0.0f,1.0f);
+                if(p==0)project.setTrackVolume(t,n);else project.setTrackPan(t,n*2.0f-1.0f);
+                trackActiveSlider_=p;trackActiveIndex_=t;trackControlChanged_=true;
+            }else if(p==2){project.setTrackMute(t,!project.trackMute(t));trackControlChanged_=true;}
+            else if(p==3){project.setTrackSolo(t,!project.trackSolo(t));trackControlChanged_=true;}
+            else {trackControlChanged_=project.deleteTrack(t);}
+            return true;
+        }
+    }
+    return false;
+}
+
+bool NativeUi::trackPointerMove(float x,float){
+    auto& project=ProjectCore::instance();
+    if(page_!=NativePage::Tracks||trackActiveSlider_<0)return false;
+
+    if(trackActiveSlider_>=2){
+        const int i=trackActiveSlider_-2;const auto r=masterSliderRect(i);
+        const float labelW=std::min(64.0f,r.w*0.28f);
+        const float start=r.x+labelW+4.0f,width=std::max(2.0f,r.w-labelW-8.0f);
+        const float n=std::clamp((x-start)/width,0.0f,1.0f);
+        if(i==0)project.setMasterVolume(n);else project.setMasterReverb(n);
+    }else{
+        const int count=project.trackCount();
+        if(trackActiveIndex_<0||trackActiveIndex_>=count)return false;
+        const auto r=trackPartRect(trackActiveIndex_,count,trackActiveSlider_);
+        const float labelW=std::min(16.0f,r.w*0.18f);
+        const float start=r.x+labelW+3.0f,width=std::max(2.0f,r.w-labelW-7.0f);
+        const float n=std::clamp((x-start)/width,0.0f,1.0f);
+        if(trackActiveSlider_==0)project.setTrackVolume(trackActiveIndex_,n);else project.setTrackPan(trackActiveIndex_,n*2.0f-1.0f);
+    }
+    trackControlChanged_=true;return true;
+}
+
+bool NativeUi::trackPointerUp(){
+    const bool changed=trackControlChanged_;
+    trackControlChanged_=false;trackActiveSlider_=-1;trackActiveIndex_=-1;
+    return changed;
 }
 
 void NativeUi::drawPadQuick() const noexcept {
