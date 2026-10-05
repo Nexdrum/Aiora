@@ -35,6 +35,11 @@ enum class HeaderAction : int {
     TransportToggle
 };
 
+enum class ProjectTransferAction : int {
+    CopyProject,
+    PasteProject
+};
+
 struct RollCellHit {
     int midi{-1};
     int step{-1};
@@ -93,6 +98,7 @@ public:
     [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<ProjectTransferAction> hitProjectTransfer(float x, float y) const noexcept;
     [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
@@ -107,6 +113,7 @@ private:
     [[nodiscard]] Rect contentRect() const noexcept;
     [[nodiscard]] Rect gridAreaRect() const noexcept;
     [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
+    [[nodiscard]] Rect projectTransferRect(int index) const noexcept;
     [[nodiscard]] Rect trackRect(int index, int count) const noexcept;
     [[nodiscard]] Rect trackPartRect(int index, int count, int part) const noexcept;
     [[nodiscard]] Rect addTrackRect(TrackAddKind kind) const noexcept;
