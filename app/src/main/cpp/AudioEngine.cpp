@@ -127,7 +127,7 @@ void AudioEngine::applyEvent(const Event& e) noexcept {
         case EventType::NoteOn: {
             const auto& patch = factoryBank()[static_cast<size_t>(clampPreset(e.source))];
             auto& v = allocateVoice();
-            v.start(e.id, patch, e.midi, e.value);
+            v.start(e.id, toDspPatch(patch), e.midi, e.value);
             v.setAge(++ageCounter_);
             configureFx(patch.fx);
             return;
@@ -136,7 +136,7 @@ void AudioEngine::applyEvent(const Event& e) noexcept {
             const auto& pad = nexdrumKit()[static_cast<size_t>(clampPad(e.source))];
             const int midi = std::clamp(e.midi, std::min(pad.lowMidi,pad.highMidi), std::max(pad.lowMidi,pad.highMidi));
             auto& v = allocateVoice();
-            v.start(e.id, pad.patch, midi, e.value);
+            v.start(e.id, toDspPatch(pad.patch), midi, e.value);
             v.setAge(++ageCounter_);
             configureFx(pad.patch.fx);
             return;
