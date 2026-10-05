@@ -60,6 +60,23 @@ extern "C" JNIEXPORT void JNICALL Java_com_nexdrum_aiora_NativeBridge_setPadVolu
 extern "C" JNIEXPORT void JNICALL Java_com_nexdrum_aiora_NativeBridge_setPadPan(JNIEnv*,jobject,jint t,jint p,jfloat v){ProjectCore::instance().setPadPan(t,p,v);}
 extern "C" JNIEXPORT jboolean JNICALL Java_com_nexdrum_aiora_NativeBridge_setPadRange(JNIEnv*,jobject,jint t,jint p,jint lo,jint hi){return ProjectCore::instance().setPadRange(t,p,lo,hi)?JNI_TRUE:JNI_FALSE;}
 
+extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_noteCount(JNIEnv*,jobject,jint t){return ProjectCore::instance().noteCount(t);}
+extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_addNote(JNIEnv*,jobject,jint t,jint m,jfloat s,jfloat l){return ProjectCore::instance().addNote(t,m,s,l);}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_nexdrum_aiora_NativeBridge_deleteNote(JNIEnv*,jobject,jint t,jint n){return ProjectCore::instance().deleteNote(t,n)?JNI_TRUE:JNI_FALSE;}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_nexdrum_aiora_NativeBridge_updateNote(JNIEnv*,jobject,jint t,jint n,jint m,jfloat s,jfloat l){return ProjectCore::instance().updateNote(t,n,m,s,l)?JNI_TRUE:JNI_FALSE;}
+extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_noteMidi(JNIEnv*,jobject,jint t,jint n){return ProjectCore::instance().noteMidi(t,n);}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_noteStart(JNIEnv*,jobject,jint t,jint n){return ProjectCore::instance().noteStart(t,n);}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_noteLength(JNIEnv*,jobject,jint t,jint n){return ProjectCore::instance().noteLength(t,n);}
+extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_curvePointCount(JNIEnv*,jobject,jint t,jint n,jint k){return ProjectCore::instance().curvePointCount(t,n,k);}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_curvePointStep(JNIEnv*,jobject,jint t,jint n,jint k,jint p){return ProjectCore::instance().curvePointStep(t,n,k,p);}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_curvePointValue(JNIEnv*,jobject,jint t,jint n,jint k,jint p){return ProjectCore::instance().curvePointValue(t,n,k,p);}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_nexdrum_aiora_NativeBridge_curvePointFree(JNIEnv*,jobject,jint t,jint n,jint k,jint p){return ProjectCore::instance().curvePointFree(t,n,k,p)?JNI_TRUE:JNI_FALSE;}
+extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_addCurvePoint(JNIEnv*,jobject,jint t,jint n,jint k,jfloat s,jfloat v,jboolean f){return ProjectCore::instance().addCurvePoint(t,n,k,s,v,f==JNI_TRUE);}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_nexdrum_aiora_NativeBridge_updateCurvePoint(JNIEnv*,jobject,jint t,jint n,jint k,jint p,jfloat s,jfloat v,jboolean f){return ProjectCore::instance().updateCurvePoint(t,n,k,p,s,v,f==JNI_TRUE)?JNI_TRUE:JNI_FALSE;}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_nexdrum_aiora_NativeBridge_deleteCurvePoint(JNIEnv*,jobject,jint t,jint n,jint k,jint p){return ProjectCore::instance().deleteCurvePoint(t,n,k,p)?JNI_TRUE:JNI_FALSE;}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_lastStep(JNIEnv*,jobject){return ProjectCore::instance().lastStep();}
+extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_playLengthSteps(JNIEnv*,jobject){return ProjectCore::instance().playLengthSteps();}
+
 extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_bpm(JNIEnv*,jobject){return ProjectCore::instance().bpm();}
 extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_beats(JNIEnv*,jobject){return ProjectCore::instance().beats();}
 extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_divisions(JNIEnv*,jobject){return ProjectCore::instance().divisions();}
