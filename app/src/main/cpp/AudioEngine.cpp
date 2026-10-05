@@ -41,12 +41,40 @@ void AudioEngine::stop(){
 }
 
 int AudioEngine::noteOn(int midi,float velocity) noexcept {
-    const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);const int preset=selectedPreset_.load(std::memory_order_relaxed);
-    events_.push({EventType::NoteOn,id,std::clamp(midi,0,127),preset,std::clamp(velocity,0.0f,1.0f),0});return id;
+    const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
+    Event e;
+    e.type=EventType::NoteOn;
+    e.id=id;
+    e.midi=std::clamp(midi,0,127);
+    e.value=std::clamp(velocity,0.0f,1.0f);
+    e.patch=ProjectCore::instance().selectedDspPatch();
+    events_.push(e);
+    return id;
 }
 int AudioEngine::noteOnPad(int padIndex,int midi,float velocity) noexcept {
     const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
-    events_.push({EventType::PadOn,id,std::clamp(midi,0,127),clampPad(padIndex),std::clamp(velocity,0.0f,1.0f),0});return id;
+    const int p=clampPad(padIndex);
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+
+    Event e;
+    e.type=EventType::PadOn;
+    e.id=id;
+    e.source=p;
+    e.value=std::clamp(velocity,0.0f,1.0f);
+
+    if(track>=0&&project.trackIsDrums(track)&&p<project.padCount(track)){
+        const int lo=std::min(project.padLow(track,p),project.padHigh(track,p));
+        const int hi=std::max(project.padLow(track,p),project.padHigh(track,p));
+        e.midi=std::clamp(midi,lo,hi);
+        e.patch=project.padDspPatch(track,p);
+    }else{
+        const auto& pad=nexdrumKit()[static_cast<size_t>(p)];
+        e.midi=std::clamp(midi,std::min(pad.lowMidi,pad.highMidi),std::max(pad.lowMidi,pad.highMidi));
+        e.patch=toDspPatch(pad.patch);
+    }
+    events_.push(e);
+    return id;
 }
 void AudioEngine::noteOff(int voiceId) noexcept {events_.push({EventType::NoteOff,voiceId,0,0,0,0});}
 void AudioEngine::panic() noexcept {events_.push({EventType::Panic,-1,0,0,0,0});}
@@ -100,12 +128,12 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
         case EventType::NoteOff:
             for(auto&slot:voices_)if(slot.voice.active()&&slot.voice.id()==e.id){slot.voice.release();return;}return;
         case EventType::NoteOn:{
-            const auto&patch=factoryBank()[static_cast<size_t>(clampPreset(e.source))];auto&slot=allocateVoice();slot.voice.start(e.id,toDspPatch(patch),e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=1;slot.gainRight=1;slot.transport=false;configureFx(patch.fx);return;
+            auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
+            slot.gainLeft=1;slot.gainRight=1;slot.transport=false;configureFx(e.patch.fx);return;
         }
         case EventType::PadOn:{
-            const auto&pad=nexdrumKit()[static_cast<size_t>(clampPad(e.source))];const int midi=std::clamp(e.midi,std::min(pad.lowMidi,pad.highMidi),std::max(pad.lowMidi,pad.highMidi));
-            auto&slot=allocateVoice();slot.voice.start(e.id,toDspPatch(pad.patch),midi,e.value);slot.voice.setAge(++ageCounter_);slot.gainLeft=1;slot.gainRight=1;slot.transport=false;configureFx(pad.patch.fx);return;
+            auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
+            slot.gainLeft=1;slot.gainRight=1;slot.transport=false;configureFx(e.patch.fx);return;
         }
         case EventType::Snapshot:{
             auto*incoming=reinterpret_cast<PlaybackSnapshot*>(e.pointer);if(!incoming)return;auto*old=playback_;playback_=incoming;
