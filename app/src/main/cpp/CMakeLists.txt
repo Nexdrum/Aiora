@@ -21,6 +21,7 @@ add_library(aiora SHARED
     NexdrumKit.cpp
     ProjectCore.cpp
     ProjectCodec.cpp
+    ProjectStorage.cpp
     ProjectPlayback.cpp
     SpectrachordVoice.cpp
 )

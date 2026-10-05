@@ -7,12 +7,14 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <string>
 
 #include "AudioEngine.h"
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
 #include "NativeUi.h"
 #include "ProjectCore.h"
+#include "ProjectStorage.h"
 
 namespace {
 
@@ -54,6 +56,9 @@ struct NativeState {
     int32_t editorPointerId{-1};
     int editorPreviewVoice{-1};
     int64_t editorPreviewStopMs{0};
+    std::string autosavePath{};
+    int64_t autosaveDueMs{0};
+    bool autosaveDirty{false};
 };
 
 void createDefaultProject() {
@@ -139,6 +144,26 @@ int64_t nowMs() {
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+void saveProjectNow(NativeState& state) {
+    if(state.autosavePath.empty())return;
+    std::string error;
+    if(aiora::saveProjectFile(state.autosavePath,aiora::ProjectCore::instance().projectCopy(),&error)){
+        state.autosaveDirty=false;
+        state.autosaveDueMs=0;
+    }else{
+        __android_log_print(ANDROID_LOG_WARN,kTag,"autosave failed: %s",error.c_str());
+    }
+}
+
+void scheduleAutosave(NativeState& state,int64_t delayMs=350) {
+    state.autosaveDirty=true;
+    state.autosaveDueMs=nowMs()+delayMs;
+}
+
+void serviceAutosave(NativeState& state) {
+    if(state.autosaveDirty&&state.autosaveDueMs>0&&nowMs()>=state.autosaveDueMs)saveProjectNow(state);
+}
+
 void serviceEditorPreview(NativeState& state) {
     if(state.editorPreviewVoice>=0 && nowMs()>=state.editorPreviewStopMs){
         aiora::AudioEngine::instance().noteOff(state.editorPreviewVoice);
@@ -203,6 +228,7 @@ void destroySurface(NativeState& state) {
 void drawFrame(NativeState& state) {
     if (!state.drawable) return;
     serviceEditorPreview(state);
+    serviceAutosave(state);
     glViewport(0, 0, state.width, state.height);
     state.ui.render();
     eglSwapBuffers(state.display, state.surface);
@@ -277,6 +303,7 @@ void handleRollTap(NativeState& state, float x, float y, bool longPress) {
         if (note >= 0) project.deleteNote(track, note);
         else project.addNote(track, hit->midi, static_cast<float>(hit->step), 1.0f);
         aiora::AudioEngine::instance().syncProject();
+        scheduleAutosave(state);
         return;
     }
 
@@ -315,6 +342,7 @@ void handleRollTap(NativeState& state, float x, float y, bool longPress) {
             project.deleteCurvePoint(track, note, kind, nearest);
         }
         aiora::AudioEngine::instance().syncProject();
+        scheduleAutosave(state);
         return;
     }
 
@@ -324,6 +352,7 @@ void handleRollTap(NativeState& state, float x, float y, bool longPress) {
     }
     project.addCurvePoint(track, note, kind, relative, value, longPress);
     aiora::AudioEngine::instance().syncProject();
+    scheduleAutosave(state);
 }
 
 bool handleUiTap(NativeState& state, float x, float y) {
@@ -364,6 +393,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 else audio.playTransport();
                 break;
         }
+        if(*action!=aiora::HeaderAction::TransportToggle)scheduleAutosave(state);
         return true;
     }
 
@@ -381,6 +411,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
         if (const auto add = state.ui.hitAddTrack(x, y)) {
             project.addTrack(*add == aiora::TrackAddKind::Drums);
+            scheduleAutosave(state);
             return true;
         }
     }
@@ -389,6 +420,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
         const int track = project.selectedTrack();
         if (track >= 0 && project.trackIsDrums(track)) {
             project.selectPad(track, *pad);
+            scheduleAutosave(state);
             if(state.ui.page()==aiora::NativePage::Synth || state.ui.page()==aiora::NativePage::Fx){
                 previewEditorPatch(state);
             }
@@ -561,7 +593,11 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             if(state.editorPointerId==pointerId){
                 const bool changed=aiora::NativeEditor::instance().pointerUp();
                 state.editorPointerId=-1;
-                if(changed)previewEditorPatch(state);
+                if(changed){
+                    previewEditorPatch(state);
+                    scheduleAutosave(state);
+                    aiora::AudioEngine::instance().syncProject();
+                }
                 return 1;
             }
 
@@ -622,6 +658,12 @@ void handleCommand(android_app* app, int32_t command) {
 
         case APP_CMD_LOST_FOCUS:
             releaseAllTouches(state);
+            if(state.autosaveDirty)saveProjectNow(state);
+            break;
+
+        case APP_CMD_PAUSE:
+        case APP_CMD_STOP:
+            if(state.autosaveDirty)saveProjectNow(state);
             break;
 
         case APP_CMD_LOW_MEMORY:
@@ -649,7 +691,18 @@ void android_main(android_app* app) {
         ANDROID_LOG_INFO, kTag,
         "AIORA C++ NativeActivity boot");
 
-    createDefaultProject();
+    if(app->activity&&app->activity->internalDataPath){
+        state.autosavePath=std::string(app->activity->internalDataPath)+"/aiora.json";
+    }
+
+    aiora::Project restored;
+    std::string restoreError;
+    if(!state.autosavePath.empty()&&aiora::loadProjectFile(state.autosavePath,restored,&restoreError)){
+        aiora::ProjectCore::instance().replaceProject(std::move(restored),0);
+        __android_log_print(ANDROID_LOG_INFO,kTag,"restored AIORA autosave");
+    }else{
+        createDefaultProject();
+    }
 
     while (true) {
         int events = 0;
@@ -663,6 +716,7 @@ void android_main(android_app* app) {
             if (source) source->process(app, source);
 
             if (app->destroyRequested != 0) {
+                if(state.autosaveDirty)saveProjectNow(state);
                 aiora::AudioEngine::instance().stop();
                 destroySurface(state);
                 return;
