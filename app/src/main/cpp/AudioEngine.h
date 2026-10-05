@@ -32,6 +32,10 @@ public:
     int factoryPreset() const noexcept { return selectedPreset_.load(std::memory_order_relaxed); }
     int sampleRate() const noexcept { return sampleRate_.load(std::memory_order_relaxed); }
 
+    static constexpr size_t kScopeSamples = 512;
+    static constexpr size_t kScopeReadSamples = 256;
+    void copyScope(std::array<float, kScopeReadSamples>& out) const noexcept;
+
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* audioData, int32_t numFrames) override;
     void onErrorAfterClose(oboe::AudioStream*, oboe::Result error) override;
 
@@ -91,6 +95,9 @@ private:
     double samplesIntoStep_{0.0};
     double transportSamplesPerStep_{1.0};
     uint64_t ageCounter_{0};
+
+    std::array<std::atomic<int32_t>, kScopeSamples> scope_{};
+    std::atomic<uint32_t> scopeWrite_{0};
 };
 
 } // namespace aiora
