@@ -1,5 +1,6 @@
 #include <android/log.h>
 #include <android_native_app_glue.h>
+#include <jni.h>
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 
@@ -14,6 +15,7 @@
 #include "NativeOverlay.h"
 #include "NativeUi.h"
 #include "ProjectCore.h"
+#include "ProjectCodec.h"
 #include "ProjectStorage.h"
 
 namespace {
@@ -87,6 +89,145 @@ void ensureDrumTrackSelected() {
         }
     }
     project.addTrack(true);
+}
+
+JNIEnv* androidEnv(ANativeActivity* activity,bool& attached) {
+    attached=false;
+    if(!activity||!activity->vm)return nullptr;
+    JNIEnv* env=nullptr;
+    const jint status=activity->vm->GetEnv(reinterpret_cast<void**>(&env),JNI_VERSION_1_6);
+    if(status==JNI_OK)return env;
+    if(status!=JNI_EDETACHED)return nullptr;
+    if(activity->vm->AttachCurrentThread(&env,nullptr)!=JNI_OK)return nullptr;
+    attached=true;
+    return env;
+}
+
+void detachAndroidEnv(ANativeActivity* activity,bool attached) {
+    if(attached&&activity&&activity->vm)activity->vm->DetachCurrentThread();
+}
+
+bool clipboardSetText(ANativeActivity* activity,const std::string& text) {
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity->clazz)return false;
+
+    bool ok=false;
+    jclass activityClass=env->GetObjectClass(activity->clazz);
+    jmethodID getService=activityClass
+        ?env->GetMethodID(activityClass,"getSystemService","(Ljava/lang/String;)Ljava/lang/Object;")
+        :nullptr;
+    jstring service=env->NewStringUTF("clipboard");
+    jobject manager=getService&&service
+        ?env->CallObjectMethod(activity->clazz,getService,service)
+        :nullptr;
+
+    jclass clipDataClass=env->FindClass("android/content/ClipData");
+    jmethodID newPlainText=clipDataClass
+        ?env->GetStaticMethodID(
+            clipDataClass,
+            "newPlainText",
+            "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;")
+        :nullptr;
+    jstring label=env->NewStringUTF("AIORA Project");
+    jstring value=env->NewStringUTF(text.c_str());
+    jobject clip=newPlainText&&label&&value
+        ?env->CallStaticObjectMethod(clipDataClass,newPlainText,label,value)
+        :nullptr;
+
+    jclass managerClass=manager?env->GetObjectClass(manager):nullptr;
+    jmethodID setPrimary=managerClass
+        ?env->GetMethodID(managerClass,"setPrimaryClip","(Landroid/content/ClipData;)V")
+        :nullptr;
+    if(manager&&clip&&setPrimary){
+        env->CallVoidMethod(manager,setPrimary,clip);
+        ok=!env->ExceptionCheck();
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
+
+    if(managerClass)env->DeleteLocalRef(managerClass);
+    if(clip)env->DeleteLocalRef(clip);
+    if(value)env->DeleteLocalRef(value);
+    if(label)env->DeleteLocalRef(label);
+    if(clipDataClass)env->DeleteLocalRef(clipDataClass);
+    if(manager)env->DeleteLocalRef(manager);
+    if(service)env->DeleteLocalRef(service);
+    if(activityClass)env->DeleteLocalRef(activityClass);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
+std::string clipboardGetText(ANativeActivity* activity) {
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity->clazz)return {};
+
+    std::string out;
+    jclass activityClass=env->GetObjectClass(activity->clazz);
+    jmethodID getService=activityClass
+        ?env->GetMethodID(activityClass,"getSystemService","(Ljava/lang/String;)Ljava/lang/Object;")
+        :nullptr;
+    jstring service=env->NewStringUTF("clipboard");
+    jobject manager=getService&&service
+        ?env->CallObjectMethod(activity->clazz,getService,service)
+        :nullptr;
+    jclass managerClass=manager?env->GetObjectClass(manager):nullptr;
+    jmethodID hasPrimary=managerClass
+        ?env->GetMethodID(managerClass,"hasPrimaryClip","()Z")
+        :nullptr;
+    jmethodID getPrimary=managerClass
+        ?env->GetMethodID(managerClass,"getPrimaryClip","()Landroid/content/ClipData;")
+        :nullptr;
+
+    const bool has=manager&&hasPrimary&&env->CallBooleanMethod(manager,hasPrimary)==JNI_TRUE;
+    jobject clip=has&&getPrimary?env->CallObjectMethod(manager,getPrimary):nullptr;
+    jclass clipClass=clip?env->GetObjectClass(clip):nullptr;
+    jmethodID itemCount=clipClass?env->GetMethodID(clipClass,"getItemCount","()I"):nullptr;
+    jmethodID getItem=clipClass
+        ?env->GetMethodID(clipClass,"getItemAt","(I)Landroid/content/ClipData$Item;")
+        :nullptr;
+
+    if(clip&&itemCount&&getItem&&env->CallIntMethod(clip,itemCount)>0){
+        jobject item=env->CallObjectMethod(clip,getItem,0);
+        jclass itemClass=item?env->GetObjectClass(item):nullptr;
+        jmethodID coerce=itemClass
+            ?env->GetMethodID(
+                itemClass,
+                "coerceToText",
+                "(Landroid/content/Context;)Ljava/lang/CharSequence;")
+            :nullptr;
+        jobject chars=coerce?env->CallObjectMethod(item,coerce,activity->clazz):nullptr;
+        jclass charsClass=chars?env->GetObjectClass(chars):nullptr;
+        jmethodID toString=charsClass
+            ?env->GetMethodID(charsClass,"toString","()Ljava/lang/String;")
+            :nullptr;
+        jstring stringValue=toString
+            ?static_cast<jstring>(env->CallObjectMethod(chars,toString))
+            :nullptr;
+
+        if(stringValue&&!env->ExceptionCheck()){
+            const char* utf=env->GetStringUTFChars(stringValue,nullptr);
+            if(utf){out=utf;env->ReleaseStringUTFChars(stringValue,utf);}
+        }
+        if(env->ExceptionCheck())env->ExceptionClear();
+
+        if(stringValue)env->DeleteLocalRef(stringValue);
+        if(charsClass)env->DeleteLocalRef(charsClass);
+        if(chars)env->DeleteLocalRef(chars);
+        if(itemClass)env->DeleteLocalRef(itemClass);
+        if(item)env->DeleteLocalRef(item);
+    }else if(env->ExceptionCheck()){
+        env->ExceptionClear();
+    }
+
+    if(clipClass)env->DeleteLocalRef(clipClass);
+    if(clip)env->DeleteLocalRef(clip);
+    if(managerClass)env->DeleteLocalRef(managerClass);
+    if(manager)env->DeleteLocalRef(manager);
+    if(service)env->DeleteLocalRef(service);
+    if(activityClass)env->DeleteLocalRef(activityClass);
+    detachAndroidEnv(activity,attached);
+    return out;
 }
 
 bool createSurface(NativeState& state) {
@@ -425,6 +566,29 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (state.ui.page() == aiora::NativePage::Tracks) {
+        if(const auto transfer=state.ui.hitProjectTransfer(x,y)){
+            if(*transfer==aiora::ProjectTransferAction::CopyProject){
+                const std::string json=aiora::serializeProjectJson(project.projectCopy());
+                const bool ok=clipboardSetText(state.app?state.app->activity:nullptr,json);
+                __android_log_print(ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,kTag,
+                    ok?"copied AIORA project JSON":"could not copy AIORA project JSON");
+            }else{
+                const std::string json=clipboardGetText(state.app?state.app->activity:nullptr);
+                aiora::Project imported;
+                std::string error;
+                if(!json.empty()&&aiora::deserializeProjectJson(json,imported,&error)){
+                    audio.stopTransport();
+                    project.replaceProject(std::move(imported),0);
+                    audio.syncProject();
+                    scheduleAutosave(state,0);
+                    __android_log_print(ANDROID_LOG_INFO,kTag,"pasted AIORA project JSON");
+                }else{
+                    __android_log_print(ANDROID_LOG_WARN,kTag,"project paste failed: %s",
+                        error.empty()?"clipboard does not contain AIORA JSON":error.c_str());
+                }
+            }
+            return true;
+        }
         if (const auto track = state.ui.hitTrack(x, y)) {
             project.selectTrack(*track);
             state.ui.resetDrumRangeArm();
