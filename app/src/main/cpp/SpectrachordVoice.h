@@ -8,7 +8,7 @@ namespace aiora {
 class SpectrachordVoice {
 public:
     void prepare(float sampleRate) noexcept;
-    void start(int32_t id, const Patch& patch, int midi, float velocity) noexcept;
+    void start(int32_t id, const DspPatch& patch, int midi, float velocity) noexcept;
     void release() noexcept;
     void kill() noexcept;
     [[nodiscard]] bool active() const noexcept { return active_; }
@@ -54,7 +54,7 @@ private:
     float sampleRate_{48000.0f};
     int midi_{62};
     float velocity_{0.8f};
-    const Patch* patch_{nullptr};
+    DspPatch patch_{};
     std::array<EnvState,6> opEnv_{};
     EnvState ampEnv_{};
     EnvState filterEnv_{};
