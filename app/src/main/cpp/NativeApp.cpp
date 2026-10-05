@@ -10,6 +10,7 @@
 
 #include "AudioEngine.h"
 #include "NativeEditor.h"
+#include "NativeOverlay.h"
 #include "NativeUi.h"
 #include "ProjectCore.h"
 
@@ -128,6 +129,7 @@ bool createSurface(NativeState& state) {
     eglQuerySurface(state.display, state.surface, EGL_HEIGHT, &state.height);
 
     state.ui.resize(state.width, state.height);
+    aiora::NativeOverlay::instance().init();
     state.drawable = true;
     return true;
 }
@@ -186,6 +188,7 @@ void destroySurface(NativeState& state) {
     releaseAllTouches(state);
     state.drawable = false;
     if (state.display != EGL_NO_DISPLAY) {
+        aiora::NativeOverlay::instance().shutdown();
         eglMakeCurrent(
             state.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (state.context != EGL_NO_CONTEXT) eglDestroyContext(state.display, state.context);

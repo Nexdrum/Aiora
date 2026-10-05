@@ -1,9 +1,11 @@
 #include "NativeEditor.h"
+#include "NativeOverlay.h"
 
 #include <GLES3/gl3.h>
 
 #include <algorithm>
 #include <array>
+#include <string>
 
 namespace aiora {
 namespace {
@@ -39,6 +41,39 @@ constexpr std::array<OperatorParam,7> kOperatorParams{
 NativeEditor::Rgb mix(NativeEditor::Rgb a,NativeEditor::Rgb b,float t) noexcept {
     t=std::clamp(t,0.0f,1.0f);
     return {a.r+(b.r-a.r)*t,a.g+(b.g-a.g)*t,a.b+(b.b-a.b)*t};
+}
+
+NativeOverlay::Color overlayColor(NativeEditor::Rgb c,float alpha=1.0f) noexcept {
+    return {c.r,c.g,c.b,alpha};
+}
+
+const char* modTargetName(ModTarget t) noexcept {
+    switch(t){
+        case ModTarget::None:return "NONE";
+        case ModTarget::Cutoff:return "CUTOFF";
+        case ModTarget::Resonance:return "RESO";
+        case ModTarget::FilterEnv:return "FENV";
+        case ModTarget::AmpAttack:return "A ATK";
+        case ModTarget::AmpDecay:return "A DEC";
+        case ModTarget::AmpSustain:return "A SUS";
+        case ModTarget::AmpRelease:return "A REL";
+        case ModTarget::FilterAttack:return "F ATK";
+        case ModTarget::FilterDecay:return "F DEC";
+        case ModTarget::FilterSustain:return "F SUS";
+        case ModTarget::FilterRelease:return "F REL";
+        case ModTarget::Op1:return "OP1"; case ModTarget::Op2:return "OP2";
+        case ModTarget::Op3:return "OP3"; case ModTarget::Op4:return "OP4";
+        case ModTarget::Op5:return "OP5"; case ModTarget::Op6:return "OP6";
+        case ModTarget::Morph1:return "MORPH1"; case ModTarget::Morph2:return "MORPH2";
+        case ModTarget::Morph3:return "MORPH3"; case ModTarget::Morph4:return "MORPH4";
+        case ModTarget::Morph5:return "MORPH5"; case ModTarget::Morph6:return "MORPH6";
+        case ModTarget::Fm:return "FM";
+        case ModTarget::LfoAmount:return "LFO A";
+        case ModTarget::LfoRate:return "LFO R";
+        case ModTarget::Unison:return "UNI";
+        case ModTarget::Volume:return "VOL";
+    }
+    return "?";
 }
 
 bool selectedTrackIsDrums(){
@@ -343,7 +378,14 @@ void NativeEditor::drawPadReservedBackground() const noexcept {
 void NativeEditor::renderSynth() const noexcept {
     drawPadReservedBackground();
     const Patch p=ProjectCore::instance().selectedPatch();
-    for(int i=0;i<2;++i)drawButton(synthTabRect(i),(i==1)==matrixMode_,i? kPurple:kCyan);
+    static constexpr const char* kTabs[2]={"OPERATORS","FM MATRIX"};
+    for(int i=0;i<2;++i){
+        const auto tr=synthTabRect(i);
+        drawButton(tr,(i==1)==matrixMode_,i? kPurple:kCyan);
+        NativeOverlay::instance().addTextCentered(
+            kTabs[i],{tr.x,tr.y,tr.w,tr.h},1.15f,
+            overlayColor((i==1)==matrixMode_?kBg:kWhite));
+    }
 
     if(matrixMode_){
         for(int m=0;m<6;++m)for(int c=0;c<6;++c){
@@ -351,25 +393,44 @@ void NativeEditor::renderSynth() const noexcept {
             fillRect(r,mix(kButton,kPurple,0.18f+v*0.72f));
             const float inset=std::max(2.0f,r.w*0.08f);
             fillRect({r.x+inset,r.y+r.h-inset-std::max(3.0f,r.h*v),r.w-inset*2.0f,std::max(3.0f,r.h*v)},mix(kCyan,kPurple,0.55f));
+            const std::string label="M"+std::to_string(m+1)+"C"+std::to_string(c+1);
+            NativeOverlay::instance().addTextCentered(label,{r.x,r.y,r.w,r.h},std::max(0.62f,r.w/34.0f),overlayColor(kWhite));
         }
         return;
     }
 
     const int op=std::clamp(selectedOperator_,0,5);
-    for(int i=0;i<6;++i)drawButton(operatorSelectRect(i),i==op,kCyan);
-    for(int i=0;i<6;++i)drawButton(waveRect(i),static_cast<int>(p.ops[static_cast<size_t>(op)].wave)==i,kPurple);
-    drawButton(operatorToggleRect(),p.ops[static_cast<size_t>(op)].enabled,p.ops[static_cast<size_t>(op)].enabled?kGreen:kRed);
+    for(int i=0;i<6;++i){
+        const auto rr=operatorSelectRect(i);drawButton(rr,i==op,kCyan);
+        NativeOverlay::instance().addTextCentered(
+            "OP"+std::to_string(i+1),{rr.x,rr.y,rr.w,rr.h},1.0f,overlayColor(i==op?kBg:kWhite));
+    }
+    static constexpr const char* kWaves[6]={"SINE","SAW","SQUARE","TRI","CUSTOM","NOISE"};
+    for(int i=0;i<6;++i){
+        const auto rr=waveRect(i);const bool active=static_cast<int>(p.ops[static_cast<size_t>(op)].wave)==i;
+        drawButton(rr,active,kPurple);
+        NativeOverlay::instance().addTextCentered(kWaves[i],{rr.x,rr.y,rr.w,rr.h},std::max(0.62f,std::min(0.95f,rr.w/(std::char_traits<char>::length(kWaves[i])*6.5f))),overlayColor(active?kBg:kWhite));
+    }
+    const auto toggle=operatorToggleRect();
+    drawButton(toggle,p.ops[static_cast<size_t>(op)].enabled,p.ops[static_cast<size_t>(op)].enabled?kGreen:kRed);
+    NativeOverlay::instance().addTextCentered(
+        p.ops[static_cast<size_t>(op)].enabled?"ON":"OFF",{toggle.x,toggle.y,toggle.w,toggle.h},1.2f,overlayColor(kWhite));
 
     const bool custom=p.ops[static_cast<size_t>(op)].wave==Wave::Custom;
+    static constexpr const char* kOpLabels[7]={"RATIO","FINE","LEVEL","A","D","S","R"};
     for(int i=0;i<7;++i){
         const auto param=kOperatorParams[static_cast<size_t>(i)];
-        drawSlider(operatorSliderRect(i,custom),normalized(operatorValue(p,op,param),operatorRange(param)),i<3?kCyan:kOrange);
+        const auto rr=operatorSliderRect(i,custom);
+        drawSlider(rr,normalized(operatorValue(p,op,param),operatorRange(param)),i<3?kCyan:kOrange);
+        NativeOverlay::instance().addText(kOpLabels[i],rr.x+5.0f,rr.y+rr.h*0.32f,std::max(0.68f,rr.h/34.0f),overlayColor(kWhite));
     }
     if(custom){
         for(int i=0;i<16;++i){
             const auto rr=harmonicRect(i);const float v=std::clamp(p.ops[static_cast<size_t>(op)].harm[static_cast<size_t>(i)],0.0f,1.0f);
             fillRect(rr,kButton);
             fillRect({rr.x+rr.w*0.22f,rr.y+rr.h*(1.0f-v),rr.w*0.56f,rr.h*v},mix(kCyan,kPurple,0.42f));
+            NativeOverlay::instance().addText(
+                std::to_string(i+1),rr.x+2.0f,rr.y+2.0f,std::max(0.55f,rr.w/30.0f),overlayColor(kWhite));
         }
     }
 }
@@ -378,24 +439,43 @@ void NativeEditor::renderFx() const noexcept {
     drawPadReservedBackground();
     const Patch p=ProjectCore::instance().selectedPatch();
     const std::array<Rgb,4> groupColors{kCyan,kOrange,kPurple,kGreen};
-    for(int i=0;i<4;++i)drawButton(fxGroupRect(i),fxGroup_==i,groupColors[static_cast<size_t>(i)]);
+    static constexpr const char* kGroups[4]={"FILTER","AMP","LFO/FX","MOD"};
+    for(int i=0;i<4;++i){
+        const auto rr=fxGroupRect(i);drawButton(rr,fxGroup_==i,groupColors[static_cast<size_t>(i)]);
+        NativeOverlay::instance().addTextCentered(
+            kGroups[i],{rr.x,rr.y,rr.w,rr.h},1.0f,overlayColor(fxGroup_==i?kBg:kWhite));
+    }
 
     if(fxGroup_==0){
-        for(int i=0;i<3;++i)drawButton(filterTypeRect(i),static_cast<int>(p.filter.type)==i,kCyan);
+        static constexpr const char* kTypes[3]={"LOW","HIGH","BAND"};
+        for(int i=0;i<3;++i){
+            const auto rr=filterTypeRect(i);const bool active=static_cast<int>(p.filter.type)==i;drawButton(rr,active,kCyan);
+            NativeOverlay::instance().addTextCentered(kTypes[i],{rr.x,rr.y,rr.w,rr.h},1.0f,overlayColor(active?kBg:kWhite));
+        }
+        static constexpr const char* kLabels[7]={"CUTOFF","RESO","ENV","A","D","S","R"};
         for(int i=0;i<static_cast<int>(kFilterParams.size());++i){
-            const auto param=kFilterParams[static_cast<size_t>(i)];
-            drawSlider(fxSliderRect(i,static_cast<int>(kFilterParams.size()),true),normalized(patchValue(p,param),patchRange(param)),i<3?kCyan:kOrange);
+            const auto param=kFilterParams[static_cast<size_t>(i)];const auto rr=fxSliderRect(i,static_cast<int>(kFilterParams.size()),true);
+            drawSlider(rr,normalized(patchValue(p,param),patchRange(param)),i<3?kCyan:kOrange);
+            NativeOverlay::instance().addText(kLabels[i],rr.x+5.0f,rr.y+rr.h*0.32f,std::max(0.68f,rr.h/34.0f),overlayColor(kWhite));
         }
     }else if(fxGroup_==1){
+        static constexpr const char* kLabels[9]={"A","D","S","R","VOLUME","VEL AMP","VEL FLT","UNISON","GLIDE"};
         for(int i=0;i<static_cast<int>(kAmpParams.size());++i){
-            const auto param=kAmpParams[static_cast<size_t>(i)];
-            drawSlider(fxSliderRect(i,static_cast<int>(kAmpParams.size()),false),normalized(patchValue(p,param),patchRange(param)),i<5?kOrange:kCyan);
+            const auto param=kAmpParams[static_cast<size_t>(i)];const auto rr=fxSliderRect(i,static_cast<int>(kAmpParams.size()),false);
+            drawSlider(rr,normalized(patchValue(p,param),patchRange(param)),i<5?kOrange:kCyan);
+            NativeOverlay::instance().addText(kLabels[i],rr.x+5.0f,rr.y+rr.h*0.32f,std::max(0.64f,rr.h/35.0f),overlayColor(kWhite));
         }
     }else if(fxGroup_==2){
-        for(int i=0;i<4;++i)drawButton(lfoTargetRect(i),static_cast<int>(p.lfo.target)==i,kPurple);
+        static constexpr const char* kTargets[4]={"NONE","PITCH","FILTER","AMP"};
+        for(int i=0;i<4;++i){
+            const auto rr=lfoTargetRect(i);const bool active=static_cast<int>(p.lfo.target)==i;drawButton(rr,active,kPurple);
+            NativeOverlay::instance().addTextCentered(kTargets[i],{rr.x,rr.y,rr.w,rr.h},0.9f,overlayColor(active?kBg:kWhite));
+        }
+        static constexpr const char* kLabels[9]={"RATE","AMOUNT","ATTACK","VEL","DISTORT","DELAY","DLY TIME","DLY FB","REVERB"};
         for(int i=0;i<static_cast<int>(kLfoFxParams.size());++i){
-            const auto param=kLfoFxParams[static_cast<size_t>(i)];
-            drawSlider(fxSliderRect(i,static_cast<int>(kLfoFxParams.size()),true),normalized(patchValue(p,param),patchRange(param)),i<4?kPurple:kGreen);
+            const auto param=kLfoFxParams[static_cast<size_t>(i)];const auto rr=fxSliderRect(i,static_cast<int>(kLfoFxParams.size()),true);
+            drawSlider(rr,normalized(patchValue(p,param),patchRange(param)),i<4?kPurple:kGreen);
+            NativeOverlay::instance().addText(kLabels[i],rr.x+5.0f,rr.y+rr.h*0.32f,std::max(0.62f,rr.h/36.0f),overlayColor(kWhite));
         }
     }else{
         auto& project=ProjectCore::instance();
@@ -404,14 +484,23 @@ void NativeEditor::renderFx() const noexcept {
             const auto row=modRowRect(slot);
             if(slot>=count){fillRect(row,mix(kPanel,kButton,0.25f));continue;}
             const auto s=project.selectedModSlot(slot);
-            drawButton(modPartRect(slot,0),false,kCyan);
-            fillRect(modPartRect(slot,1),mix(kButton,kPurple,normalized(static_cast<float>(static_cast<int>(s.target)),{0.0f,static_cast<float>(static_cast<int>(ModTarget::Volume))})));
-            drawButton(modPartRect(slot,2),false,kCyan);
-            drawSlider(modPartRect(slot,3),normalized(s.min,modRange(s.target)),kCyan);
-            drawSlider(modPartRect(slot,4),normalized(s.max,modRange(s.target)),kPurple);
-            drawButton(modPartRect(slot,5),false,kRed);
+            const auto prev=modPartRect(slot,0),target=modPartRect(slot,1),next=modPartRect(slot,2),mn=modPartRect(slot,3),mx=modPartRect(slot,4),del=modPartRect(slot,5);
+            drawButton(prev,false,kCyan);
+            fillRect(target,mix(kButton,kPurple,normalized(static_cast<float>(static_cast<int>(s.target)),{0.0f,static_cast<float>(static_cast<int>(ModTarget::Volume))})));
+            drawButton(next,false,kCyan);
+            drawSlider(mn,normalized(s.min,modRange(s.target)),kCyan);
+            drawSlider(mx,normalized(s.max,modRange(s.target)),kPurple);
+            drawButton(del,false,kRed);
+            auto& ov=NativeOverlay::instance();
+            ov.addTextCentered("-",{prev.x,prev.y,prev.w,prev.h},1.0f,overlayColor(kWhite));
+            ov.addTextCentered(modTargetName(s.target),{target.x,target.y,target.w,target.h},std::max(0.54f,std::min(0.82f,target.w/(std::char_traits<char>::length(modTargetName(s.target))*6.5f))),overlayColor(kWhite));
+            ov.addTextCentered("+",{next.x,next.y,next.w,next.h},1.0f,overlayColor(kWhite));
+            ov.addText("MIN",mn.x+4.0f,mn.y+mn.h*0.34f,std::max(0.55f,mn.h/38.0f),overlayColor(kWhite));
+            ov.addText("MAX",mx.x+4.0f,mx.y+mx.h*0.34f,std::max(0.55f,mx.h/38.0f),overlayColor(kWhite));
+            ov.addTextCentered("X",{del.x,del.y,del.w,del.h},1.0f,overlayColor(kWhite));
         }
-        drawButton(modAddRect(),count<4,kGreen);
+        const auto add=modAddRect();drawButton(add,count<4,kGreen);
+        NativeOverlay::instance().addTextCentered("+ LINK",{add.x,add.y,add.w,add.h},1.0f,overlayColor(count<4?kWhite:kButton));
     }
 }
 

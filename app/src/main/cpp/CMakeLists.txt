@@ -14,6 +14,7 @@ add_library(aiora SHARED
     NativeApp.cpp
     NativeUi.cpp
     NativeEditor.cpp
+    NativeOverlay.cpp
     AudioEngine.cpp
     FactoryPresets.cpp
     FxProcessor.cpp

@@ -1,10 +1,12 @@
 #include "NativeUi.h"
 #include "NativeEditor.h"
+#include "NativeOverlay.h"
 
 #include <GLES3/gl3.h>
 
 #include <algorithm>
 #include <array>
+#include <string>
 #include <cmath>
 
 #include "ProjectCore.h"
@@ -48,6 +50,10 @@ NativeUi::Rgb mix(NativeUi::Rgb a, NativeUi::Rgb b, float amount) noexcept {
         a.g + (b.g - a.g) * amount,
         a.b + (b.b - a.b) * amount
     };
+}
+
+NativeOverlay::Color overlayColor(NativeUi::Rgb c,float alpha=1.0f) noexcept {
+    return {c.r,c.g,c.b,alpha};
 }
 
 bool pageHasPadQuick(NativePage page) noexcept {
@@ -323,6 +329,18 @@ void NativeUi::drawGrid() const noexcept {
                 std::max(0.0f, rect.h - border * 2.0f)
             };
             fillRect(inner, mix(kPanel, color, active ? 0.52f : (selected ? 0.30f : 0.16f)));
+
+            auto& overlay=NativeOverlay::instance();
+            const float glyphInset=rect.w*0.19f;
+            overlay.addPitchGlyph(
+                midi%12,
+                {rect.x+glyphInset,rect.y+glyphInset,rect.w-glyphInset*2.0f,rect.h-glyphInset*2.0f},
+                overlayColor(active?mix(color,kWhite,0.30f):color));
+            if(((midi%12)+12)%12==2){
+                const int octave=(midi-62)/12;
+                const std::string label=octave>0?("+"+std::to_string(octave)):std::to_string(octave);
+                overlay.addText(label,rect.x+rect.w*0.63f,rect.y+rect.h*0.72f,std::max(0.85f,rect.w/34.0f),overlayColor(kMuted));
+            }
         }
     }
 }
@@ -361,10 +379,21 @@ void NativeUi::drawTracks() const noexcept {
         if (project.trackSolo(i)) {
             fillRect({rect.x + inset * 2.0f + markerW, rect.y + inset, markerW, rect.h - inset * 2.0f}, kOrange);
         }
+
+        auto& overlay=NativeOverlay::instance();
+        overlay.addText(
+            project.trackName(i),
+            rect.x+inset*2.0f,
+            rect.y+(rect.h-7.0f*std::max(1.0f,rect.h/30.0f))*0.5f,
+            std::max(1.0f,rect.h/30.0f),
+            overlayColor(isSelected?kWhite:(drum?kOrange:kCyan)));
     }
 
     fillRect(addTrackRect(TrackAddKind::Melodic), mix(kButton, kCyan, 0.28f));
     fillRect(addTrackRect(TrackAddKind::Drums), mix(kButton, kOrange, 0.32f));
+    auto& overlay=NativeOverlay::instance();
+    overlay.addTextCentered("+ TRACK",{addTrackRect(TrackAddKind::Melodic).x,addTrackRect(TrackAddKind::Melodic).y,addTrackRect(TrackAddKind::Melodic).w,addTrackRect(TrackAddKind::Melodic).h},1.35f,overlayColor(kCyan));
+    overlay.addTextCentered("+ DRUM",{addTrackRect(TrackAddKind::Drums).x,addTrackRect(TrackAddKind::Drums).y,addTrackRect(TrackAddKind::Drums).w,addTrackRect(TrackAddKind::Drums).h},1.35f,overlayColor(kOrange));
 }
 
 void NativeUi::drawPadQuick() const noexcept {
@@ -387,6 +416,15 @@ void NativeUi::drawPadQuick() const noexcept {
             std::max(0.0f, rect.h - inset * 2.0f)
         };
         fillRect(inner, i == selected ? mix(kPanel, kOrange, 0.22f) : kPanel);
+
+        auto& overlay=NativeOverlay::instance();
+        std::string name=project.padIcon(track,i);
+        if(name.empty())name="PAD";
+        overlay.addTextCentered(
+            name,
+            {rect.x+2.0f,rect.y+2.0f,rect.w-4.0f,rect.h-4.0f},
+            std::max(0.72f,std::min(1.1f,rect.w/(std::max<size_t>(1,name.size())*7.0f))),
+            overlayColor(i==selected?kOrange:color));
     }
 }
 
@@ -401,6 +439,7 @@ void NativeUi::drawRoll() const noexcept {
     const auto content = contentRect();
     fillRect(content, kPanel);
 
+    static constexpr const char* kModeNames[4]={"NOTES","BEND","V","M"};
     for (int i = 0; i < 4; ++i) {
         const auto mode = static_cast<RollMode>(i);
         const Rgb modeColor =
@@ -409,7 +448,11 @@ void NativeUi::drawRoll() const noexcept {
                    mode == RollMode::Velocity ? kWhite :
                    mode == RollMode::Mod ? kPurple : kOrange)
                 : kButton;
-        fillRect(rollModeRect(i), modeColor);
+        const auto mr=rollModeRect(i);
+        fillRect(mr, modeColor);
+        NativeOverlay::instance().addTextCentered(
+            kModeNames[i],{mr.x,mr.y,mr.w,mr.h},1.2f,
+            overlayColor(mode==rollMode_?kBg:kWhite));
     }
 
     const int track = project.selectedTrack();
@@ -438,9 +481,15 @@ void NativeUi::drawRoll() const noexcept {
         const int midi = columns[static_cast<size_t>(pitchOffset + c)];
         const float x = viewport.x + gutter + c * cell;
         fillRect({x, viewport.y, cell - 1.0f, header - 2.0f}, kPanel);
-        fillRect({x, viewport.y + header - 4.0f, cell - 1.0f, 3.0f}, pitchColor(midi));
+        const auto pcColor=pitchColor(midi);
+        fillRect({x, viewport.y + header - 4.0f, cell - 1.0f, 3.0f}, pcColor);
+        NativeOverlay::instance().addPitchGlyph(
+            midi%12,{x+cell*0.19f,viewport.y+3.0f,cell*0.62f,std::min(cell*0.62f,header*0.68f)},overlayColor(pcColor));
         if (((midi % 12) + 12) % 12 == 2) {
-            fillRect({x + cell * 0.42f, viewport.y + 5.0f, cell * 0.16f, header * 0.35f}, kMuted);
+            const int octave=(midi-62)/12;
+            const std::string label=octave>0?("+"+std::to_string(octave)):std::to_string(octave);
+            NativeOverlay::instance().addText(
+                label,x+cell*0.60f,viewport.y+header*0.62f,std::max(0.65f,cell/40.0f),overlayColor(kMuted));
         }
     }
 
@@ -455,6 +504,11 @@ void NativeUi::drawRoll() const noexcept {
             step % beatLen == 0 ? kBeat : kCell;
 
         fillRect({viewport.x, y, gutter - 2.0f, cell - 1.0f}, rowColor);
+        if(step%barLen==0){
+            const int bar=step/barLen+1;
+            NativeOverlay::instance().addText(
+                std::to_string(bar),viewport.x+4.0f,y+cell*0.33f,std::max(0.72f,cell/34.0f),overlayColor(kWhite));
+        }
         for (int c = 0; c < visibleCols && pitchOffset + c < static_cast<int>(columns.size()); ++c) {
             const float x = viewport.x + gutter + c * cell;
             fillRect({x, y, cell - 1.0f, cell - 1.0f}, rowColor);
@@ -535,6 +589,7 @@ void NativeUi::render() const noexcept {
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_SCISSOR_TEST);
+    NativeOverlay::instance().begin(width_,height_);
 
     glScissor(0, 0, width_, height_);
     glClearColor(kBg.r, kBg.g, kBg.b, 1.0f);
@@ -542,10 +597,20 @@ void NativeUi::render() const noexcept {
 
     const float headerH = std::max(38.0f, height_ * 0.105f);
     fillRect({0.0f, 0.0f, static_cast<float>(width_), headerH}, kTop);
+    auto& overlay=NativeOverlay::instance();
+    const float logoSize=std::min(30.0f,headerH-6.0f);
+    overlay.addLogo({8.0f,(headerH-logoSize)*0.5f,logoSize,logoSize},overlayColor(kCyan));
+    overlay.addText("AIORA",14.0f+logoSize,(headerH-14.0f)*0.5f,2.0f,overlayColor(kWhite));
 
+    static constexpr const char* kNavNames[6]={"TRACKS","DRUMS","ROLL","SYNTH","FX","PLAY"};
     for (int i = 0; i < 6; ++i) {
         const auto page = static_cast<NativePage>(i);
-        fillRect(navRect(i), page == page_ ? kCyan : kButton);
+        const auto nr=navRect(i);
+        fillRect(nr, page == page_ ? kCyan : kButton);
+        overlay.addTextCentered(
+            kNavNames[i],{nr.x,nr.y,nr.w,nr.h},
+            std::max(0.75f,std::min(1.25f,nr.w/(std::char_traits<char>::length(kNavNames[i])*7.0f))),
+            overlayColor(page==page_?kBg:kWhite));
     }
 
     switch (page_) {
@@ -578,6 +643,7 @@ void NativeUi::render() const noexcept {
     }
 
     glDisable(GL_SCISSOR_TEST);
+    NativeOverlay::instance().flush();
 }
 
 std::optional<NativePage> NativeUi::hitNav(float x, float y) const noexcept {
