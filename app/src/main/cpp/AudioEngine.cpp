@@ -113,6 +113,15 @@ bool AudioEngine::playTransport(){
 void AudioEngine::stopTransport() noexcept {events_.push({EventType::StopTransport,-1,0,0,0,0});}
 void AudioEngine::collectRetiredSnapshots() noexcept {PlaybackSnapshot*p=nullptr;while(retiredSnapshots_.pop(p))delete p;}
 
+void AudioEngine::copyScope(std::array<float,kScopeReadSamples>& out) const noexcept {
+    const uint32_t published=scopeWrite_.load(std::memory_order_acquire);
+    const uint32_t begin=published-static_cast<uint32_t>(kScopeReadSamples);
+    for(size_t i=0;i<out.size();++i){
+        const uint32_t index=(begin+static_cast<uint32_t>(i))%static_cast<uint32_t>(kScopeSamples);
+        out[i]=static_cast<float>(scope_[index].load(std::memory_order_relaxed))/32767.0f;
+    }
+}
+
 AudioEngine::VoiceSlot& AudioEngine::allocateVoice() noexcept {
     for(auto&slot:voices_)if(!slot.voice.active())return slot;
     return *std::min_element(voices_.begin(),voices_.end(),[](const VoiceSlot&a,const VoiceSlot&b){return a.voice.age()<b.voice.age();});
@@ -223,7 +232,18 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audioData,int32_t numFrames){
     Event e;while(events_.pop(e))applyEvent(e);auto*out=static_cast<float*>(audioData);
-    for(int32_t i=0;i<numFrames;++i){const auto s=renderFrame();out[i*2]=s[0];out[i*2+1]=s[1];advanceTransport();}
+    uint32_t scopeWrite=scopeWrite_.load(std::memory_order_relaxed);
+    for(int32_t i=0;i<numFrames;++i){
+        const auto s=renderFrame();
+        out[i*2]=s[0];out[i*2+1]=s[1];
+        const float mono=std::clamp((s[0]+s[1])*0.5f,-1.0f,1.0f);
+        scope_[scopeWrite%static_cast<uint32_t>(kScopeSamples)].store(
+            static_cast<int32_t>(std::lround(mono*32767.0f)),
+            std::memory_order_relaxed);
+        ++scopeWrite;
+        advanceTransport();
+    }
+    scopeWrite_.store(scopeWrite,std::memory_order_release);
     return oboe::DataCallbackResult::Continue;
 }
 
