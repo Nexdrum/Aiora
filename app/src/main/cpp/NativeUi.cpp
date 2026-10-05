@@ -82,11 +82,21 @@ void NativeUi::clearPitchActivity() noexcept {
     active_.fill(false);
 }
 
+NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
+    const float margin=std::max(5.0f,width_*0.010f);
+    const float headerH=std::max(38.0f,height_*0.105f);
+    const float brand=std::clamp(width_*0.26f,96.0f,230.0f);
+    const float left=margin+100.0f;
+    const float right=margin+brand-5.0f;
+    if(right-left<56.0f)return {};
+    return {left,6.0f,right-left,std::max(24.0f,headerH-12.0f)};
+}
+
 NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
     const float margin=std::max(5.0f,width_*0.010f);
     const float gap=std::max(3.0f,width_*0.004f);
     const float headerH=std::max(38.0f,height_*0.105f);
-    const float brand=std::clamp(width_*0.22f,80.0f,150.0f);
+    const float brand=std::clamp(width_*0.26f,96.0f,230.0f);
     const float available=std::max(120.0f,static_cast<float>(width_)-margin*2.0f-brand-gap*4.0f);
     static constexpr float ratios[5]={0.30f,0.16f,0.16f,0.14f,0.24f};
     float x=margin+brand;
@@ -358,6 +368,48 @@ void NativeUi::fillRect(const Rect& rect, Rgb color) const noexcept {
     glScissor(x, glY, w, h);
     glClearColor(color.r, color.g, color.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void NativeUi::drawScope() const noexcept {
+    const auto r=headerScopeRect();
+    if(r.w<56.0f||r.h<20.0f)return;
+
+    std::array<float,AudioEngine::kScopeReadSamples> samples{};
+    AudioEngine::instance().copyScope(samples);
+
+    fillRect(r,mix(kTop,kBg,0.38f));
+    fillRect({r.x,r.y+r.h*0.5f,r.w,1.0f},mix(kMuted,kTop,0.35f));
+
+    size_t trigger=0;
+    const size_t searchEnd=samples.size()/2;
+    for(size_t i=1;i<searchEnd;++i){
+        if(samples[i-1]<=0.0f&&samples[i]>0.0f){
+            trigger=i;
+            break;
+        }
+    }
+
+    const int points=std::clamp(static_cast<int>(r.w/2.0f),24,96);
+    float prevY=r.y+r.h*0.5f;
+    for(int i=0;i<points;++i){
+        const float t=points>1?static_cast<float>(i)/static_cast<float>(points-1):0.0f;
+        const size_t available=samples.size()-trigger;
+        const size_t idx=trigger+std::min(
+            available-1,
+            static_cast<size_t>(t*static_cast<float>(available-1)));
+        const float sample=std::clamp(samples[idx],-1.0f,1.0f);
+        const float y=r.y+r.h*0.5f-sample*(r.h*0.43f);
+        const float x=r.x+t*r.w;
+
+        if(i>0){
+            const float top=std::min(prevY,y);
+            const float bottom=std::max(prevY,y);
+            const auto color=pitchColor((i*12)/std::max(1,points));
+            fillRect({x-2.0f,top,3.0f,std::max(2.0f,bottom-top)},mix(kTop,color,0.46f));
+            fillRect({x-0.75f,top,1.5f,std::max(1.5f,bottom-top)},color);
+        }
+        prevY=y;
+    }
 }
 
 void NativeUi::drawGrid() const noexcept {
@@ -892,6 +944,7 @@ void NativeUi::render() const noexcept {
     const float logoSize=std::min(30.0f,headerH-6.0f);
     overlay.addLogo({8.0f,(headerH-logoSize)*0.5f,logoSize,logoSize},overlayColor(kCyan));
     overlay.addText("AIORA",14.0f+logoSize,(headerH-14.0f)*0.5f,2.0f,overlayColor(kWhite));
+    drawScope();
 
     auto& project=ProjectCore::instance();
     auto& audio=AudioEngine::instance();
