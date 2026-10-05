@@ -27,6 +27,83 @@ const std::vector<CurvePoint>* curveFor(const Note& n,int kind){
     return nullptr;
 }
 float clampCurveValue(int kind,float v){return kind==0?std::clamp(v,-12.0f,12.0f):std::clamp(v,0.0f,1.0f);}
+
+float clampOperatorParam(OperatorParam param,float v){
+    switch(param){
+        case OperatorParam::Ratio:return std::clamp(v,0.125f,16.0f);
+        case OperatorParam::Detune:return std::clamp(v,-100.0f,100.0f);
+        case OperatorParam::Level:return std::clamp(v,0.0f,1.0f);
+        case OperatorParam::Attack:return std::clamp(v,0.001f,1.0f);
+        case OperatorParam::Decay:return std::clamp(v,0.005f,1.5f);
+        case OperatorParam::Sustain:return std::clamp(v,0.0f,1.0f);
+        case OperatorParam::Release:return std::clamp(v,0.02f,2.0f);
+    }
+    return v;
+}
+
+float clampPatchParam(PatchParam param,float v){
+    switch(param){
+        case PatchParam::FilterCutoff:return std::clamp(v,40.0f,18000.0f);
+        case PatchParam::FilterResonance:return std::clamp(v,0.1f,18.0f);
+        case PatchParam::FilterEnv:return std::clamp(v,0.0f,1.0f);
+        case PatchParam::FilterAttack:return std::clamp(v,0.005f,1.0f);
+        case PatchParam::FilterDecay:return std::clamp(v,0.01f,1.5f);
+        case PatchParam::FilterSustain:return std::clamp(v,0.0f,1.0f);
+        case PatchParam::FilterRelease:return std::clamp(v,0.02f,2.0f);
+        case PatchParam::AmpAttack:return std::clamp(v,0.001f,1.0f);
+        case PatchParam::AmpDecay:return std::clamp(v,0.01f,1.5f);
+        case PatchParam::AmpSustain:return std::clamp(v,0.0f,1.0f);
+        case PatchParam::AmpRelease:return std::clamp(v,0.02f,2.0f);
+        case PatchParam::VelocityAmp:
+        case PatchParam::VelocityFilter:
+        case PatchParam::LfoAmount:
+        case PatchParam::LfoVelocity:
+        case PatchParam::Unison:
+        case PatchParam::Glide:
+        case PatchParam::Volume:
+        case PatchParam::Distortion:
+        case PatchParam::Delay:
+        case PatchParam::Reverb:
+            return std::clamp(v,0.0f,1.0f);
+        case PatchParam::LfoRate:return std::clamp(v,0.1f,20.0f);
+        case PatchParam::LfoAttack:return std::clamp(v,0.0f,2.0f);
+        case PatchParam::DelayTime:return std::clamp(v,0.03f,1.0f);
+        case PatchParam::DelayFeedback:return std::clamp(v,0.0f,0.85f);
+    }
+    return v;
+}
+
+float clampModValue(ModTarget target,float v){
+    switch(target){
+        case ModTarget::Cutoff:return std::clamp(v,40.0f,18000.0f);
+        case ModTarget::Resonance:return std::clamp(v,0.1f,18.0f);
+        case ModTarget::FilterEnv:return std::clamp(v,0.0f,1.0f);
+        case ModTarget::AmpAttack:return std::clamp(v,0.001f,1.0f);
+        case ModTarget::AmpDecay:return std::clamp(v,0.01f,1.5f);
+        case ModTarget::AmpSustain:return std::clamp(v,0.0f,1.0f);
+        case ModTarget::AmpRelease:return std::clamp(v,0.02f,2.0f);
+        case ModTarget::FilterAttack:return std::clamp(v,0.005f,1.0f);
+        case ModTarget::FilterDecay:return std::clamp(v,0.01f,1.5f);
+        case ModTarget::FilterSustain:return std::clamp(v,0.0f,1.0f);
+        case ModTarget::FilterRelease:return std::clamp(v,0.02f,2.0f);
+        case ModTarget::Op1: case ModTarget::Op2: case ModTarget::Op3:
+        case ModTarget::Op4: case ModTarget::Op5: case ModTarget::Op6:
+        case ModTarget::Morph1: case ModTarget::Morph2: case ModTarget::Morph3:
+        case ModTarget::Morph4: case ModTarget::Morph5: case ModTarget::Morph6:
+        case ModTarget::Unison:
+            return std::clamp(v,0.0f,1.0f);
+        case ModTarget::Fm:return std::clamp(v,0.0f,1.5f);
+        case ModTarget::LfoAmount:return std::clamp(v,0.0f,2.0f);
+        case ModTarget::LfoRate:return std::clamp(v,0.1f,20.0f);
+        case ModTarget::Volume:return std::clamp(v,0.0f,2.0f);
+        case ModTarget::None:return 0.0f;
+    }
+    return v;
+}
+
+std::array<float,16> defaultHarmonics(){
+    return {1.0f,0.5f,0.33f,0.25f,0.2f,0.16f,0.14f,0.12f,0.1f,0.09f,0.08f,0.07f,0.06f,0.05f,0.04f,0.03f};
+}
 }
 
 ProjectCore& ProjectCore::instance() {
@@ -49,6 +126,19 @@ bool ProjectCore::pitchAllowed(int trackIndex,int midi) const noexcept {
     if(!t.drums||t.pads.empty())return true;
     for(const auto& p:t.pads){const int lo=std::min(p.lowMidi,p.highMidi),hi=std::max(p.lowMidi,p.highMidi);if(midi>=lo&&midi<=hi)return true;}
     return false;
+}
+
+Patch* ProjectCore::selectedPatchUnsafe() noexcept {
+    if(!validTrack(selectedTrack_))return nullptr;
+    auto& t=project_.tracks[selectedTrack_];
+    if(t.drums&&validPad(selectedTrack_,t.selectedPad))return &t.pads[t.selectedPad].patch;
+    return &t.patch;
+}
+const Patch* ProjectCore::selectedPatchUnsafe() const noexcept {
+    if(!validTrack(selectedTrack_))return nullptr;
+    const auto& t=project_.tracks[selectedTrack_];
+    if(t.drums&&validPad(selectedTrack_,t.selectedPad))return &t.pads[t.selectedPad].patch;
+    return &t.patch;
 }
 
 void ProjectCore::reset() {std::scoped_lock lock(mutex_);project_ = {};selectedTrack_ = -1;}
@@ -158,9 +248,15 @@ void ProjectCore::setDozenal(bool e){std::scoped_lock lock(mutex_);project_.doze
 void ProjectCore::setMasterVolume(float v){std::scoped_lock lock(mutex_);project_.masterVolume=std::clamp(v,0.0f,1.0f);}
 void ProjectCore::setMasterReverb(float v){std::scoped_lock lock(mutex_);project_.masterReverb=std::clamp(v,0.0f,1.0f);}
 
+Patch ProjectCore::selectedPatch() const {
+    std::scoped_lock lock(mutex_);
+    const auto* p=selectedPatchUnsafe();
+    return p?*p:makeFactoryPatch(FactoryPreset::SpectrachordInit);
+}
 DspPatch ProjectCore::selectedDspPatch() const {
-    std::scoped_lock lock(mutex_);if(!validTrack(selectedTrack_))return toDspPatch(makeFactoryPatch(FactoryPreset::SpectrachordInit));
-    const auto& t=project_.tracks[selectedTrack_];if(t.drums&&validPad(selectedTrack_,t.selectedPad))return toDspPatch(t.pads[t.selectedPad].patch);return toDspPatch(t.patch);
+    std::scoped_lock lock(mutex_);
+    const auto* p=selectedPatchUnsafe();
+    return p?toDspPatch(*p):toDspPatch(makeFactoryPatch(FactoryPreset::SpectrachordInit));
 }
 Fx ProjectCore::selectedFx() const {
     std::scoped_lock lock(mutex_);if(!validTrack(selectedTrack_))return makeFactoryPatch(FactoryPreset::SpectrachordInit).fx;
@@ -168,5 +264,130 @@ Fx ProjectCore::selectedFx() const {
 }
 DspPatch ProjectCore::padDspPatch(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?toDspPatch(project_.tracks[t].pads[p].patch):toDspPatch(makeFactoryPatch(FactoryPreset::SpectrachordInit));}
 Fx ProjectCore::padFx(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?project_.tracks[t].pads[p].patch.fx:Fx{};}
+
+bool ProjectCore::setSelectedOperatorEnabled(int opIndex,bool enabled){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||opIndex<0||opIndex>=6)return false;p->ops[opIndex].enabled=enabled;return true;
+}
+bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||opIndex<0||opIndex>=6)return false;
+    auto& op=p->ops[opIndex];op.wave=wave;
+    if(wave==Wave::Custom&&!op.hasHarm){op.harm=defaultHarmonics();op.hasHarm=true;}
+    return true;
+}
+bool ProjectCore::setSelectedOperatorParam(int opIndex,OperatorParam param,float value){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||opIndex<0||opIndex>=6)return false;
+    auto& op=p->ops[opIndex];const float v=clampOperatorParam(param,value);
+    switch(param){
+        case OperatorParam::Ratio:op.ratio=v;break;
+        case OperatorParam::Detune:op.detuneCents=v;break;
+        case OperatorParam::Level:op.level=v;break;
+        case OperatorParam::Attack:op.env.attack=v;break;
+        case OperatorParam::Decay:op.env.decay=v;break;
+        case OperatorParam::Sustain:op.env.sustain=v;break;
+        case OperatorParam::Release:op.env.release=v;break;
+    }
+    return true;
+}
+bool ProjectCore::setSelectedHarmonic(int opIndex,int partialIndex,float value,bool muted){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
+    if(!p||opIndex<0||opIndex>=6||partialIndex<0||partialIndex>=16)return false;
+    auto& op=p->ops[opIndex];const float v=std::clamp(value,0.0f,1.0f);
+    if(muted){op.harmMute[partialIndex]=v;op.hasHarmMute=true;}
+    else{op.harm[partialIndex]=v;op.hasHarm=true;}
+    return true;
+}
+bool ProjectCore::setSelectedMatrixAmount(int modulator,int carrier,float value){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
+    if(!p||modulator<0||modulator>=6||carrier<0||carrier>=6)return false;
+    p->matrix[modulator][carrier]=std::clamp(value,0.0f,1.0f);return true;
+}
+bool ProjectCore::setSelectedFilterType(FilterType type){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->filter.type=type;return true;
+}
+bool ProjectCore::setSelectedLfoTarget(LfoTarget target){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->lfo.target=target;return true;
+}
+bool ProjectCore::setSelectedPatchParam(PatchParam param,float value){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;const float v=clampPatchParam(param,value);
+    switch(param){
+        case PatchParam::FilterCutoff:p->filter.cutoff=v;break;
+        case PatchParam::FilterResonance:p->filter.resonance=v;break;
+        case PatchParam::FilterEnv:p->filter.envAmount=v;break;
+        case PatchParam::FilterAttack:p->filter.env.attack=v;break;
+        case PatchParam::FilterDecay:p->filter.env.decay=v;break;
+        case PatchParam::FilterSustain:p->filter.env.sustain=v;break;
+        case PatchParam::FilterRelease:p->filter.env.release=v;break;
+        case PatchParam::AmpAttack:p->amp.attack=v;break;
+        case PatchParam::AmpDecay:p->amp.decay=v;break;
+        case PatchParam::AmpSustain:p->amp.sustain=v;break;
+        case PatchParam::AmpRelease:p->amp.release=v;break;
+        case PatchParam::VelocityAmp:p->velocityAmp=v;break;
+        case PatchParam::VelocityFilter:p->velocityFilter=v;break;
+        case PatchParam::LfoRate:p->lfo.rate=v;break;
+        case PatchParam::LfoAmount:p->lfo.amount=v;break;
+        case PatchParam::LfoAttack:p->lfo.attack=v;break;
+        case PatchParam::LfoVelocity:p->lfo.velocitySensitivity=v;break;
+        case PatchParam::Unison:p->unison=v;break;
+        case PatchParam::Glide:p->glide=v;break;
+        case PatchParam::Volume:p->volume=v;break;
+        case PatchParam::Distortion:p->fx.distortion=v;break;
+        case PatchParam::Delay:p->fx.delay=v;break;
+        case PatchParam::DelayTime:p->fx.delayTime=v;break;
+        case PatchParam::DelayFeedback:p->fx.delayFeedback=v;break;
+        case PatchParam::Reverb:p->fx.reverb=v;break;
+    }
+    return true;
+}
+
+int ProjectCore::selectedModSlotCount() const {
+    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();return p?static_cast<int>(p->modSlotCount):0;
+}
+ModSlot ProjectCore::selectedModSlot(int slotIndex) const {
+    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();
+    if(!p||slotIndex<0||slotIndex>=static_cast<int>(p->modSlotCount)||slotIndex>=4)return {};
+    return p->modSlots[slotIndex];
+}
+bool ProjectCore::addSelectedModSlot(ModTarget target){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||p->modSlotCount>=4)return false;
+    const int index=p->modSlotCount++;
+    float v=0.0f;
+    switch(target){
+        case ModTarget::Cutoff:v=p->filter.cutoff;break;
+        case ModTarget::Resonance:v=p->filter.resonance;break;
+        case ModTarget::FilterEnv:v=p->filter.envAmount;break;
+        case ModTarget::AmpAttack:v=p->amp.attack;break;
+        case ModTarget::AmpDecay:v=p->amp.decay;break;
+        case ModTarget::AmpSustain:v=p->amp.sustain;break;
+        case ModTarget::AmpRelease:v=p->amp.release;break;
+        case ModTarget::FilterAttack:v=p->filter.env.attack;break;
+        case ModTarget::FilterDecay:v=p->filter.env.decay;break;
+        case ModTarget::FilterSustain:v=p->filter.env.sustain;break;
+        case ModTarget::FilterRelease:v=p->filter.env.release;break;
+        case ModTarget::Op1:v=p->ops[0].level;break;
+        case ModTarget::Op2:v=p->ops[1].level;break;
+        case ModTarget::Op3:v=p->ops[2].level;break;
+        case ModTarget::Op4:v=p->ops[3].level;break;
+        case ModTarget::Op5:v=p->ops[4].level;break;
+        case ModTarget::Op6:v=p->ops[5].level;break;
+        case ModTarget::LfoAmount:v=p->lfo.amount;break;
+        case ModTarget::LfoRate:v=p->lfo.rate;break;
+        case ModTarget::Unison:v=p->unison;break;
+        case ModTarget::Volume:v=p->volume;break;
+        default:v=0.0f;break;
+    }
+    p->modSlots[index]={target,v,v};return true;
+}
+bool ProjectCore::removeSelectedModSlot(int slotIndex){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
+    if(!p||slotIndex<0||slotIndex>=static_cast<int>(p->modSlotCount))return false;
+    for(int i=slotIndex;i+1<static_cast<int>(p->modSlotCount);++i)p->modSlots[i]=p->modSlots[i+1];
+    if(p->modSlotCount>0)--p->modSlotCount;
+    p->modSlots[p->modSlotCount]={};return true;
+}
+bool ProjectCore::setSelectedModSlot(int slotIndex,ModTarget target,float minValue,float maxValue){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
+    if(!p||slotIndex<0||slotIndex>=static_cast<int>(p->modSlotCount)||slotIndex>=4)return false;
+    p->modSlots[slotIndex]={target,clampModValue(target,minValue),clampModValue(target,maxValue)};return true;
+}
 
 } // namespace aiora

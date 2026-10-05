@@ -8,6 +8,20 @@ namespace aiora {
 
 struct PlaybackSnapshot;
 
+enum class OperatorParam : uint8_t {
+    Ratio, Detune, Level, Attack, Decay, Sustain, Release
+};
+
+enum class PatchParam : uint8_t {
+    FilterCutoff, FilterResonance, FilterEnv,
+    FilterAttack, FilterDecay, FilterSustain, FilterRelease,
+    AmpAttack, AmpDecay, AmpSustain, AmpRelease,
+    VelocityAmp, VelocityFilter,
+    LfoRate, LfoAmount, LfoAttack, LfoVelocity,
+    Unison, Glide, Volume,
+    Distortion, Delay, DelayTime, DelayFeedback, Reverb
+};
+
 class ProjectCore {
 public:
     static ProjectCore& instance();
@@ -75,10 +89,27 @@ public:
     void setMasterVolume(float value);
     void setMasterReverb(float value);
 
+    Patch selectedPatch() const;
     DspPatch selectedDspPatch() const;
     Fx selectedFx() const;
     DspPatch padDspPatch(int trackIndex, int padIndex) const;
     Fx padFx(int trackIndex, int padIndex) const;
+
+    bool setSelectedOperatorEnabled(int opIndex, bool enabled);
+    bool setSelectedOperatorWave(int opIndex, Wave wave);
+    bool setSelectedOperatorParam(int opIndex, OperatorParam param, float value);
+    bool setSelectedHarmonic(int opIndex, int partialIndex, float value, bool muted = false);
+    bool setSelectedMatrixAmount(int modulator, int carrier, float value);
+    bool setSelectedFilterType(FilterType type);
+    bool setSelectedLfoTarget(LfoTarget target);
+    bool setSelectedPatchParam(PatchParam param, float value);
+
+    int selectedModSlotCount() const;
+    ModSlot selectedModSlot(int slotIndex) const;
+    bool addSelectedModSlot(ModTarget target = ModTarget::Cutoff);
+    bool removeSelectedModSlot(int slotIndex);
+    bool setSelectedModSlot(int slotIndex, ModTarget target, float minValue, float maxValue);
+
     std::unique_ptr<PlaybackSnapshot> makePlaybackSnapshot() const;
 
 private:
@@ -89,6 +120,8 @@ private:
     bool validNote(int trackIndex, int noteIndex) const noexcept;
     bool rangeFree(int trackIndex, int padIndex, int low, int high) const noexcept;
     bool pitchAllowed(int trackIndex, int midi) const noexcept;
+    Patch* selectedPatchUnsafe() noexcept;
+    const Patch* selectedPatchUnsafe() const noexcept;
 
     mutable std::mutex mutex_;
     Project project_{};
