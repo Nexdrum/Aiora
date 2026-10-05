@@ -34,6 +34,7 @@ public:
 
     [[nodiscard]] std::optional<PatchTransferAction> hitPatchTransfer(
         EditorPage page, float x, float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitFactoryPreset(float x,float y) const noexcept;
 
 private:
     NativeEditor() = default;
@@ -58,6 +59,7 @@ private:
     [[nodiscard]] Rect bodyRect() const noexcept;
     [[nodiscard]] Rect patchTransferRect(int index) const noexcept;
 
+    [[nodiscard]] Rect factoryPresetRect(int index) const noexcept;
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
     [[nodiscard]] Rect operatorSelectRect(int index) const noexcept;
     [[nodiscard]] Rect waveRect(int index) const noexcept;
