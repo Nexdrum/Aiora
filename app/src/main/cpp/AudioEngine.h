@@ -49,6 +49,7 @@ private:
         int32_t source{0};
         float value{0.8f};
         uintptr_t pointer{0};
+        DspPatch patch{};
     };
     struct VoiceSlot {
         SpectrachordVoice voice{};
