@@ -4,13 +4,22 @@
 #include <GLES3/gl3.h>
 
 #include <algorithm>
+#include <array>
 
 #include "AudioEngine.h"
+#include "NativeUi.h"
 #include "ProjectCore.h"
 
 namespace {
 
 constexpr char kTag[] = "AIORA";
+constexpr size_t kMaxPointers = 16;
+
+struct PointerVoice {
+    int32_t pointerId{-1};
+    int midi{-1};
+    int voiceId{-1};
+};
 
 struct NativeState {
     android_app* app{};
@@ -20,6 +29,8 @@ struct NativeState {
     int width{0};
     int height{0};
     bool drawable{false};
+    aiora::NativeUi ui{};
+    std::array<PointerVoice, kMaxPointers> touches{};
 };
 
 bool createSurface(NativeState& state) {
@@ -68,12 +79,23 @@ bool createSurface(NativeState& state) {
     eglQuerySurface(state.display, state.surface, EGL_WIDTH, &state.width);
     eglQuerySurface(state.display, state.surface, EGL_HEIGHT, &state.height);
 
-    glDisable(GL_DEPTH_TEST);
+    state.ui.resize(state.width, state.height);
     state.drawable = true;
     return true;
 }
 
+void releaseAllTouches(NativeState& state) {
+    auto& audio = aiora::AudioEngine::instance();
+    for (auto& touch : state.touches) {
+        if (touch.voiceId >= 0) audio.noteOff(touch.voiceId);
+        if (touch.midi >= 0) state.ui.setPitchActive(touch.midi, false);
+        touch = {};
+    }
+    state.ui.clearPitchActivity();
+}
+
 void destroySurface(NativeState& state) {
+    releaseAllTouches(state);
     state.drawable = false;
     if (state.display != EGL_NO_DISPLAY) {
         eglMakeCurrent(
@@ -93,51 +115,137 @@ void destroySurface(NativeState& state) {
 
 void drawFrame(NativeState& state) {
     if (!state.drawable) return;
-
     glViewport(0, 0, state.width, state.height);
-    glClearColor(0.0627f, 0.0706f, 0.0863f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    // First native milestone: EGL + Oboe + C++ project core are live.
-    // The finalized AIORA panels/grids will be rendered here next.
+    state.ui.render();
     eglSwapBuffers(state.display, state.surface);
+}
+
+PointerVoice* findTouch(NativeState& state, int32_t pointerId) {
+    for (auto& touch : state.touches) {
+        if (touch.pointerId == pointerId) return &touch;
+    }
+    return nullptr;
+}
+
+PointerVoice* allocateTouch(NativeState& state, int32_t pointerId) {
+    if (auto* existing = findTouch(state, pointerId)) return existing;
+    for (auto& touch : state.touches) {
+        if (touch.pointerId < 0) {
+            touch.pointerId = pointerId;
+            return &touch;
+        }
+    }
+    return nullptr;
+}
+
+void stopTouch(NativeState& state, PointerVoice& touch) {
+    if (touch.voiceId >= 0) {
+        aiora::AudioEngine::instance().noteOff(touch.voiceId);
+    }
+    if (touch.midi >= 0) {
+        state.ui.setPitchActive(touch.midi, false);
+    }
+    touch = {};
+}
+
+void startPitch(NativeState& state, PointerVoice& touch, int midi) {
+    if (touch.midi == midi && touch.voiceId >= 0) return;
+    if (touch.voiceId >= 0 || touch.midi >= 0) {
+        stopTouch(state, touch);
+    }
+
+    touch.midi = midi;
+    state.ui.setPitchActive(midi, true);
+
+    if (state.ui.page() == aiora::NativePage::Drums) {
+        touch.voiceId = aiora::AudioEngine::instance().noteOnPad(
+            aiora::NativeUi::padIndexForMidi(midi), midi, 0.85f);
+    } else {
+        touch.voiceId = aiora::AudioEngine::instance().noteOn(midi, 0.85f);
+    }
+}
+
+void handlePointerPosition(
+    NativeState& state,
+    int32_t pointerId,
+    float x,
+    float y,
+    bool allowNav) {
+
+    if (allowNav) {
+        if (const auto nav = state.ui.hitNav(x, y)) {
+            releaseAllTouches(state);
+            state.ui.setPage(*nav);
+            return;
+        }
+    }
+
+    auto* touch = allocateTouch(state, pointerId);
+    if (!touch) return;
+
+    if (const auto midi = state.ui.hitPitch(x, y)) {
+        startPitch(state, *touch, *midi);
+    } else if (touch->voiceId >= 0 || touch->midi >= 0) {
+        stopTouch(state, *touch);
+    }
 }
 
 int32_t handleInput(android_app* app, AInputEvent* event) {
     if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_MOTION) return 0;
 
     auto& state = *static_cast<NativeState*>(app->userData);
-    const int action = AMotionEvent_getAction(event) & AMOTION_EVENT_ACTION_MASK;
+    const int packedAction = AMotionEvent_getAction(event);
+    const int action = packedAction & AMOTION_EVENT_ACTION_MASK;
+    const size_t actionIndex = static_cast<size_t>(
+        (packedAction & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
+        AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT);
 
-    if (action == AMOTION_EVENT_ACTION_DOWN ||
-        action == AMOTION_EVENT_ACTION_POINTER_DOWN) {
-        const size_t index =
-            action == AMOTION_EVENT_ACTION_POINTER_DOWN
-                ? static_cast<size_t>(
-                      (AMotionEvent_getAction(event) &
-                       AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
-                      AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT)
-                : 0u;
+    switch (action) {
+        case AMOTION_EVENT_ACTION_DOWN:
+        case AMOTION_EVENT_ACTION_POINTER_DOWN: {
+            const size_t index = action == AMOTION_EVENT_ACTION_DOWN ? 0u : actionIndex;
+            const int32_t pointerId = AMotionEvent_getPointerId(event, index);
+            handlePointerPosition(
+                state,
+                pointerId,
+                AMotionEvent_getX(event, index),
+                AMotionEvent_getY(event, index),
+                true);
+            return 1;
+        }
 
-        const float x = AMotionEvent_getX(event, index);
-        const float y = AMotionEvent_getY(event, index);
+        case AMOTION_EVENT_ACTION_MOVE: {
+            const size_t count = AMotionEvent_getPointerCount(event);
+            for (size_t i = 0; i < count; ++i) {
+                const int32_t pointerId = AMotionEvent_getPointerId(event, i);
+                handlePointerPosition(
+                    state,
+                    pointerId,
+                    AMotionEvent_getX(event, i),
+                    AMotionEvent_getY(event, i),
+                    false);
+            }
+            return 1;
+        }
 
-        const float nx = state.width > 0
-            ? std::clamp(x / static_cast<float>(state.width), 0.0f, 1.0f)
-            : 0.5f;
-        const float ny = state.height > 0
-            ? std::clamp(y / static_cast<float>(state.height), 0.0f, 1.0f)
-            : 0.5f;
+        case AMOTION_EVENT_ACTION_UP:
+        case AMOTION_EVENT_ACTION_POINTER_UP: {
+            const size_t index = action == AMOTION_EVENT_ACTION_UP ? 0u : actionIndex;
+            const int32_t pointerId = AMotionEvent_getPointerId(event, index);
+            if (auto* touch = findTouch(state, pointerId)) {
+                stopTouch(state, *touch);
+            }
+            return 1;
+        }
 
-        // Temporary smoke-test input until the native 7x7 AIORA grid lands:
-        // horizontal position selects pitch, vertical position selects velocity.
-        const int midi = 38 + static_cast<int>(nx * 48.0f);
-        const float velocity = 1.0f - ny * 0.65f;
-        aiora::AudioEngine::instance().noteOn(midi, velocity);
-        return 1;
+        case AMOTION_EVENT_ACTION_CANCEL:
+            releaseAllTouches(state);
+            aiora::AudioEngine::instance().panic();
+            return 1;
+
+        default:
+            return 1;
     }
-
-    return 1;
 }
 
 void handleCommand(android_app* app, int32_t command) {
@@ -151,12 +259,25 @@ void handleCommand(android_app* app, int32_t command) {
             }
             break;
 
+        case APP_CMD_WINDOW_RESIZED:
+        case APP_CMD_CONTENT_RECT_CHANGED:
+            if (state.drawable) {
+                eglQuerySurface(state.display, state.surface, EGL_WIDTH, &state.width);
+                eglQuerySurface(state.display, state.surface, EGL_HEIGHT, &state.height);
+                state.ui.resize(state.width, state.height);
+            }
+            break;
+
         case APP_CMD_TERM_WINDOW:
             destroySurface(state);
             break;
 
         case APP_CMD_GAINED_FOCUS:
             aiora::AudioEngine::instance().start();
+            break;
+
+        case APP_CMD_LOST_FOCUS:
+            releaseAllTouches(state);
             break;
 
         case APP_CMD_LOW_MEMORY:
@@ -175,6 +296,8 @@ void android_main(android_app* app) {
 
     NativeState state;
     state.app = app;
+    for (auto& touch : state.touches) touch.pointerId = -1;
+
     app->userData = &state;
     app->onAppCmd = handleCommand;
     app->onInputEvent = handleInput;
