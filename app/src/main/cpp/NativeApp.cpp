@@ -328,6 +328,44 @@ void handleRollTap(NativeState& state, float x, float y, bool longPress) {
 
 bool handleUiTap(NativeState& state, float x, float y) {
     auto& project = aiora::ProjectCore::instance();
+    auto& audio = aiora::AudioEngine::instance();
+
+    if (const auto action = state.ui.hitHeader(x, y)) {
+        switch(*action) {
+            case aiora::HeaderAction::BpmDown:
+                project.setBpm(project.bpm()-1.0f);
+                if(audio.transportPlaying()) audio.syncProject();
+                break;
+            case aiora::HeaderAction::BpmUp:
+                project.setBpm(project.bpm()+1.0f);
+                if(audio.transportPlaying()) audio.syncProject();
+                break;
+            case aiora::HeaderAction::BeatsDown:
+                project.setSignature(std::max(1,project.beats()-1),project.divisions());
+                if(audio.transportPlaying()) audio.syncProject();
+                break;
+            case aiora::HeaderAction::BeatsUp:
+                project.setSignature(std::min(12,project.beats()+1),project.divisions());
+                if(audio.transportPlaying()) audio.syncProject();
+                break;
+            case aiora::HeaderAction::DivDown:
+                project.setSignature(project.beats(),std::max(1,project.divisions()-1));
+                if(audio.transportPlaying()) audio.syncProject();
+                break;
+            case aiora::HeaderAction::DivUp:
+                project.setSignature(project.beats(),std::min(12,project.divisions()+1));
+                if(audio.transportPlaying()) audio.syncProject();
+                break;
+            case aiora::HeaderAction::DozenalToggle:
+                project.setDozenal(!project.dozenal());
+                break;
+            case aiora::HeaderAction::TransportToggle:
+                if(audio.transportPlaying()) audio.stopTransport();
+                else audio.playTransport();
+                break;
+        }
+        return true;
+    }
 
     if (const auto nav = state.ui.hitNav(x, y)) {
         releaseAllTouches(state);

@@ -27,6 +27,14 @@ enum class RollMode : int {
     Mod = 3
 };
 
+enum class HeaderAction : int {
+    BpmDown, BpmUp,
+    BeatsDown, BeatsUp,
+    DivDown, DivUp,
+    DozenalToggle,
+    TransportToggle
+};
+
 struct RollCellHit {
     int midi{-1};
     int step{-1};
@@ -70,6 +78,7 @@ public:
 
     void render() const noexcept;
 
+    [[nodiscard]] std::optional<HeaderAction> hitHeader(float x, float y) const noexcept;
     [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
@@ -81,6 +90,7 @@ public:
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
 private:
+    [[nodiscard]] Rect headerControlRect(int index) const noexcept;
     [[nodiscard]] Rect navRect(int index) const noexcept;
     [[nodiscard]] Rect contentRect() const noexcept;
     [[nodiscard]] Rect gridAreaRect() const noexcept;
