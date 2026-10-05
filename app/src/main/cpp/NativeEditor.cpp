@@ -99,13 +99,29 @@ NativeEditor::Rect NativeEditor::contentRect() const noexcept {
     return {margin,top,std::max(0.0f,width_-margin*2.0f),std::max(0.0f,height_-top-margin)};
 }
 
-NativeEditor::Rect NativeEditor::bodyRect() const noexcept {
+NativeEditor::Rect NativeEditor::editorRect() const noexcept {
     auto r=contentRect();
     if(selectedTrackIsDrums()){
         const float gap=std::max(4.0f,height_*0.010f);
         const float padH=std::clamp(r.h*0.14f,34.0f,62.0f);
         r.y+=padH+gap;r.h=std::max(0.0f,r.h-padH-gap);
     }
+    return r;
+}
+
+NativeEditor::Rect NativeEditor::patchTransferRect(int index) const noexcept {
+    const auto e=editorRect();
+    const float gap=std::max(4.0f,height_*0.008f);
+    const float h=std::clamp(e.h*0.085f,30.0f,42.0f);
+    const float w=(e.w-gap*3.0f)*0.5f;
+    return {e.x+gap+index*(w+gap),e.y+e.h-h,w,h};
+}
+
+NativeEditor::Rect NativeEditor::bodyRect() const noexcept {
+    auto r=editorRect();
+    const float gap=std::max(4.0f,height_*0.008f);
+    const float transferH=patchTransferRect(0).h;
+    r.h=std::max(0.0f,r.h-transferH-gap);
     return r;
 }
 
@@ -372,11 +388,22 @@ void NativeEditor::drawButton(Rect r,bool active,Rgb accent) const noexcept {
     fillRect({r.x+inset,r.y+inset,std::max(0.0f,r.w-inset*2.0f),std::max(0.0f,r.h-inset*2.0f)},active?mix(kPanel,accent,0.18f):kPanel);
 }
 void NativeEditor::drawPadReservedBackground() const noexcept {
-    fillRect(bodyRect(),kPanel);
+    fillRect(editorRect(),kPanel);
+}
+
+void NativeEditor::drawPatchTransfer() const noexcept {
+    const auto copy=patchTransferRect(0);
+    const auto paste=patchTransferRect(1);
+    drawButton(copy,false,kCyan);
+    drawButton(paste,false,kPurple);
+    auto& ov=NativeOverlay::instance();
+    ov.addTextCentered("COPY PATCH",{copy.x,copy.y,copy.w,copy.h},0.92f,overlayColor(kWhite));
+    ov.addTextCentered("PASTE PATCH",{paste.x,paste.y,paste.w,paste.h},0.92f,overlayColor(kWhite));
 }
 
 void NativeEditor::renderSynth() const noexcept {
     drawPadReservedBackground();
+    drawPatchTransfer();
     const Patch p=ProjectCore::instance().selectedPatch();
     static constexpr const char* kTabs[2]={"OPERATORS","FM MATRIX"};
     for(int i=0;i<2;++i){
@@ -437,6 +464,7 @@ void NativeEditor::renderSynth() const noexcept {
 
 void NativeEditor::renderFx() const noexcept {
     drawPadReservedBackground();
+    drawPatchTransfer();
     const Patch p=ProjectCore::instance().selectedPatch();
     const std::array<Rgb,4> groupColors{kCyan,kOrange,kPurple,kGreen};
     static constexpr const char* kGroups[4]={"FILTER","AMP","LFO/FX","MOD"};
@@ -595,6 +623,14 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
         case HitKind::None:return false;
     }
     return false;
+}
+
+std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
+    EditorPage page,float x,float y) const noexcept {
+    (void)page;
+    if(patchTransferRect(0).contains(x,y))return PatchTransferAction::CopyPatch;
+    if(patchTransferRect(1).contains(x,y))return PatchTransferAction::PastePatch;
+    return std::nullopt;
 }
 
 bool NativeEditor::pointerDown(EditorPage page,float x,float y){
