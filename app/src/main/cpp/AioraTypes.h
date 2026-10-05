@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace aiora {
@@ -89,6 +90,34 @@ struct Patch {
     int32_t fundamentalMidi{-1};
 };
 
+/** Audio-thread copy of Patch: fixed-size and trivially copyable, with no std::string. */
+struct DspPatch {
+    std::array<Operator,6> ops{};
+    std::array<std::array<float,6>,6> matrix{};
+    Filter filter{};
+    Envelope amp{};
+    float velocityAmp{0.0f};
+    float velocityFilter{0.0f};
+    std::array<ModSlot,4> modSlots{};
+    uint8_t modSlotCount{0};
+    Lfo lfo{};
+    Fx fx{};
+    float unison{0.0f};
+    float glide{0.0f};
+    float octave{0.0f};
+    float volume{0.8f};
+};
+static_assert(std::is_trivially_copyable_v<DspPatch>);
+
+inline DspPatch toDspPatch(const Patch& p) noexcept {
+    DspPatch d;
+    d.ops=p.ops; d.matrix=p.matrix; d.filter=p.filter; d.amp=p.amp;
+    d.velocityAmp=p.velocityAmp; d.velocityFilter=p.velocityFilter;
+    d.modSlots=p.modSlots; d.modSlotCount=p.modSlotCount; d.lfo=p.lfo; d.fx=p.fx;
+    d.unison=p.unison; d.glide=p.glide; d.octave=p.octave; d.volume=p.volume;
+    return d;
+}
+
 struct CurvePoint { float step{0.0f}, value{0.0f}; bool free{false}; };
 struct Note {
     int32_t midi{62};
@@ -126,6 +155,8 @@ struct Project {
     int32_t beats{4};
     int32_t divisions{4};
     bool dozenal{false};
+    float masterVolume{0.9f};
+    float masterReverb{0.0f};
     std::vector<Track> tracks;
 };
 
