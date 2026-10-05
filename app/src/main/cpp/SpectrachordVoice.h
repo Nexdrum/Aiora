@@ -15,6 +15,7 @@ public:
     [[nodiscard]] int32_t id() const noexcept { return id_; }
     [[nodiscard]] uint64_t age() const noexcept { return age_; }
     void setAge(uint64_t v) noexcept { age_ = v; }
+    void setModValue(float value, bool active = true) noexcept { modValue_ = clamp01(value); modActive_ = active; }
     float render() noexcept;
 
 private:
@@ -53,7 +54,7 @@ private:
     float sampleRate_{48000.0f};
     int midi_{62};
     float velocity_{0.8f};
-    Patch patch_{};
+    const Patch* patch_{nullptr};
     std::array<EnvState,6> opEnv_{};
     EnvState ampEnv_{};
     EnvState filterEnv_{};
@@ -64,6 +65,7 @@ private:
     float lfoPhase_{0.0f};
     float lfoAge_{0.0f};
     float modValue_{0.0f};
+    bool modActive_{false};
 };
 
 } // namespace aiora
