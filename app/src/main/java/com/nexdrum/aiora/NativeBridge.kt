@@ -8,5 +8,7 @@ object NativeBridge {
     external fun noteOn(midi: Int, velocity: Float): Int
     external fun noteOff(voiceId: Int)
     external fun panic()
+    external fun setFactoryPreset(index: Int)
+    external fun factoryPreset(): Int
     external fun sampleRate(): Int
 }
