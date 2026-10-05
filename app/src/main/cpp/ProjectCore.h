@@ -1,9 +1,12 @@
 #pragma once
+#include <memory>
 #include <mutex>
 #include <string>
 #include "AioraTypes.h"
 
 namespace aiora {
+
+struct PlaybackSnapshot;
 
 class ProjectCore {
 public:
@@ -76,6 +79,7 @@ public:
     Fx selectedFx() const;
     DspPatch padDspPatch(int trackIndex, int padIndex) const;
     Fx padFx(int trackIndex, int padIndex) const;
+    std::unique_ptr<PlaybackSnapshot> makePlaybackSnapshot() const;
 
 private:
     ProjectCore() = default;
