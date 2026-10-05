@@ -125,11 +125,21 @@ NativeEditor::Rect NativeEditor::bodyRect() const noexcept {
     return r;
 }
 
+NativeEditor::Rect NativeEditor::factoryPresetRect(int index) const noexcept {
+    const auto b=bodyRect();
+    const float gap=std::max(3.0f,width_*0.004f);
+    const float h=std::clamp(b.h*0.075f,30.0f,40.0f);
+    const float w=(b.w-gap*6.0f)/5.0f;
+    return {b.x+gap+index*(w+gap),b.y,w,h};
+}
+
 NativeEditor::Rect NativeEditor::synthTabRect(int index) const noexcept {
     const auto b=bodyRect();const float gap=std::max(4.0f,width_*0.006f);
+    const auto preset=factoryPresetRect(0);
+    const float top=preset.y+preset.h+gap;
     const float h=std::clamp(b.h*0.085f,34.0f,48.0f);
     const float w=(b.w-gap*3.0f)*0.5f;
-    return {b.x+gap+index*(w+gap),b.y,w,h};
+    return {b.x+gap+index*(w+gap),top,w,h};
 }
 NativeEditor::Rect NativeEditor::operatorSelectRect(int index) const noexcept {
     const auto b=bodyRect();const float gap=std::max(3.0f,width_*0.004f);
@@ -405,6 +415,22 @@ void NativeEditor::renderSynth() const noexcept {
     drawPadReservedBackground();
     drawPatchTransfer();
     const Patch p=ProjectCore::instance().selectedPatch();
+
+    static constexpr const char* kPresets[5]={"INIT","SUBULA","SPECTRELLO","NEBULAR","NEXDRUM"};
+    for(int i=0;i<5;++i){
+        const auto rr=factoryPresetRect(i);
+        const char* fullName=
+            i==0?"Spectrachord Init":
+            i==1?"Subula":
+            i==2?"Spectrello":
+            i==3?"Nebular":"Nexdrum";
+        const bool active=p.name==fullName;
+        drawButton(rr,active,i==4?kOrange:kCyan);
+        NativeOverlay::instance().addTextCentered(
+            kPresets[i],{rr.x,rr.y,rr.w,rr.h},
+            std::max(0.50f,std::min(0.82f,rr.w/(std::char_traits<char>::length(kPresets[i])*6.3f))),
+            overlayColor(active?kBg:kWhite));
+    }
     static constexpr const char* kTabs[2]={"OPERATORS","FM MATRIX"};
     for(int i=0;i<2;++i){
         const auto tr=synthTabRect(i);
@@ -530,6 +556,11 @@ void NativeEditor::renderFx() const noexcept {
         const auto add=modAddRect();drawButton(add,count<4,kGreen);
         NativeOverlay::instance().addTextCentered("+ LINK",{add.x,add.y,add.w,add.h},1.0f,overlayColor(count<4?kWhite:kButton));
     }
+}
+
+std::optional<int> NativeEditor::hitFactoryPreset(float x,float y) const noexcept {
+    for(int i=0;i<5;++i)if(factoryPresetRect(i).contains(x,y))return i;
+    return std::nullopt;
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
