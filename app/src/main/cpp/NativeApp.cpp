@@ -11,6 +11,7 @@
 #include <string>
 
 #include "AudioEngine.h"
+#include "AiHeuristic.h"
 #include "FactoryPresets.h"
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
@@ -625,7 +626,25 @@ bool handleUiTap(NativeState& state, float x, float y) {
         const auto editorPage=state.ui.page()==aiora::NativePage::Synth
             ?aiora::EditorPage::Synth:aiora::EditorPage::Fx;
         if(const auto transfer=aiora::NativeEditor::instance().hitPatchTransfer(editorPage,x,y)){
-            if(*transfer==aiora::PatchTransferAction::CopyPatch){
+            if(*transfer==aiora::PatchTransferAction::AiFromClipboard){
+                const std::string description=clipboardGetText(state.app?state.app->activity:nullptr);
+                if(!description.empty()){
+                    aiora::Patch generated=aiora::heuristicPatch(description);
+                    const int track=project.selectedTrack();
+                    if(generated.nexdrumLow>=0&&track>=0){
+                        project.loadNexdrumKit(track);
+                        state.ui.resetDrumRangeArm();
+                    }else{
+                        project.replaceSelectedPatch(std::move(generated));
+                    }
+                    audio.syncProject();
+                    previewEditorPatch(state);
+                    scheduleAutosave(state,0);
+                    __android_log_print(ANDROID_LOG_INFO,kTag,"generated offline AIORA patch from clipboard description");
+                }else{
+                    __android_log_print(ANDROID_LOG_WARN,kTag,"AI patch description clipboard is empty");
+                }
+            }else if(*transfer==aiora::PatchTransferAction::CopyPatch){
                 const std::string json=aiora::serializePatchJson(project.selectedPatch());
                 const bool ok=clipboardSetText(state.app?state.app->activity:nullptr,json);
                 __android_log_print(ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,kTag,
