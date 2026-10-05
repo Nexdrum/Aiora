@@ -8,7 +8,15 @@ namespace aiora {
 class SpectrachordVoice {
 public:
     void prepare(float sampleRate) noexcept;
-    void start(int32_t id, const DspPatch& patch, int midi, float velocity) noexcept;
+    void start(
+        int32_t id,
+        const DspPatch& patch,
+        int midi,
+        float pressure,
+        uint32_t gateSamples = 0,
+        float samplesPerStep = 1.0f,
+        const VoiceAutomation& automation = VoiceAutomation{}
+    ) noexcept;
     void release() noexcept;
     void kill() noexcept;
     [[nodiscard]] bool active() const noexcept { return active_; }
@@ -42,8 +50,11 @@ private:
 
     static float midiHz(float midi) noexcept;
     static float clamp01(float v) noexcept;
+    static float curveValue(const DspCurve& curve, float step, float fallback) noexcept;
+    static float curveMean(const DspCurve& curve, float fallback) noexcept;
     float noise() noexcept;
     float waveSample(const Operator& op, float phase, float morph) noexcept;
+    float mappedValue(ModTarget target, float m, float fallback) const noexcept;
     float slotValue(ModTarget target, float m, float fallback) const noexcept;
     float opLevel(size_t index, float m) const noexcept;
     float morphValue(size_t index, float m) const noexcept;
@@ -55,6 +66,7 @@ private:
     int midi_{62};
     float velocity_{0.8f};
     DspPatch patch_{};
+    VoiceAutomation automation_{};
     std::array<EnvState,6> opEnv_{};
     EnvState ampEnv_{};
     EnvState filterEnv_{};
@@ -65,7 +77,14 @@ private:
     float lfoPhase_{0.0f};
     float lfoAge_{0.0f};
     float modValue_{0.0f};
+    float samplesPerStep_{1.0f};
+    float fixedUnison_{0.0f};
+    float fixedFilterEnvAmount_{0.0f};
+    uint32_t gateSamples_{0};
+    uint32_t elapsedSamples_{0};
     bool modActive_{false};
+    bool velocityCurveActive_{false};
+    bool autoRelease_{false};
 };
 
 } // namespace aiora
