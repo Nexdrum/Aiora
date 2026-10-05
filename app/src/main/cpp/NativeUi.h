@@ -101,6 +101,7 @@ public:
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
 private:
+    [[nodiscard]] Rect headerScopeRect() const noexcept;
     [[nodiscard]] Rect headerControlRect(int index) const noexcept;
     [[nodiscard]] Rect navRect(int index) const noexcept;
     [[nodiscard]] Rect contentRect() const noexcept;
@@ -125,6 +126,7 @@ private:
     [[nodiscard]] Rgb pitchColor(int midi) const noexcept;
 
     void fillRect(const Rect& rect, Rgb color) const noexcept;
+    void drawScope() const noexcept;
     void drawGrid() const noexcept;
     void drawTracks() const noexcept;
     void drawPadQuick() const noexcept;
