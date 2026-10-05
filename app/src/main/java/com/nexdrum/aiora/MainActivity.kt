@@ -34,11 +34,22 @@ private val AioraCyan = Color(0xFF00CCCC)
 private val Muted = Color(0xFF9AA3B5)
 private val presets = listOf("Spectrachord Init", "Subula", "Spectrello", "Nebular", "Nexdrum")
 
+private data class NativePad(val label: String, val center: Int, val low: Int, val high: Int)
+private val nexPads = listOf(
+    NativePad("Crash", 80, 80, 86),
+    NativePad("Ride", 73, 73, 79),
+    NativePad("Bongo", 66, 66, 72),
+    NativePad("Snare", 59, 59, 65),
+    NativePad("Tom", 52, 52, 58),
+    NativePad("Floor tom", 45, 45, 51),
+    NativePad("Kick", 38, 38, 44)
+)
+
 @Composable
 private fun AioraApp() {
     var page by remember { mutableStateOf("Tracks") }
-    var voice by remember { mutableIntStateOf(-1) }
     var preset by remember { mutableIntStateOf(NativeBridge.factoryPreset()) }
+    var selectedPad by remember { mutableIntStateOf(6) }
     val pages = listOf("Tracks", "Drums", "Roll", "Synth", "FX", "Play")
 
     MaterialTheme(colorScheme = darkColorScheme(primary = AioraCyan, background = AioraBg, surface = AioraPanel)) {
@@ -62,37 +73,113 @@ private fun AioraApp() {
                 }
             }
             Card(
-                Modifier.fillMaxWidth().padding(8.dp),
+                Modifier.fillMaxWidth().weight(1f).padding(8.dp),
                 shape = RoundedCornerShape(10.dp),
                 colors = CardDefaults.cardColors(containerColor = AioraPanel)
             ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(page, style = MaterialTheme.typography.titleLarge)
-                    Text("Native Spectrachord preview", color = Muted)
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        presets.forEachIndexed { i, name ->
-                            FilterChip(
-                                selected = preset == i,
-                                onClick = {
-                                    if (voice >= 0) { NativeBridge.noteOff(voice); voice = -1 }
-                                    preset = i
-                                    NativeBridge.setFactoryPreset(i)
-                                },
-                                label = { Text(name) }
-                            )
+                    if (page == "Tracks" || page == "Synth" || page == "FX") {
+                        PresetStrip(preset) { i ->
+                            preset = i
+                            NativeBridge.setFactoryPreset(i)
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { if (voice < 0) voice = NativeBridge.noteOn(62, 0.85f) }) { Text("Preview D") }
-                        OutlinedButton(onClick = { if (voice >= 0) { NativeBridge.noteOff(voice); voice = -1 } }) { Text("Release") }
-                        OutlinedButton(onClick = { NativeBridge.panic(); voice = -1 }) { Text("Panic") }
+                    if ((page == "Synth" || page == "FX") && preset == 4) {
+                        PadQuickSelect(selectedPad) { selectedPad = it }
                     }
-                    Text("Factory patches are now rendered by the native six-operator engine; the page bodies are still placeholders while the DAW UI is ported.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                    when (page) {
+                        "Play" -> PerformanceGrid(preset)
+                        "Drums" -> DrumGrid(selectedPad, onSelectedPad = { selectedPad = it })
+                        "Synth", "FX" -> EditorPreview(preset, selectedPad)
+                        "Tracks" -> Text("Native track/project model is the next UI layer being connected to the C++ core.", color = Muted)
+                        "Roll" -> Text("The native vertical piano roll will use the same D-centered pitch system and per-note ∿ / V / M data as the web reference.", color = Muted)
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PresetStrip(selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        presets.forEachIndexed { i, name ->
+            FilterChip(selected = selected == i, onClick = { onSelect(i) }, label = { Text(name) })
+        }
+    }
+}
+
+@Composable
+private fun PadQuickSelect(selected: Int, onSelect: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Pad", color = Muted, style = MaterialTheme.typography.labelMedium)
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            nexPads.forEachIndexed { i, pad ->
+                FilterChip(selected = selected == i, onClick = { onSelect(i) }, label = { Text(pad.label) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PerformanceGrid(preset: Int) {
+    Text(if (preset == 4) "Nexdrum • each row is one shared 7-pitch pad family" else presets[preset], color = Muted)
+    AioraPitchGrid(
+        modifier = Modifier.fillMaxWidth(),
+        onPitchDown = { midi ->
+            if (preset == 4) NativeBridge.noteOnPad(nativeGridPadIndex(midi), midi, 0.85f)
+            else NativeBridge.noteOn(midi, 0.85f)
+        },
+        onPitchUp = { voice -> NativeBridge.noteOff(voice) }
+    )
+}
+
+@Composable
+private fun DrumGrid(selectedPad: Int, onSelectedPad: (Int) -> Unit) {
+    PadQuickSelect(selectedPad, onSelectedPad)
+    val pad = nexPads[selectedPad]
+    Text("${pad.label} • ${AioraNotation.pitchCoord(pad.low)} — ${AioraNotation.pitchCoord(pad.high)}", color = Muted)
+    AioraPitchGrid(
+        modifier = Modifier.fillMaxWidth(),
+        selectedLow = pad.low,
+        selectedHigh = pad.high,
+        onPitchDown = { midi -> NativeBridge.noteOnPad(nativeGridPadIndex(midi), midi, 0.85f) },
+        onPitchUp = { voice -> NativeBridge.noteOff(voice) }
+    )
+}
+
+@Composable
+private fun EditorPreview(preset: Int, selectedPad: Int) {
+    val pad = nexPads[selectedPad]
+    Text(
+        if (preset == 4) "Editing ${pad.label}; preview is routed through that pad's own native Spectrachord patch."
+        else "Editing ${presets[preset]} in the native Spectrachord engine.",
+        color = Muted
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        var voice by remember(preset, selectedPad) { mutableIntStateOf(-1) }
+        Button(onClick = {
+            if (voice < 0) {
+                voice = if (preset == 4) NativeBridge.noteOnPad(selectedPad, pad.center, 0.8f)
+                else NativeBridge.noteOn(62, 0.8f)
+            }
+        }) { Text("Preview") }
+        OutlinedButton(onClick = {
+            if (voice >= 0) {
+                NativeBridge.noteOff(voice)
+                voice = -1
+            }
+        }) { Text("Release") }
+        OutlinedButton(onClick = {
+            NativeBridge.panic()
+            voice = -1
+        }) { Text("Panic") }
     }
 }
