@@ -142,6 +142,23 @@ const Patch* ProjectCore::selectedPatchUnsafe() const noexcept {
 }
 
 void ProjectCore::reset() {std::scoped_lock lock(mutex_);project_ = {};selectedTrack_ = -1;}
+Project ProjectCore::projectCopy() const {std::scoped_lock lock(mutex_);return project_;}
+bool ProjectCore::replaceProject(Project project,int selectedTrack){
+    std::scoped_lock lock(mutex_);
+    if(project.tracks.size()>static_cast<size_t>(kMaxTracks))project.tracks.resize(kMaxTracks);
+    project_=std::move(project);
+    if(project_.tracks.empty())selectedTrack_=-1;
+    else selectedTrack_=std::clamp(selectedTrack,0,static_cast<int>(project_.tracks.size())-1);
+    return true;
+}
+bool ProjectCore::replaceSelectedPatch(Patch patch){
+    std::scoped_lock lock(mutex_);
+    auto* target=selectedPatchUnsafe();if(!target)return false;
+    if(validTrack(selectedTrack_)&&project_.tracks[selectedTrack_].drums&&validPad(selectedTrack_,project_.tracks[selectedTrack_].selectedPad)){
+        patch.fundamentalMidi=project_.tracks[selectedTrack_].pads[project_.tracks[selectedTrack_].selectedPad].centerMidi;
+    }
+    *target=std::move(patch);return true;
+}
 
 int ProjectCore::addTrack(bool drums) {
     std::scoped_lock lock(mutex_);

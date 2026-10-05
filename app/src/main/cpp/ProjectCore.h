@@ -27,6 +27,9 @@ public:
     static ProjectCore& instance();
 
     void reset();
+    Project projectCopy() const;
+    bool replaceProject(Project project, int selectedTrack = 0);
+    bool replaceSelectedPatch(Patch patch);
     int addTrack(bool drums = false);
     bool deleteTrack(int index);
     bool selectTrack(int index);

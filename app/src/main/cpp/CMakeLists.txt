@@ -20,6 +20,7 @@ add_library(aiora SHARED
     FxProcessor.cpp
     NexdrumKit.cpp
     ProjectCore.cpp
+    ProjectCodec.cpp
     ProjectPlayback.cpp
     SpectrachordVoice.cpp
 )
