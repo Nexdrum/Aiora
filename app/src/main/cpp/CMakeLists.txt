@@ -8,6 +8,7 @@ add_library(aiora SHARED
     FactoryPresets.cpp
     FxProcessor.cpp
     JniBridge.cpp
+    NexdrumKit.cpp
     SpectrachordVoice.cpp
 )
 
