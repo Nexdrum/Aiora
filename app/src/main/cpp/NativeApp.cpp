@@ -4,10 +4,12 @@
 #include <GLES3/gl3.h>
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 
 #include "AudioEngine.h"
+#include "NativeEditor.h"
 #include "NativeUi.h"
 #include "ProjectCore.h"
 
@@ -48,6 +50,9 @@ struct NativeState {
     aiora::NativeUi ui{};
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
+    int32_t editorPointerId{-1};
+    int editorPreviewVoice{-1};
+    int64_t editorPreviewStopMs{0};
 };
 
 void createDefaultProject() {
@@ -127,6 +132,38 @@ bool createSurface(NativeState& state) {
     return true;
 }
 
+int64_t nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void serviceEditorPreview(NativeState& state) {
+    if(state.editorPreviewVoice>=0 && nowMs()>=state.editorPreviewStopMs){
+        aiora::AudioEngine::instance().noteOff(state.editorPreviewVoice);
+        state.editorPreviewVoice=-1;
+        state.editorPreviewStopMs=0;
+    }
+}
+
+void previewEditorPatch(NativeState& state) {
+    if(state.editorPreviewVoice>=0){
+        aiora::AudioEngine::instance().noteOff(state.editorPreviewVoice);
+        state.editorPreviewVoice=-1;
+    }
+    auto& project=aiora::ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return;
+
+    if(project.trackIsDrums(track)){
+        const int pad=project.selectedPad(track);
+        if(pad>=0)state.editorPreviewVoice=aiora::AudioEngine::instance().noteOnPad(
+            pad,project.padCenter(track,pad),0.88f);
+    }else{
+        state.editorPreviewVoice=aiora::AudioEngine::instance().noteOn(60,0.82f);
+    }
+    if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
+}
+
 void releaseAllTouches(NativeState& state) {
     auto& audio = aiora::AudioEngine::instance();
     for (auto& touch : state.touches) {
@@ -136,6 +173,13 @@ void releaseAllTouches(NativeState& state) {
     }
     state.ui.clearPitchActivity();
     state.rollGesture.clear();
+    aiora::NativeEditor::instance().cancel();
+    state.editorPointerId=-1;
+    if(state.editorPreviewVoice>=0){
+        audio.noteOff(state.editorPreviewVoice);
+        state.editorPreviewVoice=-1;
+        state.editorPreviewStopMs=0;
+    }
 }
 
 void destroySurface(NativeState& state) {
@@ -155,6 +199,7 @@ void destroySurface(NativeState& state) {
 
 void drawFrame(NativeState& state) {
     if (!state.drawable) return;
+    serviceEditorPreview(state);
     glViewport(0, 0, state.width, state.height);
     state.ui.render();
     eglSwapBuffers(state.display, state.surface);
@@ -301,7 +346,12 @@ bool handleUiTap(NativeState& state, float x, float y) {
 
     if (const auto pad = state.ui.hitPadQuick(x, y)) {
         const int track = project.selectedTrack();
-        if (track >= 0 && project.trackIsDrums(track)) project.selectPad(track, *pad);
+        if (track >= 0 && project.trackIsDrums(track)) {
+            project.selectPad(track, *pad);
+            if(state.ui.page()==aiora::NativePage::Synth || state.ui.page()==aiora::NativePage::Fx){
+                previewEditorPatch(state);
+            }
+        }
         return true;
     }
 
@@ -395,6 +445,16 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
 
             if (handleUiTap(state, x, y)) return 1;
 
+            if (state.ui.page() == aiora::NativePage::Synth ||
+                state.ui.page() == aiora::NativePage::Fx) {
+                const auto editorPage = state.ui.page() == aiora::NativePage::Synth
+                    ? aiora::EditorPage::Synth : aiora::EditorPage::Fx;
+                if(aiora::NativeEditor::instance().pointerDown(editorPage,x,y)){
+                    state.editorPointerId=pointerId;
+                    return 1;
+                }
+            }
+
             if (state.ui.page() == aiora::NativePage::Roll) {
                 if (state.rollGesture.pointerId < 0) {
                     beginRollGesture(
@@ -412,6 +472,18 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_MOVE: {
+            if(state.editorPointerId>=0){
+                const size_t count=AMotionEvent_getPointerCount(event);
+                for(size_t i=0;i<count;++i){
+                    if(AMotionEvent_getPointerId(event,i)==state.editorPointerId){
+                        aiora::NativeEditor::instance().pointerMove(
+                            AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
+                        break;
+                    }
+                }
+                return 1;
+            }
+
             if (state.ui.page() == aiora::NativePage::Roll &&
                 state.rollGesture.pointerId >= 0) {
                 const size_t count = AMotionEvent_getPointerCount(event);
@@ -445,6 +517,13 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
 
+            if(state.editorPointerId==pointerId){
+                const bool changed=aiora::NativeEditor::instance().pointerUp();
+                state.editorPointerId=-1;
+                if(changed)previewEditorPatch(state);
+                return 1;
+            }
+
             if (state.rollGesture.pointerId == pointerId) {
                 const int64_t heldMs =
                     static_cast<int64_t>(AMotionEvent_getEventTime(event)) -
@@ -461,6 +540,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_CANCEL:
+            aiora::NativeEditor::instance().cancel();
+            state.editorPointerId=-1;
             releaseAllTouches(state);
             aiora::AudioEngine::instance().panic();
             return 1;

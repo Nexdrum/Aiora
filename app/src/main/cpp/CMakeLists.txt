@@ -13,6 +13,7 @@ target_include_directories(native_app_glue PUBLIC
 add_library(aiora SHARED
     NativeApp.cpp
     NativeUi.cpp
+    NativeEditor.cpp
     AudioEngine.cpp
     FactoryPresets.cpp
     FxProcessor.cpp

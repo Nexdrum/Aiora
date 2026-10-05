@@ -1,4 +1,5 @@
 #include "NativeUi.h"
+#include "NativeEditor.h"
 
 #include <GLES3/gl3.h>
 
@@ -60,6 +61,7 @@ bool pageHasPadQuick(NativePage page) noexcept {
 void NativeUi::resize(int width, int height) noexcept {
     width_ = std::max(0, width);
     height_ = std::max(0, height);
+    NativeEditor::instance().resize(width_, height_);
 }
 
 void NativeUi::setPitchActive(int midi, bool active) noexcept {
@@ -555,6 +557,16 @@ void NativeUi::render() const noexcept {
             break;
         case NativePage::Roll:
             drawRoll();
+            break;
+        case NativePage::Synth:
+            fillRect(contentRect(), kPanel);
+            drawPadQuick();
+            NativeEditor::instance().renderSynth();
+            break;
+        case NativePage::Fx:
+            fillRect(contentRect(), kPanel);
+            drawPadQuick();
+            NativeEditor::instance().renderFx();
             break;
         case NativePage::Play:
             fillRect(contentRect(), kPanel);
