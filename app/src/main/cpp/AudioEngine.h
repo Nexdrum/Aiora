@@ -18,6 +18,7 @@ public:
     bool start();
     void stop();
     int noteOn(int midi, float velocity) noexcept;
+    int noteOnPad(int padIndex, int midi, float velocity) noexcept;
     void noteOff(int voiceId) noexcept;
     void panic() noexcept;
     void setFactoryPreset(int index) noexcept;
@@ -33,18 +34,19 @@ private:
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
 
-    enum class EventType : uint8_t { NoteOn, NoteOff, Panic, Preset };
+    enum class EventType : uint8_t { NoteOn, PadOn, NoteOff, Panic, Preset };
     struct Event {
         EventType type{EventType::Panic};
         int32_t id{-1};
         int32_t midi{62};
-        int32_t preset{0};
+        int32_t source{0};
         float value{0.8f};
     };
 
     void applyEvent(const Event&) noexcept;
     std::array<float,2> renderFrame() noexcept;
     SpectrachordVoice& allocateVoice() noexcept;
+    void configureFx(const Fx& fx) noexcept;
     void configureFxForPreset(int preset) noexcept;
 
     std::shared_ptr<oboe::AudioStream> stream_;
