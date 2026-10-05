@@ -170,6 +170,14 @@ NativeUi::Rect NativeUi::gridRect(int visualRow, int column) const noexcept {
     };
 }
 
+NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
+    const auto content=contentRect();
+    const float gap=std::max(4.0f,height_*0.008f);
+    const float h=std::clamp(content.h*0.08f,28.0f,38.0f);
+    const float w=(content.w-gap*3.0f)*0.5f;
+    return {content.x+gap+index*(w+gap),content.y+gap,w,h};
+}
+
 NativeUi::Rect NativeUi::addTrackRect(TrackAddKind kind) const noexcept {
     const auto content=contentRect();
     const float gap=std::max(5.0f,width_*0.008f);
@@ -191,7 +199,8 @@ NativeUi::Rect NativeUi::trackRect(int index,int count) const noexcept {
     const auto content=contentRect();
     const float gap=std::max(3.0f,height_*0.007f);
     const auto master=masterSliderRect(0);
-    const float top=content.y+gap;
+    const auto transfer=projectTransferRect(0);
+    const float top=transfer.y+transfer.h+gap;
     const float bottom=master.y-gap;
     const float usable=std::max(0.0f,bottom-top);
     const int rows=std::max(1,count);
@@ -483,6 +492,11 @@ void NativeUi::drawTracks() const noexcept {
     auto& project=ProjectCore::instance();
     const auto content=contentRect();fillRect(content,kPanel);
     auto& overlay=NativeOverlay::instance();
+
+    const auto copyR=projectTransferRect(0),pasteR=projectTransferRect(1);
+    fillRect(copyR,mix(kButton,kCyan,0.30f));fillRect(pasteR,mix(kButton,kPurple,0.30f));
+    overlay.addTextCentered("COPY SONG",{copyR.x,copyR.y,copyR.w,copyR.h},0.92f,overlayColor(kWhite));
+    overlay.addTextCentered("PASTE SONG",{pasteR.x,pasteR.y,pasteR.w,pasteR.h},0.92f,overlayColor(kWhite));
 
     const int count=project.trackCount();
     const int selected=project.selectedTrack();
@@ -1045,6 +1059,13 @@ std::optional<int> NativeUi::hitTrack(float x, float y) const noexcept {
     for (int i = 0; i < count; ++i) {
         if (trackRect(i, count).contains(x, y)) return i;
     }
+    return std::nullopt;
+}
+
+std::optional<ProjectTransferAction> NativeUi::hitProjectTransfer(float x,float y) const noexcept {
+    if(page_!=NativePage::Tracks)return std::nullopt;
+    if(projectTransferRect(0).contains(x,y))return ProjectTransferAction::CopyProject;
+    if(projectTransferRect(1).contains(x,y))return ProjectTransferAction::PasteProject;
     return std::nullopt;
 }
 
