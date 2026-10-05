@@ -1,14 +1,13 @@
 #include "AudioEngine.h"
+#include "FactoryPresets.h"
 #include <algorithm>
-#include <cmath>
-#include <limits>
 #include <android/log.h>
 
 namespace aiora {
 namespace {
-constexpr float kTwoPi = 6.2831853071795864769f;
 constexpr char kTag[] = "AIORA";
-float midiHz(int midi) noexcept { return 440.0f * std::pow(2.0f, (static_cast<float>(midi) - 69.0f) / 12.0f); }
+constexpr int kPresetCount = static_cast<int>(FactoryPreset::Count);
+int clampPreset(int index) noexcept { return std::clamp(index, 0, kPresetCount - 1); }
 }
 
 AudioEngine& AudioEngine::instance() {
@@ -36,7 +35,12 @@ bool AudioEngine::start() {
         return false;
     }
 
-    sampleRate_.store(stream_->getSampleRate(), std::memory_order_relaxed);
+    const int sr = stream_->getSampleRate();
+    sampleRate_.store(sr, std::memory_order_relaxed);
+    for (auto& voice : voices_) voice.prepare(static_cast<float>(sr));
+    previewFx_.prepare(static_cast<float>(sr));
+    configureFxForPreset(selectedPreset_.load(std::memory_order_relaxed));
+
     const auto burst = stream_->getFramesPerBurst();
     if (burst > 0) stream_->setBufferSizeInFrames(burst * 3);
 
@@ -60,64 +64,68 @@ void AudioEngine::stop() {
         old->requestStop();
         old->close();
     }
-    panic();
+    for (auto& voice : voices_) voice.kill();
+    previewFx_.reset();
 }
 
 int AudioEngine::noteOn(int midi, float velocity) noexcept {
     const int id = nextVoiceId_.fetch_add(1, std::memory_order_relaxed);
-    events_.push({EventType::NoteOn, id, std::clamp(midi, 0, 127), std::clamp(velocity, 0.0f, 1.0f)});
+    const int preset = selectedPreset_.load(std::memory_order_relaxed);
+    events_.push({EventType::NoteOn, id, std::clamp(midi, 0, 127), preset, std::clamp(velocity, 0.0f, 1.0f)});
     return id;
 }
 
-void AudioEngine::noteOff(int voiceId) noexcept { events_.push({EventType::NoteOff, voiceId, 0, 0.0f}); }
-void AudioEngine::panic() noexcept { events_.push({EventType::Panic, -1, 0, 0.0f}); }
+void AudioEngine::noteOff(int voiceId) noexcept {
+    events_.push({EventType::NoteOff, voiceId, 0, 0, 0.0f});
+}
 
-AudioEngine::Voice& AudioEngine::allocateVoice() noexcept {
-    for (auto& v : voices_) if (!v.active) return v;
-    return *std::min_element(voices_.begin(), voices_.end(), [](const Voice& a, const Voice& b){ return a.age < b.age; });
+void AudioEngine::panic() noexcept {
+    events_.push({EventType::Panic, -1, 0, 0, 0.0f});
+}
+
+void AudioEngine::setFactoryPreset(int index) noexcept {
+    const int p = clampPreset(index);
+    selectedPreset_.store(p, std::memory_order_relaxed);
+    events_.push({EventType::Preset, -1, 0, p, 0.0f});
+}
+
+SpectrachordVoice& AudioEngine::allocateVoice() noexcept {
+    for (auto& v : voices_) if (!v.active()) return v;
+    return *std::min_element(voices_.begin(), voices_.end(), [](const SpectrachordVoice& a, const SpectrachordVoice& b) {
+        return a.age() < b.age();
+    });
+}
+
+void AudioEngine::configureFxForPreset(int preset) noexcept {
+    previewFx_.set(factoryBank()[static_cast<size_t>(clampPreset(preset))].fx);
 }
 
 void AudioEngine::applyEvent(const Event& e) noexcept {
-    if (e.type == EventType::Panic) {
-        for (auto& v : voices_) v = {};
-        return;
-    }
-    if (e.type == EventType::NoteOff) {
-        for (auto& v : voices_) if (v.active && v.id == e.id) {
-            v.stage = EnvStage::Release;
-            v.releaseStep = std::max(v.env / std::max(1.0f, sampleRate_.load() * 0.12f), 1.0e-7f);
+    switch (e.type) {
+        case EventType::Panic:
+            for (auto& v : voices_) v.kill();
+            previewFx_.reset();
+            return;
+        case EventType::Preset:
+            configureFxForPreset(e.preset);
+            return;
+        case EventType::NoteOff:
+            for (auto& v : voices_) if (v.active() && v.id() == e.id) { v.release(); return; }
+            return;
+        case EventType::NoteOn: {
+            auto& v = allocateVoice();
+            v.start(e.id, factoryBank()[static_cast<size_t>(clampPreset(e.preset))], e.midi, e.value);
+            v.setAge(++ageCounter_);
+            configureFxForPreset(e.preset);
             return;
         }
-        return;
     }
-
-    auto& v = allocateVoice();
-    v = {};
-    v.active = true;
-    v.id = e.id;
-    v.velocity = e.value;
-    v.phaseInc = kTwoPi * midiHz(e.midi) / static_cast<float>(std::max(1, sampleRate_.load()));
-    v.stage = EnvStage::Attack;
-    v.age = ++ageCounter_;
 }
 
-float AudioEngine::renderFrame() noexcept {
-    const float sr = static_cast<float>(std::max(1, sampleRate_.load(std::memory_order_relaxed)));
-    float mix = 0.0f;
-    for (auto& v : voices_) {
-        if (!v.active) continue;
-        if (v.stage == EnvStage::Attack) {
-            v.env += 1.0f / (sr * 0.006f);
-            if (v.env >= 1.0f) { v.env = 1.0f; v.stage = EnvStage::Sustain; }
-        } else if (v.stage == EnvStage::Release) {
-            v.env -= v.releaseStep;
-            if (v.env <= 0.0001f) { v = {}; continue; }
-        }
-        mix += std::sin(v.phase) * v.env * v.velocity * 0.18f;
-        v.phase += v.phaseInc;
-        if (v.phase >= kTwoPi) v.phase -= kTwoPi;
-    }
-    return std::tanh(mix);
+std::array<float,2> AudioEngine::renderFrame() noexcept {
+    float dry = 0.0f;
+    for (auto& v : voices_) if (v.active()) dry += v.render();
+    return previewFx_.process(dry * 0.33f);
 }
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* audioData, int32_t numFrames) {
@@ -126,9 +134,9 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
 
     auto* out = static_cast<float*>(audioData);
     for (int32_t i = 0; i < numFrames; ++i) {
-        const float s = renderFrame();
-        out[i * 2] = s;
-        out[i * 2 + 1] = s;
+        const auto s = renderFrame();
+        out[i * 2] = s[0];
+        out[i * 2 + 1] = s[1];
     }
     return oboe::DataCallbackResult::Continue;
 }
