@@ -14,6 +14,11 @@ enum class NativePage : int {
     Play = 5
 };
 
+enum class TrackAddKind : int {
+    Melodic = 0,
+    Drums = 1
+};
+
 class NativeUi {
 public:
     static constexpr int kGridLow = 38;
@@ -48,17 +53,27 @@ public:
 
     [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
 
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
 private:
     [[nodiscard]] Rect navRect(int index) const noexcept;
-    [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
     [[nodiscard]] Rect contentRect() const noexcept;
+    [[nodiscard]] Rect gridAreaRect() const noexcept;
+    [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
+    [[nodiscard]] Rect trackRect(int index, int count) const noexcept;
+    [[nodiscard]] Rect addTrackRect(TrackAddKind kind) const noexcept;
+    [[nodiscard]] Rect padQuickRect(int index, int count) const noexcept;
     [[nodiscard]] Rgb pitchColor(int midi) const noexcept;
 
     void fillRect(const Rect& rect, Rgb color) const noexcept;
     void drawGrid() const noexcept;
+    void drawTracks() const noexcept;
+    void drawPadQuick() const noexcept;
+    void drawDrums() const noexcept;
     void drawPlaceholder() const noexcept;
 
     int width_{0};
