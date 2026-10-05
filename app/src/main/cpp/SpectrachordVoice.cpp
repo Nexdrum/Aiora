@@ -63,34 +63,34 @@ float SpectrachordVoice::midiHz(float midi) noexcept { return 440.0f*std::pow(2.
 float SpectrachordVoice::clamp01(float v) noexcept { return std::clamp(v,0.0f,1.0f); }
 void SpectrachordVoice::prepare(float sampleRate) noexcept { sampleRate_=std::max(8000.0f,sampleRate); }
 
-void SpectrachordVoice::start(int32_t id,const Patch& patch,int midi,float velocity) noexcept {
-    id_=id;patch_=&patch;midi_=midi;velocity_=clamp01(velocity);active_=true;
+void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float velocity) noexcept {
+    id_=id;patch_=patch;midi_=midi;velocity_=clamp01(velocity);active_=true;
     rng_^=static_cast<uint32_t>(id*747796405u + midi*2891336453u);
     phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;modValue_=0;modActive_=false;filter_.reset();
     for(size_t i=0;i<6;++i)opEnv_[i].reset(patch.ops[i].env,sampleRate_);
     ampEnv_.reset(patch.amp,sampleRate_);filterEnv_.reset(patch.filter.env,sampleRate_);
 }
 void SpectrachordVoice::release() noexcept {
-    if(!active_ || !patch_) return;
-    ampEnv_.shape.release = std::max(0.0005f, slotValue(ModTarget::AmpRelease, modValue_, patch_->amp.release));
-    filterEnv_.shape.release = std::max(0.0005f, slotValue(ModTarget::FilterRelease, modValue_, patch_->filter.env.release));
+    if(!active_) return;
+    ampEnv_.shape.release = std::max(0.0005f, slotValue(ModTarget::AmpRelease, modValue_, patch_.amp.release));
+    filterEnv_.shape.release = std::max(0.0005f, slotValue(ModTarget::FilterRelease, modValue_, patch_.filter.env.release));
     for(auto& e:opEnv_) e.noteOff(sampleRate_);
     ampEnv_.noteOff(sampleRate_);
     filterEnv_.noteOff(sampleRate_);
 }
-void SpectrachordVoice::kill() noexcept { active_=false;id_=-1;patch_=nullptr;for(auto& e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off; }
+void SpectrachordVoice::kill() noexcept { active_=false;id_=-1;for(auto& e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off; }
 
 float SpectrachordVoice::noise() noexcept {
     uint32_t x=rng_;x^=x<<13;x^=x>>17;x^=x<<5;rng_=x;return (static_cast<float>(x)/2147483648.0f)-1.0f;
 }
 
 float SpectrachordVoice::slotValue(ModTarget target,float m,float fallback) const noexcept {
-    if(!modActive_ || !patch_) return fallback;
-    for(size_t i=0;i<patch_->modSlotCount&&i<patch_->modSlots.size();++i){const auto&s=patch_->modSlots[i];if(s.target==target)return s.min+(s.max-s.min)*clamp01(m);}return fallback;
+    if(!modActive_) return fallback;
+    for(size_t i=0;i<patch_.modSlotCount&&i<patch_.modSlots.size();++i){const auto&s=patch_.modSlots[i];if(s.target==target)return s.min+(s.max-s.min)*clamp01(m);}return fallback;
 }
 float SpectrachordVoice::opLevel(size_t index,float m) const noexcept {
     static constexpr std::array<ModTarget,6> T{ModTarget::Op1,ModTarget::Op2,ModTarget::Op3,ModTarget::Op4,ModTarget::Op5,ModTarget::Op6};
-    return std::max(0.0f,slotValue(T[index],m,patch_->ops[index].level));
+    return std::max(0.0f,slotValue(T[index],m,patch_.ops[index].level));
 }
 float SpectrachordVoice::morphValue(size_t index,float m) const noexcept {
     static constexpr std::array<ModTarget,6> T{ModTarget::Morph1,ModTarget::Morph2,ModTarget::Morph3,ModTarget::Morph4,ModTarget::Morph5,ModTarget::Morph6};
@@ -111,8 +111,8 @@ float SpectrachordVoice::waveSample(const Operator& op,float phase,float morph) 
 }
 
 float SpectrachordVoice::render() noexcept {
-    if(!active_ || !patch_)return 0.0f;
-    const Patch& P = *patch_;
+    if(!active_)return 0.0f;
+    const DspPatch& P = patch_;
     const float pressure=velocity_;
     const float lvlScale=1.0f-P.velocityAmp+P.velocityAmp*(0.15f+0.85f*pressure*pressure);
     const float cutScale=1.0f-P.velocityFilter+P.velocityFilter*(0.4f+0.6f*pressure);
