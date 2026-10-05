@@ -2,6 +2,7 @@
 
 #include <array>
 #include <optional>
+#include <vector>
 
 namespace aiora {
 
@@ -17,6 +18,19 @@ enum class NativePage : int {
 enum class TrackAddKind : int {
     Melodic = 0,
     Drums = 1
+};
+
+enum class RollMode : int {
+    Notes = 0,
+    Bend = 1,
+    Velocity = 2,
+    Mod = 3
+};
+
+struct RollCellHit {
+    int midi{-1};
+    int step{-1};
+    float normalizedAcross{0.5f};
 };
 
 class NativeUi {
@@ -49,6 +63,11 @@ public:
     void setPitchActive(int midi, bool active) noexcept;
     void clearPitchActivity() noexcept;
 
+    void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
+    [[nodiscard]] RollMode rollMode() const noexcept { return rollMode_; }
+    void scrollRoll(int pitchDelta, int stepDelta) noexcept;
+    [[nodiscard]] float rollCellPixels() const noexcept;
+
     void render() const noexcept;
 
     [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
@@ -56,6 +75,8 @@ public:
     [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<RollCellHit> hitRollCell(float x, float y) const noexcept;
 
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
@@ -67,6 +88,13 @@ private:
     [[nodiscard]] Rect trackRect(int index, int count) const noexcept;
     [[nodiscard]] Rect addTrackRect(TrackAddKind kind) const noexcept;
     [[nodiscard]] Rect padQuickRect(int index, int count) const noexcept;
+
+    [[nodiscard]] Rect rollModeRect(int index) const noexcept;
+    [[nodiscard]] Rect rollViewportRect() const noexcept;
+    [[nodiscard]] float rollGutterPixels() const noexcept;
+    [[nodiscard]] float rollHeaderPixels() const noexcept;
+    [[nodiscard]] std::vector<int> rollColumns() const;
+    [[nodiscard]] int rollTotalRows() const noexcept;
     [[nodiscard]] Rgb pitchColor(int midi) const noexcept;
 
     void fillRect(const Rect& rect, Rgb color) const noexcept;
@@ -74,12 +102,17 @@ private:
     void drawTracks() const noexcept;
     void drawPadQuick() const noexcept;
     void drawDrums() const noexcept;
+    void drawRoll() const noexcept;
     void drawPlaceholder() const noexcept;
 
     int width_{0};
     int height_{0};
     NativePage page_{NativePage::Play};
     std::array<bool, kGridNotes> active_{};
+
+    RollMode rollMode_{RollMode::Notes};
+    int rollPitchOffset_{0};
+    int rollStepOffset_{0};
 };
 
 } // namespace aiora
