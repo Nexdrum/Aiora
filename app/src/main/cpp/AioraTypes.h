@@ -9,8 +9,21 @@ namespace aiora {
 enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise };
 enum class FilterType : uint8_t { Lowpass, Highpass, Bandpass };
 enum class LfoTarget : uint8_t { None, Pitch, Filter, Amp };
+enum class ModTarget : uint8_t {
+    None, Cutoff, Resonance, FilterEnv,
+    AmpAttack, AmpDecay, AmpSustain, AmpRelease,
+    FilterAttack, FilterDecay, FilterSustain, FilterRelease,
+    Op1, Op2, Op3, Op4, Op5, Op6,
+    Morph1, Morph2, Morph3, Morph4, Morph5, Morph6,
+    Fm, LfoAmount, LfoRate, Unison, Volume
+};
 
-struct Envelope { float attack{0.008f}, decay{0.12f}, sustain{0.85f}, release{0.25f}; };
+struct Envelope {
+    float attack{0.008f};
+    float decay{0.12f};
+    float sustain{0.85f};
+    float release{0.25f};
+};
 
 struct Operator {
     bool enabled{true};
@@ -18,9 +31,11 @@ struct Operator {
     float ratio{1.0f};
     float detuneCents{0.0f};
     float level{0.0f};
-    Envelope env{};
+    Envelope env{0.005f, 0.1f, 0.8f, 0.15f};
     std::array<float,16> harm{};
     std::array<float,16> harmMute{};
+    bool hasHarm{false};
+    bool hasHarmMute{false};
 };
 
 struct Filter {
@@ -31,9 +46,27 @@ struct Filter {
     Envelope env{0.01f,0.15f,0.7f,0.2f};
 };
 
-struct Lfo { float rate{5.0f}, amount{0.0f}, attack{0.0f}, velocitySensitivity{0.0f}; LfoTarget target{LfoTarget::None}; };
-struct Fx { float distortion{0.0f}, delay{0.18f}, delayTime{0.32f}, delayFeedback{0.32f}, reverb{0.25f}; };
-struct ModSlot { std::string target; float min{0.0f}, max{1.0f}; };
+struct Lfo {
+    float rate{5.0f};
+    float amount{0.0f};
+    float attack{0.0f};
+    float velocitySensitivity{0.0f};
+    LfoTarget target{LfoTarget::None};
+};
+
+struct Fx {
+    float distortion{0.0f};
+    float delay{0.18f};
+    float delayTime{0.32f};
+    float delayFeedback{0.32f};
+    float reverb{0.25f};
+};
+
+struct ModSlot {
+    ModTarget target{ModTarget::None};
+    float min{0.0f};
+    float max{1.0f};
+};
 
 struct Patch {
     std::string name{"Spectrachord Init"};
@@ -41,34 +74,48 @@ struct Patch {
     std::array<std::array<float,6>,6> matrix{};
     Filter filter{};
     Envelope amp{};
-    float velocityAmp{0.0f}, velocityFilter{0.0f};
+    float velocityAmp{0.0f};
+    float velocityFilter{0.0f};
     std::array<ModSlot,4> modSlots{};
     uint8_t modSlotCount{0};
     Lfo lfo{};
     Fx fx{};
-    float unison{0.0f}, glide{0.0f}, octave{0.0f}, volume{0.8f};
+    float unison{0.0f};
+    float glide{0.0f};
+    float octave{0.0f};
+    float volume{0.8f};
+    int32_t nexdrumLow{-1};
+    int32_t nexdrumHigh{-1};
+    int32_t fundamentalMidi{-1};
 };
 
 struct CurvePoint { float step{0.0f}, value{0.0f}; bool free{false}; };
 struct Note {
     int32_t midi{62};
-    float startStep{0.0f}, lengthSteps{1.0f};
+    float startStep{0.0f};
+    float lengthSteps{1.0f};
     std::vector<CurvePoint> bend;
     std::vector<CurvePoint> velocity;
     std::vector<CurvePoint> mod;
 };
 
 struct DrumPad {
-    int32_t centerMidi{62}, lowMidi{62}, highMidi{62};
+    int32_t centerMidi{62};
+    int32_t lowMidi{62};
+    int32_t highMidi{62};
     std::string icon{"kick"};
     Patch patch{};
-    float volume{1.0f}, pan{0.0f};
+    float volume{1.0f};
+    float pan{0.0f};
 };
 
 struct Track {
     std::string name;
-    bool drums{false}, mute{false}, solo{false};
-    float volume{0.8f}, pan{0.0f};
+    bool drums{false};
+    bool mute{false};
+    bool solo{false};
+    float volume{0.8f};
+    float pan{0.0f};
     Patch patch{};
     std::vector<DrumPad> pads;
     std::vector<Note> notes;
@@ -76,7 +123,8 @@ struct Track {
 
 struct Project {
     float bpm{112.0f};
-    int32_t beats{4}, divisions{4};
+    int32_t beats{4};
+    int32_t divisions{4};
     bool dozenal{false};
     std::vector<Track> tracks;
 };
