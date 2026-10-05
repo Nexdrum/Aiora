@@ -11,6 +11,7 @@
 #include <string>
 
 #include "AudioEngine.h"
+#include "FactoryPresets.h"
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
 #include "NativeUi.h"
@@ -597,6 +598,25 @@ bool handleUiTap(NativeState& state, float x, float y) {
         if (const auto add = state.ui.hitAddTrack(x, y)) {
             project.addTrack(*add == aiora::TrackAddKind::Drums);
             scheduleAutosave(state);
+            return true;
+        }
+    }
+
+    if(state.ui.page()==aiora::NativePage::Synth){
+        if(const auto preset=aiora::NativeEditor::instance().hitFactoryPreset(x,y)){
+            const int track=project.selectedTrack();
+            if(track>=0){
+                if(*preset==static_cast<int>(aiora::FactoryPreset::Nexdrum)){
+                    project.loadNexdrumKit(track);
+                    state.ui.resetDrumRangeArm();
+                }else{
+                    project.replaceSelectedPatch(
+                        aiora::makeFactoryPatch(static_cast<aiora::FactoryPreset>(*preset)));
+                }
+                audio.syncProject();
+                scheduleAutosave(state,0);
+                previewEditorPatch(state);
+            }
             return true;
         }
     }
