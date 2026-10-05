@@ -18,6 +18,11 @@ Java_com_nexdrum_aiora_NativeBridge_noteOn(JNIEnv*, jobject, jint midi, jfloat v
     return AudioEngine::instance().noteOn(midi, velocity);
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_com_nexdrum_aiora_NativeBridge_noteOnPad(JNIEnv*, jobject, jint padIndex, jint midi, jfloat velocity) {
+    return AudioEngine::instance().noteOnPad(padIndex, midi, velocity);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_nexdrum_aiora_NativeBridge_noteOff(JNIEnv*, jobject, jint voiceId) {
     AudioEngine::instance().noteOff(voiceId);
