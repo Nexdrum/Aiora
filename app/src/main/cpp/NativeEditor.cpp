@@ -113,7 +113,7 @@ NativeEditor::Rect NativeEditor::patchTransferRect(int index) const noexcept {
     const auto e=editorRect();
     const float gap=std::max(4.0f,height_*0.008f);
     const float h=std::clamp(e.h*0.085f,30.0f,42.0f);
-    const float w=(e.w-gap*3.0f)*0.5f;
+    const float w=(e.w-gap*4.0f)/3.0f;
     return {e.x+gap+index*(w+gap),e.y+e.h-h,w,h};
 }
 
@@ -402,13 +402,16 @@ void NativeEditor::drawPadReservedBackground() const noexcept {
 }
 
 void NativeEditor::drawPatchTransfer() const noexcept {
-    const auto copy=patchTransferRect(0);
-    const auto paste=patchTransferRect(1);
+    const auto ai=patchTransferRect(0);
+    const auto copy=patchTransferRect(1);
+    const auto paste=patchTransferRect(2);
+    drawButton(ai,false,kGreen);
     drawButton(copy,false,kCyan);
     drawButton(paste,false,kPurple);
     auto& ov=NativeOverlay::instance();
-    ov.addTextCentered("COPY PATCH",{copy.x,copy.y,copy.w,copy.h},0.92f,overlayColor(kWhite));
-    ov.addTextCentered("PASTE PATCH",{paste.x,paste.y,paste.w,paste.h},0.92f,overlayColor(kWhite));
+    ov.addTextCentered("AI FROM CLIP",{ai.x,ai.y,ai.w,ai.h},0.80f,overlayColor(kWhite));
+    ov.addTextCentered("COPY PATCH",{copy.x,copy.y,copy.w,copy.h},0.80f,overlayColor(kWhite));
+    ov.addTextCentered("PASTE PATCH",{paste.x,paste.y,paste.w,paste.h},0.80f,overlayColor(kWhite));
 }
 
 void NativeEditor::renderSynth() const noexcept {
@@ -659,8 +662,9 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
     EditorPage page,float x,float y) const noexcept {
     (void)page;
-    if(patchTransferRect(0).contains(x,y))return PatchTransferAction::CopyPatch;
-    if(patchTransferRect(1).contains(x,y))return PatchTransferAction::PastePatch;
+    if(patchTransferRect(0).contains(x,y))return PatchTransferAction::AiFromClipboard;
+    if(patchTransferRect(1).contains(x,y))return PatchTransferAction::CopyPatch;
+    if(patchTransferRect(2).contains(x,y))return PatchTransferAction::PastePatch;
     return std::nullopt;
 }
 
