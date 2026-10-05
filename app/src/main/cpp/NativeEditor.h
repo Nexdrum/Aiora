@@ -9,7 +9,7 @@
 namespace aiora {
 
 enum class EditorPage : uint8_t { Synth, Fx };
-enum class PatchTransferAction : uint8_t { CopyPatch, PastePatch };
+enum class PatchTransferAction : uint8_t { AiFromClipboard, CopyPatch, PastePatch };
 
 class NativeEditor {
 public:
