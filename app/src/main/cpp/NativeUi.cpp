@@ -255,6 +255,16 @@ NativeUi::Rect NativeUi::gridAreaRect() const noexcept {
             width,width
         };
     }
+    if(page_==NativePage::Play){
+        const auto body=bodyContentRect();
+        const float outer=std::clamp(body.w*0.022f,14.0f,20.0f);
+        const float width=body.w-outer*2.0f;
+        return {
+            body.x+outer,
+            body.y+64.0f,
+            width,width
+        };
+    }
     return bodyContentRect();
 }
 
@@ -1744,10 +1754,25 @@ void NativeUi::render() const noexcept {
             fillRect(bodyContentRect(), kPanel);
             NativeEditor::instance().renderFx();
             break;
-        case NativePage::Play:
-            fillRect(bodyContentRect(), kPanel);
+        case NativePage::Play:{
+            const auto body=bodyContentRect();
+            const float gridW=std::max(0.0f,body.w);
+            const float cardH=std::min(
+                body.h,
+                64.0f+gridW+18.0f);
+            const Rect card{body.x,body.y,body.w,cardH};
+            fillRect(card,kButton);
+            fillRect({
+                card.x+2.0f,card.y+2.0f,
+                std::max(0.0f,card.w-4.0f),
+                std::max(0.0f,card.h-4.0f)},kPanel);
+            overlay.addText(
+                "PLAY · space = play/pause",
+                card.x+18.0f,card.y+18.0f,
+                0.98f,overlayColor(kWhite));
             drawGrid();
             break;
+        }
         default:
             drawPlaceholder();
             break;
