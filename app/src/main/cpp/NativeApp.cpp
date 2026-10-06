@@ -430,7 +430,18 @@ void updateSafeInsets(NativeState& state) {
 }
 
 bool createSurface(NativeState& state) {
-    const EGLint cfgAttrs[] = {
+    const EGLint msaaAttrs[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_SAMPLE_BUFFERS, 1,
+        EGL_SAMPLES, 4,
+        EGL_NONE
+    };
+    const EGLint basicAttrs[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
         EGL_RED_SIZE, 8,
@@ -449,10 +460,19 @@ bool createSurface(NativeState& state) {
 
     EGLConfig config{};
     EGLint count = 0;
-    if (eglChooseConfig(state.display, cfgAttrs, &config, 1, &count) != EGL_TRUE ||
-        count < 1) {
-        return false;
+    bool usingMsaa =
+        eglChooseConfig(state.display, msaaAttrs, &config, 1, &count) == EGL_TRUE &&
+        count >= 1;
+    if(!usingMsaa){
+        count=0;
+        if (eglChooseConfig(state.display, basicAttrs, &config, 1, &count) != EGL_TRUE ||
+            count < 1) {
+            return false;
+        }
     }
+    __android_log_print(
+        ANDROID_LOG_INFO,kTag,
+        usingMsaa?"OpenGL UI: 4x MSAA":"OpenGL UI: MSAA unavailable, using filtered glyphs");
 
     EGLint format = 0;
     eglGetConfigAttrib(state.display, config, EGL_NATIVE_VISUAL_ID, &format);
