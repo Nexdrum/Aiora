@@ -33,6 +33,10 @@ public:
     void addChevron(Rect rect,bool right,Color color);
     void addDownChevron(Rect rect,Color color);
 
+    void setClip(Rect rect) noexcept { clip_=rect; clipEnabled_=true; }
+    void clearClip() noexcept { clipEnabled_=false; }
+    bool clipRect(Rect& rect) const noexcept;
+
     [[nodiscard]] float textWidth(std::string_view text,float scale) const noexcept;
 
 private:
@@ -85,6 +89,8 @@ private:
     float fontScale_{1.0f};
     std::vector<Vertex> vertices_;
     std::vector<TextVertex> textVertices_;
+    bool clipEnabled_{false};
+    Rect clip_{};
 };
 
 } // namespace aiora
