@@ -1327,12 +1327,23 @@ bool handleUiTap(NativeState& state, float x, float y) {
             case aiora::HeaderAction::DozenalToggle:
                 project.setDozenal(!project.dozenal());
                 break;
+            case aiora::HeaderAction::TransportStart:
+                state.ui.setRollStartStep(0);
+                break;
             case aiora::HeaderAction::TransportToggle:
                 if(audio.transportPlaying()) audio.stopTransport();
                 else audio.playTransport(state.ui.rollStartStep());
                 break;
+            case aiora::HeaderAction::TransportEnd:
+                state.ui.setRollStartStep(
+                    std::max(0,project.playLengthSteps()-1));
+                break;
         }
-        if(*action!=aiora::HeaderAction::TransportToggle)scheduleAutosave(state);
+        if(*action!=aiora::HeaderAction::TransportStart&&
+           *action!=aiora::HeaderAction::TransportToggle&&
+           *action!=aiora::HeaderAction::TransportEnd){
+            scheduleAutosave(state);
+        }
         return true;
     }
 
