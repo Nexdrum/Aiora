@@ -976,12 +976,26 @@ bool NativeUi::trackPointerDown(float x,float y){
 
     for(int i=0;i<2;++i){
         const auto r=masterSliderRect(i);if(!r.contains(x,y))continue;
-        const float labelW=std::min(64.0f,r.w*0.28f);
-        const float start=r.x+labelW+4.0f;
-        const float width=std::max(2.0f,r.w-labelW-8.0f);
+        const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
+        const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);
+        const float start=r.x+labelW;
+        const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
         const float n=std::clamp((x-start)/width,0.0f,1.0f);
         if(i==0)project.setMasterVolume(n);else project.setMasterReverb(n);
         trackActiveSlider_=i+2;trackControlChanged_=true;return true;
+    }
+
+    for(int i=0;i<3;++i){
+        const auto r=trackSongSliderRect(i);if(!r.contains(x,y))continue;
+        const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
+        const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);
+        const float start=r.x+labelW;
+        const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
+        const float n=std::clamp((x-start)/width,0.0f,1.0f);
+        if(i==0)project.setBpm(12.0f+n*276.0f);
+        else if(i==1)project.setSignature(1+static_cast<int>(std::lround(n*11.0f)),project.divisions());
+        else project.setSignature(project.beats(),1+static_cast<int>(std::lround(n*11.0f)));
+        trackActiveSlider_=i+4;trackControlChanged_=true;return true;
     }
 
     const int count=project.trackCount();
@@ -1008,20 +1022,36 @@ bool NativeUi::trackPointerMove(float x,float){
     auto& project=ProjectCore::instance();
     if(page_!=NativePage::Tracks||trackActiveSlider_<0)return false;
 
-    if(trackActiveSlider_>=2){
-        const int i=trackActiveSlider_-2;const auto r=masterSliderRect(i);
-        const float labelW=std::min(64.0f,r.w*0.28f);
-        const float start=r.x+labelW+4.0f,width=std::max(2.0f,r.w-labelW-8.0f);
+    if(trackActiveSlider_==2||trackActiveSlider_==3){
+        const int i=trackActiveSlider_-2;
+        const auto r=masterSliderRect(i);
+        const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
+        const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);
+        const float start=r.x+labelW;
+        const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
         const float n=std::clamp((x-start)/width,0.0f,1.0f);
         if(i==0)project.setMasterVolume(n);else project.setMasterReverb(n);
+    }else if(trackActiveSlider_>=4&&trackActiveSlider_<=6){
+        const int i=trackActiveSlider_-4;
+        const auto r=trackSongSliderRect(i);
+        const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
+        const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);
+        const float start=r.x+labelW;
+        const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
+        const float n=std::clamp((x-start)/width,0.0f,1.0f);
+        if(i==0)project.setBpm(12.0f+n*276.0f);
+        else if(i==1)project.setSignature(1+static_cast<int>(std::lround(n*11.0f)),project.divisions());
+        else project.setSignature(project.beats(),1+static_cast<int>(std::lround(n*11.0f)));
     }else{
         const int count=project.trackCount();
         if(trackActiveIndex_<0||trackActiveIndex_>=count)return false;
         const auto r=trackPartRect(trackActiveIndex_,count,trackActiveSlider_);
-        const float labelW=std::min(16.0f,r.w*0.18f);
-        const float start=r.x+labelW+3.0f,width=std::max(2.0f,r.w-labelW-7.0f);
+        const float labelW=34.0f;
+        const float start=r.x+labelW;
+        const float width=std::max(2.0f,r.w-labelW-4.0f);
         const float n=std::clamp((x-start)/width,0.0f,1.0f);
-        if(trackActiveSlider_==0)project.setTrackVolume(trackActiveIndex_,n);else project.setTrackPan(trackActiveIndex_,n*2.0f-1.0f);
+        if(trackActiveSlider_==0)project.setTrackVolume(trackActiveIndex_,n);
+        else project.setTrackPan(trackActiveIndex_,n*2.0f-1.0f);
     }
     trackControlChanged_=true;return true;
 }
@@ -1506,6 +1536,14 @@ std::optional<int> NativeUi::hitTrack(float x, float y) const noexcept {
     return std::nullopt;
 }
 
+std::optional<TrackUtilityAction> NativeUi::hitTrackUtility(float x,float y) const noexcept {
+    if(page_!=NativePage::Tracks)return std::nullopt;
+    if(trackUtilityRect(0).contains(x,y))return TrackUtilityAction::DozenalToggle;
+    if(trackUtilityRect(1).contains(x,y))return TrackUtilityAction::AiFromClipboard;
+    if(trackUtilityRect(2).contains(x,y))return TrackUtilityAction::ClearTrack;
+    return std::nullopt;
+}
+
 std::optional<ProjectTransferAction> NativeUi::hitProjectTransfer(float x,float y) const noexcept {
     if(page_!=NativePage::Tracks)return std::nullopt;
     if(projectTransferRect(0).contains(x,y))return ProjectTransferAction::CopyProject;
@@ -1516,7 +1554,6 @@ std::optional<ProjectTransferAction> NativeUi::hitProjectTransfer(float x,float 
 std::optional<TrackAddKind> NativeUi::hitAddTrack(float x, float y) const noexcept {
     if (page_ != NativePage::Tracks) return std::nullopt;
     if (addTrackRect(TrackAddKind::Melodic).contains(x, y)) return TrackAddKind::Melodic;
-    if (addTrackRect(TrackAddKind::Drums).contains(x, y)) return TrackAddKind::Drums;
     return std::nullopt;
 }
 
