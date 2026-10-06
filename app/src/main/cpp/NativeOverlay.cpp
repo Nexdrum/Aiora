@@ -61,6 +61,43 @@ GLuint compile(GLenum type,const char* src){
     return shader;
 }
 
+constexpr std::array<uint32_t,8> kExtraCodepoints{
+    0x00D7u,0x00B7u,0x2013u,0x2014u,
+    0x2192u,0x223Fu,0x25C0u,0x25B6u
+};
+
+int glyphIndexForCodepoint(uint32_t cp) noexcept {
+    if(cp>=32u&&cp<=126u)return static_cast<int>(cp-32u);
+    for(size_t i=0;i<kExtraCodepoints.size();++i){
+        if(kExtraCodepoints[i]==cp)
+            return 95+static_cast<int>(i);
+    }
+    return static_cast<int>('?'-32);
+}
+
+uint32_t nextUtf8(std::string_view s,size_t& pos) noexcept {
+    if(pos>=s.size())return 0u;
+    const unsigned char c0=static_cast<unsigned char>(s[pos++]);
+    if(c0<0x80u)return c0;
+    if((c0&0xE0u)==0xC0u&&pos<s.size()){
+        const unsigned char c1=static_cast<unsigned char>(s[pos++]);
+        return ((c0&0x1Fu)<<6)|(c1&0x3Fu);
+    }
+    if((c0&0xF0u)==0xE0u&&pos+1<s.size()){
+        const unsigned char c1=static_cast<unsigned char>(s[pos++]);
+        const unsigned char c2=static_cast<unsigned char>(s[pos++]);
+        return ((c0&0x0Fu)<<12)|((c1&0x3Fu)<<6)|(c2&0x3Fu);
+    }
+    if((c0&0xF8u)==0xF0u&&pos+2<s.size()){
+        const unsigned char c1=static_cast<unsigned char>(s[pos++]);
+        const unsigned char c2=static_cast<unsigned char>(s[pos++]);
+        const unsigned char c3=static_cast<unsigned char>(s[pos++]);
+        return ((c0&0x07u)<<18)|((c1&0x3Fu)<<12)|
+               ((c2&0x3Fu)<<6)|(c3&0x3Fu);
+    }
+    return static_cast<uint32_t>('?');
+}
+
 JNIEnv* attachEnv(ANativeActivity* activity,bool& attached){
     attached=false;
     if(!activity||!activity->vm)return nullptr;
@@ -226,8 +263,7 @@ bool NativeOverlay::buildFontAtlas(ANativeActivity* activity){
         atlasHeight_=static_cast<int>(info.height);
         const auto* bytes=static_cast<const uint8_t*>(raw);
 
-        for(int code=32;code<=126;++code){
-            const int index=code-32;
+        for(int index=0;index<kGlyphCount;++index){
             const int cellX=(index%columns)*cellW;
             const int cellY=(index/columns)*cellH;
             int minX=cellW,maxX=-1,minY=cellH,maxY=-1;
@@ -257,7 +293,7 @@ bool NativeOverlay::buildFontAtlas(ANativeActivity* activity){
                 g.advance=static_cast<float>(maxX-minX+5)/static_cast<float>(fontPx);
                 g.valid=true;
             }else{
-                g.advance=code==' '?0.34f:0.50f;
+                g.advance=index==0?0.34f:0.50f;
                 g.valid=false;
             }
         }
@@ -308,7 +344,7 @@ void NativeOverlay::begin(int width,int height){
     width_=std::max(1,width);
     height_=std::max(1,height);
     const float shortSide=static_cast<float>(std::min(width_,height_));
-    fontScale_=std::clamp(shortSide/832.0f,0.92f,1.12f);
+    fontScale_=std::clamp(shortSide/700.0f,1.08f,1.28f);
     vertices_.clear();
     textVertices_.clear();
     vertices_.reserve(12000);
@@ -378,9 +414,11 @@ float NativeOverlay::textWidth(std::string_view text,float scale) const noexcept
     }
     const float px=20.0f*scale*fontScale_;
     float w=0.0f;
-    for(unsigned char raw:text){
-        const int code=(raw>=32&&raw<=126)?static_cast<int>(raw):static_cast<int>('?');
-        w+=glyphs_[static_cast<size_t>(code-32)].advance*px;
+    size_t pos=0;
+    while(pos<text.size()){
+        const uint32_t cp=nextUtf8(text,pos);
+        const int index=glyphIndexForCodepoint(cp);
+        w+=glyphs_[static_cast<size_t>(index)].advance*px;
     }
     return w;
 }
@@ -456,9 +494,11 @@ void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Co
     const float px=20.0f*scale*fontScale_;
     const float baseline=y+px*0.82f;
     float pen=x;
-    for(unsigned char raw:text){
-        const int code=(raw>=32&&raw<=126)?static_cast<int>(raw):static_cast<int>('?');
-        const auto& g=glyphs_[static_cast<size_t>(code-32)];
+    size_t pos=0;
+    while(pos<text.size()){
+        const uint32_t cp=nextUtf8(text,pos);
+        const int index=glyphIndexForCodepoint(cp);
+        const auto& g=glyphs_[static_cast<size_t>(index)];
         if(g.valid){
             addTextQuad(
                 pen+g.xBearing*px,
