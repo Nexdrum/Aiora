@@ -1294,8 +1294,8 @@ void NativeUi::drawTracks() const noexcept {
     overlay.addTextCentered("Clear trk",{clear.x,clear.y,clear.w,clear.h},0.88f,overlayColor(kWhite));
     overlay.addTextCentered("Save",{save.x,save.y,save.w,save.h},0.92f,overlayColor(kWhite));
     overlay.addTextCentered("Load",{load.x,load.y,load.w,load.h},0.92f,overlayColor(kWhite));
-    overlay.addTextCentered("Export",{exp.x,exp.y,exp.w,exp.h},0.92f,overlayColor(kWhite));
-    overlay.addTextCentered("Import",{imp.x,imp.y,imp.w,imp.h},0.92f,overlayColor(kWhite));
+    overlay.addTextCentered("Export WAV",{exp.x,exp.y,exp.w,exp.h},0.72f,overlayColor(kWhite));
+    overlay.addTextCentered("Export MIDI",{imp.x,imp.y,imp.w,imp.h},0.70f,overlayColor(kWhite));
 
     const auto tempoR=trackSongSliderRect(0);
     const float tempoN=std::clamp((project.bpm()-12.0f)/276.0f,0.0f,1.0f);
@@ -2199,8 +2199,8 @@ std::optional<TrackUtilityAction> NativeUi::hitTrackUtility(float x,float y) con
 
 std::optional<ProjectTransferAction> NativeUi::hitProjectTransfer(float x,float y) const noexcept {
     if(page_!=NativePage::Tracks)return std::nullopt;
-    if(projectTransferRect(0).contains(x,y))return ProjectTransferAction::CopyProject;
-    if(projectTransferRect(1).contains(x,y))return ProjectTransferAction::PasteProject;
+    if(projectTransferRect(0).contains(x,y))return ProjectTransferAction::ExportWav;
+    if(projectTransferRect(1).contains(x,y))return ProjectTransferAction::ExportMidi;
     return std::nullopt;
 }
 
