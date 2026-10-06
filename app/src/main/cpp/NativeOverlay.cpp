@@ -396,6 +396,28 @@ void NativeOverlay::addMaskRows(const uint32_t* rows,int rowCount,int columnCoun
     }
 }
 
+void NativeOverlay::addMaskRows64(const uint64_t* rows,int rowCount,int columnCount,Rect rect,Color color){
+    const float px=rect.w/static_cast<float>(columnCount);
+    const float py=rect.h/static_cast<float>(rowCount);
+    for(int row=0;row<rowCount;++row){
+        const uint64_t bits=rows[row];
+        int col=0;
+        while(col<columnCount){
+            const uint64_t mask=uint64_t{1}<<(columnCount-1-col);
+            if((bits&mask)==0u){++col;continue;}
+            const int start=col;
+            while(col<columnCount&&
+                  (bits&(uint64_t{1}<<(columnCount-1-col)))!=0u)++col;
+            addMaskRun(
+                rect.x+start*px,
+                rect.y+row*py,
+                (col-start)*px,
+                py,
+                color);
+        }
+    }
+}
+
 char NativeOverlay::normalizedChar(char c) noexcept {
     if(c>='a'&&c<='z')return static_cast<char>(c-'a'+'A');
     return c;
@@ -520,11 +542,11 @@ void NativeOverlay::addTextCentered(std::string_view text,Rect r,float scale,Col
 
 void NativeOverlay::addPitchGlyph(int pitchClass,Rect rect,Color color){
     const int pc=((pitchClass%12)+12)%12;
-    addMaskRows(glyphmask::kPitch[static_cast<size_t>(pc)].data(),28,28,rect,color);
+    addMaskRows64(glyphmask::kPitch64[static_cast<size_t>(pc)].data(),64,64,rect,color);
 }
 
 void NativeOverlay::addLogo(Rect rect,Color color){
-    addMaskRows(glyphmask::kLogo.data(),32,32,rect,color);
+    addMaskRows64(glyphmask::kLogo64.data(),64,64,rect,color);
 }
 
 void NativeOverlay::addLine(float x1,float y1,float x2,float y2,float thickness,Color c){
