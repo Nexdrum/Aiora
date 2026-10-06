@@ -2481,7 +2481,7 @@ std::optional<int> NativeUi::hitRollBeatStep(float x,float y) const noexcept {
     const float header=rollHeaderPixels();
     const float local=(y-viewport.y-header)/std::max(1.0f,rowH);
     const int step=rollStepOffset_+
-        static_cast<int>(std::lround(local));
+        static_cast<int>(std::floor(local));
     return std::max(0,step);
 }
 
