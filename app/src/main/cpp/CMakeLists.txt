@@ -19,6 +19,7 @@ add_library(aiora SHARED
     ProjectCodec.cpp
     ProjectStorage.cpp
     ProjectPlayback.cpp
+    SongExport.cpp
     SpectrachordVoice.cpp
 )
 
