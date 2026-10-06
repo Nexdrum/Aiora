@@ -73,6 +73,7 @@ public:
 
     int noteCount(int trackIndex) const;
     int addNote(int trackIndex, int midi, float startStep, float lengthSteps);
+    int pasteNotes(int trackIndex, const std::vector<Note>& notes, float startStep);
     bool deleteNote(int trackIndex, int noteIndex);
     bool updateNote(int trackIndex, int noteIndex, int midi, float startStep, float lengthSteps);
     int noteMidi(int trackIndex, int noteIndex) const;
