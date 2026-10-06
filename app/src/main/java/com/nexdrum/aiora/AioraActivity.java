@@ -49,9 +49,7 @@ public class AioraActivity extends NativeActivity {
                 startActivityForResult(intent, requestCode);
             } catch (Exception e) {
                 pendingSources.remove(requestCode);
-                nativeDocumentResult(
-                        requestCode, "", false,
-                        e.getMessage() == null ? "Could not open Save As" : e.getMessage());
+                writeResult(requestCode, false, "Could not open Save As");
             }
         });
     }
@@ -72,9 +70,7 @@ public class AioraActivity extends NativeActivity {
                 });
                 startActivityForResult(intent, requestCode);
             } catch (Exception e) {
-                nativeDocumentResult(
-                        requestCode, "", false,
-                        e.getMessage() == null ? "Could not open file picker" : e.getMessage());
+                writeResult(requestCode, false, "Could not open file picker");
             }
         });
     }
@@ -92,31 +88,31 @@ public class AioraActivity extends NativeActivity {
 
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
             pendingSources.remove(requestCode);
-            nativeDocumentResult(requestCode, "", false, "Cancelled");
+            writeResult(requestCode, false, "Cancelled");
             return;
         }
 
         Uri uri = data.getData();
         try {
             if (requestCode == REQUEST_LOAD_JSON) {
-                File dst = new File(getCacheDir(), "aiora_open_song.json");
+                File dst = new File(getFilesDir(), "aiora_open_song.json");
                 copyUriToFile(uri, dst);
-                nativeDocumentResult(requestCode, dst.getAbsolutePath(), true, "");
+                writeResult(requestCode, true, "");
                 return;
             }
 
             String source = pendingSources.remove(requestCode);
             if (source == null || source.isEmpty()) {
-                nativeDocumentResult(requestCode, "", false, "Export source file is missing");
+                writeResult(requestCode, false, "Export source file is missing");
                 return;
             }
 
             copyFileToUri(new File(source), uri);
-            nativeDocumentResult(requestCode, "", true, "");
+            writeResult(requestCode, true, "");
         } catch (Exception e) {
             pendingSources.remove(requestCode);
-            nativeDocumentResult(
-                    requestCode, "", false,
+            writeResult(
+                    requestCode, false,
                     e.getMessage() == null ? "Document operation failed" : e.getMessage());
         }
     }
@@ -147,9 +143,25 @@ public class AioraActivity extends NativeActivity {
         out.flush();
     }
 
-    private static native void nativeDocumentResult(
-            int requestCode,
-            String localPath,
-            boolean success,
-            String message);
+    private void writeResult(int requestCode, boolean success, String message) {
+        File result = new File(getFilesDir(), "aiora_document_result.txt");
+        File temp = new File(getFilesDir(), "aiora_document_result.tmp");
+        String safeMessage = message == null ? "" : message.replace('\n', ' ').replace('\r', ' ');
+        String payload = requestCode + "\n" + (success ? "1" : "0") + "\n" + safeMessage;
+        try (FileOutputStream out = new FileOutputStream(temp, false)) {
+            out.write(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.flush();
+        } catch (Exception ignored) {
+            return;
+        }
+        if (!temp.renameTo(result)) {
+            try (FileInputStream in = new FileInputStream(temp);
+                 FileOutputStream out = new FileOutputStream(result, false)) {
+                copy(in, out);
+            } catch (Exception ignored) {
+                // A failed status marker must never crash the NativeActivity.
+            }
+            temp.delete();
+        }
+    }
 }
