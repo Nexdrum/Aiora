@@ -245,54 +245,143 @@ NativeUi::Rect NativeUi::gridRect(int visualRow, int column) const noexcept {
     };
 }
 
-NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
+NativeUi::Rect NativeUi::trackCardRect() const noexcept {
     const auto content=contentRect();
-    const float gap=std::max(4.0f,height_*0.008f);
-    const float h=std::clamp(content.h*0.08f,28.0f,38.0f);
-    const float w=(content.w-gap*3.0f)*0.5f;
-    return {content.x+gap+index*(w+gap),content.y+gap,w,h};
+    const int count=std::max(0,ProjectCore::instance().trackCount());
+    const float gap=std::clamp(content.w*0.014f,9.0f,13.0f);
+    const float titleH=34.0f;
+    const float rowH=std::clamp(content.w*0.105f,74.0f,88.0f);
+    const float addH=52.0f;
+    const float h=
+        gap+titleH+gap+
+        count*rowH+std::max(0,count-1)*gap+
+        gap+addH+gap;
+    return {content.x,content.y,content.w,h};
+}
+
+NativeUi::Rect NativeUi::patchCardRect() const noexcept {
+    const auto prev=trackCardRect();
+    const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
+    return {prev.x,prev.y+prev.h+gap,prev.w,118.0f};
+}
+
+NativeUi::Rect NativeUi::aiCardRect() const noexcept {
+    const auto prev=patchCardRect();
+    const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
+    return {prev.x,prev.y+prev.h+gap,prev.w,132.0f};
+}
+
+NativeUi::Rect NativeUi::songCardRect() const noexcept {
+    const auto prev=aiCardRect();
+    const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
+    return {prev.x,prev.y+prev.h+gap,prev.w,270.0f};
+}
+
+NativeUi::Rect NativeUi::masterCardRect() const noexcept {
+    const auto prev=songCardRect();
+    const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
+    return {prev.x,prev.y+prev.h+gap,prev.w,158.0f};
+}
+
+NativeUi::Rect NativeUi::trackSongSliderRect(int index) const noexcept {
+    const auto card=songCardRect();
+    const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
+    if(index==0){
+        return {card.x+pad,card.y+104.0f,card.w-pad*2.0f,42.0f};
+    }
+    const float gap=12.0f;
+    const float w=(card.w-pad*2.0f-gap)*0.5f;
+    return {
+        card.x+pad+(index-1)*(w+gap),
+        card.y+154.0f,
+        w,42.0f
+    };
+}
+
+NativeUi::Rect NativeUi::trackUtilityRect(int index) const noexcept {
+    if(index==0){
+        const auto card=songCardRect();
+        const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
+        return {card.x+pad,card.y+210.0f,card.w-pad*2.0f,44.0f};
+    }
+    const auto card=aiCardRect();
+    const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
+    return {
+        card.x+card.w*0.64f,
+        card.y+50.0f,
+        card.w*0.32f-pad*0.2f,
+        56.0f
+    };
+}
+
+NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
+    const auto card=songCardRect();
+    const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
+    const float gap=10.0f;
+    const float w=(card.w-pad*2.0f-gap)*0.5f;
+    return {card.x+pad+index*(w+gap),card.y+48.0f,w,46.0f};
 }
 
 NativeUi::Rect NativeUi::addTrackRect(TrackAddKind kind) const noexcept {
-    const auto content=contentRect();
-    const float gap=std::max(5.0f,width_*0.008f);
-    const float h=std::clamp(content.h*0.12f,34.0f,52.0f);
-    const float w=(content.w-gap*3.0f)*0.5f;
-    const int side=kind==TrackAddKind::Drums?1:0;
-    return {content.x+gap+side*(w+gap),content.y+content.h-h-gap,w,h};
+    if(kind==TrackAddKind::Drums)return {};
+    const auto card=trackCardRect();
+    const float gap=std::clamp(card.w*0.014f,9.0f,13.0f);
+    return {
+        card.x+gap,
+        card.y+card.h-gap-52.0f,
+        card.w-gap*2.0f,
+        52.0f
+    };
 }
 
 NativeUi::Rect NativeUi::masterSliderRect(int index) const noexcept {
-    const auto content=contentRect();const float gap=std::max(4.0f,height_*0.008f);
-    const auto add=addTrackRect(TrackAddKind::Melodic);
-    const float h=std::clamp(content.h*0.085f,28.0f,38.0f);
-    const float w=(content.w-gap*3.0f)*0.5f;
-    return {content.x+gap+index*(w+gap),add.y-h-gap,w,h};
+    const auto card=masterCardRect();
+    const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
+    return {
+        card.x+pad,
+        card.y+48.0f+index*50.0f,
+        card.w-pad*2.0f,
+        42.0f
+    };
 }
 
 NativeUi::Rect NativeUi::trackRect(int index,int count) const noexcept {
-    const auto content=contentRect();
-    const float gap=std::max(3.0f,height_*0.007f);
-    const auto master=masterSliderRect(0);
-    const auto transfer=projectTransferRect(0);
-    const float top=transfer.y+transfer.h+gap;
-    const float bottom=master.y-gap;
-    const float usable=std::max(0.0f,bottom-top);
-    const int rows=std::max(1,count);
-    const float rowH=std::min(60.0f,std::max(20.0f,(usable-gap*(rows-1))/rows));
-    return {content.x+gap,top+index*(rowH+gap),std::max(0.0f,content.w-gap*2.0f),rowH};
+    const auto card=trackCardRect();
+    const float gap=std::clamp(card.w*0.014f,9.0f,13.0f);
+    const float titleH=34.0f;
+    const float top=card.y+gap+titleH+gap;
+    const float rowH=std::clamp(card.w*0.105f,74.0f,88.0f);
+    return {
+        card.x+gap,
+        top+index*(rowH+gap),
+        card.w-gap*2.0f,
+        rowH
+    };
 }
 
 NativeUi::Rect NativeUi::trackPartRect(int index,int count,int part) const noexcept {
-    const auto r=trackRect(index,count);const float gap=std::max(2.0f,r.h*0.08f);
-    const float controlsX=r.x+r.w*0.38f;
-    const float button=std::clamp(r.h*0.72f,14.0f,30.0f);
-    const float controlsW=std::max(0.0f,r.x+r.w-controlsX-gap);
-    const float sliderW=std::max(28.0f,(controlsW-button*3.0f-gap*4.0f)*0.5f);
-    if(part==0)return {controlsX,r.y+(r.h-button)*0.5f,sliderW,button};
-    if(part==1)return {controlsX+sliderW+gap,r.y+(r.h-button)*0.5f,sliderW,button};
-    const float bx=controlsX+sliderW*2.0f+gap*2.0f+(part-2)*(button+gap);
-    return {bx,r.y+(r.h-button)*0.5f,button,button};
+    const auto r=trackRect(index,count);
+    const float gap=std::clamp(r.w*0.010f,6.0f,10.0f);
+    const float bottomY=r.y+r.h*0.54f;
+    const float button=std::clamp(r.h*0.34f,26.0f,34.0f);
+
+    if(part==2)return {r.x+12.0f,bottomY,button,button};
+    if(part==3)return {r.x+12.0f+button+gap,bottomY,button,button};
+    if(part==4)return {
+        r.x+r.w-button-12.0f,
+        r.y+10.0f,
+        button,button
+    };
+
+    const float controlsX=r.x+12.0f+button*2.0f+gap*2.0f+10.0f;
+    const float controlsRight=r.x+r.w-12.0f;
+    const float sliderGap=12.0f;
+    const float sliderW=(controlsRight-controlsX-sliderGap)*0.5f;
+    return {
+        controlsX+(part==1?(sliderW+sliderGap):0.0f),
+        bottomY,
+        sliderW,button
+    };
 }
 
 NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
