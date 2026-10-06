@@ -502,18 +502,15 @@ NativeUi::Rect NativeUi::drumSliderRect(int index) const noexcept {
         ?project.padCount(track):0;
     if(padIndex<0||padIndex>=count)return {};
     const auto row=padQuickRect(padIndex,count);
-    const float button=34.0f;
-    const float labelW=36.0f;
-    const float gap=10.0f;
-    const float left=row.x+14.0f+button+gap;
-    const float right=row.x+row.w-14.0f-button-gap;
-    const float pairGap=18.0f;
-    const float w=(right-left-pairGap)*0.5f;
+    const float sliderLeft=row.x+18.0f;
+    const float available=row.w-36.0f;
+    const float pairGap=24.0f;
+    const float pairW=(available-pairGap)*0.5f;
     return {
-        left+(index==1?(w+pairGap):0.0f),
-        row.y+row.h*0.56f,
-        w,
-        row.h*0.32f
+        sliderLeft+(index==1?(pairW+pairGap):0.0f),
+        row.y+row.h*0.61f,
+        pairW,
+        row.h*0.34f
     };
 }
 
@@ -602,6 +599,30 @@ void NativeUi::scrollRoll(int pitchDelta, int stepDelta) noexcept {
     const int maxStep = std::max(0, rollTotalRows() - visibleRows);
     rollPitchOffset_ = std::clamp(rollPitchOffset_ + pitchDelta, 0, maxPitch);
     rollStepOffset_ = std::clamp(rollStepOffset_ + stepDelta, 0, maxStep);
+}
+
+void NativeUi::scrollPage(float deltaPixels) noexcept {
+    if(page_==NativePage::Tracks){
+        const auto view=contentRect();
+        const auto bottom=masterCardRect();
+        const float total=(bottom.y+trackScrollY_+bottom.h)-view.y;
+        const float maxScroll=std::max(0.0f,total-view.h);
+        trackScrollY_=std::clamp(
+            trackScrollY_+deltaPixels,0.0f,maxScroll);
+    }else if(page_==NativePage::Drums){
+        const auto view=bodyContentRect();
+        const auto bottom=drumPadCardRect();
+        const float total=(bottom.y+drumScrollY_+bottom.h)-view.y;
+        const float maxScroll=std::max(0.0f,total-view.h);
+        drumScrollY_=std::clamp(
+            drumScrollY_+deltaPixels,0.0f,maxScroll);
+    }
+}
+
+bool NativeUi::hitScrollableBody(float x,float y) const noexcept {
+    if(page_==NativePage::Tracks)return contentRect().contains(x,y);
+    if(page_==NativePage::Drums)return bodyContentRect().contains(x,y);
+    return false;
 }
 
 NativeUi::Rgb NativeUi::pitchColor(int midi) const noexcept {
@@ -1384,7 +1405,21 @@ bool NativeUi::drumPointerDown(float x,float y){
     if(track<0||!project.trackIsDrums(track))return false;
     drumControlChanged_=false;drumActiveSlider_=-1;
 
-    for(int i=0;i<3;++i){
+    const int initialCount=project.padCount(track);
+    for(int p=0;p<initialCount;++p){
+        const auto row=padQuickRect(p,initialCount);
+        const Rect del{
+            row.x+row.w-48.0f,
+            row.y+12.0f,
+            34.0f,34.0f};
+        if(del.contains(x,y)){
+            drumControlChanged_=project.deleteDrumPad(track,p);
+            drumRangeArmed_=false;
+            return true;
+        }
+    }
+
+    for(int i=0;i<4;++i){
         if(!drumActionRect(i).contains(x,y))continue;
         if(i==0){
             const int pad=project.selectedPad(track);
@@ -1397,6 +1432,13 @@ bool NativeUi::drumPointerDown(float x,float y){
         }else if(i==1){
             drumControlChanged_=project.addDrumPad(track)>=0;
             drumRangeArmed_=false;
+        }else if(i==2){
+            const int pad=project.selectedPad(track);
+            if(pad>=0&&pad<project.padCount(track)){
+                const int voice=AudioEngine::instance().noteOnPad(
+                    pad,project.padCenter(track,pad),0.85f);
+                AudioEngine::instance().noteOff(voice);
+            }
         }else{
             const int pad=project.selectedPad(track);
             drumControlChanged_=pad>=0&&project.deleteDrumPad(track,pad);
@@ -1410,7 +1452,9 @@ bool NativeUi::drumPointerDown(float x,float y){
     for(int i=0;i<2;++i){
         const auto r=drumSliderRect(i);if(!r.contains(x,y))continue;
         drumActiveSlider_=i;
-        const float n=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+        const float start=r.x+42.0f;
+        const float width=std::max(1.0f,r.w-42.0f);
+        const float n=std::clamp((x-start)/width,0.0f,1.0f);
         if(i==0)project.setPadVolume(track,pad,n);else project.setPadPan(track,pad,n*2.0f-1.0f);
         drumControlChanged_=true;return true;
     }
@@ -1428,7 +1472,9 @@ bool NativeUi::drumPointerMove(float x,float){
     if(track<0||!project.trackIsDrums(track))return false;
     const int pad=project.selectedPad(track);if(pad<0||pad>=project.padCount(track))return false;
     const auto r=drumSliderRect(drumActiveSlider_);
-    const float n=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+    const float start=r.x+42.0f;
+    const float width=std::max(1.0f,r.w-42.0f);
+    const float n=std::clamp((x-start)/width,0.0f,1.0f);
     if(drumActiveSlider_==0)project.setPadVolume(track,pad,n);else project.setPadPan(track,pad,n*2.0f-1.0f);
     drumControlChanged_=true;return true;
 }
