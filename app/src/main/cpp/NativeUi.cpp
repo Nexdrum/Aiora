@@ -304,6 +304,13 @@ NativeUi::Rect NativeUi::trackUtilityRect(int index) const noexcept {
         const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
         return {card.x+pad,card.y+210.0f,card.w-pad*2.0f,44.0f};
     }
+    if(index==2){
+        const auto card=songCardRect();
+        const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
+        const float gap=10.0f;
+        const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
+        return {card.x+pad,card.y+48.0f,w,46.0f};
+    }
     const auto card=aiCardRect();
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     return {
@@ -318,8 +325,11 @@ NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
     const auto card=songCardRect();
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     const float gap=10.0f;
-    const float w=(card.w-pad*2.0f-gap)*0.5f;
-    return {card.x+pad+index*(w+gap),card.y+48.0f,w,46.0f};
+    const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
+    return {
+        card.x+pad+(index+1)*(w+gap),
+        card.y+48.0f,w,46.0f
+    };
 }
 
 NativeUi::Rect NativeUi::addTrackRect(TrackAddKind kind) const noexcept {
