@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <GLES3/gl3.h>
@@ -84,7 +85,10 @@ private:
     GLuint fontTexture_{0};
     int atlasWidth_{0};
     int atlasHeight_{0};
-    std::array<GlyphInfo,95> glyphs_{};
+    static constexpr int kAsciiGlyphs=95;
+    static constexpr int kExtraGlyphs=8;
+    static constexpr int kGlyphCount=kAsciiGlyphs+kExtraGlyphs;
+    std::array<GlyphInfo,kGlyphCount> glyphs_{};
     int width_{0};
     int height_{0};
     float fontScale_{1.0f};
