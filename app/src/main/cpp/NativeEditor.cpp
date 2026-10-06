@@ -1118,6 +1118,12 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
     }
 }
 
+std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
+    const auto hit=hitSynth(x,y);
+    if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=0)return std::nullopt;
+    return std::clamp(hit->a,0,5);
+}
+
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
     for(int i=0;i<2;++i){
         const auto rr=synthTabRect(i);
