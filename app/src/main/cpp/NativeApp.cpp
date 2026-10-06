@@ -1354,10 +1354,12 @@ bool handleUiTap(NativeState& state, float x, float y) {
             if(*sw==aiora::TrackSwitchAction::PreviousTrack){
                 track=(track+count-1)%count;
                 project.selectTrack(track);
+                state.ui.setRollSelection(false,0,0);
                 state.ui.resetDrumRangeArm();
             }else if(*sw==aiora::TrackSwitchAction::NextTrack){
                 track=(track+1)%count;
                 project.selectTrack(track);
+                state.ui.setRollSelection(false,0,0);
                 state.ui.resetDrumRangeArm();
             }else if(project.trackIsDrums(track)){
                 const int pads=project.padCount(track);
@@ -2140,6 +2142,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 }else if(g.kind==RollGestureKind::TimeScroll){
                     if(!g.moved&&!g.longPressTriggered){
                         handleRollBeatTap(state,g.downX,g.downY,nowMs());
+                    }else if(g.moved){
+                        state.rollLastBeatTapMs=0;
+                        state.rollLastBeatTapStep=-1;
                     }
                 }else if(g.kind==RollGestureKind::NoteEdit){
                     auto& project=aiora::ProjectCore::instance();
