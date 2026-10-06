@@ -943,9 +943,47 @@ void serviceRollLongPress(NativeState& state){
     }
 }
 
+void refreshSurfaceGeometry(NativeState& state) {
+    if(!state.drawable||
+       state.display==EGL_NO_DISPLAY||
+       state.surface==EGL_NO_SURFACE)return;
+
+    EGLint eglWidth=0;
+    EGLint eglHeight=0;
+    eglQuerySurface(state.display,state.surface,EGL_WIDTH,&eglWidth);
+    eglQuerySurface(state.display,state.surface,EGL_HEIGHT,&eglHeight);
+
+    int windowWidth=0;
+    int windowHeight=0;
+    if(state.app&&state.app->window){
+        windowWidth=ANativeWindow_getWidth(state.app->window);
+        windowHeight=ANativeWindow_getHeight(state.app->window);
+    }
+
+    const int width=
+        windowWidth>0?windowWidth:static_cast<int>(eglWidth);
+    const int height=
+        windowHeight>0?windowHeight:static_cast<int>(eglHeight);
+
+    if(width<=0||height<=0)return;
+    if(width==state.width&&height==state.height)return;
+
+    __android_log_print(
+        ANDROID_LOG_INFO,kTag,
+        "surface resized %dx%d -> %dx%d (egl %dx%d)",
+        state.width,state.height,width,height,
+        static_cast<int>(eglWidth),static_cast<int>(eglHeight));
+
+    state.width=width;
+    state.height=height;
+    state.ui.resize(state.width,state.height);
+    updateSafeInsets(state);
+}
+
 void drawFrame(NativeState& state) {
     serviceDocumentResult(state);
     if (!state.drawable) return;
+    refreshSurfaceGeometry(state);
     serviceEditorPreview(state);
     serviceAutosave(state);
     serviceRollLongPress(state);
@@ -2080,16 +2118,19 @@ void handleCommand(android_app* app, int32_t command) {
 
         case APP_CMD_WINDOW_RESIZED:
         case APP_CMD_CONTENT_RECT_CHANGED:
-            if (state.drawable) {
-                eglQuerySurface(state.display, state.surface, EGL_WIDTH, &state.width);
-                eglQuerySurface(state.display, state.surface, EGL_HEIGHT, &state.height);
-                state.ui.resize(state.width, state.height);
+        case APP_CMD_CONFIG_CHANGED:
+            if(state.drawable){
+                refreshSurfaceGeometry(state);
                 updateSafeInsets(state);
+                drawFrame(state);
             }
             break;
 
-        case APP_CMD_CONFIG_CHANGED:
-            if(state.drawable)updateSafeInsets(state);
+        case APP_CMD_WINDOW_REDRAW_NEEDED:
+            if(state.drawable){
+                refreshSurfaceGeometry(state);
+                drawFrame(state);
+            }
             break;
 
         case APP_CMD_TERM_WINDOW:
