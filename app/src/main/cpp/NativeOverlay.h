@@ -25,6 +25,11 @@ public:
     void addTextCentered(std::string_view text,Rect rect,float scale,Color color);
     void addPitchGlyph(int pitchClass,Rect rect,Color color);
     void addLogo(Rect rect,Color color);
+    void addLine(float x1,float y1,float x2,float y2,float thickness,Color color);
+    void addCircle(float cx,float cy,float radius,float thickness,Color color);
+    void addNavIcon(int index,Rect rect,Color color);
+    void addChevron(Rect rect,bool right,Color color);
+    void addDownChevron(Rect rect,Color color);
 
     [[nodiscard]] float textWidth(std::string_view text,float scale) const noexcept;
 
