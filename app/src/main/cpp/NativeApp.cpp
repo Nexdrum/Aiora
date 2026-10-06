@@ -10,7 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <mutex>
+#include <fstream>
 #include <string>
 #include <utility>
 
@@ -34,17 +34,6 @@ constexpr int kRequestSaveJson = 4101;
 constexpr int kRequestLoadJson = 4102;
 constexpr int kRequestExportWav = 4103;
 constexpr int kRequestExportMidi = 4104;
-
-struct PendingDocumentResult {
-    int requestCode{0};
-    bool pending{false};
-    bool success{false};
-    std::string localPath{};
-    std::string message{};
-};
-
-std::mutex gDocumentResultMutex;
-PendingDocumentResult gDocumentResult{};
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -119,6 +108,8 @@ struct NativeState {
     std::string jsonExportPath{};
     std::string wavExportPath{};
     std::string midiExportPath{};
+    std::string documentResultPath{};
+    std::string documentLoadPath{};
     int64_t autosaveDueMs{0};
     bool autosaveDirty{false};
 };
@@ -396,61 +387,68 @@ bool launchOpenDocument(
 
 void scheduleAutosave(NativeState& state,int64_t delayMs);
 
-std::string javaString(JNIEnv* env,jstring value){
-    if(!env||!value)return {};
-    const char* utf=env->GetStringUTFChars(value,nullptr);
-    std::string out=utf?utf:"";
-    if(utf)env->ReleaseStringUTFChars(value,utf);
-    return out;
-}
-
 void serviceDocumentResult(NativeState& state){
-    PendingDocumentResult result;
-    {
-        std::scoped_lock lock(gDocumentResultMutex);
-        if(!gDocumentResult.pending)return;
-        result=std::move(gDocumentResult);
-        gDocumentResult={};
-    }
+    if(state.documentResultPath.empty())return;
 
-    if(result.requestCode==kRequestLoadJson){
-        if(!result.success){
-            if(result.message!="Cancelled")
+    std::ifstream in(state.documentResultPath,std::ios::binary);
+    if(!in)return;
+
+    std::string requestLine;
+    std::string successLine;
+    std::string message;
+    std::getline(in,requestLine);
+    std::getline(in,successLine);
+    std::getline(in,message);
+    in.close();
+    std::remove(state.documentResultPath.c_str());
+
+    int requestCode=0;
+    try{requestCode=std::stoi(requestLine);}catch(...){return;}
+    const bool success=successLine=="1";
+
+    if(requestCode==kRequestLoadJson){
+        if(!success){
+            if(message!="Cancelled")
                 __android_log_print(
                     ANDROID_LOG_WARN,kTag,"song load picker failed: %s",
-                    result.message.c_str());
+                    message.c_str());
             return;
         }
 
         aiora::Project loaded;
         std::string error;
-        if(aiora::loadProjectFile(result.localPath,loaded,&error)){
+        if(!state.documentLoadPath.empty()&&
+           aiora::loadProjectFile(state.documentLoadPath,loaded,&error)){
             auto& audio=aiora::AudioEngine::instance();
             audio.stopTransport();
             aiora::ProjectCore::instance().replaceProject(std::move(loaded),0);
             audio.syncProject();
             state.ui.resetDrumRangeArm();
             scheduleAutosave(state,0);
-            __android_log_print(ANDROID_LOG_INFO,kTag,"loaded AIORA song from document picker");
+            __android_log_print(
+                ANDROID_LOG_INFO,kTag,
+                "loaded AIORA song from Android document picker");
         }else{
             __android_log_print(
-                ANDROID_LOG_WARN,kTag,"selected song could not be loaded: %s",
-                error.c_str());
+                ANDROID_LOG_WARN,kTag,
+                "selected song could not be loaded: %s",
+                error.empty()?"load handoff file missing":error.c_str());
         }
-        if(!result.localPath.empty())std::remove(result.localPath.c_str());
+        if(!state.documentLoadPath.empty())
+            std::remove(state.documentLoadPath.c_str());
         return;
     }
 
     const char* kind=
-        result.requestCode==kRequestSaveJson?"song JSON":
-        result.requestCode==kRequestExportWav?"WAV":
-        result.requestCode==kRequestExportMidi?"MIDI":"document";
-    if(result.success){
+        requestCode==kRequestSaveJson?"song JSON":
+        requestCode==kRequestExportWav?"WAV":
+        requestCode==kRequestExportMidi?"MIDI":"document";
+    if(success){
         __android_log_print(ANDROID_LOG_INFO,kTag,"saved AIORA %s",kind);
-    }else if(result.message!="Cancelled"){
+    }else if(message!="Cancelled"){
         __android_log_print(
             ANDROID_LOG_WARN,kTag,"AIORA %s save failed: %s",
-            kind,result.message.c_str());
+            kind,message.c_str());
     }
 }
 
@@ -1875,22 +1873,6 @@ void handleCommand(android_app* app, int32_t command) {
 
 } // namespace
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_nexdrum_aiora_AioraActivity_nativeDocumentResult(
-    JNIEnv* env,jclass,jint requestCode,jstring localPath,
-    jboolean success,jstring message){
-
-    PendingDocumentResult result;
-    result.requestCode=static_cast<int>(requestCode);
-    result.pending=true;
-    result.success=success==JNI_TRUE;
-    result.localPath=javaString(env,localPath);
-    result.message=javaString(env,message);
-
-    std::scoped_lock lock(gDocumentResultMutex);
-    gDocumentResult=std::move(result);
-}
-
 void android_main(android_app* app) {
     NativeState state;
     state.app = app;
@@ -1911,6 +1893,8 @@ void android_main(android_app* app) {
         state.jsonExportPath=base+"/aiora_song_export.json";
         state.wavExportPath=base+"/aiora_song_export.wav";
         state.midiExportPath=base+"/aiora_song_export.mid";
+        state.documentResultPath=base+"/aiora_document_result.txt";
+        state.documentLoadPath=base+"/aiora_open_song.json";
     }
 
     aiora::Project restored;
@@ -1921,6 +1905,7 @@ void android_main(android_app* app) {
     }else{
         createDefaultProject();
     }
+    serviceDocumentResult(state);
 
     while (true) {
         int events = 0;
