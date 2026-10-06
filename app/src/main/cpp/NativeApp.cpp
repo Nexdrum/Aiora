@@ -14,6 +14,7 @@
 #include <fstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "AudioEngine.h"
 #include "AiHeuristic.h"
@@ -31,6 +32,7 @@ namespace {
 constexpr char kTag[] = "AIORA";
 constexpr size_t kMaxPointers = 16;
 constexpr int64_t kLongPressMs = 450;
+constexpr int64_t kRollDoubleTapMs = 360;
 constexpr float kMaxRollNoteLengthSteps = 4096.0f;
 constexpr int kRequestSaveJson = 4101;
 constexpr int kRequestLoadJson = 4102;
@@ -101,6 +103,9 @@ struct NativeState {
     aiora::NativeUi ui{};
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
+    std::vector<aiora::Note> rollClipboard{};
+    int64_t rollLastBeatTapMs{0};
+    int rollLastBeatTapStep{-1};
     int32_t editorPointerId{-1};
     int32_t trackControlPointerId{-1};
     int32_t drumControlPointerId{-1};
@@ -913,6 +918,24 @@ int findCurvePointIndex(
 
 void serviceRollLongPress(NativeState& state){
     auto& g=state.rollGesture;
+
+    if(g.kind==RollGestureKind::TimeScroll&&
+       g.pointerId>=0&&!g.moved&&!g.longPressTriggered&&
+       nowMs()-g.downTimeMs>=kLongPressMs){
+        if(const auto step=state.ui.hitRollBeatStep(g.downX,g.downY)){
+            if(state.ui.rollSelectionActive()){
+                state.ui.setRollSelection(false,0,0);
+            }else{
+                state.ui.setRollStartStep(*step);
+                state.ui.setRollSelection(true,*step,*step);
+            }
+            state.rollLastBeatTapMs=0;
+            state.rollLastBeatTapStep=-1;
+            g.longPressTriggered=true;
+        }
+        return;
+    }
+
     if(g.kind!=RollGestureKind::AutomationEdit||
        g.pointerId<0||g.curveIsNew||g.moved||g.longPressTriggered||
        g.track<0||g.noteIndex<0||g.curvePoint<0)return;
@@ -1316,6 +1339,8 @@ bool handleUiTap(NativeState& state, float x, float y) {
 
     if (const auto nav = state.ui.hitNav(x, y)) {
         releaseAllTouches(state);
+        if(*nav!=aiora::NativePage::Roll)
+            state.ui.setRollSelection(false,0,0);
         state.ui.setPage(*nav);
         state.ui.resetDrumRangeArm();
         if (*nav == aiora::NativePage::Drums) ensureDrumTrackSelected();
@@ -1616,6 +1641,50 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
     }
 
+    if(const auto action=state.ui.hitRollCornerAction(x,y)){
+        if(*action==aiora::RollCornerAction::Copy){
+            const int track=project.selectedTrack();
+            const int lo=std::min(
+                state.ui.rollSelectionAnchorStep(),
+                state.ui.rollSelectionEndStep());
+            const int hi=std::max(
+                state.ui.rollSelectionAnchorStep(),
+                state.ui.rollSelectionEndStep());
+
+            state.rollClipboard.clear();
+            const auto snapshot=project.projectCopy();
+            if(track>=0&&track<static_cast<int>(snapshot.tracks.size())&&hi>lo){
+                for(const auto& note:snapshot.tracks[static_cast<size_t>(track)].notes){
+                    if(note.startStep>=static_cast<float>(lo)&&
+                       note.startStep<static_cast<float>(hi)){
+                        auto copy=note;
+                        copy.startStep-=static_cast<float>(lo);
+                        state.rollClipboard.push_back(std::move(copy));
+                    }
+                }
+            }
+
+            state.ui.setRollSelection(false,0,0);
+            state.ui.setRollStartStep(lo);
+            state.ui.setRollClipboardAvailable(!state.rollClipboard.empty());
+            return true;
+        }
+
+        if(*action==aiora::RollCornerAction::Paste){
+            const int track=project.selectedTrack();
+            if(track>=0&&!state.rollClipboard.empty()){
+                const int added=project.pasteNotes(
+                    track,state.rollClipboard,
+                    static_cast<float>(state.ui.rollStartStep()));
+                if(added>0){
+                    audio.syncProject();
+                    scheduleAutosave(state,0);
+                }
+            }
+            return true;
+        }
+    }
+
     if (const auto mode = state.ui.hitRollMode(x, y)) {
         state.ui.setRollMode(state.ui.rollMode()==*mode
             ?aiora::RollMode::Notes:*mode);
@@ -1623,6 +1692,30 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     return false;
+}
+
+void handleRollBeatTap(NativeState& state,float x,float y,int64_t timeMs){
+    const auto step=state.ui.hitRollBeatStep(x,y);
+    if(!step)return;
+
+    const bool doubleTap=
+        state.rollLastBeatTapMs>0&&
+        timeMs-state.rollLastBeatTapMs<=kRollDoubleTapMs&&
+        std::abs(*step-state.rollLastBeatTapStep)<=1;
+
+    if(doubleTap){
+        if(state.ui.rollSelectionActive()){
+            state.ui.setRollSelection(
+                true,state.ui.rollSelectionAnchorStep(),*step);
+        }else{
+            state.ui.setRollStartStep(*step);
+        }
+        state.rollLastBeatTapMs=0;
+        state.rollLastBeatTapStep=-1;
+    }else{
+        state.rollLastBeatTapMs=timeMs;
+        state.rollLastBeatTapStep=*step;
+    }
 }
 
 void handlePointerPosition(
@@ -2043,6 +2136,10 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                             g.downX,g.downY)){
                             previewRollPitch(state,*midi);
                         }
+                    }
+                }else if(g.kind==RollGestureKind::TimeScroll){
+                    if(!g.moved&&!g.longPressTriggered){
+                        handleRollBeatTap(state,g.downX,g.downY,nowMs());
                     }
                 }else if(g.kind==RollGestureKind::NoteEdit){
                     auto& project=aiora::ProjectCore::instance();
