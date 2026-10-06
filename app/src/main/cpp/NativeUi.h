@@ -28,6 +28,11 @@ enum class RollMode : int {
     Mod = 3
 };
 
+enum class RollCornerAction : int {
+    Copy,
+    Paste
+};
+
 enum class HeaderAction : int {
     BpmDown, BpmUp,
     BeatsDown, BeatsUp,
@@ -134,6 +139,13 @@ public:
     void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
     [[nodiscard]] RollMode rollMode() const noexcept { return rollMode_; }
     void scrollRoll(int pitchDelta, int stepDelta) noexcept;
+    void setRollStartStep(int step) noexcept;
+    [[nodiscard]] int rollStartStep() const noexcept { return rollStartStep_; }
+    void setRollSelection(bool active,int anchorStep,int endStep) noexcept;
+    [[nodiscard]] bool rollSelectionActive() const noexcept { return rollSelectionActive_; }
+    [[nodiscard]] int rollSelectionAnchorStep() const noexcept { return rollSelectionAnchorStep_; }
+    [[nodiscard]] int rollSelectionEndStep() const noexcept { return rollSelectionEndStep_; }
+    void setRollClipboardAvailable(bool available) noexcept { rollClipboardAvailable_=available; }
     void scrollPage(float deltaPixels) noexcept;
     [[nodiscard]] bool hitScrollableBody(float x,float y) const noexcept;
     [[nodiscard]] float rollCellPixels() const noexcept;
@@ -164,6 +176,8 @@ public:
     [[nodiscard]] bool hitRollPitchHeader(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitRollPitchHeaderMidi(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollBeatGutter(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitRollBeatStep(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<RollCornerAction> hitRollCornerAction(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollNoteArea(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollCellHit> hitRollCell(float x, float y) const noexcept;
     [[nodiscard]] std::optional<RollAutomationHit> hitRollAutomation(
@@ -251,6 +265,11 @@ private:
     RollMode rollMode_{RollMode::Notes};
     int rollPitchOffset_{0};
     int rollStepOffset_{0};
+    int rollStartStep_{0};
+    bool rollSelectionActive_{false};
+    int rollSelectionAnchorStep_{0};
+    int rollSelectionEndStep_{0};
+    bool rollClipboardAvailable_{false};
     float trackScrollY_{0.0f};
     float drumScrollY_{0.0f};
 
