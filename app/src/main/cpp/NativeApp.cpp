@@ -40,6 +40,7 @@ constexpr int kRequestExportPatch = 4105;
 constexpr int kRequestImportPatch = 4106;
 constexpr int kRequestRenameTrack = 4201;
 constexpr int kRequestRenamePad = 4202;
+constexpr int kRequestOperatorRatio = 4203;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -423,6 +424,36 @@ bool launchNameEditor(
     return ok;
 }
 
+bool launchNumberEditor(
+    ANativeActivity* activity,int requestCode,int targetIndex,
+    const char* title,const std::string& currentValue){
+
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+
+    bool ok=false;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls
+        ?env->GetMethodID(
+            cls,"showNumberEditor",
+            "(IILjava/lang/String;Ljava/lang/String;)V")
+        :nullptr;
+    jstring jTitle=env->NewStringUTF(title?title:"Value");
+    jstring jCurrent=env->NewStringUTF(currentValue.c_str());
+    if(method&&jTitle&&jCurrent){
+        env->CallVoidMethod(
+            activity->clazz,method,requestCode,targetIndex,jTitle,jCurrent);
+        ok=!env->ExceptionCheck();
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(jCurrent)env->DeleteLocalRef(jCurrent);
+    if(jTitle)env->DeleteLocalRef(jTitle);
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
 void scheduleAutosave(NativeState& state,int64_t delayMs);
 void previewEditorPatch(NativeState& state);
 
@@ -468,6 +499,29 @@ void serviceDocumentResult(NativeState& state){
                 project.setPadName(track,pad,fourthLine);
                 scheduleAutosave(state,0);
             }
+        }
+        return;
+    }
+
+    if(requestCode==kRequestOperatorRatio){
+        if(!success)return;
+
+        int op=0;
+        float ratio=1.0f;
+        try{
+            op=std::stoi(thirdLine);
+            ratio=std::stof(fourthLine);
+        }catch(...){
+            return;
+        }
+        if(!std::isfinite(ratio)||op<0||op>=6)return;
+
+        auto& project=aiora::ProjectCore::instance();
+        if(project.setSelectedOperatorParam(
+            op,aiora::OperatorParam::Ratio,ratio)){
+            aiora::AudioEngine::instance().syncProject();
+            previewEditorPatch(state);
+            scheduleAutosave(state,0);
         }
         return;
     }
@@ -1162,6 +1216,26 @@ bool handleUiTap(NativeState& state, float x, float y) {
             ?aiora::EditorPage::Synth:aiora::EditorPage::Fx;
         if(aiora::NativeEditor::instance().openDropdownAt(page,x,y,state.ui))
             return true;
+    }
+
+    if(state.ui.page()==aiora::NativePage::Synth){
+        auto& editor=aiora::NativeEditor::instance();
+        if(const auto op=editor.hitOperatorRatio(x,y)){
+            const auto patch=project.selectedPatch();
+            const float ratio=patch.ops[static_cast<size_t>(*op)].ratio;
+            char value[32]{};
+            std::snprintf(value,sizeof(value),"%.6g",static_cast<double>(ratio));
+            if(!launchNumberEditor(
+                state.app?state.app->activity:nullptr,
+                kRequestOperatorRatio,*op,
+                ("Operator "+std::to_string(*op+1)+" ratio").c_str(),
+                value)){
+                __android_log_print(
+                    ANDROID_LOG_WARN,kTag,
+                    "operator ratio editor could not start");
+            }
+            return true;
+        }
     }
 
     if (const auto action = state.ui.hitHeader(x, y)) {
