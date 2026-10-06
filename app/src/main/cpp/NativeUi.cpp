@@ -48,6 +48,18 @@ constexpr std::array<NativeUi::Rgb, 12> kPitchColors{{
     {0.6667f, 1.0000f, 0.0000f},
 }};
 
+constexpr std::array<NativePage,6> kNavPages{{
+    NativePage::Tracks,
+    NativePage::Drums,
+    NativePage::Synth,
+    NativePage::Fx,
+    NativePage::Roll,
+    NativePage::Play
+}};
+
+constexpr std::array<int,6> kNavIconIndices{{0,1,3,4,2,5}};
+
+
 NativeUi::Rgb mix(NativeUi::Rgb a, NativeUi::Rgb b, float amount) noexcept {
     amount = std::clamp(amount, 0.0f, 1.0f);
     return {
@@ -2113,12 +2125,12 @@ void NativeUi::render() const noexcept {
     drawScope();
 
     for (int i = 0; i < 6; ++i) {
-        const auto page = static_cast<NativePage>(i);
+        const auto page = kNavPages[static_cast<size_t>(i)];
         const auto nr=navRect(i);
         fillRect(nr,page==page_?kCyan:kButton);
         const float inset=std::max(3.0f,nr.h*0.08f);
         overlay.addNavIcon(
-            i,
+            kNavIconIndices[static_cast<size_t>(i)],
             {nr.x+inset,nr.y+inset,nr.w-inset*2.0f,nr.h-inset*2.0f},
             overlayColor(page==page_?kBg:kWhite));
     }
@@ -2195,7 +2207,7 @@ std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept 
 std::optional<NativePage> NativeUi::hitNav(float x, float y) const noexcept {
     for (int i = 0; i < 6; ++i) {
         if (navRect(i).contains(x, y)) {
-            return static_cast<NativePage>(i);
+            return kNavPages[static_cast<size_t>(i)];
         }
     }
     return std::nullopt;
