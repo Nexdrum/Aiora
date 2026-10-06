@@ -31,6 +31,7 @@ namespace {
 constexpr char kTag[] = "AIORA";
 constexpr size_t kMaxPointers = 16;
 constexpr int64_t kLongPressMs = 450;
+constexpr float kMaxRollNoteLengthSteps = 4096.0f;
 constexpr int kRequestSaveJson = 4101;
 constexpr int kRequestLoadJson = 4102;
 constexpr int kRequestExportWav = 4103;
@@ -935,6 +936,30 @@ int mappedPadForMidi(int track,int midi){
     return -1;
 }
 
+void previewRollPitch(NativeState& state,int midi){
+    auto& project=aiora::ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return;
+
+    auto& audio=aiora::AudioEngine::instance();
+    if(state.editorPreviewVoice>=0){
+        audio.noteOff(state.editorPreviewVoice);
+        state.editorPreviewVoice=-1;
+        state.editorPreviewStopMs=0;
+    }
+
+    if(project.trackIsDrums(track)){
+        const int pad=mappedPadForMidi(track,midi);
+        if(pad<0)return;
+        state.editorPreviewVoice=audio.noteOnPad(pad,midi,0.88f);
+    }else{
+        state.editorPreviewVoice=audio.noteOn(midi,0.85f);
+    }
+
+    if(state.editorPreviewVoice>=0)
+        state.editorPreviewStopMs=nowMs()+420;
+}
+
 void startPitch(NativeState& state, PointerVoice& touch, int midi) {
     if (touch.midi == midi && touch.voiceId >= 0) return;
     if (touch.voiceId >= 0 || touch.midi >= 0) stopTouch(state, touch);
@@ -1548,6 +1573,7 @@ bool beginRollNoteGesture(
         g.noteMidi=hit->midi;
         g.noteStart=static_cast<float>(hit->step);
         g.noteLength=1.0f;
+        previewRollPitch(state,hit->midi);
         return true;
     }
 
@@ -1660,7 +1686,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
     if(g.noteEdit==RollNoteEdit::Create){
         const float length=std::clamp(
             static_cast<float>(hit->step)-g.noteStart+1.0f,
-            1.0f,64.0f);
+            1.0f,kMaxRollNoteLengthSteps);
         if(project.updateNote(g.track,g.noteIndex,hit->midi,g.noteStart,length)){
             g.noteMidi=hit->midi;
             g.noteLength=length;
@@ -1674,7 +1700,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }else if(g.noteEdit==RollNoteEdit::Resize){
         const float length=std::clamp(
             static_cast<float>(hit->step)-g.noteStart+1.0f,
-            1.0f,64.0f);
+            1.0f,kMaxRollNoteLengthSteps);
         if(project.updateNote(g.track,g.noteIndex,g.noteMidi,g.noteStart,length)){
             g.noteLength=length;
         }
@@ -1899,7 +1925,14 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
 
             if (state.rollGesture.pointerId == pointerId) {
                 auto& g=state.rollGesture;
-                if(g.kind==RollGestureKind::NoteEdit){
+                if(g.kind==RollGestureKind::PitchScroll){
+                    if(!g.moved){
+                        if(const auto midi=state.ui.hitRollPitchHeaderMidi(
+                            g.downX,g.downY)){
+                            previewRollPitch(state,*midi);
+                        }
+                    }
+                }else if(g.kind==RollGestureKind::NoteEdit){
                     auto& project=aiora::ProjectCore::instance();
                     if(!g.moved &&
                        (g.noteEdit==RollNoteEdit::Move||g.noteEdit==RollNoteEdit::Resize) &&
