@@ -422,7 +422,7 @@ bool createSurface(NativeState& state) {
 
     state.ui.resize(state.width, state.height);
     updateSafeInsets(state);
-    aiora::NativeOverlay::instance().init();
+    aiora::NativeOverlay::instance().init(state.app ? state.app->activity : nullptr);
     state.drawable = true;
     return true;
 }
