@@ -27,6 +27,7 @@ public class AioraActivity extends NativeActivity {
     public static final int REQUEST_IMPORT_PATCH = 4106;
     public static final int REQUEST_RENAME_TRACK = 4201;
     public static final int REQUEST_RENAME_PAD = 4202;
+    public static final int REQUEST_OPERATOR_RATIO = 4203;
 
     private final Map<Integer, String> pendingSources = new HashMap<>();
 
@@ -106,6 +107,55 @@ public class AioraActivity extends NativeActivity {
                         .setTitle(title == null ? "Rename" : title)
                         .setView(input)
                         .setPositiveButton("Save", (d, which) ->
+                                writeRenameResult(
+                                        requestCode,
+                                        targetIndex,
+                                        input.getText().toString()))
+                        .setNegativeButton("Cancel", (d, which) ->
+                                writeRenameResult(
+                                        requestCode,
+                                        targetIndex,
+                                        null))
+                        .create();
+
+                dialog.setOnCancelListener(d ->
+                        writeRenameResult(requestCode, targetIndex, null));
+                dialog.setOnShowListener(d -> {
+                    input.requestFocus();
+                    if (dialog.getWindow() != null) {
+                        dialog.getWindow().setSoftInputMode(
+                                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+                    }
+                });
+                dialog.show();
+            } catch (Exception e) {
+                writeRenameResult(requestCode, targetIndex, null);
+            }
+        });
+    }
+
+    public void showNumberEditor(
+            int requestCode,
+            int targetIndex,
+            String title,
+            String currentValue) {
+
+        runOnUiThread(() -> {
+            try {
+                EditText input = new EditText(this);
+                input.setSingleLine(true);
+                input.setInputType(
+                        InputType.TYPE_CLASS_NUMBER |
+                        InputType.TYPE_NUMBER_FLAG_DECIMAL);
+                input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(12)});
+                input.setText(currentValue == null ? "" : currentValue);
+                input.setSelectAllOnFocus(true);
+                input.setPadding(36, 18, 36, 18);
+
+                AlertDialog dialog = new AlertDialog.Builder(this)
+                        .setTitle(title == null ? "Value" : title)
+                        .setView(input)
+                        .setPositiveButton("Set", (d, which) ->
                                 writeRenameResult(
                                         requestCode,
                                         targetIndex,
