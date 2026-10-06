@@ -162,6 +162,7 @@ public:
     [[nodiscard]] std::optional<int> hitPadName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
     [[nodiscard]] bool hitRollPitchHeader(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitRollPitchHeaderMidi(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollBeatGutter(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollNoteArea(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollCellHit> hitRollCell(float x, float y) const noexcept;
