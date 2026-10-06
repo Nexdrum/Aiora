@@ -59,6 +59,8 @@ public:
     int selectedPad(int trackIndex) const;
     bool selectPad(int trackIndex, int padIndex);
     std::string padIcon(int trackIndex, int padIndex) const;
+    std::string padName(int trackIndex, int padIndex) const;
+    void setPadName(int trackIndex, int padIndex, const std::string& name);
     std::string padPatchName(int trackIndex, int padIndex) const;
     int padCenter(int trackIndex, int padIndex) const;
     int padLow(int trackIndex, int padIndex) const;
