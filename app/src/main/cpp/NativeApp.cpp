@@ -4,6 +4,7 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -232,6 +233,119 @@ std::string clipboardGetText(ANativeActivity* activity) {
     return out;
 }
 
+struct SystemInsets {
+    int left{0};
+    int top{0};
+    int right{0};
+    int bottom{0};
+};
+
+SystemInsets querySystemInsets(ANativeActivity* activity) {
+    SystemInsets out{};
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return out;
+
+    jclass activityClass=env->GetObjectClass(activity->clazz);
+    jmethodID getWindow=activityClass
+        ?env->GetMethodID(activityClass,"getWindow","()Landroid/view/Window;")
+        :nullptr;
+    jobject window=getWindow?env->CallObjectMethod(activity->clazz,getWindow):nullptr;
+    jclass windowClass=window?env->GetObjectClass(window):nullptr;
+    jmethodID getDecor=windowClass
+        ?env->GetMethodID(windowClass,"getDecorView","()Landroid/view/View;")
+        :nullptr;
+    jobject decor=getDecor?env->CallObjectMethod(window,getDecor):nullptr;
+    jclass decorClass=decor?env->GetObjectClass(decor):nullptr;
+    jmethodID getRootInsets=decorClass
+        ?env->GetMethodID(decorClass,"getRootWindowInsets","()Landroid/view/WindowInsets;")
+        :nullptr;
+    jobject wi=getRootInsets?env->CallObjectMethod(decor,getRootInsets):nullptr;
+    jclass wiClass=wi?env->GetObjectClass(wi):nullptr;
+
+    int sdk=26;
+    jclass versionClass=env->FindClass("android/os/Build$VERSION");
+    if(versionClass){
+        jfieldID sdkField=env->GetStaticFieldID(versionClass,"SDK_INT","I");
+        if(sdkField)sdk=env->GetStaticIntField(versionClass,sdkField);
+    }
+
+    if(wi&&wiClass&&sdk>=30){
+        jclass typeClass=env->FindClass("android/view/WindowInsets$Type");
+        jmethodID systemBars=typeClass
+            ?env->GetStaticMethodID(typeClass,"systemBars","()I")
+            :nullptr;
+        const jint mask=systemBars?env->CallStaticIntMethod(typeClass,systemBars):0;
+        jmethodID getInsets=env->GetMethodID(
+            wiClass,"getInsets","(I)Landroid/graphics/Insets;");
+        jobject ins=(getInsets&&mask!=0)?env->CallObjectMethod(wi,getInsets,mask):nullptr;
+        jclass insClass=ins?env->GetObjectClass(ins):nullptr;
+        if(insClass){
+            jfieldID left=env->GetFieldID(insClass,"left","I");
+            jfieldID top=env->GetFieldID(insClass,"top","I");
+            jfieldID right=env->GetFieldID(insClass,"right","I");
+            jfieldID bottom=env->GetFieldID(insClass,"bottom","I");
+            if(left)out.left=env->GetIntField(ins,left);
+            if(top)out.top=env->GetIntField(ins,top);
+            if(right)out.right=env->GetIntField(ins,right);
+            if(bottom)out.bottom=env->GetIntField(ins,bottom);
+        }
+        if(insClass)env->DeleteLocalRef(insClass);
+        if(ins)env->DeleteLocalRef(ins);
+        if(typeClass)env->DeleteLocalRef(typeClass);
+    }else if(wi&&wiClass){
+        const auto readLegacy=[&](const char* name){
+            jmethodID method=env->GetMethodID(wiClass,name,"()I");
+            return method?static_cast<int>(env->CallIntMethod(wi,method)):0;
+        };
+        out.left=readLegacy("getSystemWindowInsetLeft");
+        out.top=readLegacy("getSystemWindowInsetTop");
+        out.right=readLegacy("getSystemWindowInsetRight");
+        out.bottom=readLegacy("getSystemWindowInsetBottom");
+    }
+
+    if(env->ExceptionCheck()){
+        env->ExceptionClear();
+        out={};
+    }
+
+    if(versionClass)env->DeleteLocalRef(versionClass);
+    if(wiClass)env->DeleteLocalRef(wiClass);
+    if(wi)env->DeleteLocalRef(wi);
+    if(decorClass)env->DeleteLocalRef(decorClass);
+    if(decor)env->DeleteLocalRef(decor);
+    if(windowClass)env->DeleteLocalRef(windowClass);
+    if(window)env->DeleteLocalRef(window);
+    if(activityClass)env->DeleteLocalRef(activityClass);
+    detachAndroidEnv(activity,attached);
+    return out;
+}
+
+void updateSafeInsets(NativeState& state) {
+    SystemInsets insets=querySystemInsets(state.app?state.app->activity:nullptr);
+
+    if(state.app){
+        const auto& rect=state.app->contentRect;
+        if(rect.right>rect.left&&rect.bottom>rect.top){
+            insets.left=std::max(insets.left,rect.left);
+            insets.top=std::max(insets.top,rect.top);
+            insets.right=std::max(insets.right,std::max(0,state.width-rect.right));
+            insets.bottom=std::max(insets.bottom,std::max(0,state.height-rect.bottom));
+        }
+    }
+
+    insets.left=std::clamp(insets.left,0,std::max(0,state.width/2));
+    insets.right=std::clamp(insets.right,0,std::max(0,state.width/2));
+    insets.top=std::clamp(insets.top,0,std::max(0,state.height/2));
+    insets.bottom=std::clamp(insets.bottom,0,std::max(0,state.height/2));
+
+    state.ui.setSafeInsets(insets.left,insets.top,insets.right,insets.bottom);
+    __android_log_print(
+        ANDROID_LOG_INFO,kTag,
+        "safe insets l=%d t=%d r=%d b=%d",
+        insets.left,insets.top,insets.right,insets.bottom);
+}
+
 bool createSurface(NativeState& state) {
     const EGLint cfgAttrs[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
@@ -279,6 +393,7 @@ bool createSurface(NativeState& state) {
     eglQuerySurface(state.display, state.surface, EGL_HEIGHT, &state.height);
 
     state.ui.resize(state.width, state.height);
+    updateSafeInsets(state);
     aiora::NativeOverlay::instance().init();
     state.drawable = true;
     return true;
@@ -978,7 +1093,12 @@ void handleCommand(android_app* app, int32_t command) {
                 eglQuerySurface(state.display, state.surface, EGL_WIDTH, &state.width);
                 eglQuerySurface(state.display, state.surface, EGL_HEIGHT, &state.height);
                 state.ui.resize(state.width, state.height);
+                updateSafeInsets(state);
             }
+            break;
+
+        case APP_CMD_CONFIG_CHANGED:
+            if(state.drawable)updateSafeInsets(state);
             break;
 
         case APP_CMD_TERM_WINDOW:
