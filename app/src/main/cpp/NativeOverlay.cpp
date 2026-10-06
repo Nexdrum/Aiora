@@ -114,7 +114,11 @@ void NativeOverlay::shutdown() noexcept {
 }
 
 void NativeOverlay::begin(int width,int height){
-    width_=std::max(1,width);height_=std::max(1,height);vertices_.clear();
+    width_=std::max(1,width);
+    height_=std::max(1,height);
+    const float shortSide=static_cast<float>(std::min(width_,height_));
+    fontScale_=std::clamp(shortSide/360.0f,1.5f,3.0f);
+    vertices_.clear();
     vertices_.reserve(12000);
 }
 
@@ -163,11 +167,13 @@ uint8_t NativeOverlay::fontRow(char c,int row) noexcept {
 
 float NativeOverlay::textWidth(std::string_view text,float scale) const noexcept {
     if(text.empty())return 0.0f;
-    return static_cast<float>(text.size())*6.0f*scale-scale;
+    const float effective=scale*fontScale_;
+    return static_cast<float>(text.size())*6.0f*effective-effective;
 }
 
 void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Color color){
     if(scale<=0.0f)return;
+    scale*=fontScale_;
     float pen=x;
     for(char raw:text){
         const char c=normalizedChar(raw);
@@ -187,7 +193,7 @@ void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Co
 
 void NativeOverlay::addTextCentered(std::string_view text,Rect r,float scale,Color color){
     const float w=textWidth(text,scale);
-    const float h=7.0f*scale;
+    const float h=7.0f*scale*fontScale_;
     addText(text,r.x+(r.w-w)*0.5f,r.y+(r.h-h)*0.5f,scale,color);
 }
 
