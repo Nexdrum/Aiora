@@ -28,6 +28,7 @@ public:
     void addTextCentered(std::string_view text,Rect rect,float scale,Color color);
     void addPitchGlyph(int pitchClass,Rect rect,Color color);
     void addLogo(Rect rect,Color color);
+    void addSpectrumLogo(Rect rect);
     void addLine(float x1,float y1,float x2,float y2,float thickness,Color color);
     void addCircle(float cx,float cy,float radius,float thickness,Color color);
     void addNavIcon(int index,Rect rect,Color color);
@@ -73,6 +74,12 @@ private:
     bool buildProgram();
     bool buildTextProgram();
     bool buildFontAtlas(ANativeActivity* activity);
+    bool buildGlyphAtlas();
+    void addGlyphQuad(
+        Rect rect,float u0,float v0,float u1,float v1,Color color);
+    void addGlyphGradientQuad(
+        Rect rect,float u0,float v0,float u1,float v1,
+        Color topLeft,Color topRight,Color bottomLeft,Color bottomRight);
     void addBitmapText(std::string_view text,float x,float y,float scale,Color color);
     void addTextQuad(
         float x,float y,float w,float h,
@@ -84,6 +91,9 @@ private:
     GLuint textProgram_{0};
     GLuint textVbo_{0};
     GLuint fontTexture_{0};
+    GLuint glyphTexture_{0};
+    int glyphAtlasWidth_{0};
+    int glyphAtlasHeight_{0};
     int atlasWidth_{0};
     int atlasHeight_{0};
     static constexpr int kAsciiGlyphs=95;
@@ -94,6 +104,7 @@ private:
     int height_{0};
     float fontScale_{1.0f};
     std::vector<Vertex> vertices_;
+    std::vector<TextVertex> glyphVertices_;
     std::vector<TextVertex> textVertices_;
     bool clipEnabled_{false};
     Rect clip_{};
