@@ -40,4 +40,32 @@ bool loadProjectFile(const std::string& path,Project& project,std::string* error
     return deserializeProjectJson(json,project,error);
 }
 
+bool savePatchFile(const std::string& path,const Patch& patch,std::string* error){
+    if(path.empty()){setError(error,"Empty patch path");return false;}
+    const std::string temp=path+".tmp";
+    {
+        std::ofstream out(temp,std::ios::binary|std::ios::trunc);
+        if(!out){setError(error,"Could not open patch temp file");return false;}
+        const std::string json=serializePatchJson(patch);
+        out.write(json.data(),static_cast<std::streamsize>(json.size()));
+        out.flush();
+        if(!out){out.close();std::remove(temp.c_str());setError(error,"Could not write patch");return false;}
+    }
+    if(std::rename(temp.c_str(),path.c_str())!=0){
+        std::remove(temp.c_str());
+        setError(error,"Could not replace patch file");
+        return false;
+    }
+    return true;
+}
+
+bool loadPatchFile(const std::string& path,Patch& patch,std::string* error){
+    if(path.empty()){setError(error,"Empty patch path");return false;}
+    std::ifstream in(path,std::ios::binary);
+    if(!in){setError(error,"Could not open patch file");return false;}
+    const std::string json((std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());
+    if(json.empty()){setError(error,"Patch file is empty");return false;}
+    return deserializePatchJson(json,patch,error);
+}
+
 } // namespace aiora
