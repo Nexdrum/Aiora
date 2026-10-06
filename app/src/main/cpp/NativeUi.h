@@ -119,6 +119,7 @@ public:
     void scrollPage(float deltaPixels) noexcept;
     [[nodiscard]] bool hitScrollableBody(float x,float y) const noexcept;
     [[nodiscard]] float rollCellPixels() const noexcept;
+    [[nodiscard]] float rollColumnPixels() const noexcept;
 
     void render() const noexcept;
 
