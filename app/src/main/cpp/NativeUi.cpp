@@ -1080,10 +1080,21 @@ void NativeUi::drawGrid() const noexcept {
 
             auto& overlay=NativeOverlay::instance();
             const float glyphInset=rect.w*0.19f;
+            const Rect glyphRect{
+                rect.x+glyphInset,rect.y+glyphInset,
+                rect.w-glyphInset*2.0f,rect.h-glyphInset*2.0f};
+            if(!unavailable){
+                const float glow=std::max(1.5f,rect.w*0.018f);
+                overlay.addPitchGlyph(
+                    midi%12,
+                    {glyphRect.x-glow,glyphRect.y-glow,
+                     glyphRect.w+glow*2.0f,glyphRect.h+glow*2.0f},
+                    overlayColor(color,active?0.52f:0.32f));
+            }
             overlay.addPitchGlyph(
                 midi%12,
-                {rect.x+glyphInset,rect.y+glyphInset,rect.w-glyphInset*2.0f,rect.h-glyphInset*2.0f},
-                overlayColor(unavailable?kMuted:(active?mix(color,kWhite,0.30f):color)));
+                {glyphRect.x,glyphRect.y,glyphRect.w,glyphRect.h},
+                overlayColor(unavailable?kMuted:kWhite));
             if(((midi%12)+12)%12==2){
                 const int octave=(midi-62)/12;
                 const std::string label=octave>0?("+"+std::to_string(octave)):std::to_string(octave);
@@ -1832,16 +1843,22 @@ void NativeUi::drawRoll() const noexcept {
                     overlayColor(pcColor));
             }
             const float glyphS=std::min(colW*0.62f,header*0.42f);
+            const Rect gr{x+(colW-glyphS)*0.5f,viewport.y+header*0.48f,glyphS,glyphS};
             rollOv.addPitchGlyph(
                 midi%12,
-                {x+(colW-glyphS)*0.5f,viewport.y+header*0.48f,glyphS,glyphS},
-                overlayColor(pcColor));
+                {gr.x-1.5f,gr.y-1.5f,gr.w+3.0f,gr.h+3.0f},
+                overlayColor(pcColor,0.32f));
+            rollOv.addPitchGlyph(
+                midi%12,gr,overlayColor(kWhite));
         }else{
             const float glyphS=std::min(colW*0.62f,header*0.68f);
+            const Rect gr{x+(colW-glyphS)*0.5f,viewport.y+3.0f,glyphS,glyphS};
             rollOv.addPitchGlyph(
                 midi%12,
-                {x+(colW-glyphS)*0.5f,viewport.y+3.0f,glyphS,glyphS},
-                overlayColor(pcColor));
+                {gr.x-1.5f,gr.y-1.5f,gr.w+3.0f,gr.h+3.0f},
+                overlayColor(pcColor,0.32f));
+            rollOv.addPitchGlyph(
+                midi%12,gr,overlayColor(kWhite));
         }
 
         if(((midi%12)+12)%12==2){
@@ -2014,16 +2031,7 @@ void NativeUi::render() const noexcept {
         static_cast<float>(safeLeft_)+margin,
         static_cast<float>(safeTop_)+(headerH-logoSize)*0.5f,
         logoSize,logoSize};
-    overlay.addLogo(
-        {logoR.x-3.0f,logoR.y,logoR.w,logoR.h},
-        overlayColor(kPurple,0.52f));
-    overlay.addLogo(
-        {logoR.x+3.0f,logoR.y+1.0f,logoR.w,logoR.h},
-        overlayColor(kOrange,0.48f));
-    overlay.addLogo(
-        {logoR.x,logoR.y-2.0f,logoR.w,logoR.h},
-        overlayColor(kCyan,0.68f));
-    overlay.addLogo(logoR,overlayColor(kWhite,0.88f));
+    overlay.addSpectrumLogo(logoR);
     overlay.addText(
         "A I O R A",
         static_cast<float>(safeLeft_)+margin+logoSize+14.0f,
@@ -2106,9 +2114,20 @@ void NativeUi::render() const noexcept {
     }
 
     overlay.clearClip();
-    drawDropdown();
-    glDisable(GL_SCISSOR_TEST);
-    NativeOverlay::instance().flush();
+    if(dropdownOpen()){
+        // The page contains deferred overlay geometry (glyphs/text). Flush it
+        // before painting the popup so nothing from underneath can be drawn
+        // over the dropdown afterward.
+        overlay.flush();
+        overlay.begin(width_,height_);
+        glEnable(GL_SCISSOR_TEST);
+        drawDropdown();
+        glDisable(GL_SCISSOR_TEST);
+        overlay.flush();
+    }else{
+        glDisable(GL_SCISSOR_TEST);
+        overlay.flush();
+    }
 }
 
 std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept {
