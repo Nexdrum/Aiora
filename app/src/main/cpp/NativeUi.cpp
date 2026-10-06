@@ -724,70 +724,250 @@ void NativeUi::drawGrid() const noexcept {
 
 void NativeUi::drawTracks() const noexcept {
     auto& project=ProjectCore::instance();
-    const auto content=contentRect();fillRect(content,kPanel);
     auto& overlay=NativeOverlay::instance();
 
-    const auto copyR=projectTransferRect(0),pasteR=projectTransferRect(1);
-    fillRect(copyR,mix(kButton,kCyan,0.30f));fillRect(pasteR,mix(kButton,kPurple,0.30f));
-    overlay.addTextCentered("COPY SONG",{copyR.x,copyR.y,copyR.w,copyR.h},0.92f,overlayColor(kWhite));
-    overlay.addTextCentered("PASTE SONG",{pasteR.x,pasteR.y,pasteR.w,pasteR.h},0.92f,overlayColor(kWhite));
+    const auto drawCard=[&](Rect r,const char* title){
+        fillRect(r,kButton);
+        const float border=2.0f;
+        fillRect({
+            r.x+border,r.y+border,
+            std::max(0.0f,r.w-border*2.0f),
+            std::max(0.0f,r.h-border*2.0f)},kPanel);
+        overlay.addText(
+            title,r.x+18.0f,r.y+16.0f,
+            1.05f,overlayColor(kWhite));
+    };
 
+    const auto drawSlider=[&](
+        Rect r,float value,Rgb accent,
+        std::string_view label,std::string_view valueText){
+        const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
+        const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);
+        const float trackX=r.x+labelW;
+        const float trackW=std::max(20.0f,r.w-labelW-valueW-10.0f);
+        const float cy=r.y+r.h*0.56f;
+        overlay.addText(
+            label,r.x,r.y+r.h*0.28f,
+            0.88f,overlayColor(kWhite));
+        fillRect({
+            trackX,cy-3.0f,trackW,6.0f},kMuted);
+        fillRect({
+            trackX,cy-3.0f,
+            trackW*std::clamp(value,0.0f,1.0f),6.0f},accent);
+        const float knob=18.0f;
+        fillRect({
+            trackX+trackW*std::clamp(value,0.0f,1.0f)-knob*0.5f,
+            cy-knob*0.5f,
+            knob,knob},mix(kWhite,accent,0.38f));
+        overlay.addText(
+            valueText,
+            r.x+r.w-valueW+6.0f,
+            r.y+r.h*0.28f,
+            0.82f,overlayColor(kMuted));
+    };
+
+    // TRACKS
+    const auto trackCard=trackCardRect();
+    drawCard(trackCard,"TRACKS");
     const int count=project.trackCount();
     const int selected=project.selectedTrack();
+
     for(int i=0;i<count;++i){
         const auto rect=trackRect(i,count);
-        const bool drum=project.trackIsDrums(i),isSelected=i==selected;
-        fillRect(rect,isSelected?kCyan:(drum?mix(kButton,kOrange,0.35f):kButton));
-        const float inset=std::max(2.0f,rect.h*0.055f);
-        fillRect({rect.x+inset,rect.y+inset,std::max(0.0f,rect.w-inset*2.0f),std::max(0.0f,rect.h-inset*2.0f)},isSelected?mix(kPanel,kCyan,0.12f):kPanel);
+        const bool drum=project.trackIsDrums(i);
+        const bool isSelected=i==selected;
+        const Rgb edge=isSelected?kCyan:kButton;
+        fillRect(rect,edge);
+        const float inset=2.0f;
+        fillRect({
+            rect.x+inset,rect.y+inset,
+            rect.w-inset*2.0f,rect.h-inset*2.0f},
+            mix(kPanel,isSelected?kCyan:kPanel,isSelected?0.08f:0.0f));
+
+        const float numW=34.0f;
+        overlay.addText(
+            std::to_string(i+1),
+            rect.x+12.0f,
+            rect.y+14.0f,
+            1.0f,overlayColor(kWhite));
 
         std::string name=project.trackName(i);
-        if(name.size()>18)name=name.substr(0,18);
+        if(name.size()>22)name.resize(22);
         overlay.addText(
-            name,rect.x+inset*2.0f,
-            rect.y+(rect.h-7.0f*std::max(0.72f,rect.h/34.0f))*0.5f,
-            std::max(0.72f,rect.h/34.0f),overlayColor(isSelected?kWhite:(drum?kOrange:kCyan)));
+            name,
+            rect.x+numW+12.0f,
+            rect.y+12.0f,
+            1.05f,overlayColor(kWhite));
 
-        const float values[2]={project.trackVolume(i),(project.trackPan(i)+1.0f)*0.5f};
-        const Rgb sliderColors[2]={kOrange,kCyan};
-        const char* sliderLabels[2]={"V","P"};
+        std::string patch=project.trackPatchName(i);
+        if(patch.empty())patch=drum?"Nexdrum":"Spectrachord";
+        if(patch.size()>18)patch.resize(18);
+        overlay.addText(
+            patch,
+            rect.x+rect.w*0.43f,
+            rect.y+14.0f,
+            0.84f,overlayColor(kMuted));
+
+        const float values[2]={
+            project.trackVolume(i),
+            (project.trackPan(i)+1.0f)*0.5f};
+        const Rgb accents[2]={kCyan,kCyan};
+        const char* labels[2]={"Vol","Pan"};
         for(int p=0;p<2;++p){
-            const auto sr=trackPartRect(i,count,p);fillRect(sr,kButton);
-            const float labelW=std::min(16.0f,sr.w*0.18f);
-            const Rect bar{sr.x+labelW+3.0f,sr.y+sr.h*0.40f,std::max(2.0f,sr.w-labelW-7.0f),std::max(3.0f,sr.h*0.20f)};
-            fillRect(bar,kMuted);fillRect({bar.x,bar.y,bar.w*std::clamp(values[p],0.0f,1.0f),bar.h},sliderColors[p]);
-            const float knob=std::max(4.0f,sr.h*0.38f);
-            fillRect({bar.x+bar.w*values[p]-knob*0.5f,sr.y+(sr.h-knob)*0.5f,knob,knob},kWhite);
-            overlay.addText(sliderLabels[p],sr.x+2.0f,sr.y+sr.h*0.31f,std::max(0.55f,sr.h/36.0f),overlayColor(kWhite));
+            const auto sr=trackPartRect(i,count,p);
+            const float labelW=34.0f;
+            const float x0=sr.x+labelW;
+            const float w=std::max(10.0f,sr.w-labelW-4.0f);
+            const float cy=sr.y+sr.h*0.5f;
+            overlay.addText(
+                labels[p],sr.x,sr.y+sr.h*0.20f,
+                0.70f,overlayColor(kMuted));
+            fillRect({x0,cy-3.0f,w,6.0f},kMuted);
+            fillRect({
+                x0,cy-3.0f,w*std::clamp(values[p],0.0f,1.0f),6.0f},
+                accents[p]);
+            const float knob=16.0f;
+            fillRect({
+                x0+w*values[p]-knob*0.5f,
+                cy-knob*0.5f,knob,knob},kWhite);
         }
 
-        const bool flags[3]={project.trackMute(i),project.trackSolo(i),true};
-        const Rgb accents[3]={kMuted,kOrange,kRed};
-        const char* labels[3]={"M","S","X"};
-        for(int p=0;p<3;++p){
-            const auto br=trackPartRect(i,count,p+2);
-            fillRect(br,flags[p]?mix(kButton,accents[p],0.72f):kButton);
-            overlay.addTextCentered(labels[p],{br.x,br.y,br.w,br.h},std::max(0.62f,br.h/28.0f),overlayColor(kWhite));
+        for(int p=2;p<5;++p){
+            const auto br=trackPartRect(i,count,p);
+            const bool active=
+                p==2?project.trackMute(i):
+                p==3?project.trackSolo(i):false;
+            fillRect(
+                br,
+                active
+                    ?mix(kButton,p==2?kMuted:kOrange,0.65f)
+                    :kButton);
+            const char* label=p==2?"M":p==3?"S":"x";
+            overlay.addTextCentered(
+                label,{br.x,br.y,br.w,br.h},
+                0.90f,overlayColor(kWhite));
         }
     }
 
+    const auto add=addTrackRect(TrackAddKind::Melodic);
+    fillRect(add,kButton);
+    overlay.addTextCentered(
+        "+ Add track",{add.x,add.y,add.w,add.h},
+        1.0f,overlayColor(kWhite));
+
+    // PATCH
+    const auto patchCard=patchCardRect();
+    drawCard(patchCard,"PATCH");
+    std::string patchName=
+        selected>=0?project.trackPatchName(selected):std::string("Spectrachord Init");
+    if(patchName.empty())patchName="Spectrachord Init";
+    overlay.addText(
+        patchName,
+        patchCard.x+18.0f,patchCard.y+47.0f,
+        1.02f,overlayColor(kCyan));
+    const Rect patchField{
+        patchCard.x+18.0f,patchCard.y+72.0f,
+        patchCard.w-36.0f,34.0f};
+    fillRect(patchField,kRollBg);
+    overlay.addText(
+        patchName,
+        patchField.x+12.0f,patchField.y+8.0f,
+        0.90f,overlayColor(kWhite));
+    overlay.addDownChevron({
+        patchField.x+patchField.w-36.0f,
+        patchField.y,36.0f,patchField.h},
+        overlayColor(kWhite));
+
+    // AI SOUND DESIGNER
+    const auto ai=aiCardRect();
+    drawCard(ai,"AI SOUND DESIGNER");
+    overlay.addText(
+        "Describe a sound in the clipboard",
+        ai.x+18.0f,ai.y+55.0f,
+        0.86f,overlayColor(kMuted));
+    overlay.addText(
+        "AI writes the Spectrachord patch + FX.",
+        ai.x+18.0f,ai.y+83.0f,
+        0.80f,overlayColor(kWhite));
+    const auto aiBtn=trackUtilityRect(1);
+    fillRect(aiBtn,kButton);
+    overlay.addTextCentered(
+        "Tune synth",{aiBtn.x,aiBtn.y,aiBtn.w,aiBtn.h},
+        0.86f,overlayColor(kWhite));
+
+    // SONG
+    const auto song=songCardRect();
+    drawCard(song,"SONG");
+    const auto clear=trackUtilityRect(2);
+    fillRect(clear,kButton);
+    overlay.addTextCentered(
+        "Clear trk",{clear.x,clear.y,clear.w,clear.h},
+        0.84f,overlayColor(kWhite));
+    const auto exp=projectTransferRect(0);
+    const auto imp=projectTransferRect(1);
+    fillRect(exp,kButton);fillRect(imp,kButton);
+    overlay.addTextCentered(
+        "Export",{exp.x,exp.y,exp.w,exp.h},
+        0.84f,overlayColor(kWhite));
+    overlay.addTextCentered(
+        "Import",{imp.x,imp.y,imp.w,imp.h},
+        0.84f,overlayColor(kWhite));
+
+    const auto tempoR=trackSongSliderRect(0);
+    const float tempoN=std::clamp((project.bpm()-12.0f)/276.0f,0.0f,1.0f);
+    drawSlider(
+        tempoR,tempoN,kCyan,
+        "Tempo",
+        std::to_string(static_cast<int>(std::lround(project.bpm()))));
+
+    const auto beatsR=trackSongSliderRect(1);
+    const auto divR=trackSongSliderRect(2);
+    drawSlider(
+        beatsR,
+        static_cast<float>(project.beats()-1)/11.0f,
+        kCyan,
+        "Beats",
+        std::to_string(project.beats()));
+    drawSlider(
+        divR,
+        static_cast<float>(project.divisions()-1)/11.0f,
+        kCyan,
+        "Notes",
+        std::to_string(project.divisions()));
+
+    overlay.addText(
+        "Beats per measure / notes per beat",
+        song.x+18.0f,song.y+200.0f,
+        0.72f,overlayColor(kMuted));
+
+    const auto dz=trackUtilityRect(0);
+    fillRect(dz,kPanel);
+    const float box=26.0f;
+    fillRect({
+        dz.x,dz.y+(dz.h-box)*0.5f,
+        box,box},
+        project.dozenal()?kCyan:kMuted);
+    if(project.dozenal()){
+        fillRect({
+            dz.x+6.0f,dz.y+(dz.h-box)*0.5f+6.0f,
+            box-12.0f,box-12.0f},kPanel);
+    }
+    overlay.addText(
+        "Dozenal numbers",
+        dz.x+box+12.0f,dz.y+dz.h*0.30f,
+        0.88f,overlayColor(kWhite));
+
+    // MASTER
+    const auto master=masterCardRect();
+    drawCard(master,"MASTER");
     for(int i=0;i<2;++i){
         const auto mr=masterSliderRect(i);
         const float value=i==0?project.masterVolume():project.masterReverb();
-        const Rgb accent=i==0?kOrange:kPurple;
-        fillRect(mr,kButton);
-        const float labelW=std::min(64.0f,mr.w*0.28f);
-        const Rect bar{mr.x+labelW+4.0f,mr.y+mr.h*0.40f,std::max(2.0f,mr.w-labelW-8.0f),std::max(3.0f,mr.h*0.20f)};
-        fillRect(bar,kMuted);fillRect({bar.x,bar.y,bar.w*value,bar.h},accent);
-        const float knob=std::max(5.0f,mr.h*0.42f);
-        fillRect({bar.x+bar.w*value-knob*0.5f,mr.y+(mr.h-knob)*0.5f,knob,knob},kWhite);
-        overlay.addText(i==0?"MASTER":"REVERB",mr.x+4.0f,mr.y+mr.h*0.31f,std::max(0.62f,mr.h/36.0f),overlayColor(kWhite));
+        drawSlider(
+            mr,value,i==0?kCyan:kPurple,
+            i==0?"Volume":"Reverb",
+            std::to_string(static_cast<int>(std::lround(value*100.0f))));
     }
-
-    const auto addTrack=addTrackRect(TrackAddKind::Melodic),addDrum=addTrackRect(TrackAddKind::Drums);
-    fillRect(addTrack,mix(kButton,kCyan,0.28f));fillRect(addDrum,mix(kButton,kOrange,0.32f));
-    overlay.addTextCentered("+ TRACK",{addTrack.x,addTrack.y,addTrack.w,addTrack.h},1.15f,overlayColor(kCyan));
-    overlay.addTextCentered("+ DRUM",{addDrum.x,addDrum.y,addDrum.w,addDrum.h},1.15f,overlayColor(kOrange));
 }
 
 bool NativeUi::trackPointerDown(float x,float y){
