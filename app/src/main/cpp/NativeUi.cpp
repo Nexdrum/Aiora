@@ -63,6 +63,40 @@ bool pageHasPadQuick(NativePage page) noexcept {
     return page == NativePage::Drums;
 }
 
+int drumIconIndex(std::string_view id) noexcept {
+    static constexpr std::array<std::string_view,12> ids{
+        "kick","snare","tom","floortom","hihat","crash",
+        "ride","bongo","conga","clap","shaker","cowbell"};
+    for(int i=0;i<static_cast<int>(ids.size());++i)
+        if(ids[static_cast<size_t>(i)]==id)return i;
+    return 0;
+}
+
+std::string drumIconName(std::string_view id){
+    static constexpr std::array<const char*,12> names{
+        "Kick","Snare","Tom","Floor tom","Hi-hat","Cymbal",
+        "Ride","Bongo","Conga","Clap","Shaker","Cowbell"};
+    return names[static_cast<size_t>(drumIconIndex(id))];
+}
+
+std::string pitchCoord(int midi){
+    static constexpr char digits[]="0123456789XE";
+    const int t=midi-62;
+    const bool neg=t<0;
+    const int a=std::abs(t);
+    const int ip=a/12;
+    const int fp=a%12;
+    std::string out;
+    if(neg)out.push_back('-');
+    if(ip<12)out.push_back(digits[ip]);
+    else out+=std::to_string(ip);
+    if(fp){
+        out.push_back('.');
+        out.push_back(digits[fp]);
+    }
+    return out;
+}
+
 } // namespace
 
 void NativeUi::resize(int width, int height) noexcept {
