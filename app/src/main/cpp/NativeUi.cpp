@@ -342,6 +342,31 @@ NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
     return r;
 }
 
+NativeUi::Rect NativeUi::pageScrollViewportRect() const noexcept {
+    return page_==NativePage::Tracks?contentRect():bodyContentRect();
+}
+
+NativeUi::Rect NativeUi::pageScrollGutterRect() const noexcept {
+    const auto view=pageScrollViewportRect();
+    const float gutter=std::min(
+        rollGutterPixels(),
+        std::max(0.0f,view.w-120.0f));
+    return {view.x,view.y,gutter,view.h};
+}
+
+NativeUi::Rect NativeUi::pageScrollContentRect() const noexcept {
+    const auto view=pageScrollViewportRect();
+    const float gutter=std::min(
+        rollGutterPixels(),
+        std::max(0.0f,view.w-120.0f));
+    return {
+        view.x+gutter,
+        view.y,
+        std::max(0.0f,view.w-gutter),
+        view.h
+    };
+}
+
 NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
     const auto content=contentRect();
     const float gap=std::max(5.0f,std::min(width_,height_)*0.007f);
@@ -431,7 +456,7 @@ NativeUi::Rect NativeUi::gridRect(int visualRow, int column) const noexcept {
 }
 
 NativeUi::Rect NativeUi::trackCardRect() const noexcept {
-    const auto content=contentRect();
+    const auto content=pageScrollContentRect();
     const int count=std::max(0,ProjectCore::instance().trackCount());
     const float gap=std::clamp(content.w*0.014f,9.0f,13.0f);
     const float titleH=50.0f;
@@ -595,7 +620,7 @@ NativeUi::Rect NativeUi::trackPartRect(int index,int count,int part) const noexc
 }
 
 NativeUi::Rect NativeUi::drumKitCardRect() const noexcept {
-    const auto view=bodyContentRect();
+    const auto view=pageScrollContentRect();
     auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
     const int count=(track>=0&&project.trackIsDrums(track))
@@ -807,14 +832,44 @@ void NativeUi::scrollPage(float deltaPixels) noexcept {
 }
 
 bool NativeUi::hitScrollableBody(float x,float y) const noexcept {
-    if(page_==NativePage::Tracks)return contentRect().contains(x,y);
-    if(page_==NativePage::Drums)return bodyContentRect().contains(x,y);
-    return false;
+    if(page_!=NativePage::Tracks&&page_!=NativePage::Drums)return false;
+    return pageScrollGutterRect().contains(x,y);
 }
 
 NativeUi::Rgb NativeUi::pitchColor(int midi) const noexcept {
     const int pc = ((midi % 12) + 12) % 12;
     return kPitchColors[static_cast<size_t>(pc)];
+}
+
+void NativeUi::drawPageScrollGutter() const noexcept {
+    if(page_!=NativePage::Tracks&&page_!=NativePage::Drums)return;
+    const auto gutter=pageScrollGutterRect();
+    if(gutter.w<=0.0f||gutter.h<=0.0f)return;
+
+    auto& ov=NativeOverlay::instance();
+    constexpr int bands=72;
+    for(int i=0;i<bands;++i){
+        const float t0=static_cast<float>(i)/static_cast<float>(bands);
+        const float t1=static_cast<float>(i+1)/static_cast<float>(bands);
+        const float p=t0*11.0f;
+        const int idx=std::clamp(static_cast<int>(std::floor(p)),0,10);
+        const float local=p-static_cast<float>(idx);
+        const auto spectral=mix(
+            kPitchColors[static_cast<size_t>(idx)],
+            kPitchColors[static_cast<size_t>(idx+1)],
+            local);
+        const auto color=mix(kBg,spectral,0.78f);
+        const float y0=gutter.y+gutter.h*t0;
+        const float y1=gutter.y+gutter.h*t1;
+        ov.addRect(
+            {gutter.x,y0,gutter.w,std::max(1.0f,y1-y0+0.5f)},
+            overlayColor(color));
+    }
+
+    // Subtle dark edge keeps the spectrum lane visually separate from controls.
+    ov.addRect(
+        {gutter.x+gutter.w-2.0f,gutter.y,2.0f,gutter.h},
+        overlayColor(mix(kBg,kPanel,0.65f)));
 }
 
 void NativeUi::fillRect(const Rect& rect, Rgb color) const noexcept {
@@ -1110,6 +1165,7 @@ void NativeUi::drawGrid() const noexcept {
 }
 
 void NativeUi::drawTracks() const noexcept {
+    drawPageScrollGutter();
     auto& project=ProjectCore::instance();
     auto& overlay=NativeOverlay::instance();
 
@@ -1648,6 +1704,7 @@ void NativeUi::drawDrumEditor() const noexcept {
 void NativeUi::drawDrums() const noexcept {
     const auto view=bodyContentRect();
     fillRect(view,kBg);
+    drawPageScrollGutter();
 
     auto& project=ProjectCore::instance();
     auto& ov=NativeOverlay::instance();
