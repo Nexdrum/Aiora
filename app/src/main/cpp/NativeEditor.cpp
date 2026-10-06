@@ -104,8 +104,11 @@ NativeEditor::Rect NativeEditor::contentRect() const noexcept {
     const float margin=std::max(4.0f,usableW*0.008f);
     const float headerH=std::max(38.0f,usableH*0.105f);
     const float navH=std::max(38.0f,usableH*0.105f);
-    const float gap=std::max(4.0f,usableH*0.010f);
-    const float top=static_cast<float>(safeTop_)+headerH+navH+gap;
+    const float gap=std::max(5.0f,std::min(width_,height_)*0.007f);
+    const float switchH=std::clamp(
+        (usableH-headerH-navH)*0.060f,48.0f,64.0f);
+    const float top=
+        static_cast<float>(safeTop_)+headerH+navH+gap+switchH+gap;
     const float bottom=static_cast<float>(height_-safeBottom_);
     return {
         static_cast<float>(safeLeft_)+margin,
@@ -116,13 +119,7 @@ NativeEditor::Rect NativeEditor::contentRect() const noexcept {
 }
 
 NativeEditor::Rect NativeEditor::editorRect() const noexcept {
-    auto r=contentRect();
-    if(selectedTrackIsDrums()){
-        const float gap=std::max(4.0f,height_*0.010f);
-        const float padH=std::clamp(r.h*0.14f,34.0f,62.0f);
-        r.y+=padH+gap;r.h=std::max(0.0f,r.h-padH-gap);
-    }
-    return r;
+    return contentRect();
 }
 
 NativeEditor::Rect NativeEditor::patchTransferRect(int index) const noexcept {
