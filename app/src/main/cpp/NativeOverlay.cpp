@@ -176,7 +176,11 @@ void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Co
     scale*=fontScale_;
     float pen=x;
     for(char raw:text){
+        const bool lower=raw>='a'&&raw<='z';
         const char c=normalizedChar(raw);
+        const float gs=lower?scale*0.82f:scale;
+        const float xoff=(scale-gs)*0.45f;
+        const float yoff=lower?scale*1.18f:0.0f;
         for(int row=0;row<7;++row){
             const uint8_t bits=fontRow(c,row);
             int col=0;
@@ -184,7 +188,15 @@ void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Co
                 if((bits&(1u<<(4-col)))==0u){++col;continue;}
                 const int start=col;
                 while(col<5&&(bits&(1u<<(4-col)))!=0u)++col;
-                addRect({pen+start*scale,y+row*scale,(col-start)*scale,scale},color);
+                const float rw=std::max(
+                    gs*0.58f,
+                    (col-start)*gs-gs*0.12f);
+                addRect({
+                    pen+xoff+start*gs,
+                    y+yoff+row*gs+gs*0.10f,
+                    rw,
+                    gs*0.78f
+                },color);
             }
         }
         pen+=6.0f*scale;
