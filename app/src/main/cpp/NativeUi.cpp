@@ -1581,7 +1581,9 @@ void NativeUi::drawPadQuick() const noexcept {
         }
 
         const float infoX=row.x+250.0f;
-        std::string name=drumIconName(iconId);
+        std::string name=project.padName(track,i);
+        if(name.empty())name=drumIconName(iconId);
+        if(name.size()>24)name.resize(24);
         std::string range=pitchCoord(lo);
         if(lo!=hi)range+="–"+pitchCoord(hi);
         std::string patch=project.padPatchName(track,i);
@@ -2255,6 +2257,22 @@ std::optional<int> NativeUi::hitTrack(float x, float y) const noexcept {
     return std::nullopt;
 }
 
+std::optional<int> NativeUi::hitTrackName(float x,float y) const noexcept {
+    if(page_!=NativePage::Tracks)return std::nullopt;
+    const int count=ProjectCore::instance().trackCount();
+    for(int i=0;i<count;++i){
+        const auto row=trackRect(i,count);
+        const Rect nameRect{
+            row.x+44.0f,
+            row.y+6.0f,
+            std::max(0.0f,row.w*0.38f-44.0f),
+            54.0f
+        };
+        if(nameRect.contains(x,y))return i;
+    }
+    return std::nullopt;
+}
+
 std::optional<TrackUtilityAction> NativeUi::hitTrackUtility(float x,float y) const noexcept {
     if(page_!=NativePage::Tracks)return std::nullopt;
     if(trackUtilityRect(0).contains(x,y))return TrackUtilityAction::DozenalToggle;
@@ -2289,6 +2307,25 @@ std::optional<int> NativeUi::hitPadQuick(float x, float y) const noexcept {
     const int count = project.padCount(track);
     for (int i = 0; i < count; ++i) {
         if (padQuickRect(i, count).contains(x, y)) return i;
+    }
+    return std::nullopt;
+}
+
+std::optional<int> NativeUi::hitPadName(float x,float y) const noexcept {
+    if(page_!=NativePage::Drums)return std::nullopt;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0||!project.trackIsDrums(track))return std::nullopt;
+    const int count=project.padCount(track);
+    for(int i=0;i<count;++i){
+        const auto row=padQuickRect(i,count);
+        const Rect nameRect{
+            row.x+242.0f,
+            row.y+8.0f,
+            std::max(0.0f,row.w-322.0f),
+            52.0f
+        };
+        if(nameRect.contains(x,y))return i;
     }
     return std::nullopt;
 }
