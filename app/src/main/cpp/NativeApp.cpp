@@ -36,6 +36,8 @@ constexpr int kRequestExportWav = 4103;
 constexpr int kRequestExportMidi = 4104;
 constexpr int kRequestExportPatch = 4105;
 constexpr int kRequestImportPatch = 4106;
+constexpr int kRequestRenameTrack = 4201;
+constexpr int kRequestRenamePad = 4202;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -389,6 +391,36 @@ bool launchOpenDocument(
     return ok;
 }
 
+bool launchNameEditor(
+    ANativeActivity* activity,int requestCode,int targetIndex,
+    const char* title,const std::string& currentName){
+
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+
+    bool ok=false;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls
+        ?env->GetMethodID(
+            cls,"showNameEditor",
+            "(IILjava/lang/String;Ljava/lang/String;)V")
+        :nullptr;
+    jstring jTitle=env->NewStringUTF(title?title:"Rename");
+    jstring jCurrent=env->NewStringUTF(currentName.c_str());
+    if(method&&jTitle&&jCurrent){
+        env->CallVoidMethod(
+            activity->clazz,method,requestCode,targetIndex,jTitle,jCurrent);
+        ok=!env->ExceptionCheck();
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(jCurrent)env->DeleteLocalRef(jCurrent);
+    if(jTitle)env->DeleteLocalRef(jTitle);
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
 void scheduleAutosave(NativeState& state,int64_t delayMs);
 void previewEditorPatch(NativeState& state);
 
@@ -400,16 +432,45 @@ void serviceDocumentResult(NativeState& state){
 
     std::string requestLine;
     std::string successLine;
-    std::string message;
+    std::string thirdLine;
+    std::string fourthLine;
     std::getline(in,requestLine);
     std::getline(in,successLine);
-    std::getline(in,message);
+    std::getline(in,thirdLine);
+    std::getline(in,fourthLine);
     in.close();
     std::remove(state.documentResultPath.c_str());
 
     int requestCode=0;
     try{requestCode=std::stoi(requestLine);}catch(...){return;}
     const bool success=successLine=="1";
+
+    if(requestCode==kRequestRenameTrack||requestCode==kRequestRenamePad){
+        if(!success)return;
+
+        int target=0;
+        try{target=std::stoi(thirdLine);}catch(...){return;}
+        auto& project=aiora::ProjectCore::instance();
+
+        if(requestCode==kRequestRenameTrack){
+            if(target>=0&&target<project.trackCount()){
+                project.setTrackName(target,fourthLine);
+                scheduleAutosave(state,0);
+            }
+        }else{
+            const int track=(target>>16)&0xffff;
+            const int pad=target&0xffff;
+            if(track>=0&&track<project.trackCount()&&
+               project.trackIsDrums(track)&&
+               pad>=0&&pad<project.padCount(track)){
+                project.setPadName(track,pad,fourthLine);
+                scheduleAutosave(state,0);
+            }
+        }
+        return;
+    }
+
+    const std::string message=thirdLine;
 
     if(requestCode==kRequestLoadJson){
         if(!success){
@@ -1153,6 +1214,18 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (state.ui.page() == aiora::NativePage::Tracks) {
+        if(const auto renameTrack=state.ui.hitTrackName(x,y)){
+            project.selectTrack(*renameTrack);
+            if(!launchNameEditor(
+                state.app?state.app->activity:nullptr,
+                kRequestRenameTrack,*renameTrack,
+                "Track name",project.trackName(*renameTrack))){
+                __android_log_print(
+                    ANDROID_LOG_WARN,kTag,"track rename dialog could not start");
+            }
+            return true;
+        }
+
         if(const auto utility=state.ui.hitTrackUtility(x,y)){
             switch(*utility){
                 case aiora::TrackUtilityAction::DozenalToggle:
@@ -1350,6 +1423,31 @@ bool handleUiTap(NativeState& state, float x, float y) {
                     __android_log_print(
                         ANDROID_LOG_WARN,kTag,
                         "patch file picker could not start");
+                }
+            }
+            return true;
+        }
+    }
+
+    if(state.ui.page()==aiora::NativePage::Drums){
+        if(const auto renamePad=state.ui.hitPadName(x,y)){
+            const int track=project.selectedTrack();
+            if(track>=0&&project.trackIsDrums(track)){
+                project.selectPad(track,*renamePad);
+                std::string current=project.padName(track,*renamePad);
+                if(current.empty()){
+                    const std::string icon=project.padIcon(track,*renamePad);
+                    current=icon.empty()?"Pad":icon;
+                    if(!current.empty())current[0]=static_cast<char>(std::toupper(
+                        static_cast<unsigned char>(current[0])));
+                }
+                const int packedTarget=(track<<16)|(*renamePad&0xffff);
+                if(!launchNameEditor(
+                    state.app?state.app->activity:nullptr,
+                    kRequestRenamePad,packedTarget,
+                    "Pad name",current)){
+                    __android_log_print(
+                        ANDROID_LOG_WARN,kTag,"pad rename dialog could not start");
                 }
             }
             return true;
