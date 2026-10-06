@@ -577,7 +577,7 @@ void NativeEditor::drawScrollGutter() const noexcept {
             kSpectrumColors[static_cast<size_t>(idx)],
             kSpectrumColors[static_cast<size_t>(idx+1)],
             local);
-        const auto color=mix(kBg,spectral,0.78f);
+        const auto color=mix(kBg,spectral,0.18f);
         const float y0=gutter.y+gutter.h*t0;
         const float y1=gutter.y+gutter.h*t1;
         ov.addRect(
