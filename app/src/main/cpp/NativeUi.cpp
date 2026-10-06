@@ -524,11 +524,13 @@ NativeUi::Rgb NativeUi::pitchColor(int midi) const noexcept {
 
 void NativeUi::fillRect(const Rect& rect, Rgb color) const noexcept {
     if (rect.w <= 0.0f || rect.h <= 0.0f || width_ <= 0 || height_ <= 0) return;
+    NativeOverlay::Rect clipped{rect.x,rect.y,rect.w,rect.h};
+    if(!NativeOverlay::instance().clipRect(clipped))return;
 
-    const int x = std::max(0, static_cast<int>(rect.x));
-    const int top = std::max(0, static_cast<int>(rect.y));
-    const int w = std::max(0, std::min(width_ - x, static_cast<int>(rect.w)));
-    const int h = std::max(0, std::min(height_ - top, static_cast<int>(rect.h)));
+    const int x = std::max(0, static_cast<int>(clipped.x));
+    const int top = std::max(0, static_cast<int>(clipped.y));
+    const int w = std::max(0, std::min(width_ - x, static_cast<int>(clipped.w)));
+    const int h = std::max(0, std::min(height_ - top, static_cast<int>(clipped.h)));
     if (w <= 0 || h <= 0) return;
 
     const int glY = height_ - top - h;
@@ -1449,6 +1451,9 @@ void NativeUi::render() const noexcept {
 
     if(page_!=NativePage::Tracks)drawTrackSwitchBar();
 
+    const auto pageClip=page_==NativePage::Tracks?contentRect():bodyContentRect();
+    overlay.setClip({pageClip.x,pageClip.y,pageClip.w,pageClip.h});
+
     switch (page_) {
         case NativePage::Tracks:
             drawTracks();
@@ -1476,6 +1481,7 @@ void NativeUi::render() const noexcept {
             break;
     }
 
+    overlay.clearClip();
     glDisable(GL_SCISSOR_TEST);
     NativeOverlay::instance().flush();
 }
