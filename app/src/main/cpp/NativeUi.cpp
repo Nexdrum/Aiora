@@ -129,7 +129,7 @@ NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
     const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.255f,192.0f,224.0f);
+    const float brand=std::clamp(usableW*0.300f,218.0f,252.0f);
     const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
     const float left=
         static_cast<float>(safeLeft_)+margin+brand+gap+play+gap;
@@ -150,7 +150,7 @@ NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
     const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.255f,192.0f,224.0f);
+    const float brand=std::clamp(usableW*0.300f,218.0f,252.0f);
     const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
     return {
         static_cast<float>(safeLeft_)+margin+brand+gap,
@@ -689,85 +689,87 @@ void NativeUi::fillRect(const Rect& rect, Rgb color) const noexcept {
 
 void NativeUi::drawScope() const noexcept {
     const auto r=headerScopeRect();
-    if(r.w<72.0f||r.h<28.0f)return;
+    if(r.w<56.0f||r.h<20.0f)return;
 
     std::array<float,AudioEngine::kScopeReadSamples> samples{};
     AudioEngine::instance().copyScope(samples);
+    auto& ov=NativeOverlay::instance();
 
-    fillRect(r,mix(kTop,kBg,0.76f));
+    fillRect(r,mix(kTop,kBg,0.70f));
+
+    // Quiet center reference only; the waveform is the primary visual.
+    fillRect({
+        r.x,
+        r.y+r.h*0.5f-0.5f,
+        r.w,1.0f},
+        mix(kMuted,kTop,0.70f));
 
     float peak=0.0f;
     for(float s:samples)peak=std::max(peak,std::fabs(s));
-    const float mid=r.y+r.h*0.5f;
+    // Keep quiet signals readable without pumping loud material beyond the box.
+    const float gain=peak>0.0005f
+        ?std::clamp(0.82f/peak,1.0f,10.0f)
+        :1.0f;
 
-    // A quiet center line is useful as the oscilloscope's zero reference.
-    NativeOverlay::instance().addLine(
-        r.x,mid,r.x+r.w,mid,
-        1.0f,overlayColor(mix(kMuted,kTop,0.70f),0.65f));
-
-    if(peak<0.003f)return;
-
-    // Trigger on a rising zero crossing after the initial edge so a stable
-    // periodic waveform does not slide horizontally from frame to frame.
-    size_t trigger=4;
-    bool found=false;
-    for(size_t i=4;i+1<samples.size()/2;++i){
-        if(samples[i-1]<=0.0f&&samples[i]>0.0f&&
-           (samples[i+1]-samples[i-1])>0.002f){
-            trigger=i;
-            found=true;
-            break;
+    // Trigger on a rising zero crossing in the first half of the buffer.
+    size_t trigger=0;
+    float bestSlope=0.0f;
+    const size_t searchEnd=samples.size()/2;
+    for(size_t i=1;i<searchEnd;++i){
+        if(samples[i-1]<=0.0f&&samples[i]>0.0f){
+            const float slope=samples[i]-samples[i-1];
+            if(slope>bestSlope){
+                bestSlope=slope;
+                trigger=i;
+            }
         }
     }
-    if(!found)trigger=0;
 
-    // Display gain only affects visualization. Strong signals remain 1:1;
-    // quieter signals are enlarged enough to remain legible without turning
-    // silence into a fake waveform.
-    const float displayGain=std::clamp(0.72f/std::max(peak,0.001f),1.0f,7.0f);
     const size_t available=samples.size()-trigger;
+    if(available<2)return;
+
     const int points=std::clamp(
-        static_cast<int>(r.w*0.48f),
-        96,
+        static_cast<int>(r.w/2.0f),
+        64,
         static_cast<int>(available));
 
-    auto sampleAt=[&](int point){
-        if(points<=1||available<=1)return samples[trigger];
-        const float u=static_cast<float>(point)/static_cast<float>(points-1);
-        const float pos=u*static_cast<float>(available-1);
-        const size_t i0=static_cast<size_t>(pos);
-        const size_t i1=std::min(i0+1,available-1);
+    auto sampleAt=[&](float t){
+        const float pos=
+            static_cast<float>(trigger)+
+            t*static_cast<float>(available-1);
+        const size_t i0=std::min(
+            samples.size()-1,
+            static_cast<size_t>(std::floor(pos)));
+        const size_t i1=std::min(samples.size()-1,i0+1);
         const float f=pos-static_cast<float>(i0);
-        return samples[trigger+i0]*(1.0f-f)+samples[trigger+i1]*f;
+        return samples[i0]+(samples[i1]-samples[i0])*f;
     };
 
     float prevX=r.x;
-    float prevY=mid-std::clamp(sampleAt(0)*displayGain,-1.0f,1.0f)*(r.h*0.43f);
-    auto& ov=NativeOverlay::instance();
+    float prevY=r.y+r.h*0.5f-
+        std::clamp(sampleAt(0.0f)*gain,-1.0f,1.0f)*(r.h*0.43f);
 
     for(int i=1;i<points;++i){
-        const float u=static_cast<float>(i)/static_cast<float>(points-1);
-        const float x=r.x+u*r.w;
-        const float s=std::clamp(sampleAt(i)*displayGain,-1.0f,1.0f);
-        const float y=mid-s*(r.h*0.43f);
+        const float t=static_cast<float>(i)/static_cast<float>(points-1);
+        const float x=r.x+t*r.w;
+        const float s=std::clamp(sampleAt(t)*gain,-1.0f,1.0f);
+        const float y=r.y+r.h*0.5f-s*(r.h*0.43f);
         const auto color=pitchColor((i*12)/std::max(1,points-1));
 
-        // Soft glow + crisp trace, like the browser oscilloscope.
+        // Soft glow plus crisp center trace.
         ov.addLine(
             prevX,prevY,x,y,
-            std::max(4.0f,r.h*0.075f),
-            overlayColor(mix(kTop,color,0.58f),0.46f));
+            4.5f,
+            overlayColor(mix(kTop,color,0.58f),0.62f));
         ov.addLine(
             prevX,prevY,x,y,
-            std::max(1.6f,r.h*0.030f),
-            overlayColor(mix(color,kWhite,0.08f),0.98f));
+            1.8f,
+            overlayColor(mix(color,kWhite,0.12f),0.98f));
 
         prevX=x;
         prevY=y;
     }
-}
-
-void NativeUi::drawTrackSwitchBar() const noexcept {
+}\n\nvoid NativeUi::drawTrackSwitchBar() const noexcept {
     if(page_==NativePage::Tracks)return;
     auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
