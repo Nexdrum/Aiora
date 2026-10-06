@@ -13,7 +13,9 @@ namespace {
 constexpr NativeEditor::Rgb kBg{0.0627f,0.0706f,0.0863f};
 constexpr NativeEditor::Rgb kPanel{0.0863f,0.1020f,0.1294f};
 constexpr NativeEditor::Rgb kButton{0.1373f,0.1569f,0.2000f};
+constexpr NativeEditor::Rgb kRollBg{0.0471f,0.0549f,0.0706f};
 constexpr NativeEditor::Rgb kTrack{0.18f,0.21f,0.27f};
+constexpr NativeEditor::Rgb kMuted{0.35f,0.39f,0.47f};
 constexpr NativeEditor::Rgb kCyan{0.0f,0.80f,0.80f};
 constexpr NativeEditor::Rgb kOrange{1.0f,0.6667f,0.0f};
 constexpr NativeEditor::Rgb kPurple{0.788f,0.557f,1.0f};
