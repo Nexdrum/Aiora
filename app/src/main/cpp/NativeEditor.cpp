@@ -234,21 +234,26 @@ NativeEditor::Rect NativeEditor::matrixRect(int modulator,int carrier) const noe
     const auto b=bodyRect();
     const auto tabs=synthTabRect(0);
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    const float top=tabs.y+tabs.h+gap;
-    const float availH=std::max(0.0f,b.y+b.h-top-gap);
-    const float cell=std::max(
-        34.0f,
-        std::min(
-            (b.w-gap*7.0f)/6.0f,
-            (availH-gap*7.0f)/6.0f));
-    const float gridW=cell*6.0f+gap*5.0f;
-    const float gridH=cell*6.0f+gap*5.0f;
-    const float ox=b.x+(b.w-gridW)*0.5f;
-    const float oy=top+(availH-gridH)*0.5f;
+    const float labelW=44.0f;
+    const float headerH=34.0f;
+    const float hintH=34.0f;
+    const float top=tabs.y+tabs.h+gap+hintH+headerH;
+    const float availableW=
+        std::max(1.0f,b.w-gap*2.0f-labelW);
+    const float cellW=
+        std::max(54.0f,(availableW-gap*5.0f)/6.0f);
+    const float availableH=
+        std::max(1.0f,b.y+b.h-top-gap);
+    const float rowH=std::clamp(
+        (availableH-gap*5.0f)/6.0f,
+        64.0f,92.0f);
+    const float gridW=cellW*6.0f+gap*5.0f;
+    const float ox=b.x+(b.w-(gridW+labelW))*0.5f+labelW;
+    const float oy=top;
     return {
-        ox+carrier*(cell+gap),
-        oy+modulator*(cell+gap),
-        cell,cell
+        ox+carrier*(cellW+gap),
+        oy+modulator*(rowH+gap),
+        cellW,rowH
     };
 }
 
@@ -553,6 +558,184 @@ void NativeEditor::renderSynth() const noexcept {
     drawPadReservedBackground();
     const Patch p=ProjectCore::instance().selectedPatch();
     auto& ov=NativeOverlay::instance();
+    const auto b=bodyRect();
+    const auto firstTab=synthTabRect(0);
+    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
+    const float contentTop=firstTab.y+firstTab.h+gap;
+
+    // Everything below the tab strip scrolls/clips beneath it.
+    ov.setClip({
+        b.x,
+        contentTop,
+        b.w,
+        std::max(0.0f,b.y+b.h-contentTop)
+    });
+
+    if(matrixMode_){
+        ov.addText(
+            "Row = modulator → column = carrier.",
+            b.x+gap,
+            contentTop+10.0f,
+            0.82f,
+            overlayColor(kMuted));
+
+        for(int carrier=0;carrier<6;++carrier){
+            const auto rr=matrixRect(0,carrier);
+            ov.addTextCentered(
+                "C"+std::to_string(carrier+1),
+                {rr.x,rr.y-34.0f,rr.w,28.0f},
+                0.82f,
+                overlayColor(kMuted));
+        }
+
+        for(int m=0;m<6;++m){
+            const auto first=matrixRect(m,0);
+            ov.addTextCentered(
+                "M"+std::to_string(m+1),
+                {first.x-42.0f,first.y,36.0f,first.h},
+                0.82f,
+                overlayColor(kMuted));
+
+            for(int carrier=0;carrier<6;++carrier){
+                const auto rr=matrixRect(m,carrier);
+                const float v=std::clamp(
+                    p.matrix[static_cast<size_t>(m)][static_cast<size_t>(carrier)],
+                    0.0f,1.0f);
+
+                const float inset=std::max(8.0f,rr.w*0.08f);
+                const float x0=rr.x+inset;
+                const float w=std::max(12.0f,rr.w-inset*2.0f);
+                const float cy=rr.y+rr.h*0.54f;
+                fillRect({x0,cy-3.0f,w,6.0f},kTrack);
+                fillRect({x0,cy-3.0f,w*v,6.0f},kPurple);
+
+                const float knob=std::clamp(rr.h*0.22f,14.0f,20.0f);
+                fillRect({
+                    x0+w*v-knob*0.5f,
+                    cy-knob*0.5f,
+                    knob,knob},
+                    mix(kWhite,kPurple,0.18f));
+            }
+        }
+    }else{
+        static constexpr const char* kWaveNames[6]={
+            "sine","sawtooth","square","triangle","custom","noise"};
+        static constexpr const char* kLabels[7]={
+            "R","F","L","A","D","S","R"};
+
+        const auto shortValue=[](float v){
+            std::string s=std::to_string(v);
+            while(s.size()>1&&s.back()=='0')s.pop_back();
+            if(!s.empty()&&s.back()=='.')s.pop_back();
+            if(s.size()>6)s.resize(6);
+            return s;
+        };
+
+        for(int op=0;op<6;++op){
+            const auto card=operatorCardRect(op);
+            const auto& o=p.ops[static_cast<size_t>(op)];
+            const bool enabled=o.enabled;
+
+            fillRect(card,enabled?kCyan:kButton);
+            fillRect({
+                card.x+2.0f,card.y+2.0f,
+                card.w-4.0f,card.h-4.0f},
+                kPanel);
+
+            ov.addText(
+                "OP"+std::to_string(op+1),
+                card.x+16.0f,card.y+22.0f,
+                1.04f,overlayColor(kWhite));
+
+            const auto wave=operatorWaveFieldRect(op);
+            fillRect(wave,mix(kRollBg,kButton,0.25f));
+            const int waveIndex=std::clamp(static_cast<int>(o.wave),0,5);
+            ov.addText(
+                kWaveNames[waveIndex],
+                wave.x+12.0f,wave.y+20.0f,
+                0.96f,overlayColor(kWhite));
+            ov.addDownChevron(
+                {wave.x+wave.w-38.0f,wave.y,38.0f,wave.h},
+                overlayColor(kWhite));
+
+            for(int paramIndex=0;paramIndex<7;++paramIndex){
+                const auto param=kOperatorParams[static_cast<size_t>(paramIndex)];
+                const auto rr=operatorCardParamRect(op,paramIndex);
+                const float value=operatorValue(p,op,param);
+                const float norm=normalized(value,operatorRange(param));
+
+                ov.addText(
+                    kLabels[paramIndex],
+                    rr.x,rr.y+rr.h*0.26f,
+                    0.82f,overlayColor(kWhite));
+
+                const float labelW=38.0f;
+                const float valueW=62.0f;
+                const float trackX=rr.x+labelW;
+                const float trackW=
+                    std::max(20.0f,rr.w-labelW-valueW-6.0f);
+
+                if(paramIndex==0){
+                    fillRect(
+                        {trackX,rr.y+4.0f,trackW,rr.h-8.0f},
+                        mix(kRollBg,kButton,0.22f));
+                    ov.addText(
+                        shortValue(value),
+                        trackX+10.0f,rr.y+22.0f,
+                        1.00f,overlayColor(kWhite));
+                }else{
+                    const float cy=rr.y+rr.h*0.52f;
+                    fillRect({trackX,cy-3.0f,trackW,6.0f},kTrack);
+                    fillRect({
+                        trackX,cy-3.0f,trackW*norm,6.0f},
+                        paramIndex<3?kCyan:kOrange);
+                    const float knob=22.0f;
+                    fillRect({
+                        trackX+trackW*norm-knob*0.5f,
+                        cy-knob*0.5f,knob,knob},
+                        mix(kWhite,paramIndex<3?kCyan:kOrange,0.25f));
+                }
+
+                ov.addText(
+                    shortValue(value),
+                    rr.x+rr.w-valueW+4.0f,
+                    rr.y+rr.h*0.26f,
+                    0.86f,overlayColor(kMuted));
+            }
+
+            const auto toggle=operatorCardToggleRect(op);
+            drawButton(toggle,enabled,enabled?kGreen:kRed);
+            ov.addTextCentered(
+                enabled?"ON":"OFF",
+                {toggle.x,toggle.y,toggle.w,toggle.h},
+                1.02f,overlayColor(kWhite));
+
+            if(o.wave==Wave::Custom){
+                for(int partial=0;partial<16;++partial){
+                    const auto hr=operatorCardHarmonicRect(op,partial);
+                    const float v=std::clamp(
+                        o.harm[static_cast<size_t>(partial)],0.0f,1.0f);
+                    fillRect(hr,kButton);
+                    fillRect({
+                        hr.x+hr.w*0.24f,
+                        hr.y+hr.h*(1.0f-v),
+                        hr.w*0.52f,
+                        std::max(3.0f,hr.h*v)},
+                        mix(kCyan,kPurple,0.40f));
+                }
+            }
+        }
+
+        drawPatchTransfer(EditorPage::Synth);
+    }
+
+    ov.clearClip();
+
+    // Solid sticky strip so scrolled controls cannot bleed through the tabs.
+    fillRect({
+        b.x,b.y,b.w,
+        std::max(0.0f,contentTop-b.y)},
+        kPanel);
 
     static constexpr const char* kTabs[2]={"Operators","FM Matrix"};
     for(int i=0;i<2;++i){
@@ -565,139 +748,6 @@ void NativeEditor::renderSynth() const noexcept {
             1.08f,
             overlayColor(active?kBg:kWhite));
     }
-
-    if(matrixMode_){
-        for(int m=0;m<6;++m){
-            for(int carrier=0;carrier<6;++carrier){
-                const auto rr=matrixRect(m,carrier);
-                const float v=std::clamp(
-                    p.matrix[static_cast<size_t>(m)][static_cast<size_t>(carrier)],
-                    0.0f,1.0f);
-                fillRect(rr,mix(kButton,kPurple,0.12f+v*0.76f));
-                const float inset=std::max(3.0f,rr.w*0.10f);
-                fillRect({
-                    rr.x+inset,
-                    rr.y+rr.h-inset-std::max(4.0f,(rr.h-inset*2.0f)*v),
-                    rr.w-inset*2.0f,
-                    std::max(4.0f,(rr.h-inset*2.0f)*v)},
-                    mix(kCyan,kPurple,0.56f));
-                ov.addTextCentered(
-                    "M"+std::to_string(m+1)+"→"+std::to_string(carrier+1),
-                    {rr.x,rr.y,rr.w,rr.h},
-                    0.64f,
-                    overlayColor(kWhite));
-            }
-        }
-        return;
-    }
-
-    static constexpr const char* kWaveNames[6]={
-        "sine","sawtooth","square","triangle","custom","noise"};
-    static constexpr const char* kLabels[7]={
-        "R","F","L","A","D","S","R"};
-
-    const auto shortValue=[](float v){
-        std::string s=std::to_string(v);
-        while(s.size()>1&&s.back()=='0')s.pop_back();
-        if(!s.empty()&&s.back()=='.')s.pop_back();
-        if(s.size()>6)s.resize(6);
-        return s;
-    };
-
-    for(int op=0;op<6;++op){
-        const auto card=operatorCardRect(op);
-        const auto& o=p.ops[static_cast<size_t>(op)];
-        const bool enabled=o.enabled;
-
-        fillRect(card,enabled?kCyan:kButton);
-        fillRect({
-            card.x+2.0f,card.y+2.0f,
-            card.w-4.0f,card.h-4.0f},
-            kPanel);
-
-        ov.addText(
-            "OP"+std::to_string(op+1),
-            card.x+16.0f,card.y+22.0f,
-            1.04f,overlayColor(kWhite));
-
-        const auto wave=operatorWaveFieldRect(op);
-        fillRect(wave,mix(kRollBg,kButton,0.25f));
-        const int waveIndex=std::clamp(static_cast<int>(o.wave),0,5);
-        ov.addText(
-            kWaveNames[waveIndex],
-            wave.x+12.0f,wave.y+20.0f,
-            0.96f,overlayColor(kWhite));
-        ov.addDownChevron(
-            {wave.x+wave.w-38.0f,wave.y,38.0f,wave.h},
-            overlayColor(kWhite));
-
-        for(int paramIndex=0;paramIndex<7;++paramIndex){
-            const auto param=kOperatorParams[static_cast<size_t>(paramIndex)];
-            const auto rr=operatorCardParamRect(op,paramIndex);
-            const float value=operatorValue(p,op,param);
-            const float norm=normalized(value,operatorRange(param));
-
-            ov.addText(
-                kLabels[paramIndex],
-                rr.x,rr.y+rr.h*0.26f,
-                0.82f,overlayColor(kWhite));
-
-            const float labelW=38.0f;
-            const float valueW=62.0f;
-            const float trackX=rr.x+labelW;
-            const float trackW=std::max(20.0f,rr.w-labelW-valueW-6.0f);
-
-            if(paramIndex==0){
-                fillRect(
-                    {trackX,rr.y+4.0f,trackW,rr.h-8.0f},
-                    mix(kRollBg,kButton,0.22f));
-                ov.addText(
-                    shortValue(value),
-                    trackX+10.0f,rr.y+22.0f,
-                    1.00f,overlayColor(kWhite));
-            }else{
-                const float cy=rr.y+rr.h*0.52f;
-                fillRect({trackX,cy-3.0f,trackW,6.0f},kTrack);
-                fillRect({trackX,cy-3.0f,trackW*norm,6.0f},
-                    paramIndex<3?kCyan:kOrange);
-                const float knob=22.0f;
-                fillRect({
-                    trackX+trackW*norm-knob*0.5f,
-                    cy-knob*0.5f,knob,knob},
-                    mix(kWhite,paramIndex<3?kCyan:kOrange,0.25f));
-            }
-
-            ov.addText(
-                shortValue(value),
-                rr.x+rr.w-valueW+4.0f,
-                rr.y+rr.h*0.26f,
-                0.86f,overlayColor(kMuted));
-        }
-
-        const auto toggle=operatorCardToggleRect(op);
-        drawButton(toggle,enabled,enabled?kGreen:kRed);
-        ov.addTextCentered(
-            enabled?"ON":"OFF",
-            {toggle.x,toggle.y,toggle.w,toggle.h},
-            1.02f,overlayColor(kWhite));
-
-        if(o.wave==Wave::Custom){
-            for(int partial=0;partial<16;++partial){
-                const auto hr=operatorCardHarmonicRect(op,partial);
-                const float v=std::clamp(
-                    o.harm[static_cast<size_t>(partial)],0.0f,1.0f);
-                fillRect(hr,kButton);
-                fillRect({
-                    hr.x+hr.w*0.24f,
-                    hr.y+hr.h*(1.0f-v),
-                    hr.w*0.52f,
-                    std::max(3.0f,hr.h*v)},
-                    mix(kCyan,kPurple,0.40f));
-            }
-        }
-    }
-
-    drawPatchTransfer(EditorPage::Synth);
 }
 
 void NativeEditor::renderFx() const noexcept {
@@ -893,6 +943,12 @@ std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const n
         if(rr.contains(x,y))
             return Hit{HitKind::SynthTab,i,-1,rr};
     }
+
+    const auto b=bodyRect();
+    const auto tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
+    const float contentTop=tab.y+tab.h+gap;
+    if(y<contentTop)return std::nullopt;
 
     if(matrixMode_){
         for(int m=0;m<6;++m){
