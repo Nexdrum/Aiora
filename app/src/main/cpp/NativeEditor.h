@@ -58,6 +58,9 @@ private:
     };
     struct Range { float lo{},hi{}; };
 
+    [[nodiscard]] Rect viewportRect() const noexcept;
+    [[nodiscard]] Rect scrollGutterRect() const noexcept;
+    [[nodiscard]] float scrollGutterPixels() const noexcept;
     [[nodiscard]] Rect contentRect() const noexcept;
     [[nodiscard]] Rect editorRect() const noexcept;
     [[nodiscard]] Rect bodyRect() const noexcept;
@@ -102,6 +105,7 @@ private:
     void scrollEditor(EditorPage page,float delta) noexcept;
 
     void fillRect(Rect rect,Rgb color) const noexcept;
+    void drawScrollGutter() const noexcept;
     void drawSlider(Rect rect,float norm,Rgb accent) const noexcept;
     void drawButton(Rect rect,bool active,Rgb accent) const noexcept;
     void drawPadReservedBackground() const noexcept;
