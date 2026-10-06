@@ -637,6 +637,123 @@ void NativeOverlay::addNavIcon(int index,Rect r,Color c){
     }
 }
 
+
+void NativeOverlay::addDrumIcon(int index,Rect r,Color c){
+    const float s=std::min(r.w,r.h);
+    const float cx=r.x+r.w*0.5f,cy=r.y+r.h*0.5f;
+    const float t=std::max(1.7f,s*0.055f);
+    const float w=s*0.52f,h=s*0.42f;
+
+    auto ellipse=[&](float ex,float ey,float rx,float ry){
+        constexpr int seg=24;
+        float px=ex+rx,py=ey;
+        for(int k=1;k<=seg;++k){
+            const float a=static_cast<float>(k)*6.28318530718f/static_cast<float>(seg);
+            const float x=ex+std::cos(a)*rx;
+            const float y=ey+std::sin(a)*ry;
+            addLine(px,py,x,y,t,c);px=x;py=y;
+        }
+    };
+
+    switch(index){
+        case 0: // kick
+            addCircle(cx,cy,s*0.28f,t,c);
+            addCircle(cx,cy,s*0.07f,t,c);
+            break;
+        case 1: // snare
+            ellipse(cx,cy-s*0.10f,w*0.50f,h*0.18f);
+            addLine(cx-w*0.50f,cy-s*0.10f,cx-w*0.45f,cy+s*0.18f,t,c);
+            addLine(cx+w*0.50f,cy-s*0.10f,cx+w*0.45f,cy+s*0.18f,t,c);
+            ellipse(cx,cy+s*0.18f,w*0.45f,h*0.16f);
+            addLine(cx-w*0.34f,cy-s*0.32f,cx-s*0.03f,cy-s*0.12f,t,c);
+            addLine(cx+w*0.34f,cy-s*0.32f,cx+s*0.03f,cy-s*0.12f,t,c);
+            break;
+        case 2: // tom
+            ellipse(cx,cy-s*0.16f,w*0.40f,h*0.16f);
+            addLine(cx-w*0.40f,cy-s*0.16f,cx-w*0.34f,cy+s*0.18f,t,c);
+            addLine(cx+w*0.40f,cy-s*0.16f,cx+w*0.34f,cy+s*0.18f,t,c);
+            ellipse(cx,cy+s*0.18f,w*0.34f,h*0.13f);
+            break;
+        case 3: // floor tom
+            ellipse(cx,cy-s*0.19f,w*0.40f,h*0.15f);
+            addLine(cx-w*0.40f,cy-s*0.19f,cx-w*0.33f,cy+s*0.18f,t,c);
+            addLine(cx+w*0.40f,cy-s*0.19f,cx+w*0.33f,cy+s*0.18f,t,c);
+            ellipse(cx,cy+s*0.18f,w*0.33f,h*0.13f);
+            addLine(cx-w*0.25f,cy+s*0.25f,cx-w*0.30f,cy+s*0.42f,t,c);
+            addLine(cx+w*0.25f,cy+s*0.25f,cx+w*0.30f,cy+s*0.42f,t,c);
+            break;
+        case 4: // hi-hat
+            addLine(cx-w*0.45f,cy-s*0.15f,cx+w*0.45f,cy-s*0.15f,t,c);
+            addLine(cx-w*0.34f,cy+s*0.02f,cx+w*0.34f,cy+s*0.02f,t,c);
+            addLine(cx,cy-s*0.38f,cx,cy+s*0.38f,t,c);
+            break;
+        case 5: // cymbal/crash
+            {
+                constexpr int seg=18;
+                float px=cx-w*0.48f,py=cy;
+                for(int k=1;k<=seg;++k){
+                    const float u=static_cast<float>(k)/seg;
+                    const float x=cx-w*0.48f+u*w*0.96f;
+                    const float yy=cy-std::sin(u*3.14159265f)*s*0.25f;
+                    addLine(px,py,x,yy,t,c);px=x;py=yy;
+                }
+                addCircle(cx,cy,s*0.035f,t,c);
+                addLine(cx,cy+s*0.02f,cx,cy+s*0.38f,t,c);
+                addLine(cx-s*0.13f,cy+s*0.38f,cx+s*0.13f,cy+s*0.38f,t,c);
+            }
+            break;
+        case 6: // ride
+            {
+                constexpr int seg=18;
+                float px=cx-w*0.50f,py=cy;
+                for(int k=1;k<=seg;++k){
+                    const float u=static_cast<float>(k)/seg;
+                    const float x=cx-w*0.50f+u*w;
+                    const float yy=cy-std::sin(u*3.14159265f)*s*0.30f;
+                    addLine(px,py,x,yy,t,c);px=x;py=yy;
+                }
+                addCircle(cx,cy-s*0.02f,s*0.06f,t,c);
+                addLine(cx,cy+s*0.04f,cx,cy+s*0.40f,t,c);
+            }
+            break;
+        case 7: // bongo
+            for(float side:{-0.18f,0.18f}){
+                const float ex=cx+side*s;
+                ellipse(ex,cy-s*0.14f,s*0.16f,s*0.07f);
+                addLine(ex-s*0.16f,cy-s*0.14f,ex-s*0.13f,cy+s*0.20f,t,c);
+                addLine(ex+s*0.16f,cy-s*0.14f,ex+s*0.13f,cy+s*0.20f,t,c);
+            }
+            break;
+        case 8: // conga
+            ellipse(cx,cy-s*0.27f,s*0.22f,s*0.08f);
+            addLine(cx-s*0.22f,cy-s*0.27f,cx-s*0.15f,cy+s*0.28f,t,c);
+            addLine(cx+s*0.22f,cy-s*0.27f,cx+s*0.15f,cy+s*0.28f,t,c);
+            ellipse(cx,cy+s*0.28f,s*0.15f,s*0.06f);
+            break;
+        case 9: // clap
+            for(float a:{0.0f,0.785398f,1.570796f,2.356194f}){
+                const float dx=std::cos(a)*s*0.16f,dy=std::sin(a)*s*0.16f;
+                addLine(cx+dx,cy+dy,cx+dx*2.0f,cy+dy*2.0f,t,c);
+                addLine(cx-dx,cy-dy,cx-dx*2.0f,cy-dy*2.0f,t,c);
+            }
+            break;
+        case 10: // shaker
+            addCircle(cx-s*0.08f,cy-s*0.08f,s*0.20f,t,c);
+            addLine(cx+s*0.06f,cy+s*0.06f,cx+s*0.32f,cy+s*0.32f,t,c);
+            break;
+        case 11: // cowbell
+            addLine(cx-s*0.20f,cy-s*0.30f,cx+s*0.20f,cy-s*0.30f,t,c);
+            addLine(cx-s*0.20f,cy-s*0.30f,cx-s*0.30f,cy+s*0.22f,t,c);
+            addLine(cx+s*0.20f,cy-s*0.30f,cx+s*0.30f,cy+s*0.22f,t,c);
+            addLine(cx-s*0.30f,cy+s*0.22f,cx+s*0.30f,cy+s*0.22f,t,c);
+            addLine(cx,cy+s*0.22f,cx,cy+s*0.40f,t,c);
+            break;
+        default:
+            addCircle(cx,cy,s*0.24f,t,c);
+            break;
+    }
+}
+
 void NativeOverlay::flush(){
     if(vertices_.empty()&&textVertices_.empty())return;
 
