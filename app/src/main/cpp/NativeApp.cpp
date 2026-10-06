@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <mutex>
 #include <string>
+#include <utility>
 
 #include "AudioEngine.h"
 #include "AiHeuristic.h"
@@ -392,6 +393,8 @@ bool launchOpenDocument(
     detachAndroidEnv(activity,attached);
     return ok;
 }
+
+void scheduleAutosave(NativeState& state,int64_t delayMs);
 
 std::string javaString(JNIEnv* env,jstring value){
     if(!env||!value)return {};
@@ -788,6 +791,7 @@ void serviceRollLongPress(NativeState& state){
 }
 
 void drawFrame(NativeState& state) {
+    serviceDocumentResult(state);
     if (!state.drawable) return;
     serviceEditorPreview(state);
     serviceAutosave(state);
@@ -1140,31 +1144,30 @@ bool handleUiTap(NativeState& state, float x, float y) {
 
                 case aiora::TrackUtilityAction::SaveProject:{
                     std::string error;
-                    const bool ok=!state.manualSavePath.empty()&&
+                    const bool prepared=!state.jsonExportPath.empty()&&
                         aiora::saveProjectFile(
-                            state.manualSavePath,project.projectCopy(),&error);
-                    __android_log_print(
-                        ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,kTag,
-                        ok?"saved AIORA project":"manual save failed: %s",
-                        ok?"":error.c_str());
+                            state.jsonExportPath,project.projectCopy(),&error);
+                    const bool launched=prepared&&launchCreateDocument(
+                        state.app?state.app->activity:nullptr,
+                        kRequestSaveJson,
+                        "Aiora Song.json","application/json",
+                        state.jsonExportPath);
+                    if(!launched){
+                        __android_log_print(
+                            ANDROID_LOG_WARN,kTag,
+                            "Save As could not start: %s",
+                            error.empty()?"document picker unavailable":error.c_str());
+                    }
                     break;
                 }
 
                 case aiora::TrackUtilityAction::LoadProject:{
-                    aiora::Project loaded;
-                    std::string error;
-                    if(!state.manualSavePath.empty()&&
-                       aiora::loadProjectFile(state.manualSavePath,loaded,&error)){
-                        audio.stopTransport();
-                        project.replaceProject(std::move(loaded),0);
-                        audio.syncProject();
-                        state.ui.resetDrumRangeArm();
-                        scheduleAutosave(state,0);
-                    }else{
+                    if(!launchOpenDocument(
+                        state.app?state.app->activity:nullptr,
+                        kRequestLoadJson,"application/json")){
                         __android_log_print(
                             ANDROID_LOG_WARN,kTag,
-                            "manual load failed: %s",
-                            error.empty()?"no saved project":error.c_str());
+                            "song file picker could not start");
                     }
                     break;
                 }
@@ -1199,24 +1202,39 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
 
         if(const auto transfer=state.ui.hitProjectTransfer(x,y)){
-            if(*transfer==aiora::ProjectTransferAction::CopyProject){
-                const std::string json=aiora::serializeProjectJson(project.projectCopy());
-                const bool ok=clipboardSetText(state.app?state.app->activity:nullptr,json);
-                __android_log_print(ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,kTag,
-                    ok?"copied AIORA project JSON":"could not copy AIORA project JSON");
-            }else{
-                const std::string json=clipboardGetText(state.app?state.app->activity:nullptr);
-                aiora::Project imported;
+            if(*transfer==aiora::ProjectTransferAction::ExportWav){
                 std::string error;
-                if(!json.empty()&&aiora::deserializeProjectJson(json,imported,&error)){
-                    audio.stopTransport();
-                    project.replaceProject(std::move(imported),0);
-                    audio.syncProject();
-                    scheduleAutosave(state,0);
-                    __android_log_print(ANDROID_LOG_INFO,kTag,"pasted AIORA project JSON");
-                }else{
-                    __android_log_print(ANDROID_LOG_WARN,kTag,"project paste failed: %s",
-                        error.empty()?"clipboard does not contain AIORA JSON":error.c_str());
+                int sampleRate=audio.sampleRate();
+                if(sampleRate<22050)sampleRate=48000;
+                const auto copy=project.projectCopy();
+                const bool prepared=!state.wavExportPath.empty()&&
+                    aiora::exportProjectWav(
+                        state.wavExportPath,copy,sampleRate,&error);
+                const bool launched=prepared&&launchCreateDocument(
+                    state.app?state.app->activity:nullptr,
+                    kRequestExportWav,
+                    "Aiora Song.wav","audio/wav",
+                    state.wavExportPath);
+                if(!launched){
+                    __android_log_print(
+                        ANDROID_LOG_WARN,kTag,"WAV export failed: %s",
+                        error.empty()?"document picker unavailable":error.c_str());
+                }
+            }else{
+                std::string error;
+                const auto copy=project.projectCopy();
+                const bool prepared=!state.midiExportPath.empty()&&
+                    aiora::exportProjectMidi(
+                        state.midiExportPath,copy,&error);
+                const bool launched=prepared&&launchCreateDocument(
+                    state.app?state.app->activity:nullptr,
+                    kRequestExportMidi,
+                    "Aiora Song.mid","audio/midi",
+                    state.midiExportPath);
+                if(!launched){
+                    __android_log_print(
+                        ANDROID_LOG_WARN,kTag,"MIDI export failed: %s",
+                        error.empty()?"document picker unavailable":error.c_str());
                 }
             }
             return true;
@@ -1874,7 +1892,9 @@ void android_main(android_app* app) {
     if(app->activity&&app->activity->internalDataPath){
         const std::string base=app->activity->internalDataPath;
         state.autosavePath=base+"/aiora.json";
-        state.manualSavePath=base+"/aiora_saved.json";
+        state.jsonExportPath=base+"/aiora_song_export.json";
+        state.wavExportPath=base+"/aiora_song_export.wav";
+        state.midiExportPath=base+"/aiora_song_export.mid";
     }
 
     aiora::Project restored;
