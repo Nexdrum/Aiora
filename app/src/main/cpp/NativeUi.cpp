@@ -769,7 +769,9 @@ void NativeUi::drawScope() const noexcept {
         prevX=x;
         prevY=y;
     }
-}\n\nvoid NativeUi::drawTrackSwitchBar() const noexcept {
+}
+
+void NativeUi::drawTrackSwitchBar() const noexcept {
     if(page_==NativePage::Tracks)return;
     auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
