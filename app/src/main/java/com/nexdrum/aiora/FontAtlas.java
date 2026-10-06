@@ -13,7 +13,18 @@ public final class FontAtlas {
     public static Bitmap build(int cellW, int cellH, int columns, int fontPx, int style) {
         final int first = 32;
         final int last = 126;
-        final int count = last - first + 1;
+        final int[] extras = new int[] {
+            0x00D7, // ×
+            0x00B7, // ·
+            0x2013, // –
+            0x2014, // —
+            0x2192, // →
+            0x223F, // ∿
+            0x25C0, // ◀
+            0x25B6  // ▶
+        };
+        final int asciiCount = last - first + 1;
+        final int count = asciiCount + extras.length;
         final int rows = (count + columns - 1) / columns;
 
         Bitmap bitmap = Bitmap.createBitmap(
@@ -37,12 +48,14 @@ public final class FontAtlas {
         final float xPad = 6.0f;
         final float baseline = Math.min(cellH - 8.0f, fontPx + 8.0f);
 
-        for (int code = first; code <= last; ++code) {
-            int index = code - first;
+        for (int index = 0; index < count; ++index) {
+            int codePoint = index < asciiCount
+                ? first + index
+                : extras[index - asciiCount];
             int col = index % columns;
             int row = index / columns;
             canvas.drawText(
-                Character.toString((char) code),
+                new String(Character.toChars(codePoint)),
                 col * cellW + xPad,
                 row * cellH + baseline,
                 paint);
