@@ -1005,25 +1005,42 @@ void NativeUi::drawRoll() const noexcept {
             rollMode_ == RollMode::Bend ? kCyan :
             rollMode_ == RollMode::Velocity ? kWhite : kPurple;
 
+        auto& ov=NativeOverlay::instance();
+        const float center=x+(cell-3.0f)*0.5f;
+        float prevLX=0.0f,prevRX=0.0f,prevY=0.0f;
+        bool havePrev=false;
         for (int p = 0; p < points; ++p) {
             const float relStep = project.curvePointStep(track, n, kind, p);
             const float value = project.curvePointValue(track, n, kind, p);
             const bool free = project.curvePointFree(track, n, kind, p);
             const float py = viewport.y + header + (start + relStep + 0.5f - stepOffset) * cell;
-            if (py < viewport.y + header || py > viewport.y + viewport.h) continue;
+            if (py < viewport.y + header-cell || py > viewport.y + viewport.h+cell) continue;
 
+            const float radius=free?std::max(7.0f,cell*0.13f):std::max(6.0f,cell*0.11f);
+            const float thick=std::max(2.0f,cell*0.045f);
             if (rollMode_ == RollMode::Bend) {
-                const float px = x + (cell - 3.0f) * 0.5f +
-                    std::clamp(value / 12.0f, -1.0f, 1.0f) * (cell * 0.42f);
-                const float s = free ? 7.0f : 5.0f;
-                fillRect({px - s * 0.5f, py - s * 0.5f, s, s}, pointColor);
+                const float px=center+value*cell;
+                if(havePrev)ov.addLine(prevLX,prevY,px,py,thick,overlayColor(pointColor));
+                ov.addCircle(px,py,radius,thick,overlayColor(pointColor));
+                if(free){
+                    ov.addLine(px-radius,py,px,py-radius,thick,overlayColor(pointColor));
+                    ov.addLine(px,py-radius,px+radius,py,thick,overlayColor(pointColor));
+                    ov.addLine(px+radius,py,px,py+radius,thick,overlayColor(pointColor));
+                    ov.addLine(px,py+radius,px-radius,py,thick,overlayColor(pointColor));
+                }
+                prevLX=px;
             } else {
-                const float half = std::clamp(value, 0.0f, 1.0f) * (cell * 0.42f);
-                const float center = x + (cell - 3.0f) * 0.5f;
-                const float s = free ? 7.0f : 5.0f;
-                fillRect({center - half - s * 0.5f, py - s * 0.5f, s, s}, pointColor);
-                fillRect({center + half - s * 0.5f, py - s * 0.5f, s, s}, pointColor);
+                const float half = std::clamp(value, 0.0f, 1.0f) * (cell * 0.48f);
+                const float lx=center-half,rx=center+half;
+                if(havePrev){
+                    ov.addLine(prevLX,prevY,lx,py,thick,overlayColor(pointColor));
+                    ov.addLine(prevRX,prevY,rx,py,thick,overlayColor(pointColor));
+                }
+                ov.addCircle(lx,py,radius,thick,overlayColor(pointColor));
+                ov.addCircle(rx,py,radius,thick,overlayColor(pointColor));
+                prevLX=lx;prevRX=rx;
             }
+            prevY=py;havePrev=true;
         }
     }
     if(AudioEngine::instance().transportPlaying()){
@@ -1297,6 +1314,153 @@ std::optional<RollCellHit> NativeUi::hitRollCell(float x, float y) const noexcep
         std::clamp((x - cellLeft) / cell, 0.0f, 1.0f),
         std::clamp((y - cellTop) / cell, 0.0f, 1.0f)
     };
+}
+
+bool NativeUi::rollAutomationPosition(
+    float x,float y,int noteIndex,int curveKind,bool free,
+    float& step,float& value) const noexcept {
+
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0||noteIndex<0||noteIndex>=project.noteCount(track))return false;
+
+    const auto viewport=rollViewportRect();
+    const float cell=rollCellPixels();
+    const float gutter=rollGutterPixels();
+    const float header=rollHeaderPixels();
+    const auto columns=rollColumns();
+
+    const int midi=project.noteMidi(track,noteIndex);
+    const auto it=std::lower_bound(columns.begin(),columns.end(),midi);
+    if(it==columns.end()||*it!=midi)return false;
+    const int colIndex=static_cast<int>(std::distance(columns.begin(),it));
+    const int visibleCol=colIndex-rollPitchOffset_;
+    const float baseX=viewport.x+gutter+(visibleCol+0.5f)*cell;
+
+    const float start=project.noteStart(track,noteIndex);
+    const float length=std::max(1.0f,project.noteLength(track,noteIndex));
+    const float maxStep=std::max(0.0f,length-1.0f);
+
+    if(free){
+        const float absolute=
+            rollStepOffset_+
+            (y-viewport.y-header)/cell-0.5f;
+        step=std::clamp(absolute-start,0.0f,maxStep);
+    }else{
+        const auto hit=hitRollCell(x,y);
+        if(!hit)return false;
+        step=std::clamp(
+            static_cast<float>(hit->step)-start,
+            0.0f,maxStep);
+    }
+
+    if(curveKind==0){
+        if(free){
+            value=std::clamp((x-baseX)/cell,-12.0f,12.0f);
+        }else{
+            const auto hit=hitRollCell(x,y);
+            if(!hit)return false;
+            value=std::clamp(
+                static_cast<float>(hit->midi-midi),
+                -12.0f,12.0f);
+        }
+    }else{
+        value=std::clamp(
+            std::fabs(x-baseX)/(cell*0.48f),
+            0.0f,1.0f);
+    }
+    return true;
+}
+
+std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
+    float x,float y,int curveKind) const noexcept {
+
+    if(page_!=NativePage::Roll||curveKind<0||curveKind>2)return std::nullopt;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return std::nullopt;
+
+    const auto viewport=rollViewportRect();
+    const float cell=rollCellPixels();
+    const float gutter=rollGutterPixels();
+    const float header=rollHeaderPixels();
+    const auto columns=rollColumns();
+    const float radius=std::max(20.0f,cell*0.42f);
+    const float radius2=radius*radius;
+
+    int bestNote=-1,bestPoint=-1;
+    float bestDist=radius2;
+    float bestStep=0.0f,bestValue=0.0f;
+    bool bestFree=false;
+
+    const int noteCount=project.noteCount(track);
+    for(int n=0;n<noteCount;++n){
+        const int midi=project.noteMidi(track,n);
+        const auto it=std::lower_bound(columns.begin(),columns.end(),midi);
+        if(it==columns.end()||*it!=midi)continue;
+        const int visibleCol=
+            static_cast<int>(std::distance(columns.begin(),it))-rollPitchOffset_;
+        const float baseX=viewport.x+gutter+(visibleCol+0.5f)*cell;
+        const float start=project.noteStart(track,n);
+
+        const int points=project.curvePointCount(track,n,curveKind);
+        for(int p=0;p<points;++p){
+            const float rel=project.curvePointStep(track,n,curveKind,p);
+            const float v=project.curvePointValue(track,n,curveKind,p);
+            const float py=
+                viewport.y+header+
+                (start+rel+0.5f-rollStepOffset_)*cell;
+
+            if(curveKind==0){
+                const float px=baseX+v*cell;
+                const float dx=px-x,dy=py-y,dd=dx*dx+dy*dy;
+                if(dd<=bestDist){
+                    bestDist=dd;bestNote=n;bestPoint=p;
+                    bestStep=rel;bestValue=v;
+                    bestFree=project.curvePointFree(track,n,curveKind,p);
+                }
+            }else{
+                const float half=std::clamp(v,0.0f,1.0f)*(cell*0.48f);
+                for(float px:{baseX-half,baseX+half}){
+                    const float dx=px-x,dy=py-y,dd=dx*dx+dy*dy;
+                    if(dd<=bestDist){
+                        bestDist=dd;bestNote=n;bestPoint=p;
+                        bestStep=rel;bestValue=v;
+                        bestFree=project.curvePointFree(track,n,curveKind,p);
+                    }
+                }
+            }
+        }
+    }
+
+    if(bestPoint>=0){
+        return RollAutomationHit{
+            bestNote,bestPoint,bestStep,bestValue,bestFree};
+    }
+
+    const auto cellHit=hitRollCell(x,y);
+    if(!cellHit)return std::nullopt;
+
+    int note=-1;
+    float noteDistance=1.0e9f;
+    for(int n=0;n<noteCount;++n){
+        const float start=project.noteStart(track,n);
+        const float length=std::max(1.0f,project.noteLength(track,n));
+        if(static_cast<float>(cellHit->step)<start||
+           static_cast<float>(cellHit->step)>start+length-1.0f)continue;
+        const float d=std::fabs(
+            static_cast<float>(project.noteMidi(track,n)-cellHit->midi));
+        const float limit=curveKind==0?3.0f:1.0f;
+        if(d<=limit&&d<noteDistance){
+            noteDistance=d;note=n;
+        }
+    }
+    if(note<0)return std::nullopt;
+
+    float step=0.0f,value=0.0f;
+    if(!rollAutomationPosition(
+        x,y,note,curveKind,false,step,value))return std::nullopt;
+    return RollAutomationHit{note,-1,step,value,false};
 }
 
 int NativeUi::padIndexForMidi(int midi) noexcept {
