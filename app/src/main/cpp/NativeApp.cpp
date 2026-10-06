@@ -99,14 +99,31 @@ struct NativeState {
 };
 
 void createDefaultProject() {
-    auto& project = aiora::ProjectCore::instance();
+    auto& project=aiora::ProjectCore::instance();
     project.reset();
-    project.addTrack(false);
-    project.addTrack(false);
-    project.addTrack(false);
-    project.addTrack(false);
-    project.addTrack(true);
-    project.selectTrack(0);
+
+    const int bass=project.addTrack(false);
+    project.setTrackName(bass,"Bass");
+    project.selectTrack(bass);
+    project.replaceSelectedPatch(
+        aiora::makeFactoryPatch(aiora::FactoryPreset::Subula));
+
+    const int harmony=project.addTrack(false);
+    project.setTrackName(harmony,"Harmony");
+    project.selectTrack(harmony);
+    project.replaceSelectedPatch(
+        aiora::makeFactoryPatch(aiora::FactoryPreset::Spectrello));
+
+    const int lead=project.addTrack(false);
+    project.setTrackName(lead,"Lead");
+    project.selectTrack(lead);
+    project.replaceSelectedPatch(
+        aiora::makeFactoryPatch(aiora::FactoryPreset::Nebular));
+
+    const int drums=project.addTrack(true);
+    project.setTrackName(drums,"Nexdrum");
+
+    project.selectTrack(bass);
 }
 
 void ensureDrumTrackSelected() {
