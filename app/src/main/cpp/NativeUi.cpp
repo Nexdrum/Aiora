@@ -91,62 +91,66 @@ void NativeUi::clearPitchActivity() noexcept {
 
 NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
-    const float margin=std::max(5.0f,usableW*0.010f);
-    const float headerH=std::max(38.0f,usableH*0.105f);
-    const float brand=std::clamp(usableW*0.26f,96.0f,230.0f);
-    const float left=static_cast<float>(safeLeft_)+margin+100.0f;
-    const float right=static_cast<float>(safeLeft_)+margin+brand-5.0f;
-    if(right-left<56.0f)return {};
-    return {left,static_cast<float>(safeTop_)+6.0f,right-left,std::max(24.0f,headerH-12.0f)};
+    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
+    const float gap=std::clamp(usableW*0.010f,7.0f,12.0f);
+    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
+    const float brand=std::clamp(usableW*0.205f,138.0f,176.0f);
+    const float play=std::clamp(headerH*0.78f,64.0f,82.0f);
+    const float left=
+        static_cast<float>(safeLeft_)+margin+brand+gap+play+gap;
+    const float right=
+        static_cast<float>(safeLeft_)+usableW-margin;
+    return {
+        left,
+        static_cast<float>(safeTop_)+(headerH-44.0f)*0.5f,
+        std::max(80.0f,right-left),
+        44.0f
+    };
 }
 
 NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
+    if(index!=0)return {};
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
-    const float margin=std::max(5.0f,usableW*0.010f);
-    const float gap=std::max(3.0f,usableW*0.004f);
-    const float headerH=std::max(38.0f,usableH*0.105f);
-    const float brand=std::clamp(usableW*0.26f,96.0f,230.0f);
-    const float available=std::max(120.0f,usableW-margin*2.0f-brand-gap*4.0f);
-    static constexpr float ratios[5]={0.30f,0.16f,0.16f,0.14f,0.24f};
-    float x=static_cast<float>(safeLeft_)+margin+brand;
-    for(int i=0;i<index;++i)x+=available*ratios[i]+gap;
-    return {x,static_cast<float>(safeTop_)+4.0f,available*ratios[index],std::max(30.0f,headerH-8.0f)};
+    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
+    const float gap=std::clamp(usableW*0.010f,7.0f,12.0f);
+    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
+    const float brand=std::clamp(usableW*0.205f,138.0f,176.0f);
+    const float play=std::clamp(headerH*0.78f,64.0f,82.0f);
+    return {
+        static_cast<float>(safeLeft_)+margin+brand+gap,
+        static_cast<float>(safeTop_)+(headerH-play)*0.5f,
+        play,play
+    };
 }
 
 NativeUi::Rect NativeUi::navRect(int index) const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
-    const float margin = std::max(4.0f, usableW * 0.008f);
-    const float headerH = std::max(38.0f, usableH * 0.105f);
-    const float navH = std::max(38.0f, usableH * 0.105f);
-    const float gap = std::max(3.0f, usableW * 0.004f);
-    const float available = std::max(
-        0.0f, usableW - margin * 2.0f - gap * 5.0f);
-    const float buttonW = available / 6.0f;
-
+    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
+    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
+    const float navH=std::clamp(usableW*0.094f,66.0f,82.0f);
+    const float gap=std::clamp(usableW*0.010f,7.0f,11.0f);
+    const float available=std::max(
+        0.0f,usableW-margin*2.0f-gap*5.0f);
+    const float buttonW=available/6.0f;
     return {
-        static_cast<float>(safeLeft_) + margin + index * (buttonW + gap),
-        static_cast<float>(safeTop_) + headerH + gap,
-        buttonW,
-        navH - gap
+        static_cast<float>(safeLeft_)+margin+index*(buttonW+gap),
+        static_cast<float>(safeTop_)+headerH+gap,
+        buttonW,navH
     };
 }
 
 NativeUi::Rect NativeUi::contentRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
-    const float margin = std::max(4.0f, usableW * 0.008f);
-    const auto nav = navRect(0);
-    const float gap = std::max(4.0f, usableH * 0.010f);
-    const float top = nav.y + nav.h + gap;
+    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
+    const auto nav=navRect(0);
+    const float gap=std::clamp(usableW*0.016f,10.0f,16.0f);
+    const float top=nav.y+nav.h+gap;
     const float bottom=static_cast<float>(height_-safeBottom_);
     return {
-        static_cast<float>(safeLeft_) + margin,
+        static_cast<float>(safeLeft_)+margin,
         top,
-        std::max(0.0f, usableW - margin * 2.0f),
-        std::max(0.0f, bottom - top - margin)
+        std::max(0.0f,usableW-margin*2.0f),
+        std::max(0.0f,bottom-top-margin)
     };
 }
 
@@ -1085,33 +1089,43 @@ void NativeUi::render() const noexcept {
     glClear(GL_COLOR_BUFFER_BIT);
 
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
-    const float headerH = std::max(38.0f, usableH * 0.105f);
-    fillRect({static_cast<float>(safeLeft_),static_cast<float>(safeTop_),usableW,headerH}, kTop);
+    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
+    fillRect({
+        static_cast<float>(safeLeft_),
+        static_cast<float>(safeTop_),
+        usableW,headerH},kTop);
     auto& overlay=NativeOverlay::instance();
-    const float logoSize=std::min(30.0f,headerH-6.0f);
+    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
+    const float logoSize=std::clamp(headerH*0.62f,48.0f,64.0f);
     overlay.addLogo({
-        static_cast<float>(safeLeft_)+8.0f,
+        static_cast<float>(safeLeft_)+margin,
         static_cast<float>(safeTop_)+(headerH-logoSize)*0.5f,
         logoSize,logoSize},overlayColor(kCyan));
     overlay.addText(
         "AIORA",
-        static_cast<float>(safeLeft_)+14.0f+logoSize,
-        static_cast<float>(safeTop_)+(headerH-14.0f)*0.5f,
-        2.0f,overlayColor(kWhite));
-    drawScope();
+        static_cast<float>(safeLeft_)+margin+logoSize+10.0f,
+        static_cast<float>(safeTop_)+headerH*0.36f,
+        1.15f,overlayColor(kWhite));
 
     auto& project=ProjectCore::instance();
     auto& audio=AudioEngine::instance();
-    const auto bpmR=headerControlRect(0),beatR=headerControlRect(1),divR=headerControlRect(2),dzR=headerControlRect(3),playR=headerControlRect(4);
-    fillRect(bpmR,kButton);fillRect(beatR,kButton);fillRect(divR,kButton);
-    fillRect(dzR,project.dozenal()?kCyan:kButton);
+    const auto playR=headerControlRect(0);
     fillRect(playR,audio.transportPlaying()?kOrange:kGreen);
-    overlay.addTextCentered("BPM "+std::to_string(static_cast<int>(std::lround(project.bpm()))),{bpmR.x,bpmR.y,bpmR.w,bpmR.h},0.85f,overlayColor(kWhite));
-    overlay.addTextCentered("B "+std::to_string(project.beats()),{beatR.x,beatR.y,beatR.w,beatR.h},0.85f,overlayColor(kWhite));
-    overlay.addTextCentered("D "+std::to_string(project.divisions()),{divR.x,divR.y,divR.w,divR.h},0.85f,overlayColor(kWhite));
-    overlay.addTextCentered("DZ",{dzR.x,dzR.y,dzR.w,dzR.h},0.85f,overlayColor(project.dozenal()?kBg:kWhite));
-    overlay.addTextCentered(audio.transportPlaying()?"STOP":"PLAY",{playR.x,playR.y,playR.w,playR.h},0.85f,overlayColor(kBg));
+    if(audio.transportPlaying()){
+        const float s=playR.h*0.28f;
+        overlay.addRect({
+            playR.x+(playR.w-s)*0.5f,
+            playR.y+(playR.h-s)*0.5f,
+            s,s},overlayColor(kWhite));
+    }else{
+        const float cx=playR.x+playR.w*0.47f;
+        const float cy=playR.y+playR.h*0.5f;
+        const float s=playR.h*0.26f;
+        overlay.addLine(cx-s*0.55f,cy-s,cx+s*0.75f,cy,playR.h*0.07f,overlayColor(kWhite));
+        overlay.addLine(cx+s*0.75f,cy,cx-s*0.55f,cy+s,playR.h*0.07f,overlayColor(kWhite));
+        overlay.addLine(cx-s*0.55f,cy+s,cx-s*0.55f,cy-s,playR.h*0.07f,overlayColor(kWhite));
+    }
+    drawScope();
 
     for (int i = 0; i < 6; ++i) {
         const auto page = static_cast<NativePage>(i);
@@ -1158,15 +1172,7 @@ void NativeUi::render() const noexcept {
 }
 
 std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept {
-    for(int i=0;i<5;++i){
-        const auto r=headerControlRect(i);
-        if(!r.contains(x,y))continue;
-        if(i==0)return x<r.x+r.w*0.5f?HeaderAction::BpmDown:HeaderAction::BpmUp;
-        if(i==1)return x<r.x+r.w*0.5f?HeaderAction::BeatsDown:HeaderAction::BeatsUp;
-        if(i==2)return x<r.x+r.w*0.5f?HeaderAction::DivDown:HeaderAction::DivUp;
-        if(i==3)return HeaderAction::DozenalToggle;
-        return HeaderAction::TransportToggle;
-    }
+    if(headerControlRect(0).contains(x,y))return HeaderAction::TransportToggle;
     return std::nullopt;
 }
 
