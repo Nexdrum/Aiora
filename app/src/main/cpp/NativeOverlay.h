@@ -67,6 +67,7 @@ private:
 
     void addMaskRun(float x,float y,float w,float h,Color color);
     void addMaskRows(const uint32_t* rows,int rowCount,int columnCount,Rect rect,Color color);
+    void addMaskRows64(const uint64_t* rows,int rowCount,int columnCount,Rect rect,Color color);
     static uint8_t fontRow(char c,int row) noexcept;
     static char normalizedChar(char c) noexcept;
     bool buildProgram();
