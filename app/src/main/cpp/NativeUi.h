@@ -54,6 +54,14 @@ struct RollCellHit {
     float normalizedDown{0.5f};
 };
 
+struct RollAutomationHit {
+    int noteIndex{-1};
+    int pointIndex{-1};
+    float step{0.0f};
+    float value{0.0f};
+    bool free{false};
+};
+
 class NativeUi {
 public:
     static constexpr int kGridLow = 38;
@@ -116,6 +124,11 @@ public:
     [[nodiscard]] bool hitRollBeatGutter(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollNoteArea(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollCellHit> hitRollCell(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<RollAutomationHit> hitRollAutomation(
+        float x,float y,int curveKind) const noexcept;
+    [[nodiscard]] bool rollAutomationPosition(
+        float x,float y,int noteIndex,int curveKind,bool free,
+        float& step,float& value) const noexcept;
 
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
