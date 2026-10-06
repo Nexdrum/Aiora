@@ -90,7 +90,10 @@ struct NativeState {
     int32_t trackControlPointerId{-1};
     int32_t drumControlPointerId{-1};
     int32_t pageScrollPointerId{-1};
+    float pageScrollDownX{0.0f};
+    float pageScrollDownY{0.0f};
     float pageScrollLastY{0.0f};
+    bool pageScrollMoved{false};
     int editorPreviewVoice{-1};
     int64_t editorPreviewStopMs{0};
     std::string autosavePath{};
@@ -1231,13 +1234,16 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
-            if (handleUiTap(state, x, y)) return 1;
-
             if(state.ui.hitScrollableBody(x,y)){
                 state.pageScrollPointerId=pointerId;
+                state.pageScrollDownX=x;
+                state.pageScrollDownY=y;
                 state.pageScrollLastY=y;
+                state.pageScrollMoved=false;
                 return 1;
             }
+
+            if (handleUiTap(state, x, y)) return 1;
 
             if (state.ui.page() == aiora::NativePage::Synth ||
                 state.ui.page() == aiora::NativePage::Fx) {
@@ -1309,8 +1315,14 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 const size_t count=AMotionEvent_getPointerCount(event);
                 for(size_t i=0;i<count;++i){
                     if(AMotionEvent_getPointerId(event,i)==state.pageScrollPointerId){
+                        const float x=AMotionEvent_getX(event,i);
                         const float y=AMotionEvent_getY(event,i);
-                        state.ui.scrollPage(state.pageScrollLastY-y);
+                        const float dx=x-state.pageScrollDownX;
+                        const float dy=y-state.pageScrollDownY;
+                        if(dx*dx+dy*dy>100.0f)state.pageScrollMoved=true;
+                        if(state.pageScrollMoved){
+                            state.ui.scrollPage(state.pageScrollLastY-y);
+                        }
                         state.pageScrollLastY=y;
                         break;
                     }
@@ -1385,7 +1397,10 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             }
 
             if(state.pageScrollPointerId==pointerId){
+                const bool wasMoved=state.pageScrollMoved;
                 state.pageScrollPointerId=-1;
+                state.pageScrollMoved=false;
+                if(!wasMoved)handleUiTap(state,x,y);
                 return 1;
             }
 
@@ -1451,6 +1466,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 }
             }
             state.pageScrollPointerId=-1;
+            state.pageScrollMoved=false;
             aiora::NativeEditor::instance().cancel();
             state.editorPointerId=-1;
             releaseAllTouches(state);
