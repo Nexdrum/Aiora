@@ -23,6 +23,21 @@ constexpr NativeEditor::Rgb kGreen{0.23f,0.92f,0.45f};
 constexpr NativeEditor::Rgb kRed{0.95f,0.18f,0.18f};
 constexpr NativeEditor::Rgb kWhite{0.91f,0.925f,0.945f};
 
+constexpr std::array<NativeEditor::Rgb,12> kSpectrumColors{{
+    {0.2275f,1.0000f,0.0000f},
+    {0.0000f,1.0000f,0.9255f},
+    {0.0000f,0.5608f,1.0000f},
+    {0.0588f,0.0000f,0.9843f},
+    {0.3882f,0.0000f,0.7451f},
+    {0.4314f,0.0000f,0.5020f},
+    {0.5961f,0.0000f,0.0000f},
+    {0.7843f,0.0000f,0.0000f},
+    {0.9529f,0.0000f,0.0000f},
+    {1.0000f,0.4706f,0.0000f},
+    {1.0000f,0.9373f,0.0000f},
+    {0.6667f,1.0000f,0.0000f},
+}};
+
 constexpr std::array<PatchParam,7> kFilterParams{
     PatchParam::FilterCutoff,PatchParam::FilterResonance,PatchParam::FilterEnv,
     PatchParam::FilterAttack,PatchParam::FilterDecay,PatchParam::FilterSustain,PatchParam::FilterRelease
@@ -100,7 +115,7 @@ void NativeEditor::setSafeInsets(int left,int top,int right,int bottom) noexcept
     safeBottom_=std::clamp(bottom,0,std::max(0,height_/2));
 }
 
-NativeEditor::Rect NativeEditor::contentRect() const noexcept {
+NativeEditor::Rect NativeEditor::viewportRect() const noexcept {
     // Mirror NativeUi's exact header/nav/track-switch geometry. Keeping a
     // second, older set of dimensions here caused the Synth tabs to start
     // inside the track selector row.
@@ -125,6 +140,35 @@ NativeEditor::Rect NativeEditor::contentRect() const noexcept {
         top,
         contentW,
         std::max(0.0f,bottom-top-margin)
+    };
+}
+
+float NativeEditor::scrollGutterPixels() const noexcept {
+    const float shortSide=static_cast<float>(std::min(
+        std::max(1,width_-safeLeft_-safeRight_),
+        std::max(1,height_-safeTop_-safeBottom_)));
+    const float cell=std::clamp(shortSide*0.076f,54.0f,68.0f);
+    return std::clamp(cell*1.55f,78.0f,108.0f);
+}
+
+NativeEditor::Rect NativeEditor::scrollGutterRect() const noexcept {
+    const auto view=viewportRect();
+    const float gutter=std::min(
+        scrollGutterPixels(),
+        std::max(0.0f,view.w-120.0f));
+    return {view.x,view.y,gutter,view.h};
+}
+
+NativeEditor::Rect NativeEditor::contentRect() const noexcept {
+    const auto view=viewportRect();
+    const float gutter=std::min(
+        scrollGutterPixels(),
+        std::max(0.0f,view.w-120.0f));
+    return {
+        view.x+gutter,
+        view.y,
+        std::max(0.0f,view.w-gutter),
+        view.h
     };
 }
 
@@ -516,6 +560,34 @@ void NativeEditor::fillRect(Rect r,Rgb c) const noexcept {
     if(w<=0||h<=0)return;
     glScissor(x,height_-top-h,w,h);glClearColor(c.r,c.g,c.b,1.0f);glClear(GL_COLOR_BUFFER_BIT);
 }
+void NativeEditor::drawScrollGutter() const noexcept {
+    const auto gutter=scrollGutterRect();
+    if(gutter.w<=0.0f||gutter.h<=0.0f)return;
+
+    auto& ov=NativeOverlay::instance();
+    constexpr int bands=72;
+    for(int i=0;i<bands;++i){
+        const float t0=static_cast<float>(i)/static_cast<float>(bands);
+        const float t1=static_cast<float>(i+1)/static_cast<float>(bands);
+        const float p=t0*11.0f;
+        const int idx=std::clamp(static_cast<int>(std::floor(p)),0,10);
+        const float local=p-static_cast<float>(idx);
+        const auto spectral=mix(
+            kSpectrumColors[static_cast<size_t>(idx)],
+            kSpectrumColors[static_cast<size_t>(idx+1)],
+            local);
+        const auto color=mix(kBg,spectral,0.78f);
+        const float y0=gutter.y+gutter.h*t0;
+        const float y1=gutter.y+gutter.h*t1;
+        ov.addRect(
+            {gutter.x,y0,gutter.w,std::max(1.0f,y1-y0+0.5f)},
+            overlayColor(color));
+    }
+    ov.addRect(
+        {gutter.x+gutter.w-2.0f,gutter.y,2.0f,gutter.h},
+        overlayColor(mix(kBg,kPanel,0.65f)));
+}
+
 void NativeEditor::drawSlider(Rect r,float norm,Rgb accent) const noexcept {
     fillRect(r,kButton);
     const float inset=std::max(2.0f,r.h*0.18f);
@@ -532,7 +604,8 @@ void NativeEditor::drawButton(Rect r,bool active,Rgb accent) const noexcept {
     fillRect({r.x+inset,r.y+inset,std::max(0.0f,r.w-inset*2.0f),std::max(0.0f,r.h-inset*2.0f)},active?mix(kPanel,accent,0.18f):kPanel);
 }
 void NativeEditor::drawPadReservedBackground() const noexcept {
-    fillRect(editorRect(),kPanel);
+    fillRect(viewportRect(),kPanel);
+    drawScrollGutter();
 }
 
 void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
@@ -1302,6 +1375,14 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     activePage_=page;
     changed_=false;
     scrolling_=false;
+    activeHit_.reset();
+
+    // The spectrum lane is the dedicated vertical scroll control.
+    if(scrollGutterRect().contains(x,y)){
+        scrolling_=true;
+        scrollLastY_=y;
+        return true;
+    }
 
     activeHit_=page==EditorPage::Synth
         ?hitSynth(x,y)
@@ -1309,13 +1390,6 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
 
     if(activeHit_){
         changed_=applyHit(*activeHit_,x,y)||changed_;
-        return true;
-    }
-
-    const auto body=bodyRect();
-    if(body.contains(x,y)){
-        scrolling_=true;
-        scrollLastY_=y;
         return true;
     }
 
