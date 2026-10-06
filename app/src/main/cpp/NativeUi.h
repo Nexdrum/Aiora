@@ -70,6 +70,7 @@ public:
     };
 
     void resize(int width, int height) noexcept;
+    void setSafeInsets(int left,int top,int right,int bottom) noexcept;
     void setPage(NativePage page) noexcept { page_ = page; }
     [[nodiscard]] NativePage page() const noexcept { return page_; }
 
@@ -144,6 +145,10 @@ private:
 
     int width_{0};
     int height_{0};
+    int safeLeft_{0};
+    int safeTop_{0};
+    int safeRight_{0};
+    int safeBottom_{0};
     NativePage page_{NativePage::Play};
     std::array<bool, kGridNotes> active_{};
 
