@@ -124,24 +124,31 @@ NativeEditor::Rect NativeEditor::editorRect() const noexcept {
     return contentRect();
 }
 
-NativeEditor::Rect NativeEditor::patchTransferRect(int index) const noexcept {
-    const auto e=editorRect();
+NativeEditor::Rect NativeEditor::patchTransferRect(EditorPage page,int index) const noexcept {
     if(index==0)return {};
+    const auto e=editorRect();
     const float gap=std::clamp(e.w*0.014f,9.0f,13.0f);
-    const float h=46.0f;
+    const float h=70.0f;
     const float w=(e.w-gap*3.0f)*0.5f;
+
+    float top=e.y+gap;
+    if(page==EditorPage::Synth){
+        const auto last=operatorCardRect(5);
+        top=last.y+last.h+gap+46.0f;
+    }else{
+        const auto last=fxGroupRect(3);
+        top=last.y+last.h+gap+46.0f;
+    }
+
     return {
         e.x+gap+(index-1)*(w+gap),
-        e.y+e.h-h-gap,
+        top,
         w,h
     };
 }
 
 NativeEditor::Rect NativeEditor::bodyRect() const noexcept {
-    auto r=editorRect();
-    const float gap=std::clamp(r.w*0.014f,9.0f,13.0f);
-    r.h=std::max(0.0f,r.h-78.0f-gap);
-    return r;
+    return editorRect();
 }
 
 NativeEditor::Rect NativeEditor::factoryPresetRect(int) const noexcept {
@@ -151,7 +158,7 @@ NativeEditor::Rect NativeEditor::factoryPresetRect(int) const noexcept {
 NativeEditor::Rect NativeEditor::synthTabRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    const float h=48.0f;
+    const float h=66.0f;
     const float w=(b.w-gap*3.0f)*0.5f;
     return {
         b.x+gap+index*(w+gap),
@@ -165,7 +172,7 @@ NativeEditor::Rect NativeEditor::operatorCardRect(int index) const noexcept {
     const auto tab=synthTabRect(0);
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
     const float w=(b.w-gap*3.0f)*0.5f;
-    const float h=610.0f;
+    const float h=940.0f;
     const int row=index/2,col=index%2;
     return {
         b.x+gap+col*(w+gap),
@@ -176,33 +183,33 @@ NativeEditor::Rect NativeEditor::operatorCardRect(int index) const noexcept {
 
 NativeEditor::Rect NativeEditor::operatorWaveFieldRect(int op) const noexcept {
     const auto c=operatorCardRect(op);
-    return {c.x+14.0f,c.y+48.0f,c.w-28.0f,44.0f};
+    return {c.x+16.0f,c.y+62.0f,c.w-32.0f,66.0f};
 }
 
 NativeEditor::Rect NativeEditor::operatorCardParamRect(int op,int param) const noexcept {
     const auto c=operatorCardRect(op);
     return {
-        c.x+14.0f,
-        c.y+102.0f+param*48.0f,
-        c.w-28.0f,
-        42.0f
+        c.x+16.0f,
+        c.y+144.0f+param*82.0f,
+        c.w-32.0f,
+        72.0f
     };
 }
 
 NativeEditor::Rect NativeEditor::operatorCardToggleRect(int op) const noexcept {
     const auto c=operatorCardRect(op);
-    return {c.x+14.0f,c.y+444.0f,c.w-28.0f,46.0f};
+    return {c.x+16.0f,c.y+736.0f,c.w-32.0f,70.0f};
 }
 
 NativeEditor::Rect NativeEditor::operatorCardHarmonicRect(int op,int partial) const noexcept {
     const auto c=operatorCardRect(op);
-    const float gap=6.0f;
+    const float gap=7.0f;
     const int row=partial/8,col=partial%8;
-    const float w=(c.w-28.0f-gap*7.0f)/8.0f;
+    const float w=(c.w-32.0f-gap*7.0f)/8.0f;
     return {
-        c.x+14.0f+col*(w+gap),
-        c.y+504.0f+row*46.0f,
-        w,38.0f
+        c.x+16.0f+col*(w+gap),
+        c.y+826.0f+row*56.0f,
+        w,48.0f
     };
 }
 
@@ -248,7 +255,7 @@ NativeEditor::Rect NativeEditor::matrixRect(int modulator,int carrier) const noe
 NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    static constexpr float heights[4]={442.0f,482.0f,528.0f,432.0f};
+    static constexpr float heights[4]={760.0f,844.0f,916.0f,650.0f};
     float y=b.y+gap-fxScrollY_;
     for(int i=0;i<index;++i)y+=heights[i]+gap;
     return {
@@ -260,23 +267,23 @@ NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
 
 NativeEditor::Rect NativeEditor::fxSectionParamRect(int section,int row) const noexcept {
     const auto card=fxGroupRect(section);
-    float y=card.y+48.0f;
-    if(section==0)y=card.y+100.0f+row*46.0f;
-    else if(section==1)y=card.y+48.0f+row*46.0f;
+    float y=card.y+72.0f;
+    if(section==0)y=card.y+164.0f+row*78.0f;
+    else if(section==1)y=card.y+76.0f+row*78.0f;
     else if(section==2){
         const int visualRow=row+(row>=2?1:0);
-        y=card.y+48.0f+visualRow*46.0f;
+        y=card.y+76.0f+visualRow*78.0f;
     }
-    return {card.x+18.0f,y,card.w-36.0f,42.0f};
+    return {card.x+20.0f,y,card.w-40.0f,68.0f};
 }
 
 NativeEditor::Rect NativeEditor::filterTypeRect(int) const noexcept {
     const auto card=fxGroupRect(0);
     return {
         card.x+card.w*0.58f,
-        card.y+48.0f,
+        card.y+84.0f,
         card.w*0.36f,
-        42.0f
+        62.0f
     };
 }
 
@@ -284,9 +291,9 @@ NativeEditor::Rect NativeEditor::lfoTargetRect(int) const noexcept {
     const auto card=fxGroupRect(2);
     return {
         card.x+card.w*0.58f,
-        card.y+48.0f+2.0f*46.0f,
+        card.y+84.0f+2.0f*78.0f,
         card.w*0.36f,
-        42.0f
+        62.0f
     };
 }
 
@@ -297,16 +304,16 @@ NativeEditor::Rect NativeEditor::fxSliderRect(int row,int,bool) const noexcept {
 NativeEditor::Rect NativeEditor::modRowRect(int slot) const noexcept {
     const auto card=fxGroupRect(3);
     return {
-        card.x+18.0f,
-        card.y+50.0f+slot*76.0f,
-        card.w-36.0f,
-        68.0f
+        card.x+20.0f,
+        card.y+76.0f+slot*112.0f,
+        card.w-40.0f,
+        96.0f
     };
 }
 
 NativeEditor::Rect NativeEditor::modPartRect(int slot,int part) const noexcept {
     const auto r=modRowRect(slot);
-    const float gap=6.0f;
+    const float gap=8.0f;
     // Keep six logical parts so existing interaction types remain usable.
     // 1=target, 3=min, 4=max, 5=delete are the visible HTML-style controls.
     static constexpr std::array<float,6> weights{
@@ -325,10 +332,10 @@ NativeEditor::Rect NativeEditor::modPartRect(int slot,int part) const noexcept {
 NativeEditor::Rect NativeEditor::modAddRect() const noexcept {
     const auto card=fxGroupRect(3);
     return {
-        card.x+18.0f,
-        card.y+card.h-62.0f,
-        std::min(300.0f,card.w-36.0f),
-        46.0f
+        card.x+20.0f,
+        card.y+card.h-88.0f,
+        std::min(360.0f,card.w-40.0f),
+        66.0f
     };
 }
 
@@ -462,14 +469,12 @@ ModTarget NativeEditor::cycleModTarget(ModTarget current,int direction) noexcept
 
 float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     const auto b=bodyRect();
-    if(page==EditorPage::Synth){
-        if(matrixMode_)return 0.0f;
-        const auto last=operatorCardRect(5);
-        const float bottom=last.y+synthScrollY_+last.h+12.0f;
-        return std::max(0.0f,bottom-(b.y+b.h));
-    }
-    const auto last=fxGroupRect(3);
-    const float bottom=last.y+fxScrollY_+last.h+12.0f;
+    if(page==EditorPage::Synth&&matrixMode_)return 0.0f;
+
+    const auto footer=patchTransferRect(page,1);
+    const float scroll=
+        page==EditorPage::Synth?synthScrollY_:fxScrollY_;
+    const float bottom=footer.y+scroll+footer.h+24.0f;
     return std::max(0.0f,bottom-(b.y+b.h));
 }
 
@@ -517,10 +522,10 @@ void NativeEditor::drawPadReservedBackground() const noexcept {
     fillRect(editorRect(),kPanel);
 }
 
-void NativeEditor::drawPatchTransfer() const noexcept {
+void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
     const auto e=editorRect();
-    const auto copy=patchTransferRect(1);
-    const auto paste=patchTransferRect(2);
+    const auto copy=patchTransferRect(page,1);
+    const auto paste=patchTransferRect(page,2);
     auto& ov=NativeOverlay::instance();
 
     ov.addText(
@@ -546,8 +551,6 @@ void NativeEditor::drawPatchTransfer() const noexcept {
 
 void NativeEditor::renderSynth() const noexcept {
     drawPadReservedBackground();
-    drawPatchTransfer();
-
     const Patch p=ProjectCore::instance().selectedPatch();
     auto& ov=NativeOverlay::instance();
 
@@ -693,12 +696,12 @@ void NativeEditor::renderSynth() const noexcept {
             }
         }
     }
+
+    drawPatchTransfer(EditorPage::Synth);
 }
 
 void NativeEditor::renderFx() const noexcept {
     drawPadReservedBackground();
-    drawPatchTransfer();
-
     const Patch p=ProjectCore::instance().selectedPatch();
     auto& ov=NativeOverlay::instance();
 
@@ -875,6 +878,8 @@ void NativeEditor::renderFx() const noexcept {
         "+ Add link (max 4)",
         {add.x,add.y,add.w,add.h},
         0.82f,overlayColor(count<4?kWhite:kMuted));
+
+    drawPatchTransfer(EditorPage::Fx);
 }
 
 std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
@@ -1121,10 +1126,10 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
     EditorPage,float x,float y) const noexcept {
 
-    const auto copy=patchTransferRect(1);
+    const auto copy=patchTransferRect(page,1);
     if(copy.contains(x,y))return PatchTransferAction::CopyPatch;
 
-    const auto paste=patchTransferRect(2);
+    const auto paste=patchTransferRect(page,2);
     if(paste.contains(x,y))return PatchTransferAction::PastePatch;
 
     return std::nullopt;
