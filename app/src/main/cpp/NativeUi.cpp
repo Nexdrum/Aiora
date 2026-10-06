@@ -282,12 +282,12 @@ std::optional<DropdownChoice> NativeUi::hitDropdown(float x,float y){
 NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
-    const float buttonGap=std::clamp(usableW*0.006f,4.0f,7.0f);
+    const float gap=std::clamp(usableW*0.010f,7.0f,11.0f);
+    const float buttonGap=std::clamp(usableW*0.010f,8.0f,12.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.300f,218.0f,252.0f);
+    const float brand=std::clamp(usableW*0.255f,190.0f,224.0f);
     const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
-    const float side=std::clamp(play*0.62f,42.0f,52.0f);
+    const float side=std::clamp(play*0.78f,52.0f,64.0f);
     const float transportW=side+buttonGap+play+buttonGap+side;
     const float left=
         static_cast<float>(safeLeft_)+margin+brand+gap+transportW+gap;
@@ -306,12 +306,12 @@ NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
     if(index<0||index>2)return {};
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
-    const float buttonGap=std::clamp(usableW*0.006f,4.0f,7.0f);
+    const float gap=std::clamp(usableW*0.010f,7.0f,11.0f);
+    const float buttonGap=std::clamp(usableW*0.010f,8.0f,12.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.300f,218.0f,252.0f);
+    const float brand=std::clamp(usableW*0.255f,190.0f,224.0f);
     const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
-    const float side=std::clamp(play*0.62f,42.0f,52.0f);
+    const float side=std::clamp(play*0.78f,52.0f,64.0f);
     const float startX=static_cast<float>(safeLeft_)+margin+brand+gap;
     if(index==0){
         return {
@@ -2258,8 +2258,8 @@ void NativeUi::render() const noexcept {
     fillRect(playR,audio.transportPlaying()?kOrange:kGreen);
     fillRect(endR,kButton);
     overlay.addTextCentered(
-        "<",{startR.x,startR.y,startR.w,startR.h},
-        1.45f,overlayColor(kWhite));
+        "|<",{startR.x,startR.y,startR.w,startR.h},
+        1.32f,overlayColor(kWhite));
     if(audio.transportPlaying()){
         const float s=playR.h*0.28f;
         overlay.addRect({
@@ -2272,8 +2272,8 @@ void NativeUi::render() const noexcept {
             1.65f,overlayColor(kWhite));
     }
     overlay.addTextCentered(
-        ">",{endR.x,endR.y,endR.w,endR.h},
-        1.45f,overlayColor(kWhite));
+        ">|",{endR.x,endR.y,endR.w,endR.h},
+        1.32f,overlayColor(kWhite));
     drawScope();
 
     for (int i = 0; i < 6; ++i) {
