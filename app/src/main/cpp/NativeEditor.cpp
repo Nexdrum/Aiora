@@ -1124,7 +1124,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 }
 
 std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
-    EditorPage,float x,float y) const noexcept {
+    EditorPage page,float x,float y) const noexcept {
 
     const auto copy=patchTransferRect(page,1);
     if(copy.contains(x,y))return PatchTransferAction::CopyPatch;
