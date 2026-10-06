@@ -1125,6 +1125,33 @@ std::optional<RollMode> NativeUi::hitRollMode(float x, float y) const noexcept {
     return std::nullopt;
 }
 
+bool NativeUi::hitRollPitchHeader(float x,float y) const noexcept {
+    if(page_!=NativePage::Roll)return false;
+    const auto viewport=rollViewportRect();
+    const float gutter=rollGutterPixels();
+    const float header=rollHeaderPixels();
+    return x>=viewport.x+gutter && x<viewport.x+viewport.w &&
+           y>=viewport.y && y<viewport.y+header;
+}
+
+bool NativeUi::hitRollBeatGutter(float x,float y) const noexcept {
+    if(page_!=NativePage::Roll)return false;
+    const auto viewport=rollViewportRect();
+    const float gutter=rollGutterPixels();
+    const float header=rollHeaderPixels();
+    return x>=viewport.x && x<viewport.x+gutter &&
+           y>=viewport.y+header && y<viewport.y+viewport.h;
+}
+
+bool NativeUi::hitRollNoteArea(float x,float y) const noexcept {
+    if(page_!=NativePage::Roll)return false;
+    const auto viewport=rollViewportRect();
+    const float gutter=rollGutterPixels();
+    const float header=rollHeaderPixels();
+    return x>=viewport.x+gutter && x<viewport.x+viewport.w &&
+           y>=viewport.y+header && y<viewport.y+viewport.h;
+}
+
 std::optional<RollCellHit> NativeUi::hitRollCell(float x, float y) const noexcept {
     if (page_ != NativePage::Roll) return std::nullopt;
 
@@ -1149,10 +1176,12 @@ std::optional<RollCellHit> NativeUi::hitRollCell(float x, float y) const noexcep
     }
 
     const float cellLeft = viewport.x + gutter + visibleCol * cell;
+    const float cellTop = viewport.y + header + visibleRow * cell;
     return RollCellHit{
         columns[static_cast<size_t>(colIndex)],
         step,
-        std::clamp((x - cellLeft) / cell, 0.0f, 1.0f)
+        std::clamp((x - cellLeft) / cell, 0.0f, 1.0f),
+        std::clamp((y - cellTop) / cell, 0.0f, 1.0f)
     };
 }
 
