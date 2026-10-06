@@ -280,6 +280,30 @@ int ProjectCore::addNote(int t,int midi,float start,float length){
     for(int i=0;i<static_cast<int>(notes.size());++i)if(notes[i].midi==midi&&std::fabs(notes[i].startStep-start)<0.001f)return i;
     notes.push_back(Note{midi,start,length,{},{},{}});return static_cast<int>(notes.size())-1;
 }
+int ProjectCore::pasteNotes(int t,const std::vector<Note>& source,float start){
+    std::scoped_lock lock(mutex_);
+    if(!validTrack(t)||source.empty())return 0;
+    start=std::max(0.0f,start);
+    auto& notes=project_.tracks[t].notes;
+    int added=0;
+    for(const auto& src:source){
+        if(!pitchAllowed(t,src.midi))continue;
+        Note copy=src;
+        copy.startStep=std::max(0.0f,start+src.startStep);
+        copy.lengthSteps=std::max(1.0f,copy.lengthSteps);
+        bool duplicate=false;
+        for(const auto& existing:notes){
+            if(existing.midi==copy.midi&&
+               std::fabs(existing.startStep-copy.startStep)<0.001f){
+                duplicate=true;break;
+            }
+        }
+        if(duplicate)continue;
+        notes.push_back(std::move(copy));
+        ++added;
+    }
+    return added;
+}
 bool ProjectCore::deleteNote(int t,int n){std::scoped_lock lock(mutex_);if(!validNote(t,n))return false;project_.tracks[t].notes.erase(project_.tracks[t].notes.begin()+n);return true;}
 bool ProjectCore::updateNote(int t,int n,int midi,float start,float length){
     std::scoped_lock lock(mutex_);if(!validNote(t,n)||!pitchAllowed(t,midi))return false;
