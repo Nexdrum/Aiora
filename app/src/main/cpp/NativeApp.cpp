@@ -97,6 +97,7 @@ struct NativeState {
     int editorPreviewVoice{-1};
     int64_t editorPreviewStopMs{0};
     std::string autosavePath{};
+    std::string manualSavePath{};
     int64_t autosaveDueMs{0};
     bool autosaveDirty{false};
 };
@@ -127,6 +128,38 @@ void createDefaultProject() {
     project.setTrackName(drums,"Nexdrum");
 
     project.selectTrack(bass);
+}
+
+void createDemoProject() {
+    createDefaultProject();
+    auto& project=aiora::ProjectCore::instance();
+    project.setBpm(112.0f);
+    project.setSignature(4,4);
+
+    // Bass
+    for(int s:{0,8,16,24})project.addNote(0,38,static_cast<float>(s),4.0f);
+
+    // Harmony
+    for(int s:{0,16}){
+        project.addNote(1,50,static_cast<float>(s),8.0f);
+        project.addNote(1,57,static_cast<float>(s),8.0f);
+        project.addNote(1,64,static_cast<float>(s),8.0f);
+    }
+
+    // Lead
+    const int leadMidi[8]{62,64,69,67,66,64,62,57};
+    for(int i=0;i<8;++i)
+        project.addNote(2,leadMidi[i],static_cast<float>(i*4),2.0f);
+
+    // Nexdrum: kick / snare / ride-crash examples using actual mapped ranges.
+    for(int s:{0,4,8,12,16,20,24,28})
+        project.addNote(3,38,static_cast<float>(s),1.0f);
+    for(int s:{4,12,20,28})
+        project.addNote(3,59,static_cast<float>(s),1.0f);
+    for(int s:{2,6,10,14,18,22,26,30})
+        project.addNote(3,73,static_cast<float>(s),1.0f);
+
+    project.selectTrack(0);
 }
 
 void ensureDrumTrackSelected() {
@@ -843,38 +876,85 @@ bool handleUiTap(NativeState& state, float x, float y) {
 
     if (state.ui.page() == aiora::NativePage::Tracks) {
         if(const auto utility=state.ui.hitTrackUtility(x,y)){
-            if(*utility==aiora::TrackUtilityAction::DozenalToggle){
-                project.setDozenal(!project.dozenal());
-                scheduleAutosave(state,0);
-            }else if(*utility==aiora::TrackUtilityAction::ClearTrack){
-                const int track=project.selectedTrack();
-                if(track>=0){
-                    project.clearTrackNotes(track);
-                    audio.syncProject();
+            switch(*utility){
+                case aiora::TrackUtilityAction::DozenalToggle:
+                    project.setDozenal(!project.dozenal());
                     scheduleAutosave(state,0);
-                }
-            }else{
-                const std::string description=
-                    clipboardGetText(state.app?state.app->activity:nullptr);
-                if(!description.empty()){
-                    aiora::Patch generated=aiora::heuristicPatch(description);
+                    break;
+
+                case aiora::TrackUtilityAction::ClearTrack:{
                     const int track=project.selectedTrack();
-                    if(generated.nexdrumLow>=0&&track>=0){
-                        project.loadNexdrumKit(track);
-                        state.ui.resetDrumRangeArm();
-                    }else{
-                        project.replaceSelectedPatch(std::move(generated));
+                    if(track>=0){
+                        project.clearTrackNotes(track);
+                        audio.syncProject();
+                        scheduleAutosave(state,0);
                     }
+                    break;
+                }
+
+                case aiora::TrackUtilityAction::Demo:
+                    audio.stopTransport();
+                    createDemoProject();
                     audio.syncProject();
-                    previewEditorPatch(state);
+                    state.ui.resetDrumRangeArm();
                     scheduleAutosave(state,0);
+                    break;
+
+                case aiora::TrackUtilityAction::SaveProject:{
+                    std::string error;
+                    const bool ok=!state.manualSavePath.empty()&&
+                        aiora::saveProjectFile(
+                            state.manualSavePath,project.projectCopy(),&error);
                     __android_log_print(
-                        ANDROID_LOG_INFO,kTag,
-                        "generated AIORA patch from Tracks AI designer");
-                }else{
-                    __android_log_print(
-                        ANDROID_LOG_WARN,kTag,
-                        "Tracks AI designer clipboard is empty");
+                        ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,kTag,
+                        ok?"saved AIORA project":"manual save failed: %s",
+                        ok?"":error.c_str());
+                    break;
+                }
+
+                case aiora::TrackUtilityAction::LoadProject:{
+                    aiora::Project loaded;
+                    std::string error;
+                    if(!state.manualSavePath.empty()&&
+                       aiora::loadProjectFile(state.manualSavePath,loaded,&error)){
+                        audio.stopTransport();
+                        project.replaceProject(std::move(loaded),0);
+                        audio.syncProject();
+                        state.ui.resetDrumRangeArm();
+                        scheduleAutosave(state,0);
+                    }else{
+                        __android_log_print(
+                            ANDROID_LOG_WARN,kTag,
+                            "manual load failed: %s",
+                            error.empty()?"no saved project":error.c_str());
+                    }
+                    break;
+                }
+
+                case aiora::TrackUtilityAction::AiFromClipboard:{
+                    const std::string description=
+                        clipboardGetText(state.app?state.app->activity:nullptr);
+                    if(!description.empty()){
+                        aiora::Patch generated=aiora::heuristicPatch(description);
+                        const int track=project.selectedTrack();
+                        if(generated.nexdrumLow>=0&&track>=0){
+                            project.loadNexdrumKit(track);
+                            state.ui.resetDrumRangeArm();
+                        }else{
+                            project.replaceSelectedPatch(std::move(generated));
+                        }
+                        audio.syncProject();
+                        previewEditorPatch(state);
+                        scheduleAutosave(state,0);
+                        __android_log_print(
+                            ANDROID_LOG_INFO,kTag,
+                            "generated AIORA patch from Tracks AI designer");
+                    }else{
+                        __android_log_print(
+                            ANDROID_LOG_WARN,kTag,
+                            "Tracks AI designer clipboard is empty");
+                    }
+                    break;
                 }
             }
             return true;
@@ -1547,7 +1627,9 @@ void android_main(android_app* app) {
         "AIORA C++ NativeActivity boot");
 
     if(app->activity&&app->activity->internalDataPath){
-        state.autosavePath=std::string(app->activity->internalDataPath)+"/aiora.json";
+        const std::string base=app->activity->internalDataPath;
+        state.autosavePath=base+"/aiora.json";
+        state.manualSavePath=base+"/aiora_saved.json";
     }
 
     aiora::Project restored;
