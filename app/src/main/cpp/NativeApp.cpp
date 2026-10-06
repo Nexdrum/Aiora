@@ -611,6 +611,18 @@ void stopTouch(NativeState& state, PointerVoice& touch) {
     touch = {};
 }
 
+int mappedPadForMidi(int track,int midi){
+    auto& project=aiora::ProjectCore::instance();
+    if(track<0||!project.trackIsDrums(track))return -1;
+    const int count=project.padCount(track);
+    for(int p=0;p<count;++p){
+        const int lo=std::min(project.padLow(track,p),project.padHigh(track,p));
+        const int hi=std::max(project.padLow(track,p),project.padHigh(track,p));
+        if(midi>=lo&&midi<=hi)return p;
+    }
+    return -1;
+}
+
 void startPitch(NativeState& state, PointerVoice& touch, int midi) {
     if (touch.midi == midi && touch.voiceId >= 0) return;
     if (touch.voiceId >= 0 || touch.midi >= 0) stopTouch(state, touch);
@@ -618,12 +630,32 @@ void startPitch(NativeState& state, PointerVoice& touch, int midi) {
     touch.midi = midi;
     state.ui.setPitchActive(midi, true);
 
-    if (state.ui.page() == aiora::NativePage::Drums) {
-        touch.voiceId = aiora::AudioEngine::instance().noteOnPad(
-            aiora::NativeUi::padIndexForMidi(midi), midi, 0.85f);
-    } else {
-        touch.voiceId = aiora::AudioEngine::instance().noteOn(midi, 0.85f);
+    auto& project=aiora::ProjectCore::instance();
+    auto& audio=aiora::AudioEngine::instance();
+    const int track=project.selectedTrack();
+
+    if(state.ui.page()==aiora::NativePage::Drums&&
+       track>=0&&project.trackIsDrums(track)){
+        int pad=project.selectedPad(track);
+        if(pad<0||pad>=project.padCount(track))pad=mappedPadForMidi(track,midi);
+        if(pad>=0)touch.voiceId=audio.noteOnPad(pad,midi,0.85f);
+        return;
     }
+
+    if(state.ui.page()==aiora::NativePage::Play&&
+       track>=0&&project.trackIsDrums(track)){
+        int pad=mappedPadForMidi(track,midi);
+        if(pad>=0){
+            touch.voiceId=audio.noteOnPad(pad,midi,0.85f);
+            return;
+        }
+        // Preserve the old Nexdrum fallback for unmapped pitches.
+        touch.voiceId=audio.noteOnPad(
+            aiora::NativeUi::padIndexForMidi(midi),midi,0.85f);
+        return;
+    }
+
+    touch.voiceId=audio.noteOn(midi,0.85f);
 }
 
 int noteAtCell(int track, int midi, int step) {
