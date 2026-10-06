@@ -60,9 +60,7 @@ NativeOverlay::Color overlayColor(NativeUi::Rgb c,float alpha=1.0f) noexcept {
 }
 
 bool pageHasPadQuick(NativePage page) noexcept {
-    return page == NativePage::Drums ||
-           page == NativePage::Synth ||
-           page == NativePage::Fx;
+    return page == NativePage::Drums;
 }
 
 } // namespace
@@ -152,8 +150,63 @@ NativeUi::Rect NativeUi::contentRect() const noexcept {
     };
 }
 
+NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
+    auto r=contentRect();
+    if(page_==NativePage::Tracks)return r;
+    const float gap=std::max(5.0f,std::min(width_,height_)*0.007f);
+    const float h=trackSwitchRect(0).h;
+    r.y+=h+gap;
+    r.h=std::max(0.0f,r.h-h-gap);
+    return r;
+}
+
+NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
+    const auto content=contentRect();
+    const float gap=std::max(5.0f,std::min(width_,height_)*0.007f);
+    const float h=std::clamp(content.h*0.060f,48.0f,64.0f);
+    const float prevW=h,nextW=h;
+
+    if(page_==NativePage::Roll){
+        const float modeW=h*0.90f;
+        const float mainW=std::max(
+            90.0f,
+            content.w-prevW-nextW-modeW*3.0f-gap*5.0f);
+        float x=content.x;
+        if(part==0)return {x,content.y,prevW,h};
+        x+=prevW+gap;
+        if(part==1)return {x,content.y,mainW,h};
+        x+=mainW+gap;
+        if(part==2)return {x,content.y,nextW,h};
+        x+=nextW+gap;
+        if(part>=3&&part<=5)
+            return {x+(part-3)*(modeW+gap),content.y,modeW,h};
+        return {};
+    }
+
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    const bool padField=
+        (page_==NativePage::Synth||page_==NativePage::Fx) &&
+        track>=0 && project.trackIsDrums(track);
+    float x=content.x;
+    if(part==0)return {x,content.y,prevW,h};
+    x+=prevW+gap;
+    const float middle=std::max(90.0f,content.w-prevW-nextW-gap*3.0f);
+    if(padField){
+        const float trackW=middle*0.54f-gap*0.5f;
+        const float padW=middle-trackW-gap;
+        if(part==1)return {x,content.y,trackW,h};
+        if(part==6)return {x+trackW+gap,content.y,padW,h};
+        if(part==2)return {content.x+content.w-nextW,content.y,nextW,h};
+    }else{
+        if(part==1)return {x,content.y,middle,h};
+        if(part==2)return {content.x+content.w-nextW,content.y,nextW,h};
+    }
+    return {};
+}
+
 NativeUi::Rect NativeUi::gridAreaRect() const noexcept {
-    auto area = contentRect();
+    auto area = bodyContentRect();
     if (page_ == NativePage::Drums) {
         const float gap = std::max(4.0f, height_ * 0.010f);
         const float padH = std::clamp(area.h * 0.14f, 34.0f, 62.0f);
@@ -239,7 +292,7 @@ NativeUi::Rect NativeUi::trackPartRect(int index,int count,int part) const noexc
 }
 
 NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
-    const auto content = contentRect();
+    const auto content = bodyContentRect();
     const int cells = std::max(1, count);
     const float gap = std::max(3.0f, width_ * 0.004f);
     const float h = std::clamp(content.h * 0.14f, 34.0f, 62.0f);
@@ -254,7 +307,7 @@ NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
 }
 
 NativeUi::Rect NativeUi::drumEditorRect() const noexcept {
-    auto area=contentRect();
+    auto area=bodyContentRect();
     const float gap=std::max(4.0f,height_*0.010f);
     const float padH=std::clamp(area.h*0.14f,34.0f,62.0f);
     area.y+=padH+gap;
@@ -294,43 +347,27 @@ NativeUi::Rect NativeUi::drumIconRect(int index) const noexcept {
 }
 
 NativeUi::Rect NativeUi::rollModeRect(int index) const noexcept {
-    const auto content = contentRect();
-    const float gap = std::max(3.0f, width_ * 0.004f);
-    const float h = std::clamp(content.h * 0.11f, 34.0f, 48.0f);
-    const float available = std::max(0.0f, content.w - gap * 5.0f);
-    const float w = available / 4.0f;
-    return {
-        content.x + gap + index * (w + gap),
-        content.y,
-        w,
-        h
-    };
+    if(index<0||index>2)return {};
+    return trackSwitchRect(index+3);
 }
 
 NativeUi::Rect NativeUi::rollViewportRect() const noexcept {
-    auto content = contentRect();
-    const float gap = std::max(4.0f, height_ * 0.010f);
-    const float modeH = rollModeRect(0).h;
-    content.y += modeH + gap;
-    content.h = std::max(0.0f, content.h - modeH - gap);
-    return content;
+    return bodyContentRect();
 }
 
 float NativeUi::rollCellPixels() const noexcept {
-    const auto viewport = rollViewportRect();
-    const float gutter = rollGutterPixels();
-    const float header = rollHeaderPixels();
-    const float byWidth = std::max(1.0f, (viewport.w - gutter) / 9.0f);
-    const float byHeight = std::max(1.0f, (viewport.h - header) / 10.0f);
-    return std::clamp(std::min(byWidth, byHeight), 22.0f, 36.0f);
+    const float shortSide=static_cast<float>(std::min(
+        std::max(1,width_-safeLeft_-safeRight_),
+        std::max(1,height_-safeTop_-safeBottom_)));
+    return std::clamp(shortSide*0.076f,54.0f,68.0f);
 }
 
 float NativeUi::rollGutterPixels() const noexcept {
-    return std::clamp(width_ * 0.075f, 34.0f, 52.0f);
+    return std::clamp(rollCellPixels()*1.55f,78.0f,108.0f);
 }
 
 float NativeUi::rollHeaderPixels() const noexcept {
-    return std::clamp(height_ * 0.075f, 32.0f, 48.0f);
+    return std::clamp(rollCellPixels()*1.32f,68.0f,92.0f);
 }
 
 std::vector<int> NativeUi::rollColumns() const {
@@ -436,6 +473,82 @@ void NativeUi::drawScope() const noexcept {
             fillRect({x-0.75f,top,1.5f,std::max(1.5f,bottom-top)},color);
         }
         prevY=y;
+    }
+}
+
+void NativeUi::drawTrackSwitchBar() const noexcept {
+    if(page_==NativePage::Tracks)return;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0||track>=project.trackCount())return;
+
+    auto& ov=NativeOverlay::instance();
+    const auto prev=trackSwitchRect(0);
+    const auto field=trackSwitchRect(1);
+    const auto next=trackSwitchRect(2);
+
+    fillRect(prev,kButton);
+    fillRect(next,kButton);
+    ov.addChevron({prev.x,prev.y,prev.w,prev.h},false,overlayColor(kWhite));
+    ov.addChevron({next.x,next.y,next.w,next.h},true,overlayColor(kWhite));
+
+    fillRect(field,kButton);
+    const float inset=std::max(2.0f,field.h*0.055f);
+    fillRect({field.x+inset,field.y+inset,field.w-inset*2.0f,field.h-inset*2.0f},kRollBg);
+    std::string label=std::to_string(track+1)+" "+project.trackName(track);
+    if(label.size()>24)label.resize(24);
+    ov.addText(
+        label,
+        field.x+field.h*0.28f,
+        field.y+field.h*0.35f,
+        std::max(0.72f,field.h/40.0f),
+        overlayColor(kWhite));
+    ov.addDownChevron(
+        {field.x+field.w-field.h*0.72f,field.y,field.h*0.72f,field.h},
+        overlayColor(kWhite));
+
+    if((page_==NativePage::Synth||page_==NativePage::Fx)&&project.trackIsDrums(track)){
+        const int pad=project.selectedPad(track);
+        const auto padR=trackSwitchRect(6);
+        fillRect(padR,kButton);
+        fillRect({padR.x+inset,padR.y+inset,padR.w-inset*2.0f,padR.h-inset*2.0f},kRollBg);
+        std::string pLabel="Pad";
+        if(pad>=0&&pad<project.padCount(track)){
+            pLabel=std::to_string(pad+1)+" "+project.padIcon(track,pad);
+        }
+        ov.addText(
+            pLabel,
+            padR.x+padR.h*0.20f,
+            padR.y+padR.h*0.35f,
+            std::max(0.65f,padR.h/42.0f),
+            overlayColor(kWhite));
+        ov.addDownChevron(
+            {padR.x+padR.w-padR.h*0.72f,padR.y,padR.h*0.72f,padR.h},
+            overlayColor(kWhite));
+    }
+
+    if(page_==NativePage::Roll){
+        const RollMode modes[3]{RollMode::Bend,RollMode::Velocity,RollMode::Mod};
+        for(int i=0;i<3;++i){
+            const auto rr=rollModeRect(i);
+            const bool active=rollMode_==modes[i];
+            fillRect(rr,active?kCyan:kButton);
+            const auto col=overlayColor(active?kBg:kWhite);
+            if(i==0){
+                const float cx=rr.x+rr.w*0.5f,cy=rr.y+rr.h*0.5f;
+                float px=cx-rr.w*0.22f,py=cy;
+                for(int s=1;s<=8;++s){
+                    const float u=static_cast<float>(s)/8.0f;
+                    const float x=cx-rr.w*0.22f+u*rr.w*0.44f;
+                    const float y=cy+std::sin(u*6.28318530718f)*rr.h*0.13f;
+                    ov.addLine(px,py,x,y,std::max(2.0f,rr.h*0.045f),col);
+                    px=x;py=y;
+                }
+            }else{
+                ov.addTextCentered(i==1?"V":"M",{rr.x,rr.y,rr.w,rr.h},
+                    std::max(0.85f,rr.h/35.0f),col);
+            }
+        }
     }
 }
 
@@ -719,7 +832,7 @@ void NativeUi::drawDrumEditor() const noexcept {
 }
 
 void NativeUi::drawDrums() const noexcept {
-    fillRect(contentRect(),kPanel);
+    fillRect(bodyContentRect(),kPanel);
     drawPadQuick();
     drawGrid();
     drawDrumEditor();
@@ -803,24 +916,8 @@ bool NativeUi::drumPitchTap(int midi){
 
 void NativeUi::drawRoll() const noexcept {
     auto& project = ProjectCore::instance();
-    const auto content = contentRect();
+    const auto content = bodyContentRect();
     fillRect(content, kPanel);
-
-    static constexpr const char* kModeNames[4]={"NOTES","BEND","V","M"};
-    for (int i = 0; i < 4; ++i) {
-        const auto mode = static_cast<RollMode>(i);
-        const Rgb modeColor =
-            mode == rollMode_
-                ? (mode == RollMode::Bend ? kCyan :
-                   mode == RollMode::Velocity ? kWhite :
-                   mode == RollMode::Mod ? kPurple : kOrange)
-                : kButton;
-        const auto mr=rollModeRect(i);
-        fillRect(mr, modeColor);
-        NativeOverlay::instance().addTextCentered(
-            kModeNames[i],{mr.x,mr.y,mr.w,mr.h},1.2f,
-            overlayColor(mode==rollMode_?kBg:kWhite));
-    }
 
     const int track = project.selectedTrack();
     if (track < 0) return;
@@ -999,16 +1096,18 @@ void NativeUi::render() const noexcept {
     overlay.addTextCentered("DZ",{dzR.x,dzR.y,dzR.w,dzR.h},0.85f,overlayColor(project.dozenal()?kBg:kWhite));
     overlay.addTextCentered(audio.transportPlaying()?"STOP":"PLAY",{playR.x,playR.y,playR.w,playR.h},0.85f,overlayColor(kBg));
 
-    static constexpr const char* kNavNames[6]={"TRACKS","DRUMS","ROLL","SYNTH","FX","PLAY"};
     for (int i = 0; i < 6; ++i) {
         const auto page = static_cast<NativePage>(i);
         const auto nr=navRect(i);
-        fillRect(nr, page == page_ ? kCyan : kButton);
-        overlay.addTextCentered(
-            kNavNames[i],{nr.x,nr.y,nr.w,nr.h},
-            std::max(0.75f,std::min(1.25f,nr.w/(std::char_traits<char>::length(kNavNames[i])*7.0f))),
+        fillRect(nr,page==page_?kCyan:kButton);
+        const float inset=std::max(3.0f,nr.h*0.08f);
+        overlay.addNavIcon(
+            i,
+            {nr.x+inset,nr.y+inset,nr.w-inset*2.0f,nr.h-inset*2.0f},
             overlayColor(page==page_?kBg:kWhite));
     }
+
+    if(page_!=NativePage::Tracks)drawTrackSwitchBar();
 
     switch (page_) {
         case NativePage::Tracks:
@@ -1021,17 +1120,15 @@ void NativeUi::render() const noexcept {
             drawRoll();
             break;
         case NativePage::Synth:
-            fillRect(contentRect(), kPanel);
-            drawPadQuick();
+            fillRect(bodyContentRect(), kPanel);
             NativeEditor::instance().renderSynth();
             break;
         case NativePage::Fx:
-            fillRect(contentRect(), kPanel);
-            drawPadQuick();
+            fillRect(bodyContentRect(), kPanel);
             NativeEditor::instance().renderFx();
             break;
         case NativePage::Play:
-            fillRect(contentRect(), kPanel);
+            fillRect(bodyContentRect(), kPanel);
             drawGrid();
             break;
         default:
@@ -1060,6 +1157,24 @@ std::optional<NativePage> NativeUi::hitNav(float x, float y) const noexcept {
     for (int i = 0; i < 6; ++i) {
         if (navRect(i).contains(x, y)) {
             return static_cast<NativePage>(i);
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<TrackSwitchAction> NativeUi::hitTrackSwitch(float x,float y) const noexcept {
+    if(page_==NativePage::Tracks)return std::nullopt;
+    if(trackSwitchRect(0).contains(x,y))return TrackSwitchAction::PreviousTrack;
+    if(trackSwitchRect(2).contains(x,y))return TrackSwitchAction::NextTrack;
+
+    if(page_==NativePage::Synth||page_==NativePage::Fx){
+        auto& project=ProjectCore::instance();
+        const int track=project.selectedTrack();
+        const auto pr=trackSwitchRect(6);
+        if(track>=0&&project.trackIsDrums(track)&&pr.contains(x,y)){
+            return x<pr.x+pr.w*0.5f
+                ?TrackSwitchAction::PreviousPad
+                :TrackSwitchAction::NextPad;
         }
     }
     return std::nullopt;
@@ -1118,10 +1233,9 @@ std::optional<int> NativeUi::hitPadQuick(float x, float y) const noexcept {
 }
 
 std::optional<RollMode> NativeUi::hitRollMode(float x, float y) const noexcept {
-    if (page_ != NativePage::Roll) return std::nullopt;
-    for (int i = 0; i < 4; ++i) {
-        if (rollModeRect(i).contains(x, y)) return static_cast<RollMode>(i);
-    }
+    if(page_!=NativePage::Roll)return std::nullopt;
+    const RollMode modes[3]{RollMode::Bend,RollMode::Velocity,RollMode::Mod};
+    for(int i=0;i<3;++i)if(rollModeRect(i).contains(x,y))return modes[i];
     return std::nullopt;
 }
 
