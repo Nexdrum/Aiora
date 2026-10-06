@@ -117,7 +117,7 @@ void NativeOverlay::begin(int width,int height){
     width_=std::max(1,width);
     height_=std::max(1,height);
     const float shortSide=static_cast<float>(std::min(width_,height_));
-    fontScale_=std::clamp(shortSide/360.0f,1.5f,3.0f);
+    fontScale_=std::clamp(shortSide/620.0f,1.10f,1.55f);
     vertices_.clear();
     vertices_.reserve(12000);
 }
