@@ -68,10 +68,20 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
     snap->bpm=project_.bpm;
     snap->divisions=std::max(1,project_.divisions);
     const int bar=std::max(1,project_.beats)*std::max(1,project_.divisions);
-    float last=-1.0f;
-    for(const auto& track:project_.tracks)for(const auto& note:track.notes)last=std::max(last,note.startStep);
-    snap->lengthSteps=last<0.0f?bar:static_cast<int>(std::ceil((last+1.0f)/static_cast<float>(bar)))*bar;
-    snap->lengthSteps=std::max(1,snap->lengthSteps);
+    float end=0.0f;
+    bool anyNote=false;
+    for(const auto& track:project_.tracks){
+        for(const auto& note:track.notes){
+            end=std::max(
+                end,
+                note.startStep+std::max(1.0f,note.lengthSteps));
+            anyNote=true;
+        }
+    }
+    snap->lengthSteps=anyNote
+        ?static_cast<int>(std::ceil(end/static_cast<float>(bar)))*bar
+        :bar;
+    snap->lengthSteps=std::max(bar,snap->lengthSteps);
     snap->masterVolume=project_.masterVolume;
     snap->masterReverb=project_.masterReverb;
     snap->steps.resize(static_cast<size_t>(snap->lengthSteps));
