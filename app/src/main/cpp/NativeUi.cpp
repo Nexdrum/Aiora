@@ -1271,25 +1271,39 @@ void NativeUi::drawPadQuick() const noexcept {
             {iconR.x,iconR.y,iconR.w,iconR.h},
             overlayColor(pc));
 
-        const float glyphSize=52.0f;
-        const float glyphY=row.y+16.0f;
-        const float glyphX=row.x+96.0f;
-        ov.addPitchGlyph(
-            lo%12,
-            {glyphX,glyphY,glyphSize,glyphSize},
-            overlayColor(kWhite));
+        // Reserve a fixed pitch-glyph lane so ranged endpoints never
+        // collide with the pad name. Single notes can use the full glyph size;
+        // ranged pads use a slightly smaller pair centered in the same lane.
+        const float glyphLaneX=row.x+92.0f;
+        const float glyphLaneW=142.0f;
+        const float glyphY=row.y+18.0f;
         if(lo!=hi){
+            const float glyphSize=42.0f;
+            const float dashW=20.0f;
+            const float total=glyphSize*2.0f+dashW;
+            const float gx=glyphLaneX+(glyphLaneW-total)*0.5f;
+            ov.addPitchGlyph(
+                lo%12,
+                {gx,glyphY,glyphSize,glyphSize},
+                overlayColor(kWhite));
             ov.addTextCentered(
-                "-",
-                {glyphX+glyphSize+3.0f,glyphY,26.0f,glyphSize},
-                1.02f,overlayColor(kOrange));
+                "–",
+                {gx+glyphSize,glyphY,dashW,glyphSize},
+                0.92f,overlayColor(kOrange));
             ov.addPitchGlyph(
                 hi%12,
-                {glyphX+glyphSize+32.0f,glyphY,glyphSize,glyphSize},
+                {gx+glyphSize+dashW,glyphY,glyphSize,glyphSize},
+                overlayColor(kWhite));
+        }else{
+            const float glyphSize=52.0f;
+            const float gx=glyphLaneX+(glyphLaneW-glyphSize)*0.5f;
+            ov.addPitchGlyph(
+                lo%12,
+                {gx,glyphY,glyphSize,glyphSize},
                 overlayColor(kWhite));
         }
 
-        const float infoX=row.x+218.0f;
+        const float infoX=row.x+250.0f;
         std::string name=drumIconName(iconId);
         std::string range=pitchCoord(lo);
         if(lo!=hi)range+="–"+pitchCoord(hi);
