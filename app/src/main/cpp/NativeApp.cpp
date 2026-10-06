@@ -926,7 +926,6 @@ void serviceRollLongPress(NativeState& state){
             if(state.ui.rollSelectionActive()){
                 state.ui.setRollSelection(false,0,0);
             }else{
-                state.ui.setRollStartStep(*step);
                 state.ui.setRollSelection(true,*step,*step);
             }
             state.rollLastBeatTapMs=0;
@@ -1330,7 +1329,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 break;
             case aiora::HeaderAction::TransportToggle:
                 if(audio.transportPlaying()) audio.stopTransport();
-                else audio.playTransport();
+                else audio.playTransport(state.ui.rollStartStep());
                 break;
         }
         if(*action!=aiora::HeaderAction::TransportToggle)scheduleAutosave(state);
@@ -1667,7 +1666,6 @@ bool handleUiTap(NativeState& state, float x, float y) {
             }
 
             state.ui.setRollSelection(false,0,0);
-            state.ui.setRollStartStep(lo);
             state.ui.setRollClipboardAvailable(!state.rollClipboard.empty());
             return true;
         }
