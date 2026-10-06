@@ -531,8 +531,8 @@ void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
     ov.addText(
         "PATCH FILE",
         e.x+12.0f,
-        copy.y-24.0f,
-        0.86f,
+        copy.y-34.0f,
+        1.02f,
         overlayColor(kWhite));
 
     drawButton(copy,false,kCyan);
@@ -540,12 +540,12 @@ void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
     ov.addTextCentered(
         "Export patch",
         {copy.x,copy.y,copy.w,copy.h},
-        0.84f,
+        0.96f,
         overlayColor(kWhite));
     ov.addTextCentered(
         "Import patch",
         {paste.x,paste.y,paste.w,paste.h},
-        0.84f,
+        0.96f,
         overlayColor(kWhite));
 }
 
@@ -562,7 +562,7 @@ void NativeEditor::renderSynth() const noexcept {
         ov.addTextCentered(
             kTabs[i],
             {rr.x,rr.y,rr.w,rr.h},
-            0.96f,
+            1.08f,
             overlayColor(active?kBg:kWhite));
     }
 
@@ -617,16 +617,16 @@ void NativeEditor::renderSynth() const noexcept {
 
         ov.addText(
             "OP"+std::to_string(op+1),
-            card.x+14.0f,card.y+16.0f,
-            0.90f,overlayColor(kWhite));
+            card.x+16.0f,card.y+22.0f,
+            1.04f,overlayColor(kWhite));
 
         const auto wave=operatorWaveFieldRect(op);
         fillRect(wave,mix(kRollBg,kButton,0.25f));
         const int waveIndex=std::clamp(static_cast<int>(o.wave),0,5);
         ov.addText(
             kWaveNames[waveIndex],
-            wave.x+10.0f,wave.y+11.0f,
-            0.84f,overlayColor(kWhite));
+            wave.x+12.0f,wave.y+20.0f,
+            0.96f,overlayColor(kWhite));
         ov.addDownChevron(
             {wave.x+wave.w-38.0f,wave.y,38.0f,wave.h},
             overlayColor(kWhite));
@@ -640,10 +640,10 @@ void NativeEditor::renderSynth() const noexcept {
             ov.addText(
                 kLabels[paramIndex],
                 rr.x,rr.y+rr.h*0.26f,
-                0.72f,overlayColor(kWhite));
+                0.82f,overlayColor(kWhite));
 
-            const float labelW=30.0f;
-            const float valueW=50.0f;
+            const float labelW=38.0f;
+            const float valueW=62.0f;
             const float trackX=rr.x+labelW;
             const float trackW=std::max(20.0f,rr.w-labelW-valueW-6.0f);
 
@@ -653,14 +653,14 @@ void NativeEditor::renderSynth() const noexcept {
                     mix(kRollBg,kButton,0.22f));
                 ov.addText(
                     shortValue(value),
-                    trackX+8.0f,rr.y+11.0f,
-                    0.78f,overlayColor(kWhite));
+                    trackX+10.0f,rr.y+22.0f,
+                    1.00f,overlayColor(kWhite));
             }else{
                 const float cy=rr.y+rr.h*0.52f;
                 fillRect({trackX,cy-3.0f,trackW,6.0f},kTrack);
                 fillRect({trackX,cy-3.0f,trackW*norm,6.0f},
                     paramIndex<3?kCyan:kOrange);
-                const float knob=16.0f;
+                const float knob=22.0f;
                 fillRect({
                     trackX+trackW*norm-knob*0.5f,
                     cy-knob*0.5f,knob,knob},
@@ -671,7 +671,7 @@ void NativeEditor::renderSynth() const noexcept {
                 shortValue(value),
                 rr.x+rr.w-valueW+4.0f,
                 rr.y+rr.h*0.26f,
-                0.66f,overlayColor(kMuted));
+                0.86f,overlayColor(kMuted));
         }
 
         const auto toggle=operatorCardToggleRect(op);
@@ -679,7 +679,7 @@ void NativeEditor::renderSynth() const noexcept {
         ov.addTextCentered(
             enabled?"ON":"OFF",
             {toggle.x,toggle.y,toggle.w,toggle.h},
-            0.90f,overlayColor(kWhite));
+            1.02f,overlayColor(kWhite));
 
         if(o.wave==Wave::Custom){
             for(int partial=0;partial<16;++partial){
@@ -724,8 +724,8 @@ void NativeEditor::renderFx() const noexcept {
             card.w-4.0f,card.h-4.0f},kPanel);
         ov.addText(
             kTitles[section],
-            card.x+18.0f,card.y+16.0f,
-            0.96f,overlayColor(kCyan));
+            card.x+20.0f,card.y+22.0f,
+            1.10f,overlayColor(kCyan));
     };
 
     const auto drawParam=[&](
@@ -738,15 +738,15 @@ void NativeEditor::renderFx() const noexcept {
             label,rr.x,rr.y+rr.h*0.26f,
             0.76f,overlayColor(kMuted));
 
-        const float labelW=std::clamp(rr.w*0.25f,86.0f,140.0f);
-        const float valueW=58.0f;
+        const float labelW=std::clamp(rr.w*0.25f,104.0f,160.0f);
+        const float valueW=70.0f;
         const float x0=rr.x+labelW;
         const float w=std::max(24.0f,rr.w-labelW-valueW-8.0f);
         const float cy=rr.y+rr.h*0.52f;
 
         fillRect({x0,cy-3.0f,w,6.0f},kTrack);
         fillRect({x0,cy-3.0f,w*norm,6.0f},accent);
-        const float knob=17.0f;
+        const float knob=22.0f;
         fillRect({
             x0+w*norm-knob*0.5f,
             cy-knob*0.5f,knob,knob},
@@ -756,7 +756,7 @@ void NativeEditor::renderFx() const noexcept {
             shortValue(value),
             rr.x+rr.w-valueW+4.0f,
             rr.y+rr.h*0.26f,
-            0.68f,overlayColor(kMuted));
+            0.78f,overlayColor(kMuted));
     };
 
     // Filter
@@ -765,8 +765,8 @@ void NativeEditor::renderFx() const noexcept {
         const auto card=fxGroupRect(0);
         ov.addText(
             "Type",
-            card.x+18.0f,card.y+58.0f,
-            0.76f,overlayColor(kMuted));
+            card.x+20.0f,card.y+96.0f,
+            0.86f,overlayColor(kMuted));
         const auto field=filterTypeRect(0);
         fillRect(field,mix(kRollBg,kButton,0.24f));
         static constexpr const char* names[3]={
@@ -774,8 +774,8 @@ void NativeEditor::renderFx() const noexcept {
         const int type=std::clamp(static_cast<int>(p.filter.type),0,2);
         ov.addText(
             names[type],
-            field.x+10.0f,field.y+11.0f,
-            0.78f,overlayColor(kWhite));
+            field.x+12.0f,field.y+19.0f,
+            0.90f,overlayColor(kWhite));
         ov.addDownChevron(
             {field.x+field.w-38.0f,field.y,38.0f,field.h},
             overlayColor(kWhite));
@@ -812,16 +812,16 @@ void NativeEditor::renderFx() const noexcept {
         const auto card=fxGroupRect(2);
         ov.addText(
             "Target",
-            card.x+18.0f,target.y+target.h*0.26f,
-            0.76f,overlayColor(kMuted));
+            card.x+20.0f,target.y+target.h*0.26f,
+            0.86f,overlayColor(kMuted));
         fillRect(target,mix(kRollBg,kButton,0.24f));
         static constexpr const char* targetNames[4]={
             "none","pitch","filter","amp"};
         const int targetIndex=std::clamp(static_cast<int>(p.lfo.target),0,3);
         ov.addText(
             targetNames[targetIndex],
-            target.x+10.0f,target.y+11.0f,
-            0.78f,overlayColor(kWhite));
+            target.x+12.0f,target.y+19.0f,
+            0.90f,overlayColor(kWhite));
         ov.addDownChevron(
             {target.x+target.w-38.0f,target.y,38.0f,target.h},
             overlayColor(kWhite));
@@ -838,8 +838,8 @@ void NativeEditor::renderFx() const noexcept {
 
         ov.addText(
             "M"+std::to_string(slot+1),
-            row.x,row.y+19.0f,
-            0.82f,overlayColor(kWhite));
+            row.x,row.y+31.0f,
+            0.92f,overlayColor(kWhite));
 
         const auto target=modPartRect(slot,1);
         const auto mn=modPartRect(slot,3);
@@ -849,8 +849,8 @@ void NativeEditor::renderFx() const noexcept {
         fillRect(target,mix(kRollBg,kButton,0.24f));
         ov.addText(
             modTargetName(s.target),
-            target.x+8.0f,target.y+19.0f,
-            0.72f,overlayColor(kWhite));
+            target.x+10.0f,target.y+31.0f,
+            0.82f,overlayColor(kWhite));
         ov.addDownChevron(
             {target.x+target.w-32.0f,target.y,32.0f,target.h},
             overlayColor(kWhite));
@@ -859,12 +859,12 @@ void NativeEditor::renderFx() const noexcept {
         fillRect(mx,mix(kRollBg,kButton,0.20f));
         ov.addText(
             shortValue(s.min),
-            mn.x+8.0f,mn.y+19.0f,
-            0.72f,overlayColor(kWhite));
+            mn.x+10.0f,mn.y+31.0f,
+            0.82f,overlayColor(kWhite));
         ov.addText(
             shortValue(s.max),
-            mx.x+8.0f,mx.y+19.0f,
-            0.72f,overlayColor(kWhite));
+            mx.x+10.0f,mx.y+31.0f,
+            0.82f,overlayColor(kWhite));
 
         drawButton(del,false,kRed);
         ov.addTextCentered(
@@ -877,7 +877,7 @@ void NativeEditor::renderFx() const noexcept {
     ov.addTextCentered(
         "+ Add link (max 4)",
         {add.x,add.y,add.w,add.h},
-        0.82f,overlayColor(count<4?kWhite:kMuted));
+        0.94f,overlayColor(count<4?kWhite:kMuted));
 
     drawPatchTransfer(EditorPage::Fx);
 }
