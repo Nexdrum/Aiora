@@ -206,6 +206,133 @@ void NativeOverlay::addLogo(Rect rect,Color color){
     addMaskRows(glyphmask::kLogo.data(),32,32,rect,color);
 }
 
+void NativeOverlay::addLine(float x1,float y1,float x2,float y2,float thickness,Color c){
+    const float dx=x2-x1,dy=y2-y1;
+    const float len=std::sqrt(dx*dx+dy*dy);
+    if(len<=0.001f||thickness<=0.0f)return;
+    const float nx=-dy/len*thickness*0.5f;
+    const float ny= dx/len*thickness*0.5f;
+    auto vtx=[&](float x,float y){
+        return Vertex{
+            x/static_cast<float>(width_)*2.0f-1.0f,
+            1.0f-y/static_cast<float>(height_)*2.0f,
+            c.r,c.g,c.b,c.a
+        };
+    };
+    const Vertex a=vtx(x1+nx,y1+ny);
+    const Vertex b=vtx(x2+nx,y2+ny);
+    const Vertex d=vtx(x1-nx,y1-ny);
+    const Vertex e=vtx(x2-nx,y2-ny);
+    vertices_.insert(vertices_.end(),{a,d,b,b,d,e});
+}
+
+void NativeOverlay::addCircle(float cx,float cy,float radius,float thickness,Color color){
+    if(radius<=0.0f||thickness<=0.0f)return;
+    constexpr int segments=24;
+    float px=cx+radius,py=cy;
+    for(int i=1;i<=segments;++i){
+        const float a=static_cast<float>(i)*6.28318530718f/static_cast<float>(segments);
+        const float x=cx+std::cos(a)*radius;
+        const float y=cy+std::sin(a)*radius;
+        addLine(px,py,x,y,thickness,color);
+        px=x;py=y;
+    }
+}
+
+void NativeOverlay::addChevron(Rect r,bool right,Color c){
+    const float t=std::max(2.0f,std::min(r.w,r.h)*0.11f);
+    const float cx=r.x+r.w*0.5f,cy=r.y+r.h*0.5f;
+    const float dx=r.w*0.16f,dy=r.h*0.19f;
+    if(right){
+        addLine(cx-dx,cy-dy,cx+dx,cy,t,c);
+        addLine(cx+dx,cy,cx-dx,cy+dy,t,c);
+    }else{
+        addLine(cx+dx,cy-dy,cx-dx,cy,t,c);
+        addLine(cx-dx,cy,cx+dx,cy+dy,t,c);
+    }
+}
+
+void NativeOverlay::addDownChevron(Rect r,Color c){
+    const float t=std::max(1.5f,std::min(r.w,r.h)*0.08f);
+    const float cx=r.x+r.w*0.5f,cy=r.y+r.h*0.52f;
+    const float dx=r.w*0.16f,dy=r.h*0.12f;
+    addLine(cx-dx,cy-dy,cx,cy+dy,t,c);
+    addLine(cx,cy+dy,cx+dx,cy-dy,t,c);
+}
+
+void NativeOverlay::addNavIcon(int index,Rect r,Color c){
+    const float s=std::min(r.w,r.h);
+    const float cx=r.x+r.w*0.5f,cy=r.y+r.h*0.5f;
+    const float t=std::max(2.0f,s*0.055f);
+
+    switch(index){
+        case 0:{ // tracks / mixer
+            for(int i=0;i<3;++i){
+                const float y=cy+s*(-0.22f+0.22f*i);
+                addLine(cx-s*0.24f,y,cx+s*0.24f,y,t,c);
+            }
+            addCircle(cx+s*0.12f,cy-s*0.22f,s*0.055f,t,c);
+            addCircle(cx-s*0.08f,cy,s*0.055f,t,c);
+            addCircle(cx+s*0.05f,cy+s*0.22f,s*0.055f,t,c);
+            break;
+        }
+        case 1:{ // drum
+            const float top=cy-s*0.20f,bottom=cy+s*0.20f;
+            addCircle(cx,top,s*0.20f,t,c);
+            addLine(cx-s*0.20f,top,cx-s*0.17f,bottom,t,c);
+            addLine(cx+s*0.20f,top,cx+s*0.17f,bottom,t,c);
+            addLine(cx-s*0.17f,bottom,cx-s*0.08f,bottom+s*0.06f,t,c);
+            addLine(cx+s*0.17f,bottom,cx+s*0.08f,bottom+s*0.06f,t,c);
+            addLine(cx-s*0.08f,bottom+s*0.06f,cx+s*0.08f,bottom+s*0.06f,t,c);
+            break;
+        }
+        case 2:{ // piano roll grid
+            const float cell=s*0.12f,g=s*0.04f;
+            const float total=cell*3.0f+g*2.0f;
+            const float x0=cx-total*0.5f,y0=cy-total*0.5f;
+            for(int y=0;y<3;++y)for(int x=0;x<3;++x)
+                addRect({x0+x*(cell+g),y0+y*(cell+g),cell,cell},c);
+            break;
+        }
+        case 3:{ // synth sliders
+            const float xs[3]{cx-s*0.18f,cx,cx+s*0.18f};
+            const float ys[3]{cy+s*0.11f,cy-s*0.13f,cy+s*0.02f};
+            for(int i=0;i<3;++i){
+                addLine(xs[i],cy-s*0.28f,xs[i],cy+s*0.28f,t,c);
+                addCircle(xs[i],ys[i],s*0.06f,t,c);
+            }
+            break;
+        }
+        case 4:{ // fx wave
+            float px=cx-s*0.27f,py=cy;
+            constexpr int n=8;
+            for(int i=1;i<n;++i){
+                const float u=static_cast<float>(i)/static_cast<float>(n-1);
+                const float x=cx-s*0.27f+u*s*0.54f;
+                const float y=cy+std::sin(u*6.28318530718f)*s*0.13f;
+                addLine(px,py,x,y,t,c);px=x;py=y;
+            }
+            addCircle(cx+s*0.22f,cy+s*0.12f,s*0.045f,t,c);
+            break;
+        }
+        case 5:{ // keyboard
+            const float x0=cx-s*0.27f,y0=cy-s*0.18f,w=s*0.54f,h=s*0.36f;
+            addLine(x0,y0,x0+w,y0,t,c);
+            addLine(x0,y0+h,x0+w,y0+h,t,c);
+            addLine(x0,y0,x0,y0+h,t,c);
+            addLine(x0+w,y0,x0+w,y0+h,t,c);
+            for(int i=1;i<5;++i){
+                const float x=x0+w*i/5.0f;
+                addLine(x,y0,x,y0+h,t*0.7f,c);
+            }
+            for(float u:{0.20f,0.40f,0.70f,0.90f})
+                addRect({x0+w*u-s*0.035f,y0,s*0.07f,h*0.52f},c);
+            break;
+        }
+        default:break;
+    }
+}
+
 void NativeOverlay::flush(){
     if(vertices_.empty()||!program_||!vbo_)return;
     glDisable(GL_SCISSOR_TEST);
