@@ -1336,7 +1336,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 break;
             case aiora::HeaderAction::TransportEnd:
                 state.ui.setRollStartStep(
-                    std::max(0,project.playLengthSteps()-1));
+                    std::max(0,project.playLengthSteps()));
                 break;
         }
         if(*action!=aiora::HeaderAction::TransportStart&&
@@ -1692,6 +1692,8 @@ bool handleUiTap(NativeState& state, float x, float y) {
                     scheduleAutosave(state,0);
                 }
             }
+            state.rollClipboard.clear();
+            state.ui.setRollClipboardAvailable(false);
             return true;
         }
     }
