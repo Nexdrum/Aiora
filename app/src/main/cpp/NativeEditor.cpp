@@ -388,10 +388,12 @@ ModTarget NativeEditor::cycleModTarget(ModTarget current,int direction) noexcept
 
 void NativeEditor::fillRect(Rect r,Rgb c) const noexcept {
     if(width_<=0||height_<=0||r.w<=0||r.h<=0)return;
-    const int x=std::max(0,static_cast<int>(r.x));
-    const int top=std::max(0,static_cast<int>(r.y));
-    const int w=std::max(0,std::min(width_-x,static_cast<int>(r.w)));
-    const int h=std::max(0,std::min(height_-top,static_cast<int>(r.h)));
+    NativeOverlay::Rect clipped{r.x,r.y,r.w,r.h};
+    if(!NativeOverlay::instance().clipRect(clipped))return;
+    const int x=std::max(0,static_cast<int>(clipped.x));
+    const int top=std::max(0,static_cast<int>(clipped.y));
+    const int w=std::max(0,std::min(width_-x,static_cast<int>(clipped.w)));
+    const int h=std::max(0,std::min(height_-top,static_cast<int>(clipped.h)));
     if(w<=0||h<=0)return;
     glScissor(x,height_-top-h,w,h);glClearColor(c.r,c.g,c.b,1.0f);glClear(GL_COLOR_BUFFER_BIT);
 }
