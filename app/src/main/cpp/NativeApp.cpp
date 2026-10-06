@@ -9,6 +9,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <mutex>
 #include <string>
 
 #include "AudioEngine.h"
@@ -20,12 +22,28 @@
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
 #include "ProjectStorage.h"
+#include "SongExport.h"
 
 namespace {
 
 constexpr char kTag[] = "AIORA";
 constexpr size_t kMaxPointers = 16;
 constexpr int64_t kLongPressMs = 450;
+constexpr int kRequestSaveJson = 4101;
+constexpr int kRequestLoadJson = 4102;
+constexpr int kRequestExportWav = 4103;
+constexpr int kRequestExportMidi = 4104;
+
+struct PendingDocumentResult {
+    int requestCode{0};
+    bool pending{false};
+    bool success{false};
+    std::string localPath{};
+    std::string message{};
+};
+
+std::mutex gDocumentResultMutex;
+PendingDocumentResult gDocumentResult{};
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -97,7 +115,9 @@ struct NativeState {
     int editorPreviewVoice{-1};
     int64_t editorPreviewStopMs{0};
     std::string autosavePath{};
-    std::string manualSavePath{};
+    std::string jsonExportPath{};
+    std::string wavExportPath{};
+    std::string midiExportPath{};
     int64_t autosaveDueMs{0};
     bool autosaveDirty{false};
 };
