@@ -166,16 +166,32 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;configureFx(e.patch.fx);return;
         }
         case EventType::Snapshot:{
-            auto*incoming=reinterpret_cast<PlaybackSnapshot*>(e.pointer);if(!incoming)return;auto*old=playback_;playback_=incoming;
+            auto*incoming=reinterpret_cast<PlaybackSnapshot*>(e.pointer);if(!incoming)return;
+            const bool wasPlaying=transportPlaying_.load(std::memory_order_relaxed);
+            const int32_t previousStep=transportStep_;
+            const double previousStepSamples=transportSamplesPerStep_;
+            const double previousPhase=previousStepSamples>0.0
+                ?std::clamp(samplesIntoStep_/previousStepSamples,0.0,1.0)
+                :0.0;
+            auto*old=playback_;playback_=incoming;
             playbackFxCount_=std::min<int32_t>(static_cast<int32_t>(playback_->fxBuses.size()),static_cast<int32_t>(playbackFx_.size()));
             for(int i=0;i<playbackFxCount_;++i){playbackFx_[static_cast<size_t>(i)].processor.reset();playbackFx_[static_cast<size_t>(i)].processor.set(playback_->fxBuses[static_cast<size_t>(i)]);}
             for(int i=playbackFxCount_;i<static_cast<int>(playbackFx_.size());++i)playbackFx_[static_cast<size_t>(i)].processor.reset();
             Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);
             masterFx_.reset();masterFx_.set(masterFxCfg);
             transportSamplesPerStep_=static_cast<double>(std::max(1,sampleRate_.load(std::memory_order_relaxed)))*60.0/(std::max(12.0f,playback_->bpm)*std::max(1,playback_->divisions));
-            transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);
+            if(wasPlaying){
+                transportStep_=std::clamp(
+                    previousStep,0,std::max(0,playback_->lengthSteps-1));
+                samplesIntoStep_=previousPhase*transportSamplesPerStep_;
+                playheadStep_.store(transportStep_,std::memory_order_relaxed);
+            }else{
+                transportStep_=0;
+                samplesIntoStep_=0;
+                playheadStep_.store(0,std::memory_order_relaxed);
+            }
             if(old&&!retiredSnapshots_.push(old)){/* rare UI-side collection starvation: keep old allocated rather than deleting on RT */}
-            if(transportPlaying_.load(std::memory_order_relaxed)){for(auto&slot:voices_)if(slot.transport)slot.voice.kill();triggerStep(0);}return;
+            return;
         }
         case EventType::Play:
             if(!playback_)return;
