@@ -128,7 +128,7 @@ NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
     const float gap=std::clamp(usableW*0.010f,7.0f,12.0f);
-    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
+    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
     const float brand=std::clamp(usableW*0.205f,138.0f,176.0f);
     const float play=std::clamp(headerH*0.78f,64.0f,82.0f);
     const float left=
@@ -148,7 +148,7 @@ NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
     const float gap=std::clamp(usableW*0.010f,7.0f,12.0f);
-    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
+    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
     const float brand=std::clamp(usableW*0.205f,138.0f,176.0f);
     const float play=std::clamp(headerH*0.78f,64.0f,82.0f);
     return {
@@ -161,8 +161,8 @@ NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
 NativeUi::Rect NativeUi::navRect(int index) const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
-    const float navH=std::clamp(usableW*0.094f,66.0f,82.0f);
+    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
+    const float navH=std::clamp(usableW*0.106f,76.0f,92.0f);
     const float gap=std::clamp(usableW*0.010f,7.0f,11.0f);
     const float available=std::max(
         0.0f,usableW-margin*2.0f-gap*5.0f);
@@ -565,7 +565,12 @@ float NativeUi::rollGutterPixels() const noexcept {
 }
 
 float NativeUi::rollHeaderPixels() const noexcept {
-    return std::clamp(rollCellPixels()*1.32f,68.0f,92.0f);
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track>=0&&project.trackIsDrums(track)){
+        return std::clamp(rollCellPixels()*1.95f,104.0f,132.0f);
+    }
+    return std::clamp(rollCellPixels()*1.32f,72.0f,96.0f);
 }
 
 std::vector<int> NativeUi::rollColumns() const {
@@ -713,8 +718,12 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
 
     fillRect(prev,kButton);
     fillRect(next,kButton);
-    ov.addChevron({prev.x,prev.y,prev.w,prev.h},false,overlayColor(kWhite));
-    ov.addChevron({next.x,next.y,next.w,next.h},true,overlayColor(kWhite));
+    ov.addTextCentered(
+        "◀",{prev.x,prev.y,prev.w,prev.h},
+        1.15f,overlayColor(kWhite));
+    ov.addTextCentered(
+        "▶",{next.x,next.y,next.w,next.h},
+        1.15f,overlayColor(kWhite));
 
     fillRect(field,kButton);
     const float inset=std::max(2.0f,field.h*0.055f);
@@ -1548,13 +1557,42 @@ void NativeUi::drawRoll() const noexcept {
         fillRect({x, viewport.y, cell - 1.0f, header - 2.0f}, kPanel);
         const auto pcColor=pitchColor(midi);
         fillRect({x, viewport.y + header - 4.0f, cell - 1.0f, 3.0f}, pcColor);
-        NativeOverlay::instance().addPitchGlyph(
-            midi%12,{x+cell*0.19f,viewport.y+3.0f,cell*0.62f,std::min(cell*0.62f,header*0.68f)},overlayColor(pcColor));
+        auto& rollOv=NativeOverlay::instance();
+        if(project.trackIsDrums(track)){
+            int padIndex=-1;
+            for(int p=0;p<project.padCount(track);++p){
+                const int lo=std::min(project.padLow(track,p),project.padHigh(track,p));
+                const int hi=std::max(project.padLow(track,p),project.padHigh(track,p));
+                if(midi>=lo&&midi<=hi){padIndex=p;break;}
+            }
+            if(padIndex>=0){
+                const int iconIndex=drumIconIndex(project.padIcon(track,padIndex));
+                const float iconS=std::min(cell*0.50f,header*0.40f);
+                rollOv.addDrumIcon(
+                    iconIndex,
+                    {x+(cell-iconS)*0.5f,viewport.y+4.0f,iconS,iconS},
+                    overlayColor(pcColor));
+            }
+            const float glyphS=std::min(cell*0.62f,header*0.42f);
+            rollOv.addPitchGlyph(
+                midi%12,
+                {x+(cell-glyphS)*0.5f,viewport.y+header*0.48f,glyphS,glyphS},
+                overlayColor(pcColor));
+        }else{
+            rollOv.addPitchGlyph(
+                midi%12,
+                {x+cell*0.19f,viewport.y+3.0f,cell*0.62f,std::min(cell*0.62f,header*0.68f)},
+                overlayColor(pcColor));
+        }
         if (((midi % 12) + 12) % 12 == 2) {
             const int octave=(midi-62)/12;
             const std::string label=octave>0?("+"+std::to_string(octave)):std::to_string(octave);
             NativeOverlay::instance().addText(
-                label,x+cell*0.60f,viewport.y+header*0.62f,std::max(0.65f,cell/40.0f),overlayColor(kMuted));
+                label,
+                x+cell*0.61f,
+                viewport.y+header*(project.trackIsDrums(track)?0.82f:0.66f),
+                0.68f,
+                overlayColor(kMuted));
         }
     }
 
@@ -1572,7 +1610,11 @@ void NativeUi::drawRoll() const noexcept {
         if(step%barLen==0){
             const int bar=step/barLen+1;
             NativeOverlay::instance().addText(
-                std::to_string(bar),viewport.x+4.0f,y+cell*0.33f,std::max(0.72f,cell/34.0f),overlayColor(kWhite));
+                "b"+std::to_string(bar),
+                viewport.x+4.0f,
+                y+cell*0.31f,
+                0.78f,
+                overlayColor(kWhite));
         }
         for (int c = 0; c < visibleCols && pitchOffset + c < static_cast<int>(columns.size()); ++c) {
             const float x = viewport.x + gutter + c * cell;
@@ -1694,15 +1736,25 @@ void NativeUi::render() const noexcept {
     auto& overlay=NativeOverlay::instance();
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
     const float logoSize=std::clamp(headerH*0.62f,48.0f,64.0f);
-    overlay.addLogo({
+    const NativeOverlay::Rect logoR{
         static_cast<float>(safeLeft_)+margin,
         static_cast<float>(safeTop_)+(headerH-logoSize)*0.5f,
-        logoSize,logoSize},overlayColor(kCyan));
+        logoSize,logoSize};
+    overlay.addLogo(
+        {logoR.x-3.0f,logoR.y,logoR.w,logoR.h},
+        overlayColor(kPurple,0.52f));
+    overlay.addLogo(
+        {logoR.x+3.0f,logoR.y+1.0f,logoR.w,logoR.h},
+        overlayColor(kOrange,0.48f));
+    overlay.addLogo(
+        {logoR.x,logoR.y-2.0f,logoR.w,logoR.h},
+        overlayColor(kCyan,0.68f));
+    overlay.addLogo(logoR,overlayColor(kWhite,0.88f));
     overlay.addText(
-        "AIORA",
+        "A I O R A",
         static_cast<float>(safeLeft_)+margin+logoSize+10.0f,
         static_cast<float>(safeTop_)+headerH*0.36f,
-        1.15f,overlayColor(kWhite));
+        1.02f,overlayColor(kWhite));
 
     auto& project=ProjectCore::instance();
     auto& audio=AudioEngine::instance();
@@ -1715,12 +1767,9 @@ void NativeUi::render() const noexcept {
             playR.y+(playR.h-s)*0.5f,
             s,s},overlayColor(kWhite));
     }else{
-        const float cx=playR.x+playR.w*0.47f;
-        const float cy=playR.y+playR.h*0.5f;
-        const float s=playR.h*0.26f;
-        overlay.addLine(cx-s*0.55f,cy-s,cx+s*0.75f,cy,playR.h*0.07f,overlayColor(kWhite));
-        overlay.addLine(cx+s*0.75f,cy,cx-s*0.55f,cy+s,playR.h*0.07f,overlayColor(kWhite));
-        overlay.addLine(cx-s*0.55f,cy+s,cx-s*0.55f,cy-s,playR.h*0.07f,overlayColor(kWhite));
+        overlay.addTextCentered(
+            "▶",{playR.x,playR.y,playR.w,playR.h},
+            1.65f,overlayColor(kWhite));
     }
     drawScope();
 
