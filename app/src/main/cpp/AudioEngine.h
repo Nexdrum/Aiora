@@ -24,7 +24,7 @@ public:
     void panic() noexcept;
     void setFactoryPreset(int index) noexcept;
     bool syncProject();
-    bool playTransport();
+    bool playTransport(int startStep = 0);
     void stopTransport() noexcept;
     void collectRetiredSnapshots() noexcept;
     [[nodiscard]] bool transportPlaying() const noexcept { return transportPlaying_.load(std::memory_order_relaxed); }
