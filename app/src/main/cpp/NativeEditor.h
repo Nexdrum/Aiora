@@ -58,7 +58,7 @@ private:
     [[nodiscard]] Rect contentRect() const noexcept;
     [[nodiscard]] Rect editorRect() const noexcept;
     [[nodiscard]] Rect bodyRect() const noexcept;
-    [[nodiscard]] Rect patchTransferRect(int index) const noexcept;
+    [[nodiscard]] Rect patchTransferRect(EditorPage page,int index) const noexcept;
 
     [[nodiscard]] Rect factoryPresetRect(int index) const noexcept;
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
@@ -102,7 +102,7 @@ private:
     void drawSlider(Rect rect,float norm,Rgb accent) const noexcept;
     void drawButton(Rect rect,bool active,Rgb accent) const noexcept;
     void drawPadReservedBackground() const noexcept;
-    void drawPatchTransfer() const noexcept;
+    void drawPatchTransfer(EditorPage page) const noexcept;
 
     int width_{0};
     int height_{0};
