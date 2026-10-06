@@ -202,7 +202,7 @@ NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
 NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
     const auto content=contentRect();
     const float gap=std::max(5.0f,std::min(width_,height_)*0.007f);
-    const float h=std::clamp(content.h*0.060f,48.0f,64.0f);
+    const float h=std::clamp(content.w*0.090f,68.0f,82.0f);
     const float prevW=h,nextW=h;
 
     if(page_==NativePage::Roll){
@@ -251,7 +251,7 @@ NativeUi::Rect NativeUi::gridAreaRect() const noexcept {
         const float width=pad.w-outer*2.0f;
         return {
             pad.x+outer,
-            pad.y+74.0f,
+            pad.y+106.0f,
             width,width
         };
     }
@@ -291,9 +291,9 @@ NativeUi::Rect NativeUi::trackCardRect() const noexcept {
     const auto content=contentRect();
     const int count=std::max(0,ProjectCore::instance().trackCount());
     const float gap=std::clamp(content.w*0.014f,9.0f,13.0f);
-    const float titleH=34.0f;
-    const float rowH=std::clamp(content.w*0.105f,74.0f,88.0f);
-    const float addH=52.0f;
+    const float titleH=50.0f;
+    const float rowH=std::clamp(content.w*0.175f,132.0f,152.0f);
+    const float addH=74.0f;
     const float h=
         gap+titleH+gap+
         count*rowH+std::max(0,count-1)*gap+
@@ -304,39 +304,39 @@ NativeUi::Rect NativeUi::trackCardRect() const noexcept {
 NativeUi::Rect NativeUi::patchCardRect() const noexcept {
     const auto prev=trackCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,118.0f};
+    return {prev.x,prev.y+prev.h+gap,prev.w,174.0f};
 }
 
 NativeUi::Rect NativeUi::aiCardRect() const noexcept {
     const auto prev=patchCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,132.0f};
+    return {prev.x,prev.y+prev.h+gap,prev.w,196.0f};
 }
 
 NativeUi::Rect NativeUi::songCardRect() const noexcept {
     const auto prev=aiCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,270.0f};
+    return {prev.x,prev.y+prev.h+gap,prev.w,386.0f};
 }
 
 NativeUi::Rect NativeUi::masterCardRect() const noexcept {
     const auto prev=songCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,158.0f};
+    return {prev.x,prev.y+prev.h+gap,prev.w,226.0f};
 }
 
 NativeUi::Rect NativeUi::trackSongSliderRect(int index) const noexcept {
     const auto card=songCardRect();
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     if(index==0){
-        return {card.x+pad,card.y+104.0f,card.w-pad*2.0f,42.0f};
+        return {card.x+pad,card.y+150.0f,card.w-pad*2.0f,56.0f};
     }
     const float gap=12.0f;
     const float w=(card.w-pad*2.0f-gap)*0.5f;
     return {
         card.x+pad+(index-1)*(w+gap),
-        card.y+154.0f,
-        w,42.0f
+        card.y+220.0f,
+        w,56.0f
     };
 }
 
@@ -344,22 +344,22 @@ NativeUi::Rect NativeUi::trackUtilityRect(int index) const noexcept {
     if(index==0){
         const auto card=songCardRect();
         const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
-        return {card.x+pad,card.y+210.0f,card.w-pad*2.0f,44.0f};
+        return {card.x+pad,card.y+304.0f,card.w-pad*2.0f,54.0f};
     }
     if(index==2){
         const auto card=songCardRect();
         const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
         const float gap=10.0f;
         const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
-        return {card.x+pad,card.y+48.0f,w,46.0f};
+        return {card.x+pad,card.y+64.0f,w,64.0f};
     }
     const auto card=aiCardRect();
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     return {
         card.x+card.w*0.64f,
-        card.y+50.0f,
+        card.y+72.0f,
         card.w*0.32f-pad*0.2f,
-        56.0f
+        72.0f
     };
 }
 
@@ -370,7 +370,7 @@ NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
     const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
     return {
         card.x+pad+(index+1)*(w+gap),
-        card.y+48.0f,w,46.0f
+        card.y+64.0f,w,64.0f
     };
 }
 
@@ -380,9 +380,9 @@ NativeUi::Rect NativeUi::addTrackRect(TrackAddKind kind) const noexcept {
     const float gap=std::clamp(card.w*0.014f,9.0f,13.0f);
     return {
         card.x+gap,
-        card.y+card.h-gap-52.0f,
+        card.y+card.h-gap-74.0f,
         card.w-gap*2.0f,
-        52.0f
+        74.0f
     };
 }
 
@@ -391,18 +391,18 @@ NativeUi::Rect NativeUi::masterSliderRect(int index) const noexcept {
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     return {
         card.x+pad,
-        card.y+48.0f+index*50.0f,
+        card.y+64.0f+index*72.0f,
         card.w-pad*2.0f,
-        42.0f
+        58.0f
     };
 }
 
 NativeUi::Rect NativeUi::trackRect(int index,int count) const noexcept {
     const auto card=trackCardRect();
     const float gap=std::clamp(card.w*0.014f,9.0f,13.0f);
-    const float titleH=34.0f;
+    const float titleH=50.0f;
     const float top=card.y+gap+titleH+gap;
-    const float rowH=std::clamp(card.w*0.105f,74.0f,88.0f);
+    const float rowH=std::clamp(card.w*0.175f,132.0f,152.0f);
     return {
         card.x+gap,
         top+index*(rowH+gap),
@@ -414,8 +414,8 @@ NativeUi::Rect NativeUi::trackRect(int index,int count) const noexcept {
 NativeUi::Rect NativeUi::trackPartRect(int index,int count,int part) const noexcept {
     const auto r=trackRect(index,count);
     const float gap=std::clamp(r.w*0.010f,6.0f,10.0f);
-    const float bottomY=r.y+r.h*0.54f;
-    const float button=std::clamp(r.h*0.34f,26.0f,34.0f);
+    const float bottomY=r.y+r.h*0.58f;
+    const float button=std::clamp(r.h*0.28f,36.0f,44.0f);
 
     if(part==2)return {r.x+12.0f,bottomY,button,button};
     if(part==3)return {r.x+12.0f+button+gap,bottomY,button,button};
@@ -443,9 +443,9 @@ NativeUi::Rect NativeUi::drumKitCardRect() const noexcept {
     const int count=(track>=0&&project.trackIsDrums(track))
         ?project.padCount(track):0;
     const float gap=std::clamp(view.w*0.014f,9.0f,13.0f);
-    const float rowH=std::clamp(view.w*0.108f,82.0f,96.0f);
-    const float headerH=92.0f;
-    const float addH=54.0f;
+    const float rowH=std::clamp(view.w*0.185f,138.0f,160.0f);
+    const float headerH=132.0f;
+    const float addH=74.0f;
     const float h=
         gap+headerH+
         count*rowH+std::max(0,count-1)*gap+
@@ -461,16 +461,16 @@ NativeUi::Rect NativeUi::drumPadCardRect() const noexcept {
     const float gridGap=std::clamp(kit.w*0.009f,6.0f,9.0f);
     const float gridCell=(gridW-gridGap*6.0f)/7.0f;
     const float gridH=gridCell*7.0f+gridGap*6.0f;
-    const float iconsH=2.0f*72.0f+10.0f;
-    const float h=74.0f+gridH+18.0f+iconsH+18.0f+58.0f+20.0f;
+    const float iconsH=2.0f*94.0f+12.0f;
+    const float h=106.0f+gridH+22.0f+iconsH+22.0f+72.0f+24.0f;
     return {kit.x,kit.y+kit.h+gap,kit.w,h};
 }
 
 NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
     const auto card=drumKitCardRect();
     const float gap=std::clamp(card.w*0.014f,9.0f,13.0f);
-    const float rowH=std::clamp(card.w*0.108f,82.0f,96.0f);
-    const float top=card.y+gap+92.0f;
+    const float rowH=std::clamp(card.w*0.185f,138.0f,160.0f);
+    const float top=card.y+gap+132.0f;
     return {
         card.x+gap,
         top+index*(rowH+gap),
@@ -488,20 +488,20 @@ NativeUi::Rect NativeUi::drumActionRect(int index) const noexcept {
     const auto pad=drumPadCardRect();
     const float gap=std::clamp(pad.w*0.014f,9.0f,13.0f);
     if(index==0){
-        return {pad.x+96.0f,pad.y+14.0f,132.0f,46.0f};
+        return {pad.x+110.0f,pad.y+20.0f,156.0f,58.0f};
     }
     if(index==1){
         return {
             kit.x+gap,
-            kit.y+kit.h-gap-54.0f,
+            kit.y+kit.h-gap-74.0f,
             kit.w-gap*2.0f,
-            54.0f
+            74.0f
         };
     }
-    const float bottomY=pad.y+pad.h-gap-58.0f;
+    const float bottomY=pad.y+pad.h-gap-72.0f;
     const float w=(pad.w-gap*3.0f)*0.5f;
-    if(index==2)return {pad.x+gap,bottomY,w,58.0f};
-    return {pad.x+gap*2.0f+w,bottomY,w,58.0f};
+    if(index==2)return {pad.x+gap,bottomY,w,72.0f};
+    return {pad.x+gap*2.0f+w,bottomY,w,72.0f};
 }
 
 NativeUi::Rect NativeUi::drumSliderRect(int index) const noexcept {
@@ -536,11 +536,11 @@ NativeUi::Rect NativeUi::drumIconRect(int index) const noexcept {
     const float gridW=pad.w-outer*2.0f;
     const float gridCell=(gridW-gridGap*6.0f)/7.0f;
     const float gridH=gridCell*7.0f+gridGap*6.0f;
-    const float top=pad.y+74.0f+gridH+18.0f;
+    const float top=pad.y+106.0f+gridH+22.0f;
     return {
         pad.x+outer+col*(w+gap),
-        top+row*(72.0f+10.0f),
-        w,72.0f
+        top+row*(94.0f+12.0f),
+        w,94.0f
     };
 }
 
@@ -833,11 +833,15 @@ void NativeUi::drawGrid() const noexcept {
                 midi%12,
                 {rect.x+glyphInset,rect.y+glyphInset,rect.w-glyphInset*2.0f,rect.h-glyphInset*2.0f},
                 overlayColor(unavailable?kMuted:(active?mix(color,kWhite,0.30f):color)));
-            if(unavailable)overlay.addTextCentered("X",{rect.x,rect.y,rect.w,rect.h},std::max(0.75f,rect.w/26.0f),overlayColor(kRed,0.8f));
             if(((midi%12)+12)%12==2){
                 const int octave=(midi-62)/12;
                 const std::string label=octave>0?("+"+std::to_string(octave)):std::to_string(octave);
-                overlay.addText(label,rect.x+rect.w*0.63f,rect.y+rect.h*0.72f,std::max(0.85f,rect.w/34.0f),overlayColor(kMuted));
+                overlay.addText(
+                    label,
+                    rect.x+rect.w*0.62f,
+                    rect.y+rect.h*0.71f,
+                    0.66f,
+                    overlayColor(kMuted));
             }
         }
     }
