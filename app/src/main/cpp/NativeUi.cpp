@@ -1152,34 +1152,112 @@ bool NativeUi::trackPointerUp(){
 }
 
 void NativeUi::drawPadQuick() const noexcept {
-    auto& project = ProjectCore::instance();
-    const int track = project.selectedTrack();
-    if (track < 0 || !project.trackIsDrums(track)) return;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0||!project.trackIsDrums(track))return;
 
-    const int count = project.padCount(track);
-    const int selected = project.selectedPad(track);
-    for (int i = 0; i < count; ++i) {
-        const auto rect = padQuickRect(i, count);
-        const auto color = pitchColor(project.padCenter(track, i));
-        fillRect(rect, i == selected ? kOrange : mix(kButton, color, 0.28f));
+    auto& ov=NativeOverlay::instance();
+    const int count=project.padCount(track);
+    const int selected=project.selectedPad(track);
 
-        const float inset = std::max(2.0f, rect.h * 0.075f);
-        Rect inner{
-            rect.x + inset,
-            rect.y + inset,
-            std::max(0.0f, rect.w - inset * 2.0f),
-            std::max(0.0f, rect.h - inset * 2.0f)
-        };
-        fillRect(inner, i == selected ? mix(kPanel, kOrange, 0.22f) : kPanel);
+    for(int i=0;i<count;++i){
+        const auto row=padQuickRect(i,count);
+        const bool isSelected=i==selected;
+        const int center=project.padCenter(track,i);
+        const int lo=std::min(project.padLow(track,i),project.padHigh(track,i));
+        const int hi=std::max(project.padLow(track,i),project.padHigh(track,i));
+        const auto pc=pitchColor(center);
 
-        auto& overlay=NativeOverlay::instance();
-        std::string name=project.padIcon(track,i);
-        if(name.empty())name="PAD";
-        overlay.addTextCentered(
+        fillRect(row,isSelected?kOrange:kButton);
+        const float border=isSelected?2.5f:1.5f;
+        fillRect({
+            row.x+border,row.y+border,
+            row.w-border*2.0f,row.h-border*2.0f},
+            mix(kPanel,isSelected?kOrange:pc,isSelected?0.07f:0.025f));
+
+        const std::string iconId=project.padIcon(track,i);
+        const int iconIndex=drumIconIndex(iconId);
+        const Rect iconR{
+            row.x+14.0f,row.y+13.0f,
+            46.0f,46.0f};
+        ov.addDrumIcon(
+            iconIndex,
+            {iconR.x,iconR.y,iconR.w,iconR.h},
+            overlayColor(pc));
+
+        const float glyphSize=38.0f;
+        const float glyphY=row.y+10.0f;
+        const float glyphX=row.x+76.0f;
+        ov.addPitchGlyph(
+            lo%12,
+            {glyphX,glyphY,glyphSize,glyphSize},
+            overlayColor(kWhite));
+        if(lo!=hi){
+            ov.addTextCentered(
+                "-",
+                {glyphX+glyphSize+2.0f,glyphY,22.0f,glyphSize},
+                0.95f,overlayColor(kOrange));
+            ov.addPitchGlyph(
+                hi%12,
+                {glyphX+glyphSize+26.0f,glyphY,glyphSize,glyphSize},
+                overlayColor(kWhite));
+        }
+
+        const float infoX=row.x+176.0f;
+        std::string name=drumIconName(iconId);
+        std::string range=pitchCoord(lo);
+        if(lo!=hi)range+="–"+pitchCoord(hi);
+        std::string patch=project.padPatchName(track,i);
+        if(patch.size()>25)patch.resize(25);
+
+        ov.addText(
             name,
-            {rect.x+2.0f,rect.y+2.0f,rect.w-4.0f,rect.h-4.0f},
-            std::max(0.72f,std::min(1.1f,rect.w/(std::max<size_t>(1,name.size())*7.0f))),
-            overlayColor(i==selected?kOrange:color));
+            infoX,row.y+13.0f,
+            0.93f,overlayColor(kWhite));
+        ov.addText(
+            range+(patch.empty()?std::string{}:" · "+patch),
+            infoX,row.y+39.0f,
+            0.70f,overlayColor(kMuted));
+
+        const Rect del{
+            row.x+row.w-48.0f,
+            row.y+12.0f,
+            34.0f,34.0f};
+        fillRect(del,kButton);
+        ov.addTextCentered(
+            "×",{del.x,del.y,del.w,del.h},
+            0.95f,overlayColor(kWhite));
+
+        // Mirror the HTML per-pad Vol/Pan rows. The selected pad is live-editable;
+        // the other rows remain visible so the mixer state is always readable.
+        const float vals[2]={
+            project.padVolume(track,i),
+            (project.padPan(track,i)+1.0f)*0.5f};
+        const char* labels[2]={"Vol","Pan"};
+        const float sliderTop=row.y+row.h*0.64f;
+        const float sliderLeft=row.x+18.0f;
+        const float available=row.w-36.0f;
+        const float pairGap=24.0f;
+        const float pairW=(available-pairGap)*0.5f;
+        for(int s=0;s<2;++s){
+            const float sx=sliderLeft+s*(pairW+pairGap);
+            ov.addText(
+                labels[s],sx,sliderTop,
+                0.66f,overlayColor(kMuted));
+            const float barX=sx+42.0f;
+            const float barW=pairW-42.0f;
+            const float cy=sliderTop+12.0f;
+            fillRect({barX,cy-3.0f,barW,6.0f},kMuted);
+            fillRect({
+                barX,cy-3.0f,
+                barW*std::clamp(vals[s],0.0f,1.0f),6.0f},
+                kCyan);
+            const float knob=14.0f;
+            fillRect({
+                barX+barW*vals[s]-knob*0.5f,
+                cy-knob*0.5f,knob,knob},
+                isSelected?kWhite:mix(kWhite,kMuted,0.28f));
+        }
     }
 }
 
@@ -1193,51 +1271,111 @@ bool NativeUi::drumRangeMode() const noexcept {
 }
 
 void NativeUi::drawDrumEditor() const noexcept {
-    auto& project=ProjectCore::instance();const int track=project.selectedTrack();
-    const auto editor=drumEditorRect();fillRect(editor,mix(kPanel,kButton,0.12f));
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    const auto card=drumPadCardRect();
+    auto& ov=NativeOverlay::instance();
+
+    fillRect(card,kButton);
+    fillRect({
+        card.x+2.0f,card.y+2.0f,
+        card.w-4.0f,card.h-4.0f},kPanel);
+
+    ov.addText(
+        "PAD",card.x+18.0f,card.y+16.0f,
+        1.05f,overlayColor(kWhite));
+    ov.addText(
+        "Note",card.x+18.0f,card.y+47.0f,
+        0.88f,overlayColor(kWhite));
+
     if(track<0||!project.trackIsDrums(track))return;
+    const int pad=project.selectedPad(track);
+    const int count=project.padCount(track);
 
-    const int pad=project.selectedPad(track);const int count=project.padCount(track);
-    auto& overlay=NativeOverlay::instance();
+    const auto range=drumActionRect(0);
+    fillRect(range,drumRangeMode()?mix(kButton,kCyan,0.70f):kButton);
+    ov.addTextCentered(
+        drumRangeMode()?"Range: on":"Range",
+        {range.x,range.y,range.w,range.h},
+        0.84f,overlayColor(kWhite));
 
-    static constexpr const char* actions[3]={"RANGE","+ PAD","DELETE"};
-    const bool states[3]={drumRangeMode(),count<24,pad>=0&&pad<count};
-    const Rgb accents[3]={kCyan,kGreen,kRed};
-    for(int i=0;i<3;++i){
-        const auto r=drumActionRect(i);
-        fillRect(r,states[i]?mix(kButton,accents[i],i==0&&states[i]?0.75f:0.36f):mix(kButton,kMuted,0.35f));
-        overlay.addTextCentered(actions[i],{r.x,r.y,r.w,r.h},std::max(0.62f,std::min(0.95f,r.w/(std::char_traits<char>::length(actions[i])*6.5f))),overlayColor(states[i]?kWhite:kMuted));
-    }
     if(pad<0||pad>=count)return;
 
-    const float values[2]={project.padVolume(track,pad),(project.padPan(track,pad)+1.0f)*0.5f};
-    static constexpr const char* labels[2]={"VOL","PAN"};
-    const Rgb sliderColors[2]={kOrange,kCyan};
-    for(int i=0;i<2;++i){
-        const auto r=drumSliderRect(i);fillRect(r,kButton);
-        const float inset=std::max(4.0f,r.h*0.22f);
-        const Rect bar{r.x+inset+r.w*0.14f,r.y+r.h*0.39f,std::max(0.0f,r.w-inset*2.0f-r.w*0.14f),std::max(3.0f,r.h*0.22f)};
-        fillRect(bar,kMuted);fillRect({bar.x,bar.y,bar.w*std::clamp(values[i],0.0f,1.0f),bar.h},sliderColors[i]);
-        const float knob=std::max(5.0f,r.h*0.42f);
-        fillRect({bar.x+bar.w*values[i]-knob*0.5f,r.y+(r.h-knob)*0.5f,knob,knob},kWhite);
-        overlay.addText(labels[i],r.x+4.0f,r.y+r.h*0.32f,std::max(0.65f,r.h/34.0f),overlayColor(kWhite));
-    }
+    static constexpr const char* names[12]={
+        "Kick","Snare","Tom","Floor tom","Hi-hat","Cymbal",
+        "Ride","Bongo","Conga","Clap","Shaker","Cowbell"};
+    static constexpr const char* ids[12]={
+        "kick","snare","tom","floortom","hihat","crash",
+        "ride","bongo","conga","clap","shaker","cowbell"};
 
-    static constexpr const char* icons[12]={"KICK","SNARE","TOM","FLOOR","HAT","CRASH","RIDE","BONGO","CONGA","CLAP","SHAKER","COW"};
-    static constexpr const char* ids[12]={"kick","snare","tom","floortom","hihat","crash","ride","bongo","conga","clap","shaker","cowbell"};
     const std::string current=project.padIcon(track,pad);
     for(int i=0;i<12;++i){
-        const auto r=drumIconRect(i);const bool selected=current==ids[i];
-        fillRect(r,selected?mix(kButton,kOrange,0.72f):kButton);
-        overlay.addTextCentered(icons[i],{r.x,r.y,r.w,r.h},std::max(0.52f,std::min(0.78f,r.w/(std::char_traits<char>::length(icons[i])*6.2f))),overlayColor(selected?kBg:kWhite));
+        const auto rr=drumIconRect(i);
+        const bool sel=current==ids[i];
+        fillRect(rr,sel?mix(kButton,kOrange,0.72f):kButton);
+        const float icon=std::min(rr.w,rr.h)*0.46f;
+        ov.addDrumIcon(
+            i,
+            {rr.x+(rr.w-icon)*0.5f,rr.y+5.0f,icon,icon},
+            overlayColor(sel?kWhite:kMuted));
+        ov.addTextCentered(
+            names[i],
+            {rr.x+2.0f,rr.y+rr.h-25.0f,rr.w-4.0f,22.0f},
+            0.62f,overlayColor(sel?kWhite:kMuted));
     }
+
+    const auto tap=drumActionRect(2);
+    const auto del=drumActionRect(3);
+    fillRect(tap,kButton);
+    fillRect(del,kButton);
+    ov.addTextCentered(
+        "Tap pad",{tap.x,tap.y,tap.w,tap.h},
+        0.90f,overlayColor(kWhite));
+    ov.addTextCentered(
+        "Delete pad",{del.x,del.y,del.w,del.h},
+        0.90f,overlayColor(kWhite));
 }
 
 void NativeUi::drawDrums() const noexcept {
-    fillRect(bodyContentRect(),kPanel);
+    const auto view=bodyContentRect();
+    fillRect(view,kBg);
+
+    auto& project=ProjectCore::instance();
+    auto& ov=NativeOverlay::instance();
+    const int track=project.selectedTrack();
+
+    const auto kit=drumKitCardRect();
+    fillRect(kit,kButton);
+    fillRect({
+        kit.x+2.0f,kit.y+2.0f,
+        kit.w-4.0f,kit.h-4.0f},kPanel);
+    ov.addText(
+        "DRUM KIT",kit.x+18.0f,kit.y+16.0f,
+        1.05f,overlayColor(kWhite));
+    ov.addText(
+        "Kit",kit.x+18.0f,kit.y+54.0f,
+        0.90f,overlayColor(kWhite));
+
+    const Rect kitField{
+        kit.x+72.0f,kit.y+42.0f,
+        kit.w-90.0f,42.0f};
+    fillRect(kitField,kRollBg);
+    ov.addText(
+        (track>=0&&project.trackIsDrums(track))
+            ?"Nexdrum":"Drum kit",
+        kitField.x+12.0f,kitField.y+11.0f,
+        0.92f,overlayColor(kWhite));
+
     drawPadQuick();
-    drawGrid();
+
+    const auto add=drumActionRect(1);
+    fillRect(add,kButton);
+    ov.addTextCentered(
+        "+ Add Pad",{add.x,add.y,add.w,add.h},
+        0.96f,overlayColor(kWhite));
+
     drawDrumEditor();
+    drawGrid();
 }
 
 bool NativeUi::drumPointerDown(float x,float y){
