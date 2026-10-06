@@ -2,6 +2,7 @@
 
 #include <array>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace aiora {
@@ -45,6 +46,23 @@ enum class TrackSwitchAction : int {
     NextTrack,
     PreviousPad,
     NextPad
+};
+
+enum class DropdownKind : int {
+    None = 0,
+    Track,
+    Pad,
+    Patch,
+    Wave,
+    FilterType,
+    LfoTarget,
+    ModTarget
+};
+
+struct DropdownChoice {
+    DropdownKind kind{DropdownKind::None};
+    int context{-1};
+    int option{-1};
 };
 
 enum class TrackUtilityAction : int {
@@ -96,7 +114,7 @@ public:
 
     void resize(int width, int height) noexcept;
     void setSafeInsets(int left,int top,int right,int bottom) noexcept;
-    void setPage(NativePage page) noexcept { page_ = page; }
+    void setPage(NativePage page) noexcept { page_ = page; closeDropdown(); }
     [[nodiscard]] NativePage page() const noexcept { return page_; }
 
     void setPitchActive(int midi, bool active) noexcept;
@@ -122,6 +140,14 @@ public:
     [[nodiscard]] float rollColumnPixels() const noexcept;
 
     void render() const noexcept;
+
+    void openDropdown(
+        DropdownKind kind,int context,Rect anchor,int selected,
+        std::vector<std::string> labels);
+    void closeDropdown() noexcept;
+    [[nodiscard]] bool dropdownOpen() const noexcept { return dropdownKind_!=DropdownKind::None; }
+    [[nodiscard]] bool openUiDropdownAt(float x,float y);
+    [[nodiscard]] std::optional<DropdownChoice> hitDropdown(float x,float y);
 
     [[nodiscard]] std::optional<HeaderAction> hitHeader(float x, float y) const noexcept;
     [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
@@ -156,6 +182,7 @@ private:
     [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
     [[nodiscard]] Rect trackCardRect() const noexcept;
     [[nodiscard]] Rect patchCardRect() const noexcept;
+    [[nodiscard]] Rect patchPresetRect() const noexcept;
     [[nodiscard]] Rect aiCardRect() const noexcept;
     [[nodiscard]] Rect songCardRect() const noexcept;
     [[nodiscard]] Rect masterCardRect() const noexcept;
@@ -192,6 +219,10 @@ private:
     void drawDrums() const noexcept;
     void drawRoll() const noexcept;
     void drawPlaceholder() const noexcept;
+    void drawDropdown() const noexcept;
+    [[nodiscard]] Rect dropdownPanelRect() const noexcept;
+    [[nodiscard]] Rect dropdownItemRect(int index) const noexcept;
+    [[nodiscard]] int dropdownColumns() const noexcept;
 
     int width_{0};
     int height_{0};
@@ -215,6 +246,12 @@ private:
     int rollStepOffset_{0};
     float trackScrollY_{0.0f};
     float drumScrollY_{0.0f};
+
+    DropdownKind dropdownKind_{DropdownKind::None};
+    int dropdownContext_{-1};
+    int dropdownSelected_{-1};
+    Rect dropdownAnchor_{};
+    std::vector<std::string> dropdownLabels_{};
 };
 
 } // namespace aiora
