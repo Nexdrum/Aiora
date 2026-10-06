@@ -26,6 +26,7 @@ constexpr NativeUi::Rgb kBeat{0.1255f, 0.1490f, 0.2039f};
 constexpr NativeUi::Rgb kBar{0.1412f, 0.1725f, 0.2275f};
 constexpr NativeUi::Rgb kButton{0.1373f, 0.1569f, 0.2000f};
 constexpr NativeUi::Rgb kCyan{0.0f, 0.80f, 0.80f};
+constexpr NativeUi::Rgb kBlue{0.0f, 0.5608f, 1.0f};
 constexpr NativeUi::Rgb kOrange{1.0f, 0.6667f, 0.0f};
 constexpr NativeUi::Rgb kGreen{0.18f, 0.82f, 0.42f};
 constexpr NativeUi::Rgb kRed{0.90f, 0.18f, 0.20f};
@@ -1902,7 +1903,7 @@ void NativeUi::drawRoll() const noexcept {
         rollSelectionAnchorStep_!=rollSelectionEndStep_;
     const bool showPaste=!rollSelectionActive_&&rollClipboardAvailable_;
     const auto cornerColor=
-        hasSelectionRange?mix(kPanel,kCyan,0.42f):
+        hasSelectionRange?mix(kPanel,kOrange,0.42f):
         showPaste?mix(kPanel,kGreen,0.38f):
         kPanel;
     fillRect({viewport.x,viewport.y,gutter-1.0f,header-1.0f},cornerColor);
@@ -2113,43 +2114,57 @@ void NativeUi::drawRoll() const noexcept {
     }
 
     auto& rollOverlay=NativeOverlay::instance();
-    if(rollSelectionActive_&&
-       rollSelectionAnchorStep_!=rollSelectionEndStep_){
-        const int lo=std::min(
-            rollSelectionAnchorStep_,rollSelectionEndStep_);
-        const int hi=std::max(
-            rollSelectionAnchorStep_,rollSelectionEndStep_);
-        const float top=
-            viewport.y+header+(lo-stepOffset)*rowH;
-        const float bottom=
-            viewport.y+header+(hi-stepOffset)*rowH;
-        const float clippedTop=std::max(viewport.y+header,top);
-        const float clippedBottom=std::min(
-            viewport.y+viewport.h,bottom);
-        if(clippedBottom>clippedTop){
-            rollOverlay.addRect(
-                {viewport.x,clippedTop,viewport.w,
-                 clippedBottom-clippedTop},
-                overlayColor(kCyan,0.14f));
-        }
-        for(int edge:{lo,hi}){
-            if(edge>=stepOffset&&edge<=stepOffset+visibleRows){
-                const float ey=
-                    viewport.y+header+(edge-stepOffset)*rowH;
-                rollOverlay.addRect(
-                    {viewport.x,ey,viewport.w,2.0f},
-                    overlayColor(kCyan,0.82f));
-            }
-        }
-    }
 
+    // Blue is the independent playback/paste start marker.
     if(rollStartStep_>=stepOffset&&
        rollStartStep_<=stepOffset+visibleRows){
         const float sy=
             viewport.y+header+(rollStartStep_-stepOffset)*rowH;
         rollOverlay.addRect(
             {viewport.x,sy,viewport.w,3.0f},
-            overlayColor(kOrange,0.95f));
+            overlayColor(kBlue,0.98f));
+    }
+
+    // Orange belongs exclusively to selection mode. The anchor remains
+    // visible even before the second boundary is chosen.
+    if(rollSelectionActive_){
+        const int anchor=rollSelectionAnchorStep_;
+        if(anchor>=stepOffset&&anchor<=stepOffset+visibleRows){
+            const float ay=
+                viewport.y+header+(anchor-stepOffset)*rowH;
+            rollOverlay.addRect(
+                {viewport.x,ay,viewport.w,3.0f},
+                overlayColor(kOrange,0.98f));
+        }
+
+        if(rollSelectionAnchorStep_!=rollSelectionEndStep_){
+            const int lo=std::min(
+                rollSelectionAnchorStep_,rollSelectionEndStep_);
+            const int hi=std::max(
+                rollSelectionAnchorStep_,rollSelectionEndStep_);
+            const float top=
+                viewport.y+header+(lo-stepOffset)*rowH;
+            const float bottom=
+                viewport.y+header+(hi-stepOffset)*rowH;
+            const float clippedTop=std::max(viewport.y+header,top);
+            const float clippedBottom=std::min(
+                viewport.y+viewport.h,bottom);
+            if(clippedBottom>clippedTop){
+                rollOverlay.addRect(
+                    {viewport.x,clippedTop,viewport.w,
+                     clippedBottom-clippedTop},
+                    overlayColor(kOrange,0.12f));
+            }
+
+            const int end=rollSelectionEndStep_;
+            if(end>=stepOffset&&end<=stepOffset+visibleRows){
+                const float ey=
+                    viewport.y+header+(end-stepOffset)*rowH;
+                rollOverlay.addRect(
+                    {viewport.x,ey,viewport.w,2.0f},
+                    overlayColor(kOrange,0.86f));
+            }
+        }
     }
 
     if(AudioEngine::instance().transportPlaying()){
