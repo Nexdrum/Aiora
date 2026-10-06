@@ -799,6 +799,89 @@ bool handleUiTap(NativeState& state, float x, float y) {
     auto& project = aiora::ProjectCore::instance();
     auto& audio = aiora::AudioEngine::instance();
 
+    if(state.ui.dropdownOpen()){
+        const auto choice=state.ui.hitDropdown(x,y);
+        if(!choice){
+            state.ui.closeDropdown();
+            return true;
+        }
+
+        bool changed=false;
+        switch(choice->kind){
+            case aiora::DropdownKind::Track:
+                if(choice->option>=0&&choice->option<project.trackCount()){
+                    project.selectTrack(choice->option);
+                    state.ui.resetDrumRangeArm();
+                    if(state.ui.page()==aiora::NativePage::Synth||
+                       state.ui.page()==aiora::NativePage::Fx)
+                        previewEditorPatch(state);
+                }
+                return true;
+
+            case aiora::DropdownKind::Pad:{
+                const int track=choice->context;
+                if(track>=0&&track<project.trackCount()&&
+                   project.trackIsDrums(track)&&
+                   choice->option>=0&&choice->option<project.padCount(track)){
+                    project.selectTrack(track);
+                    project.selectPad(track,choice->option);
+                    state.ui.resetDrumRangeArm();
+                    if(state.ui.page()==aiora::NativePage::Synth||
+                       state.ui.page()==aiora::NativePage::Fx)
+                        previewEditorPatch(state);
+                }
+                return true;
+            }
+
+            case aiora::DropdownKind::Patch:{
+                const int track=choice->context;
+                if(track>=0&&track<project.trackCount()&&
+                   choice->option>=0&&
+                   choice->option<static_cast<int>(aiora::FactoryPreset::Count)){
+                    project.selectTrack(track);
+                    if(choice->option==static_cast<int>(aiora::FactoryPreset::Nexdrum)){
+                        changed=project.loadNexdrumKit(track);
+                        state.ui.resetDrumRangeArm();
+                    }else{
+                        changed=project.replaceSelectedPatch(
+                            aiora::makeFactoryPatch(
+                                static_cast<aiora::FactoryPreset>(choice->option)));
+                    }
+                }
+                break;
+            }
+
+            case aiora::DropdownKind::Wave:
+            case aiora::DropdownKind::FilterType:
+            case aiora::DropdownKind::LfoTarget:
+            case aiora::DropdownKind::ModTarget:
+                changed=aiora::NativeEditor::instance().applyDropdownChoice(*choice);
+                break;
+
+            case aiora::DropdownKind::None:
+                return true;
+        }
+
+        if(changed){
+            audio.syncProject();
+            scheduleAutosave(state,0);
+            if(state.ui.page()==aiora::NativePage::Synth||
+               state.ui.page()==aiora::NativePage::Fx)
+                previewEditorPatch(state);
+        }
+        return true;
+    }
+
+    if(state.ui.openUiDropdownAt(x,y))return true;
+
+    if(state.ui.page()==aiora::NativePage::Synth||
+       state.ui.page()==aiora::NativePage::Fx){
+        const auto page=state.ui.page()==aiora::NativePage::Synth
+            ?aiora::EditorPage::Synth:aiora::EditorPage::Fx;
+        if(aiora::NativeEditor::instance().openDropdownAt(page,x,y,state.ui))
+            return true;
+    }
+
     if (const auto action = state.ui.hitHeader(x, y)) {
         switch(*action) {
             case aiora::HeaderAction::BpmDown:
@@ -1303,6 +1386,13 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const int32_t pointerId = AMotionEvent_getPointerId(event, index);
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
+
+            // Dropdowns are modal: never let a menu tap leak through to
+            // sliders, scrolling, notes, or other controls beneath it.
+            if(state.ui.dropdownOpen()){
+                handleUiTap(state,x,y);
+                return 1;
+            }
 
             if(state.ui.page()==aiora::NativePage::Tracks&&state.ui.trackPointerDown(x,y)){
                 state.trackControlPointerId=pointerId;
