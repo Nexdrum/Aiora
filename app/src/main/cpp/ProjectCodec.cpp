@@ -460,7 +460,7 @@ std::string serializeProjectJson(const Project& project){
         if(t.drumZoneLow>=0&&t.drumZoneHigh>=0){w.raw(",\"drumZone\":[");w.number(t.drumZoneLow);w.raw(",");w.number(t.drumZoneHigh);w.raw("]");}else w.raw(",\"drumZone\":null");
         w.raw(",\"pads\":[");
         for(size_t pi=0;pi<t.pads.size();++pi){
-            if(pi)w.raw(",");const auto&p=t.pads[pi];w.raw("{\"id\":");w.string(p.id.empty()?("pad"+std::to_string(pi)):p.id);w.raw(",\"m\":");w.number(p.centerMidi);w.raw(",\"icon\":");w.string(p.icon);w.raw(",\"vol\":");w.number(p.volume);w.raw(",\"pan\":");w.number(p.pan);w.raw(",\"patch\":");writePatch(w,p.patch);w.raw(",\"range\":[");w.number(p.lowMidi);w.raw(",");w.number(p.highMidi);w.raw("]}");
+            if(pi)w.raw(",");const auto&p=t.pads[pi];w.raw("{\"id\":");w.string(p.id.empty()?("pad"+std::to_string(pi)):p.id);w.raw(",\"name\":");w.string(p.name);w.raw(",\"m\":");w.number(p.centerMidi);w.raw(",\"icon\":");w.string(p.icon);w.raw(",\"vol\":");w.number(p.volume);w.raw(",\"pan\":");w.number(p.pan);w.raw(",\"patch\":");writePatch(w,p.patch);w.raw(",\"range\":[");w.number(p.lowMidi);w.raw(",");w.number(p.highMidi);w.raw("]}");
         }
         w.raw("],\"notes\":[");
         for(size_t ni=0;ni<t.notes.size();++ni){
@@ -488,7 +488,7 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
             if(const Json* z=jt.get("drumZone");z&&z->type==Json::Type::Array&&z->array.size()>=2){t.drumZoneLow=clampi(num(&z->array[0],-1),14,110,-1);t.drumZoneHigh=clampi(num(&z->array[1],-1),14,110,-1);if(t.drumZoneLow>t.drumZoneHigh)std::swap(t.drumZoneLow,t.drumZoneHigh);}
             if(t.drums)if(const Json* pads=jt.get("pads");pads&&pads->type==Json::Type::Array){
                 for(size_t pi=0;pi<std::min<size_t>(24,pads->array.size());++pi){
-                    const auto& jp=pads->array[pi];if(jp.type!=Json::Type::Object)continue;const int center=clampi(num(jp.get("m"),62),38,86,62);DrumPad p;p.centerMidi=center;p.lowMidi=center;p.highMidi=center;p.icon=str(jp.get("icon"),"kick");p.volume=clampf(num(jp.get("vol"),1),0,1,1);p.pan=clampf(num(jp.get("pan"),0),-1,1,0);p.id=str(jp.get("id"),"pad"+std::to_string(pi));
+                    const auto& jp=pads->array[pi];if(jp.type!=Json::Type::Object)continue;const int center=clampi(num(jp.get("m"),62),38,86,62);DrumPad p;p.centerMidi=center;p.lowMidi=center;p.highMidi=center;p.icon=str(jp.get("icon"),"kick");p.name=str(jp.get("name"),"").substr(0,24);p.volume=clampf(num(jp.get("vol"),1),0,1,1);p.pan=clampf(num(jp.get("pan"),0),-1,1,0);p.id=str(jp.get("id"),"pad"+std::to_string(pi));
                     p.patch=makeFactoryPatch(FactoryPreset::SpectrachordInit);if(const Json* patch=jp.get("patch")){Patch decoded;if(readPatch(*patch,decoded))p.patch=std::move(decoded);}p.patch.fundamentalMidi=center;
                     if(const Json* range=jp.get("range");range&&range->type==Json::Type::Array&&range->array.size()>=2){p.lowMidi=clampi(num(&range->array[0],center),38,86,center);p.highMidi=clampi(num(&range->array[1],center),38,86,center);if(p.lowMidi>p.highMidi)std::swap(p.lowMidi,p.highMidi);p.centerMidi=std::clamp(center,p.lowMidi,p.highMidi);p.patch.fundamentalMidi=p.centerMidi;}
                     t.pads.push_back(std::move(p));
