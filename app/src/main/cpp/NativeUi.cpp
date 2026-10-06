@@ -989,7 +989,7 @@ void NativeUi::drawTracks() const noexcept {
             const char* label=p==2?"M":p==3?"S":"×";
             overlay.addTextCentered(
                 label,{br.x,br.y,br.w,br.h},
-                0.90f,overlayColor(kWhite));
+                1.00f,overlayColor(kWhite));
         }
     }
 
@@ -1032,7 +1032,7 @@ void NativeUi::drawTracks() const noexcept {
     overlay.addText(
         "AI writes the Spectrachord patch + FX.",
         ai.x+20.0f,ai.y+108.0f,
-        0.90f,overlayColor(kWhite));
+        1.00f,overlayColor(kWhite));
     const auto aiBtn=trackUtilityRect(1);
     fillRect(aiBtn,kButton);
     overlay.addTextCentered(
@@ -1232,16 +1232,16 @@ void NativeUi::drawPadQuick() const noexcept {
         const std::string iconId=project.padIcon(track,i);
         const int iconIndex=drumIconIndex(iconId);
         const Rect iconR{
-            row.x+14.0f,row.y+13.0f,
-            46.0f,46.0f};
+            row.x+18.0f,row.y+18.0f,
+            62.0f,62.0f};
         ov.addDrumIcon(
             iconIndex,
             {iconR.x,iconR.y,iconR.w,iconR.h},
             overlayColor(pc));
 
-        const float glyphSize=38.0f;
-        const float glyphY=row.y+10.0f;
-        const float glyphX=row.x+76.0f;
+        const float glyphSize=52.0f;
+        const float glyphY=row.y+16.0f;
+        const float glyphX=row.x+96.0f;
         ov.addPitchGlyph(
             lo%12,
             {glyphX,glyphY,glyphSize,glyphSize},
@@ -1249,15 +1249,15 @@ void NativeUi::drawPadQuick() const noexcept {
         if(lo!=hi){
             ov.addTextCentered(
                 "-",
-                {glyphX+glyphSize+2.0f,glyphY,22.0f,glyphSize},
-                0.95f,overlayColor(kOrange));
+                {glyphX+glyphSize+3.0f,glyphY,26.0f,glyphSize},
+                1.02f,overlayColor(kOrange));
             ov.addPitchGlyph(
                 hi%12,
-                {glyphX+glyphSize+26.0f,glyphY,glyphSize,glyphSize},
+                {glyphX+glyphSize+32.0f,glyphY,glyphSize,glyphSize},
                 overlayColor(kWhite));
         }
 
-        const float infoX=row.x+176.0f;
+        const float infoX=row.x+218.0f;
         std::string name=drumIconName(iconId);
         std::string range=pitchCoord(lo);
         if(lo!=hi)range+="–"+pitchCoord(hi);
@@ -1266,21 +1266,21 @@ void NativeUi::drawPadQuick() const noexcept {
 
         ov.addText(
             name,
-            infoX,row.y+13.0f,
-            0.93f,overlayColor(kWhite));
+            infoX,row.y+20.0f,
+            1.06f,overlayColor(kWhite));
         ov.addText(
             range+(patch.empty()?std::string{}:" · "+patch),
-            infoX,row.y+39.0f,
-            0.70f,overlayColor(kMuted));
+            infoX,row.y+54.0f,
+            0.78f,overlayColor(kMuted));
 
         const Rect del{
-            row.x+row.w-48.0f,
-            row.y+12.0f,
-            34.0f,34.0f};
+            row.x+row.w-62.0f,
+            row.y+18.0f,
+            44.0f,44.0f};
         fillRect(del,kButton);
         ov.addTextCentered(
             "×",{del.x,del.y,del.w,del.h},
-            0.95f,overlayColor(kWhite));
+            1.06f,overlayColor(kWhite));
 
         // Mirror the HTML per-pad Vol/Pan rows. The selected pad is live-editable;
         // the other rows remain visible so the mixer state is always readable.
@@ -1288,7 +1288,7 @@ void NativeUi::drawPadQuick() const noexcept {
             project.padVolume(track,i),
             (project.padPan(track,i)+1.0f)*0.5f};
         const char* labels[2]={"Vol","Pan"};
-        const float sliderTop=row.y+row.h*0.64f;
+        const float sliderTop=row.y+row.h*0.68f;
         const float sliderLeft=row.x+18.0f;
         const float available=row.w-36.0f;
         const float pairGap=24.0f;
@@ -1297,16 +1297,16 @@ void NativeUi::drawPadQuick() const noexcept {
             const float sx=sliderLeft+s*(pairW+pairGap);
             ov.addText(
                 labels[s],sx,sliderTop,
-                0.66f,overlayColor(kMuted));
+                0.74f,overlayColor(kMuted));
             const float barX=sx+42.0f;
             const float barW=pairW-42.0f;
-            const float cy=sliderTop+12.0f;
-            fillRect({barX,cy-3.0f,barW,6.0f},kMuted);
+            const float cy=sliderTop+15.0f;
+            fillRect({barX,cy-4.0f,barW,8.0f},kMuted);
             fillRect({
                 barX,cy-3.0f,
-                barW*std::clamp(vals[s],0.0f,1.0f),6.0f},
+                barW*std::clamp(vals[s],0.0f,1.0f),8.0f},
                 kCyan);
-            const float knob=14.0f;
+            const float knob=18.0f;
             fillRect({
                 barX+barW*vals[s]-knob*0.5f,
                 cy-knob*0.5f,knob,knob},
@@ -1336,11 +1336,11 @@ void NativeUi::drawDrumEditor() const noexcept {
         card.w-4.0f,card.h-4.0f},kPanel);
 
     ov.addText(
-        "PAD",card.x+18.0f,card.y+16.0f,
-        1.05f,overlayColor(kWhite));
+        "PAD",card.x+20.0f,card.y+20.0f,
+        1.18f,overlayColor(kWhite));
     ov.addText(
-        "Note",card.x+18.0f,card.y+47.0f,
-        0.88f,overlayColor(kWhite));
+        "Note",card.x+20.0f,card.y+62.0f,
+        0.96f,overlayColor(kWhite));
 
     if(track<0||!project.trackIsDrums(track))return;
     const int pad=project.selectedPad(track);
@@ -1351,7 +1351,7 @@ void NativeUi::drawDrumEditor() const noexcept {
     ov.addTextCentered(
         drumRangeMode()?"Range: on":"Range",
         {range.x,range.y,range.w,range.h},
-        0.84f,overlayColor(kWhite));
+        0.92f,overlayColor(kWhite));
 
     if(pad<0||pad>=count)return;
 
@@ -1367,15 +1367,15 @@ void NativeUi::drawDrumEditor() const noexcept {
         const auto rr=drumIconRect(i);
         const bool sel=current==ids[i];
         fillRect(rr,sel?mix(kButton,kOrange,0.72f):kButton);
-        const float icon=std::min(rr.w,rr.h)*0.46f;
+        const float icon=std::min(rr.w,rr.h)*0.52f;
         ov.addDrumIcon(
             i,
-            {rr.x+(rr.w-icon)*0.5f,rr.y+5.0f,icon,icon},
+            {rr.x+(rr.w-icon)*0.5f,rr.y+8.0f,icon,icon},
             overlayColor(sel?kWhite:kMuted));
         ov.addTextCentered(
             names[i],
-            {rr.x+2.0f,rr.y+rr.h-25.0f,rr.w-4.0f,22.0f},
-            0.62f,overlayColor(sel?kWhite:kMuted));
+            {rr.x+2.0f,rr.y+rr.h-31.0f,rr.w-4.0f,26.0f},
+            0.72f,overlayColor(sel?kWhite:kMuted));
     }
 
     const auto tap=drumActionRect(2);
@@ -1404,21 +1404,21 @@ void NativeUi::drawDrums() const noexcept {
         kit.x+2.0f,kit.y+2.0f,
         kit.w-4.0f,kit.h-4.0f},kPanel);
     ov.addText(
-        "DRUM KIT",kit.x+18.0f,kit.y+16.0f,
-        1.05f,overlayColor(kWhite));
+        "DRUM KIT",kit.x+20.0f,kit.y+20.0f,
+        1.18f,overlayColor(kWhite));
     ov.addText(
-        "Kit",kit.x+18.0f,kit.y+54.0f,
-        0.90f,overlayColor(kWhite));
+        "Kit",kit.x+20.0f,kit.y+72.0f,
+        1.00f,overlayColor(kWhite));
 
     const Rect kitField{
-        kit.x+72.0f,kit.y+42.0f,
-        kit.w-90.0f,42.0f};
+        kit.x+92.0f,kit.y+58.0f,
+        kit.w-114.0f,58.0f};
     fillRect(kitField,kRollBg);
     ov.addText(
         (track>=0&&project.trackIsDrums(track))
             ?"Nexdrum":"Drum kit",
-        kitField.x+12.0f,kitField.y+11.0f,
-        0.92f,overlayColor(kWhite));
+        kitField.x+14.0f,kitField.y+17.0f,
+        1.02f,overlayColor(kWhite));
 
     drawPadQuick();
 
@@ -1442,9 +1442,9 @@ bool NativeUi::drumPointerDown(float x,float y){
     for(int p=0;p<initialCount;++p){
         const auto row=padQuickRect(p,initialCount);
         const Rect del{
-            row.x+row.w-48.0f,
-            row.y+12.0f,
-            34.0f,34.0f};
+            row.x+row.w-62.0f,
+            row.y+18.0f,
+            44.0f,44.0f};
         if(del.contains(x,y)){
             drumControlChanged_=project.deleteDrumPad(track,p);
             drumRangeArmed_=false;
