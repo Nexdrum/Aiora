@@ -37,6 +37,7 @@ public:
     [[nodiscard]] std::optional<PatchTransferAction> hitPatchTransfer(
         EditorPage page, float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitFactoryPreset(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitOperatorRatio(float x,float y) const noexcept;
     bool openDropdownAt(EditorPage page,float x,float y,NativeUi& ui) const;
     bool applyDropdownChoice(const DropdownChoice& choice);
 
