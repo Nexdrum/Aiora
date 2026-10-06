@@ -283,11 +283,14 @@ NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
     const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
+    const float buttonGap=std::clamp(usableW*0.006f,4.0f,7.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
     const float brand=std::clamp(usableW*0.300f,218.0f,252.0f);
     const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
+    const float side=std::clamp(play*0.62f,42.0f,52.0f);
+    const float transportW=side+buttonGap+play+buttonGap+side;
     const float left=
-        static_cast<float>(safeLeft_)+margin+brand+gap+play+gap;
+        static_cast<float>(safeLeft_)+margin+brand+gap+transportW+gap;
     const float right=
         static_cast<float>(safeLeft_)+usableW-margin;
     const float scopeH=std::clamp(headerH*0.56f,54.0f,66.0f);
@@ -300,17 +303,34 @@ NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
 }
 
 NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
-    if(index!=0)return {};
+    if(index<0||index>2)return {};
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
     const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
+    const float buttonGap=std::clamp(usableW*0.006f,4.0f,7.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
     const float brand=std::clamp(usableW*0.300f,218.0f,252.0f);
     const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
+    const float side=std::clamp(play*0.62f,42.0f,52.0f);
+    const float startX=static_cast<float>(safeLeft_)+margin+brand+gap;
+    if(index==0){
+        return {
+            startX,
+            static_cast<float>(safeTop_)+(headerH-side)*0.5f,
+            side,side
+        };
+    }
+    if(index==1){
+        return {
+            startX+side+buttonGap,
+            static_cast<float>(safeTop_)+(headerH-play)*0.5f,
+            play,play
+        };
+    }
     return {
-        static_cast<float>(safeLeft_)+margin+brand+gap,
-        static_cast<float>(safeTop_)+(headerH-play)*0.5f,
-        play,play
+        startX+side+buttonGap+play+buttonGap,
+        static_cast<float>(safeTop_)+(headerH-side)*0.5f,
+        side,side
     };
 }
 
@@ -2231,8 +2251,15 @@ void NativeUi::render() const noexcept {
 
     auto& project=ProjectCore::instance();
     auto& audio=AudioEngine::instance();
-    const auto playR=headerControlRect(0);
+    const auto startR=headerControlRect(0);
+    const auto playR=headerControlRect(1);
+    const auto endR=headerControlRect(2);
+    fillRect(startR,kButton);
     fillRect(playR,audio.transportPlaying()?kOrange:kGreen);
+    fillRect(endR,kButton);
+    overlay.addTextCentered(
+        "<",{startR.x,startR.y,startR.w,startR.h},
+        1.45f,overlayColor(kWhite));
     if(audio.transportPlaying()){
         const float s=playR.h*0.28f;
         overlay.addRect({
@@ -2244,6 +2271,9 @@ void NativeUi::render() const noexcept {
             "▶",{playR.x,playR.y,playR.w,playR.h},
             1.65f,overlayColor(kWhite));
     }
+    overlay.addTextCentered(
+        ">",{endR.x,endR.y,endR.w,endR.h},
+        1.45f,overlayColor(kWhite));
     drawScope();
 
     for (int i = 0; i < 6; ++i) {
@@ -2322,7 +2352,9 @@ void NativeUi::render() const noexcept {
 }
 
 std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept {
-    if(headerControlRect(0).contains(x,y))return HeaderAction::TransportToggle;
+    if(headerControlRect(0).contains(x,y))return HeaderAction::TransportStart;
+    if(headerControlRect(1).contains(x,y))return HeaderAction::TransportToggle;
+    if(headerControlRect(2).contains(x,y))return HeaderAction::TransportEnd;
     return std::nullopt;
 }
 
