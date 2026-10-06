@@ -18,6 +18,8 @@ public class AioraActivity extends NativeActivity {
     public static final int REQUEST_LOAD_JSON = 4102;
     public static final int REQUEST_EXPORT_WAV = 4103;
     public static final int REQUEST_EXPORT_MIDI = 4104;
+    public static final int REQUEST_EXPORT_PATCH = 4105;
+    public static final int REQUEST_IMPORT_PATCH = 4106;
 
     private final Map<Integer, String> pendingSources = new HashMap<>();
 
@@ -82,7 +84,9 @@ public class AioraActivity extends NativeActivity {
         if (requestCode != REQUEST_SAVE_JSON &&
             requestCode != REQUEST_LOAD_JSON &&
             requestCode != REQUEST_EXPORT_WAV &&
-            requestCode != REQUEST_EXPORT_MIDI) {
+            requestCode != REQUEST_EXPORT_MIDI &&
+            requestCode != REQUEST_EXPORT_PATCH &&
+            requestCode != REQUEST_IMPORT_PATCH) {
             return;
         }
 
@@ -96,6 +100,12 @@ public class AioraActivity extends NativeActivity {
         try {
             if (requestCode == REQUEST_LOAD_JSON) {
                 File dst = new File(getFilesDir(), "aiora_open_song.json");
+                copyUriToFile(uri, dst);
+                writeResult(requestCode, true, "");
+                return;
+            }
+            if (requestCode == REQUEST_IMPORT_PATCH) {
+                File dst = new File(getFilesDir(), "aiora_open_patch.patch.json");
                 copyUriToFile(uri, dst);
                 writeResult(requestCode, true, "");
                 return;
