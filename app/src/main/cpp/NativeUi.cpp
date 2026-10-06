@@ -2346,6 +2346,20 @@ bool NativeUi::hitRollPitchHeader(float x,float y) const noexcept {
            y>=viewport.y && y<viewport.y+header;
 }
 
+std::optional<int> NativeUi::hitRollPitchHeaderMidi(float x,float y) const noexcept {
+    if(!hitRollPitchHeader(x,y))return std::nullopt;
+    const auto viewport=rollViewportRect();
+    const float gutter=rollGutterPixels();
+    const float colW=rollColumnPixels();
+    const int visibleCol=static_cast<int>(
+        std::floor((x-viewport.x-gutter)/colW));
+    const auto columns=rollColumns();
+    const int colIndex=rollPitchOffset_+visibleCol;
+    if(visibleCol<0||colIndex<0||colIndex>=static_cast<int>(columns.size()))
+        return std::nullopt;
+    return columns[static_cast<size_t>(colIndex)];
+}
+
 bool NativeUi::hitRollBeatGutter(float x,float y) const noexcept {
     if(page_!=NativePage::Roll)return false;
     const auto viewport=rollViewportRect();
