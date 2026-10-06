@@ -50,7 +50,10 @@ enum class TrackSwitchAction : int {
 enum class TrackUtilityAction : int {
     DozenalToggle,
     AiFromClipboard,
-    ClearTrack
+    ClearTrack,
+    Demo,
+    SaveProject,
+    LoadProject
 };
 
 struct RollCellHit {
