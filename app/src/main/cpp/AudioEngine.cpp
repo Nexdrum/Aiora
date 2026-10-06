@@ -106,9 +106,9 @@ bool AudioEngine::syncProject(){
     if(!events_.push({EventType::Snapshot,-1,0,0,0,reinterpret_cast<uintptr_t>(raw)})){delete raw;return false;}
     return true;
 }
-bool AudioEngine::playTransport(){
+bool AudioEngine::playTransport(int startStep){
     if(!start())return false;if(!syncProject())return false;
-    if(!events_.push({EventType::Play,-1,0,0,0,0}))return false;return true;
+    if(!events_.push({EventType::Play,-1,0,startStep,0,0}))return false;return true;
 }
 void AudioEngine::stopTransport() noexcept {events_.push({EventType::StopTransport,-1,0,0,0,0});}
 void AudioEngine::collectRetiredSnapshots() noexcept {PlaybackSnapshot*p=nullptr;while(retiredSnapshots_.pop(p))delete p;}
@@ -183,8 +183,12 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();
             masterFx_.reset();
             {Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);masterFx_.set(masterFxCfg);}
-            transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);
-            transportPlaying_.store(true,std::memory_order_relaxed);triggerStep(0);return;
+            transportStep_=std::clamp(e.source,0,std::max(0,playback_->lengthSteps-1));
+            samplesIntoStep_=0;
+            playheadStep_.store(transportStep_,std::memory_order_relaxed);
+            transportPlaying_.store(true,std::memory_order_relaxed);
+            triggerStep(transportStep_);
+            return;
         case EventType::StopTransport:
             transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
             for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();masterFx_.reset();
