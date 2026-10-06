@@ -825,6 +825,17 @@ void NativeUi::scrollRoll(int pitchDelta, int stepDelta) noexcept {
     rollStepOffset_=std::clamp(rollStepOffset_+stepDelta,0,maxStep);
 }
 
+void NativeUi::setRollStartStep(int step) noexcept {
+    rollStartStep_=std::max(0,step);
+}
+
+void NativeUi::setRollSelection(bool active,int anchorStep,int endStep) noexcept {
+    rollSelectionActive_=active;
+    rollSelectionAnchorStep_=std::max(0,anchorStep);
+    rollSelectionEndStep_=std::max(0,endStep);
+}
+
+
 void NativeUi::scrollPage(float deltaPixels) noexcept {
     if(page_==NativePage::Tracks){
         const auto view=contentRect();
@@ -1886,7 +1897,25 @@ void NativeUi::drawRoll() const noexcept {
     const int stepOffset=std::clamp(
         rollStepOffset_,0,std::max(0,rollTotalRows()-visibleRows));
 
-    fillRect({viewport.x,viewport.y,gutter-1.0f,header-1.0f},kPanel);
+    const bool hasSelectionRange=
+        rollSelectionActive_&&
+        rollSelectionAnchorStep_!=rollSelectionEndStep_;
+    const bool showPaste=!rollSelectionActive_&&rollClipboardAvailable_;
+    const auto cornerColor=
+        hasSelectionRange?mix(kPanel,kCyan,0.42f):
+        showPaste?mix(kPanel,kGreen,0.38f):
+        kPanel;
+    fillRect({viewport.x,viewport.y,gutter-1.0f,header-1.0f},cornerColor);
+    if(hasSelectionRange||showPaste){
+        auto& cornerOv=NativeOverlay::instance();
+        const std::string label=hasSelectionRange?"C":"P";
+        cornerOv.addText(
+            label,
+            viewport.x+gutter*0.38f,
+            viewport.y+header*0.30f,
+            1.55f,
+            overlayColor(kWhite));
+    }
 
     for(int cc=0;
         cc<visibleCols&&pitchOffset+cc<static_cast<int>(columns.size());
@@ -2081,6 +2110,46 @@ void NativeUi::drawRoll() const noexcept {
             }
             prevY=py;havePrev=true;
         }
+    }
+
+    auto& rollOverlay=NativeOverlay::instance();
+    if(rollSelectionActive_&&
+       rollSelectionAnchorStep_!=rollSelectionEndStep_){
+        const int lo=std::min(
+            rollSelectionAnchorStep_,rollSelectionEndStep_);
+        const int hi=std::max(
+            rollSelectionAnchorStep_,rollSelectionEndStep_);
+        const float top=
+            viewport.y+header+(lo-stepOffset)*rowH;
+        const float bottom=
+            viewport.y+header+(hi-stepOffset)*rowH;
+        const float clippedTop=std::max(viewport.y+header,top);
+        const float clippedBottom=std::min(
+            viewport.y+viewport.h,bottom);
+        if(clippedBottom>clippedTop){
+            rollOverlay.addRect(
+                {viewport.x,clippedTop,viewport.w,
+                 clippedBottom-clippedTop},
+                overlayColor(kCyan,0.14f));
+        }
+        for(int edge:{lo,hi}){
+            if(edge>=stepOffset&&edge<=stepOffset+visibleRows){
+                const float ey=
+                    viewport.y+header+(edge-stepOffset)*rowH;
+                rollOverlay.addRect(
+                    {viewport.x,ey,viewport.w,2.0f},
+                    overlayColor(kCyan,0.82f));
+            }
+        }
+    }
+
+    if(rollStartStep_>=stepOffset&&
+       rollStartStep_<=stepOffset+visibleRows){
+        const float sy=
+            viewport.y+header+(rollStartStep_-stepOffset)*rowH;
+        rollOverlay.addRect(
+            {viewport.x,sy,viewport.w,3.0f},
+            overlayColor(kOrange,0.95f));
     }
 
     if(AudioEngine::instance().transportPlaying()){
@@ -2403,6 +2472,34 @@ bool NativeUi::hitRollBeatGutter(float x,float y) const noexcept {
     const float header=rollHeaderPixels();
     return x>=viewport.x && x<viewport.x+gutter &&
            y>=viewport.y+header && y<viewport.y+viewport.h;
+}
+
+std::optional<int> NativeUi::hitRollBeatStep(float x,float y) const noexcept {
+    if(!hitRollBeatGutter(x,y))return std::nullopt;
+    const auto viewport=rollViewportRect();
+    const float rowH=rollCellPixels();
+    const float header=rollHeaderPixels();
+    const float local=(y-viewport.y-header)/std::max(1.0f,rowH);
+    const int step=rollStepOffset_+
+        static_cast<int>(std::lround(local));
+    return std::max(0,step);
+}
+
+std::optional<RollCornerAction> NativeUi::hitRollCornerAction(
+    float x,float y) const noexcept {
+    if(page_!=NativePage::Roll)return std::nullopt;
+    const auto viewport=rollViewportRect();
+    const Rect corner{
+        viewport.x,viewport.y,
+        rollGutterPixels()-1.0f,
+        rollHeaderPixels()-1.0f};
+    if(!corner.contains(x,y))return std::nullopt;
+    if(rollSelectionActive_&&
+       rollSelectionAnchorStep_!=rollSelectionEndStep_)
+        return RollCornerAction::Copy;
+    if(!rollSelectionActive_&&rollClipboardAvailable_)
+        return RollCornerAction::Paste;
+    return std::nullopt;
 }
 
 bool NativeUi::hitRollNoteArea(float x,float y) const noexcept {
