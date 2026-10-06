@@ -38,7 +38,9 @@ enum class HeaderAction : int {
     BeatsDown, BeatsUp,
     DivDown, DivUp,
     DozenalToggle,
-    TransportToggle
+    TransportStart,
+    TransportToggle,
+    TransportEnd
 };
 
 enum class ProjectTransferAction : int {
