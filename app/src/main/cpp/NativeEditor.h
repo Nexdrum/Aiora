@@ -24,6 +24,7 @@ public:
     static NativeEditor& instance();
 
     void resize(int width, int height) noexcept;
+    void setSafeInsets(int left,int top,int right,int bottom) noexcept;
     void renderSynth() const noexcept;
     void renderFx() const noexcept;
 
@@ -97,6 +98,10 @@ private:
 
     int width_{0};
     int height_{0};
+    int safeLeft_{0};
+    int safeTop_{0};
+    int safeRight_{0};
+    int safeBottom_{0};
     int selectedOperator_{0};
     bool matrixMode_{false};
     int fxGroup_{0};
