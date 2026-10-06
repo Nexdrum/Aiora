@@ -113,6 +113,8 @@ public:
     void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
     [[nodiscard]] RollMode rollMode() const noexcept { return rollMode_; }
     void scrollRoll(int pitchDelta, int stepDelta) noexcept;
+    void scrollPage(float deltaPixels) noexcept;
+    [[nodiscard]] bool hitScrollableBody(float x,float y) const noexcept;
     [[nodiscard]] float rollCellPixels() const noexcept;
 
     void render() const noexcept;
@@ -161,6 +163,8 @@ private:
     [[nodiscard]] Rect addTrackRect(TrackAddKind kind) const noexcept;
     [[nodiscard]] Rect masterSliderRect(int index) const noexcept;
     [[nodiscard]] Rect padQuickRect(int index, int count) const noexcept;
+    [[nodiscard]] Rect drumKitCardRect() const noexcept;
+    [[nodiscard]] Rect drumPadCardRect() const noexcept;
     [[nodiscard]] Rect drumEditorRect() const noexcept;
     [[nodiscard]] Rect drumActionRect(int index) const noexcept;
     [[nodiscard]] Rect drumSliderRect(int index) const noexcept;
@@ -205,6 +209,8 @@ private:
     RollMode rollMode_{RollMode::Notes};
     int rollPitchOffset_{0};
     int rollStepOffset_{0};
+    float trackScrollY_{0.0f};
+    float drumScrollY_{0.0f};
 };
 
 } // namespace aiora
