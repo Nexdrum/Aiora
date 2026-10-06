@@ -71,6 +71,15 @@ void NativeUi::resize(int width, int height) noexcept {
     width_ = std::max(0, width);
     height_ = std::max(0, height);
     NativeEditor::instance().resize(width_, height_);
+    NativeEditor::instance().setSafeInsets(safeLeft_,safeTop_,safeRight_,safeBottom_);
+}
+
+void NativeUi::setSafeInsets(int left,int top,int right,int bottom) noexcept {
+    safeLeft_=std::clamp(left,0,std::max(0,width_/2));
+    safeTop_=std::clamp(top,0,std::max(0,height_/2));
+    safeRight_=std::clamp(right,0,std::max(0,width_/2));
+    safeBottom_=std::clamp(bottom,0,std::max(0,height_/2));
+    NativeEditor::instance().setSafeInsets(safeLeft_,safeTop_,safeRight_,safeBottom_);
 }
 
 void NativeUi::setPitchActive(int midi, bool active) noexcept {
@@ -83,54 +92,63 @@ void NativeUi::clearPitchActivity() noexcept {
 }
 
 NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
-    const float margin=std::max(5.0f,width_*0.010f);
-    const float headerH=std::max(38.0f,height_*0.105f);
-    const float brand=std::clamp(width_*0.26f,96.0f,230.0f);
-    const float left=margin+100.0f;
-    const float right=margin+brand-5.0f;
+    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
+    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
+    const float margin=std::max(5.0f,usableW*0.010f);
+    const float headerH=std::max(38.0f,usableH*0.105f);
+    const float brand=std::clamp(usableW*0.26f,96.0f,230.0f);
+    const float left=static_cast<float>(safeLeft_)+margin+100.0f;
+    const float right=static_cast<float>(safeLeft_)+margin+brand-5.0f;
     if(right-left<56.0f)return {};
-    return {left,6.0f,right-left,std::max(24.0f,headerH-12.0f)};
+    return {left,static_cast<float>(safeTop_)+6.0f,right-left,std::max(24.0f,headerH-12.0f)};
 }
 
 NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
-    const float margin=std::max(5.0f,width_*0.010f);
-    const float gap=std::max(3.0f,width_*0.004f);
-    const float headerH=std::max(38.0f,height_*0.105f);
-    const float brand=std::clamp(width_*0.26f,96.0f,230.0f);
-    const float available=std::max(120.0f,static_cast<float>(width_)-margin*2.0f-brand-gap*4.0f);
+    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
+    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
+    const float margin=std::max(5.0f,usableW*0.010f);
+    const float gap=std::max(3.0f,usableW*0.004f);
+    const float headerH=std::max(38.0f,usableH*0.105f);
+    const float brand=std::clamp(usableW*0.26f,96.0f,230.0f);
+    const float available=std::max(120.0f,usableW-margin*2.0f-brand-gap*4.0f);
     static constexpr float ratios[5]={0.30f,0.16f,0.16f,0.14f,0.24f};
-    float x=margin+brand;
+    float x=static_cast<float>(safeLeft_)+margin+brand;
     for(int i=0;i<index;++i)x+=available*ratios[i]+gap;
-    return {x,4.0f,available*ratios[index],std::max(30.0f,headerH-8.0f)};
+    return {x,static_cast<float>(safeTop_)+4.0f,available*ratios[index],std::max(30.0f,headerH-8.0f)};
 }
 
 NativeUi::Rect NativeUi::navRect(int index) const noexcept {
-    const float margin = std::max(4.0f, width_ * 0.008f);
-    const float headerH = std::max(38.0f, height_ * 0.105f);
-    const float navH = std::max(38.0f, height_ * 0.105f);
-    const float gap = std::max(3.0f, width_ * 0.004f);
+    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
+    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
+    const float margin = std::max(4.0f, usableW * 0.008f);
+    const float headerH = std::max(38.0f, usableH * 0.105f);
+    const float navH = std::max(38.0f, usableH * 0.105f);
+    const float gap = std::max(3.0f, usableW * 0.004f);
     const float available = std::max(
-        0.0f, static_cast<float>(width_) - margin * 2.0f - gap * 5.0f);
+        0.0f, usableW - margin * 2.0f - gap * 5.0f);
     const float buttonW = available / 6.0f;
 
     return {
-        margin + index * (buttonW + gap),
-        headerH + gap,
+        static_cast<float>(safeLeft_) + margin + index * (buttonW + gap),
+        static_cast<float>(safeTop_) + headerH + gap,
         buttonW,
         navH - gap
     };
 }
 
 NativeUi::Rect NativeUi::contentRect() const noexcept {
-    const float margin = std::max(4.0f, width_ * 0.008f);
+    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
+    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
+    const float margin = std::max(4.0f, usableW * 0.008f);
     const auto nav = navRect(0);
-    const float gap = std::max(4.0f, height_ * 0.010f);
+    const float gap = std::max(4.0f, usableH * 0.010f);
     const float top = nav.y + nav.h + gap;
+    const float bottom=static_cast<float>(height_-safeBottom_);
     return {
-        margin,
+        static_cast<float>(safeLeft_) + margin,
         top,
-        std::max(0.0f, static_cast<float>(width_) - margin * 2.0f),
-        std::max(0.0f, static_cast<float>(height_) - top - margin)
+        std::max(0.0f, usableW - margin * 2.0f),
+        std::max(0.0f, bottom - top - margin)
     };
 }
 
@@ -952,12 +970,21 @@ void NativeUi::render() const noexcept {
     glClearColor(kBg.r, kBg.g, kBg.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    const float headerH = std::max(38.0f, height_ * 0.105f);
-    fillRect({0.0f, 0.0f, static_cast<float>(width_), headerH}, kTop);
+    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
+    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
+    const float headerH = std::max(38.0f, usableH * 0.105f);
+    fillRect({static_cast<float>(safeLeft_),static_cast<float>(safeTop_),usableW,headerH}, kTop);
     auto& overlay=NativeOverlay::instance();
     const float logoSize=std::min(30.0f,headerH-6.0f);
-    overlay.addLogo({8.0f,(headerH-logoSize)*0.5f,logoSize,logoSize},overlayColor(kCyan));
-    overlay.addText("AIORA",14.0f+logoSize,(headerH-14.0f)*0.5f,2.0f,overlayColor(kWhite));
+    overlay.addLogo({
+        static_cast<float>(safeLeft_)+8.0f,
+        static_cast<float>(safeTop_)+(headerH-logoSize)*0.5f,
+        logoSize,logoSize},overlayColor(kCyan));
+    overlay.addText(
+        "AIORA",
+        static_cast<float>(safeLeft_)+14.0f+logoSize,
+        static_cast<float>(safeTop_)+(headerH-14.0f)*0.5f,
+        2.0f,overlayColor(kWhite));
     drawScope();
 
     auto& project=ProjectCore::instance();
