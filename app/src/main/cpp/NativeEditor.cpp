@@ -87,16 +87,32 @@ bool selectedTrackIsDrums(){
 NativeEditor& NativeEditor::instance(){static NativeEditor e;return e;}
 
 void NativeEditor::resize(int width,int height) noexcept {
-    width_=std::max(0,width);height_=std::max(0,height);
+    width_=std::max(0,width);
+    height_=std::max(0,height);
+}
+
+void NativeEditor::setSafeInsets(int left,int top,int right,int bottom) noexcept {
+    safeLeft_=std::clamp(left,0,std::max(0,width_/2));
+    safeTop_=std::clamp(top,0,std::max(0,height_/2));
+    safeRight_=std::clamp(right,0,std::max(0,width_/2));
+    safeBottom_=std::clamp(bottom,0,std::max(0,height_/2));
 }
 
 NativeEditor::Rect NativeEditor::contentRect() const noexcept {
-    const float margin=std::max(4.0f,width_*0.008f);
-    const float headerH=std::max(38.0f,height_*0.105f);
-    const float navH=std::max(38.0f,height_*0.105f);
-    const float gap=std::max(4.0f,height_*0.010f);
-    const float top=headerH+navH+gap;
-    return {margin,top,std::max(0.0f,width_-margin*2.0f),std::max(0.0f,height_-top-margin)};
+    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
+    const float usableH=std::max(0,height_-safeTop_-safeBottom_);
+    const float margin=std::max(4.0f,usableW*0.008f);
+    const float headerH=std::max(38.0f,usableH*0.105f);
+    const float navH=std::max(38.0f,usableH*0.105f);
+    const float gap=std::max(4.0f,usableH*0.010f);
+    const float top=static_cast<float>(safeTop_)+headerH+navH+gap;
+    const float bottom=static_cast<float>(height_-safeBottom_);
+    return {
+        static_cast<float>(safeLeft_)+margin,
+        top,
+        std::max(0.0f,usableW-margin*2.0f),
+        std::max(0.0f,bottom-top-margin)
+    };
 }
 
 NativeEditor::Rect NativeEditor::editorRect() const noexcept {
