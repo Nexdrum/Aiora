@@ -1875,6 +1875,22 @@ void handleCommand(android_app* app, int32_t command) {
 
 } // namespace
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_nexdrum_aiora_AioraActivity_nativeDocumentResult(
+    JNIEnv* env,jclass,jint requestCode,jstring localPath,
+    jboolean success,jstring message){
+
+    PendingDocumentResult result;
+    result.requestCode=static_cast<int>(requestCode);
+    result.pending=true;
+    result.success=success==JNI_TRUE;
+    result.localPath=javaString(env,localPath);
+    result.message=javaString(env,message);
+
+    std::scoped_lock lock(gDocumentResultMutex);
+    gDocumentResult=std::move(result);
+}
+
 void android_main(android_app* app) {
     NativeState state;
     state.app = app;
