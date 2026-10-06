@@ -177,6 +177,9 @@ private:
     [[nodiscard]] Rect navRect(int index) const noexcept;
     [[nodiscard]] Rect contentRect() const noexcept;
     [[nodiscard]] Rect bodyContentRect() const noexcept;
+    [[nodiscard]] Rect pageScrollViewportRect() const noexcept;
+    [[nodiscard]] Rect pageScrollGutterRect() const noexcept;
+    [[nodiscard]] Rect pageScrollContentRect() const noexcept;
     [[nodiscard]] Rect trackSwitchRect(int part) const noexcept;
     [[nodiscard]] Rect gridAreaRect() const noexcept;
     [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
@@ -212,6 +215,7 @@ private:
     void fillRect(const Rect& rect, Rgb color) const noexcept;
     void drawScope() const noexcept;
     void drawTrackSwitchBar() const noexcept;
+    void drawPageScrollGutter() const noexcept;
     void drawGrid() const noexcept;
     void drawTracks() const noexcept;
     void drawPadQuick() const noexcept;
