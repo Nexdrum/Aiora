@@ -11,7 +11,7 @@
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:extractNativeLibs="false">
         <activity
-            android:name="android.app.NativeActivity"
+            android:name=".AioraActivity"
             android:exported="true"
             android:screenOrientation="unspecified"
             android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|uiMode">
