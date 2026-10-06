@@ -1849,7 +1849,7 @@ void NativeUi::drawRoll() const noexcept {
                 {gr.x-1.5f,gr.y-1.5f,gr.w+3.0f,gr.h+3.0f},
                 overlayColor(pcColor,0.32f));
             rollOv.addPitchGlyph(
-                midi%12,gr,overlayColor(kWhite));
+                midi%12,{gr.x,gr.y,gr.w,gr.h},overlayColor(kWhite));
         }else{
             const float glyphS=std::min(colW*0.62f,header*0.68f);
             const Rect gr{x+(colW-glyphS)*0.5f,viewport.y+3.0f,glyphS,glyphS};
@@ -1858,7 +1858,7 @@ void NativeUi::drawRoll() const noexcept {
                 {gr.x-1.5f,gr.y-1.5f,gr.w+3.0f,gr.h+3.0f},
                 overlayColor(pcColor,0.32f));
             rollOv.addPitchGlyph(
-                midi%12,gr,overlayColor(kWhite));
+                midi%12,{gr.x,gr.y,gr.w,gr.h},overlayColor(kWhite));
         }
 
         if(((midi%12)+12)%12==2){
