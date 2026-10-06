@@ -875,122 +875,292 @@ void NativeEditor::renderFx() const noexcept {
         0.82f,overlayColor(count<4?kWhite:kMuted));
 }
 
-std::optional<int> NativeEditor::hitFactoryPreset(float x,float y) const noexcept {
-    for(int i=0;i<5;++i)if(factoryPresetRect(i).contains(x,y))return i;
+std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
+    // Factory patch selection lives on the Tracks/Patch page in the HTML layout.
     return std::nullopt;
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
-    for(int i=0;i<2;++i)if(synthTabRect(i).contains(x,y))return Hit{HitKind::SynthTab,i,-1,synthTabRect(i)};
+    for(int i=0;i<2;++i){
+        const auto rr=synthTabRect(i);
+        if(rr.contains(x,y))
+            return Hit{HitKind::SynthTab,i,-1,rr};
+    }
+
     if(matrixMode_){
-        for(int m=0;m<6;++m)for(int c=0;c<6;++c)if(matrixRect(m,c).contains(x,y))return Hit{HitKind::Matrix,m,c,matrixRect(m,c)};
+        for(int m=0;m<6;++m){
+            for(int carrier=0;carrier<6;++carrier){
+                const auto rr=matrixRect(m,carrier);
+                if(rr.contains(x,y))
+                    return Hit{HitKind::Matrix,m,carrier,rr};
+            }
+        }
         return std::nullopt;
     }
-    for(int i=0;i<6;++i)if(operatorSelectRect(i).contains(x,y))return Hit{HitKind::OperatorSelect,i,-1,operatorSelectRect(i)};
-    for(int i=0;i<6;++i)if(waveRect(i).contains(x,y))return Hit{HitKind::WaveSelect,i,-1,waveRect(i)};
-    if(operatorToggleRect().contains(x,y))return Hit{HitKind::OperatorToggle,selectedOperator_,-1,operatorToggleRect()};
 
     const Patch p=ProjectCore::instance().selectedPatch();
-    const int op=std::clamp(selectedOperator_,0,5);
-    const bool custom=p.ops[static_cast<size_t>(op)].wave==Wave::Custom;
-    for(int i=0;i<7;++i)if(operatorSliderRect(i,custom).contains(x,y))return Hit{HitKind::OperatorParam,i,-1,operatorSliderRect(i,custom)};
-    if(custom)for(int i=0;i<16;++i)if(harmonicRect(i).contains(x,y))return Hit{HitKind::Harmonic,i,-1,harmonicRect(i)};
+    for(int op=0;op<6;++op){
+        const auto wave=operatorWaveFieldRect(op);
+        if(wave.contains(x,y))
+            return Hit{HitKind::WaveSelect,op,-1,wave};
+
+        const auto toggle=operatorCardToggleRect(op);
+        if(toggle.contains(x,y))
+            return Hit{HitKind::OperatorToggle,op,-1,toggle};
+
+        for(int param=0;param<7;++param){
+            const auto rr=operatorCardParamRect(op,param);
+            if(rr.contains(x,y))
+                return Hit{HitKind::OperatorParam,op,param,rr};
+        }
+
+        if(p.ops[static_cast<size_t>(op)].wave==Wave::Custom){
+            for(int partial=0;partial<16;++partial){
+                const auto rr=operatorCardHarmonicRect(op,partial);
+                if(rr.contains(x,y))
+                    return Hit{HitKind::Harmonic,op,partial,rr};
+            }
+        }
+    }
     return std::nullopt;
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noexcept {
-    for(int i=0;i<4;++i)if(fxGroupRect(i).contains(x,y))return Hit{HitKind::FxGroup,i,-1,fxGroupRect(i)};
-    if(fxGroup_==0){
-        for(int i=0;i<3;++i)if(filterTypeRect(i).contains(x,y))return Hit{HitKind::FilterType,i,-1,filterTypeRect(i)};
-        for(int i=0;i<static_cast<int>(kFilterParams.size());++i){
-            auto rr=fxSliderRect(i,static_cast<int>(kFilterParams.size()),true);if(rr.contains(x,y))return Hit{HitKind::PatchParam,static_cast<int>(kFilterParams[static_cast<size_t>(i)]),-1,rr};
-        }
-    }else if(fxGroup_==1){
-        for(int i=0;i<static_cast<int>(kAmpParams.size());++i){
-            auto rr=fxSliderRect(i,static_cast<int>(kAmpParams.size()),false);if(rr.contains(x,y))return Hit{HitKind::PatchParam,static_cast<int>(kAmpParams[static_cast<size_t>(i)]),-1,rr};
-        }
-    }else if(fxGroup_==2){
-        for(int i=0;i<4;++i)if(lfoTargetRect(i).contains(x,y))return Hit{HitKind::LfoTarget,i,-1,lfoTargetRect(i)};
-        for(int i=0;i<static_cast<int>(kLfoFxParams.size());++i){
-            auto rr=fxSliderRect(i,static_cast<int>(kLfoFxParams.size()),true);if(rr.contains(x,y))return Hit{HitKind::PatchParam,static_cast<int>(kLfoFxParams[static_cast<size_t>(i)]),-1,rr};
-        }
-    }else{
-        auto& p=ProjectCore::instance();const int count=p.selectedModSlotCount();
-        for(int slot=0;slot<count&&slot<4;++slot){
-            for(int part=0;part<6;++part){
-                const auto rr=modPartRect(slot,part);if(!rr.contains(x,y))continue;
-                const HitKind kinds[6]{HitKind::ModTargetPrev,HitKind::None,HitKind::ModTargetNext,HitKind::ModMin,HitKind::ModMax,HitKind::ModDelete};
-                if(kinds[part]!=HitKind::None)return Hit{kinds[part],slot,-1,rr};
-            }
-        }
-        if(modAddRect().contains(x,y))return Hit{HitKind::ModAdd,-1,-1,modAddRect()};
+    const auto filterType=filterTypeRect(0);
+    if(filterType.contains(x,y))
+        return Hit{HitKind::FilterType,0,-1,filterType};
+
+    for(int i=0;i<static_cast<int>(kFilterParams.size());++i){
+        const auto rr=fxSectionParamRect(0,i);
+        if(rr.contains(x,y))
+            return Hit{
+                HitKind::PatchParam,
+                static_cast<int>(kFilterParams[static_cast<size_t>(i)]),
+                -1,rr};
     }
+
+    for(int i=0;i<static_cast<int>(kAmpParams.size());++i){
+        const auto rr=fxSectionParamRect(1,i);
+        if(rr.contains(x,y))
+            return Hit{
+                HitKind::PatchParam,
+                static_cast<int>(kAmpParams[static_cast<size_t>(i)]),
+                -1,rr};
+    }
+
+    const auto target=lfoTargetRect(0);
+    if(target.contains(x,y))
+        return Hit{HitKind::LfoTarget,0,-1,target};
+
+    for(int i=0;i<static_cast<int>(kLfoFxParams.size());++i){
+        const auto rr=fxSectionParamRect(2,i);
+        if(rr.contains(x,y))
+            return Hit{
+                HitKind::PatchParam,
+                static_cast<int>(kLfoFxParams[static_cast<size_t>(i)]),
+                -1,rr};
+    }
+
+    auto& project=ProjectCore::instance();
+    const int count=project.selectedModSlotCount();
+    for(int slot=0;slot<count&&slot<4;++slot){
+        const auto targetRect=modPartRect(slot,1);
+        if(targetRect.contains(x,y))
+            return Hit{HitKind::ModTargetNext,slot,-1,targetRect};
+
+        const auto mn=modPartRect(slot,3);
+        if(mn.contains(x,y))
+            return Hit{HitKind::ModMin,slot,-1,mn};
+
+        const auto mx=modPartRect(slot,4);
+        if(mx.contains(x,y))
+            return Hit{HitKind::ModMax,slot,-1,mx};
+
+        const auto del=modPartRect(slot,5);
+        if(del.contains(x,y))
+            return Hit{HitKind::ModDelete,slot,-1,del};
+    }
+
+    const auto add=modAddRect();
+    if(add.contains(x,y))
+        return Hit{HitKind::ModAdd,-1,-1,add};
+
     return std::nullopt;
 }
 
 bool NativeEditor::applyHit(const Hit& hit,float x,float y){
     auto& project=ProjectCore::instance();
-    const float nx=hit.rect.w>0?std::clamp((x-hit.rect.x)/hit.rect.w,0.0f,1.0f):0.5f;
-    const float ny=hit.rect.h>0?std::clamp((y-hit.rect.y)/hit.rect.h,0.0f,1.0f):0.5f;
+    const float nx=hit.rect.w>0
+        ?std::clamp((x-hit.rect.x)/hit.rect.w,0.0f,1.0f)
+        :0.5f;
+    const float ny=hit.rect.h>0
+        ?std::clamp((y-hit.rect.y)/hit.rect.h,0.0f,1.0f)
+        :0.5f;
+
     switch(hit.kind){
-        case HitKind::SynthTab:matrixMode_=hit.a==1;return false;
-        case HitKind::OperatorSelect:selectedOperator_=std::clamp(hit.a,0,5);return false;
-        case HitKind::WaveSelect:return project.setSelectedOperatorWave(selectedOperator_,static_cast<Wave>(std::clamp(hit.a,0,5)));
+        case HitKind::SynthTab:
+            matrixMode_=hit.a==1;
+            if(matrixMode_)synthScrollY_=0.0f;
+            return false;
+
+        case HitKind::OperatorSelect:
+            selectedOperator_=std::clamp(hit.a,0,5);
+            return false;
+
+        case HitKind::WaveSelect:{
+            const int op=std::clamp(hit.a,0,5);
+            const auto p=project.selectedPatch();
+            const int current=std::clamp(
+                static_cast<int>(p.ops[static_cast<size_t>(op)].wave),0,5);
+            return project.setSelectedOperatorWave(
+                op,static_cast<Wave>((current+1)%6));
+        }
+
         case HitKind::OperatorToggle:{
-            const auto p=project.selectedPatch();const int op=std::clamp(selectedOperator_,0,5);
-            return project.setSelectedOperatorEnabled(op,!p.ops[static_cast<size_t>(op)].enabled);
+            const int op=std::clamp(hit.a,0,5);
+            const auto p=project.selectedPatch();
+            return project.setSelectedOperatorEnabled(
+                op,!p.ops[static_cast<size_t>(op)].enabled);
         }
+
         case HitKind::OperatorParam:{
-            const auto param=kOperatorParams[static_cast<size_t>(std::clamp(hit.a,0,6))];
-            return project.setSelectedOperatorParam(selectedOperator_,param,denormalized(nx,operatorRange(param)));
+            const int op=std::clamp(hit.a,0,5);
+            const int paramIndex=std::clamp(hit.b,0,6);
+            const auto param=kOperatorParams[static_cast<size_t>(paramIndex)];
+
+            // The left portion of the row is the label in the HTML layout.
+            const float labelFraction=30.0f/std::max(1.0f,hit.rect.w);
+            const float controlNx=std::clamp(
+                (nx-labelFraction)/std::max(0.01f,1.0f-labelFraction),
+                0.0f,1.0f);
+
+            return project.setSelectedOperatorParam(
+                op,param,
+                denormalized(controlNx,operatorRange(param)));
         }
-        case HitKind::Harmonic:return project.setSelectedHarmonic(selectedOperator_,hit.a,1.0f-ny,false);
-        case HitKind::Matrix:return project.setSelectedMatrixAmount(hit.a,hit.b,nx);
-        case HitKind::FxGroup:fxGroup_=std::clamp(hit.a,0,3);return false;
-        case HitKind::FilterType:return project.setSelectedFilterType(static_cast<FilterType>(std::clamp(hit.a,0,2)));
-        case HitKind::LfoTarget:return project.setSelectedLfoTarget(static_cast<LfoTarget>(std::clamp(hit.a,0,3)));
+
+        case HitKind::Harmonic:
+            return project.setSelectedHarmonic(
+                std::clamp(hit.a,0,5),
+                std::clamp(hit.b,0,15),
+                1.0f-ny,
+                false);
+
+        case HitKind::Matrix:
+            return project.setSelectedMatrixAmount(hit.a,hit.b,nx);
+
+        case HitKind::FxGroup:
+            fxGroup_=std::clamp(hit.a,0,3);
+            return false;
+
+        case HitKind::FilterType:{
+            const auto p=project.selectedPatch();
+            const int current=std::clamp(
+                static_cast<int>(p.filter.type),0,2);
+            return project.setSelectedFilterType(
+                static_cast<FilterType>((current+1)%3));
+        }
+
+        case HitKind::LfoTarget:{
+            const auto p=project.selectedPatch();
+            const int current=std::clamp(
+                static_cast<int>(p.lfo.target),0,3);
+            return project.setSelectedLfoTarget(
+                static_cast<LfoTarget>((current+1)%4));
+        }
+
         case HitKind::PatchParam:{
             const auto param=static_cast<PatchParam>(hit.a);
-            return project.setSelectedPatchParam(param,denormalized(nx,patchRange(param)));
+            const float labelFraction=
+                std::clamp(120.0f/std::max(1.0f,hit.rect.w),0.12f,0.36f);
+            const float valueFraction=
+                std::clamp(58.0f/std::max(1.0f,hit.rect.w),0.08f,0.22f);
+            const float controlNx=std::clamp(
+                (nx-labelFraction)/
+                    std::max(0.01f,1.0f-labelFraction-valueFraction),
+                0.0f,1.0f);
+            return project.setSelectedPatchParam(
+                param,denormalized(controlNx,patchRange(param)));
         }
+
         case HitKind::ModTargetPrev:
         case HitKind::ModTargetNext:{
-            const auto s=project.selectedModSlot(hit.a);const int dir=hit.kind==HitKind::ModTargetNext?1:-1;
-            const auto target=cycleModTarget(s.target,dir);const auto rr=modRange(target);const float mid=(rr.lo+rr.hi)*0.5f;
-            return project.setSelectedModSlot(hit.a,target,mid,mid);
+            const auto s=project.selectedModSlot(hit.a);
+            const int dir=hit.kind==HitKind::ModTargetNext?1:-1;
+            const auto target=cycleModTarget(s.target,dir);
+            const auto rr=modRange(target);
+            const float mid=(rr.lo+rr.hi)*0.5f;
+            return project.setSelectedModSlot(
+                hit.a,target,mid,mid);
         }
+
         case HitKind::ModMin:
         case HitKind::ModMax:{
-            const auto s=project.selectedModSlot(hit.a);const auto rr=modRange(s.target);const float v=denormalized(nx,rr);
+            const auto s=project.selectedModSlot(hit.a);
+            const auto rr=modRange(s.target);
+            const float v=denormalized(nx,rr);
             return hit.kind==HitKind::ModMin
                 ?project.setSelectedModSlot(hit.a,s.target,v,s.max)
                 :project.setSelectedModSlot(hit.a,s.target,s.min,v);
         }
-        case HitKind::ModDelete:return project.removeSelectedModSlot(hit.a);
-        case HitKind::ModAdd:return project.addSelectedModSlot(ModTarget::Cutoff);
-        case HitKind::None:return false;
+
+        case HitKind::ModDelete:
+            return project.removeSelectedModSlot(hit.a);
+
+        case HitKind::ModAdd:
+            return project.addSelectedModSlot(ModTarget::Cutoff);
+
+        case HitKind::None:
+            return false;
     }
     return false;
 }
 
 std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
-    EditorPage page,float x,float y) const noexcept {
-    (void)page;
-    if(patchTransferRect(0).contains(x,y))return PatchTransferAction::AiFromClipboard;
-    if(patchTransferRect(1).contains(x,y))return PatchTransferAction::CopyPatch;
-    if(patchTransferRect(2).contains(x,y))return PatchTransferAction::PastePatch;
+    EditorPage,float x,float y) const noexcept {
+
+    const auto copy=patchTransferRect(1);
+    if(copy.contains(x,y))return PatchTransferAction::CopyPatch;
+
+    const auto paste=patchTransferRect(2);
+    if(paste.contains(x,y))return PatchTransferAction::PastePatch;
+
     return std::nullopt;
 }
 
 bool NativeEditor::pointerDown(EditorPage page,float x,float y){
-    activePage_=page;changed_=false;
-    activeHit_=page==EditorPage::Synth?hitSynth(x,y):hitFx(x,y);
-    if(!activeHit_)return false;
-    changed_=applyHit(*activeHit_,x,y)||changed_;
-    return true;
+    activePage_=page;
+    changed_=false;
+    scrolling_=false;
+
+    activeHit_=page==EditorPage::Synth
+        ?hitSynth(x,y)
+        :hitFx(x,y);
+
+    if(activeHit_){
+        changed_=applyHit(*activeHit_,x,y)||changed_;
+        return true;
+    }
+
+    const auto body=bodyRect();
+    if(body.contains(x,y)){
+        scrolling_=true;
+        scrollLastY_=y;
+        return true;
+    }
+
+    return false;
 }
+
 bool NativeEditor::pointerMove(float x,float y){
+    if(scrolling_){
+        scrollEditor(activePage_,scrollLastY_-y);
+        scrollLastY_=y;
+        return true;
+    }
+
     if(!activeHit_)return false;
+
     switch(activeHit_->kind){
         case HitKind::OperatorParam:
         case HitKind::Harmonic:
@@ -998,13 +1168,26 @@ bool NativeEditor::pointerMove(float x,float y){
         case HitKind::PatchParam:
         case HitKind::ModMin:
         case HitKind::ModMax:
-            changed_=applyHit(*activeHit_,x,y)||changed_;return true;
-        default:return true;
+            changed_=applyHit(*activeHit_,x,y)||changed_;
+            return true;
+
+        default:
+            return true;
     }
 }
+
 bool NativeEditor::pointerUp(){
-    const bool changed=changed_;activeHit_.reset();changed_=false;return changed;
+    const bool changed=changed_;
+    activeHit_.reset();
+    scrolling_=false;
+    changed_=false;
+    return changed;
 }
-void NativeEditor::cancel() noexcept {activeHit_.reset();changed_=false;}
+
+void NativeEditor::cancel() noexcept {
+    activeHit_.reset();
+    scrolling_=false;
+    changed_=false;
+}
 
 } // namespace aiora
