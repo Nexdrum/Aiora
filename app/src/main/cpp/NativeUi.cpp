@@ -127,19 +127,20 @@ void NativeUi::clearPitchActivity() noexcept {
 NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float gap=std::clamp(usableW*0.010f,7.0f,12.0f);
+    const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.205f,138.0f,176.0f);
-    const float play=std::clamp(headerH*0.78f,64.0f,82.0f);
+    const float brand=std::clamp(usableW*0.255f,192.0f,224.0f);
+    const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
     const float left=
         static_cast<float>(safeLeft_)+margin+brand+gap+play+gap;
     const float right=
         static_cast<float>(safeLeft_)+usableW-margin;
+    const float scopeH=std::clamp(headerH*0.56f,54.0f,66.0f);
     return {
         left,
-        static_cast<float>(safeTop_)+(headerH-44.0f)*0.5f,
-        std::max(80.0f,right-left),
-        44.0f
+        static_cast<float>(safeTop_)+(headerH-scopeH)*0.5f,
+        std::max(96.0f,right-left),
+        scopeH
     };
 }
 
@@ -147,10 +148,10 @@ NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
     if(index!=0)return {};
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float gap=std::clamp(usableW*0.010f,7.0f,12.0f);
+    const float gap=std::clamp(usableW*0.014f,10.0f,16.0f);
     const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.205f,138.0f,176.0f);
-    const float play=std::clamp(headerH*0.78f,64.0f,82.0f);
+    const float brand=std::clamp(usableW*0.255f,192.0f,224.0f);
+    const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
     return {
         static_cast<float>(safeLeft_)+margin+brand+gap,
         static_cast<float>(safeTop_)+(headerH-play)*0.5f,
@@ -688,61 +689,80 @@ void NativeUi::fillRect(const Rect& rect, Rgb color) const noexcept {
 
 void NativeUi::drawScope() const noexcept {
     const auto r=headerScopeRect();
-    if(r.w<56.0f||r.h<20.0f)return;
+    if(r.w<72.0f||r.h<28.0f)return;
 
     std::array<float,AudioEngine::kScopeReadSamples> samples{};
     AudioEngine::instance().copyScope(samples);
 
-    fillRect(r,mix(kTop,kBg,0.62f));
+    fillRect(r,mix(kTop,kBg,0.76f));
 
-    // Keep the HTML version's rainbow identity visible even at silence.
-    constexpr int rainbowSegments=48;
-    for(int i=0;i<rainbowSegments;++i){
-        const float x0=r.x+r.w*static_cast<float>(i)/rainbowSegments;
-        const float x1=r.x+r.w*static_cast<float>(i+1)/rainbowSegments;
-        const auto col=pitchColor((i*12)/rainbowSegments);
-        fillRect({
-            x0,
-            r.y+r.h*0.5f-1.5f,
-            std::max(1.0f,x1-x0+0.5f),
-            3.0f},
-            mix(kTop,col,0.88f));
-    }
+    float peak=0.0f;
+    for(float s:samples)peak=std::max(peak,std::fabs(s));
+    const float mid=r.y+r.h*0.5f;
 
-    size_t trigger=0;
-    const size_t searchEnd=samples.size()/2;
-    for(size_t i=1;i<searchEnd;++i){
-        if(samples[i-1]<=0.0f&&samples[i]>0.0f){
+    // A quiet center line is useful as the oscilloscope's zero reference.
+    NativeOverlay::instance().addLine(
+        r.x,mid,r.x+r.w,mid,
+        1.0f,overlayColor(mix(kMuted,kTop,0.70f),0.65f));
+
+    if(peak<0.003f)return;
+
+    // Trigger on a rising zero crossing after the initial edge so a stable
+    // periodic waveform does not slide horizontally from frame to frame.
+    size_t trigger=4;
+    bool found=false;
+    for(size_t i=4;i+1<samples.size()/2;++i){
+        if(samples[i-1]<=0.0f&&samples[i]>0.0f&&
+           (samples[i+1]-samples[i-1])>0.002f){
             trigger=i;
+            found=true;
             break;
         }
     }
+    if(!found)trigger=0;
 
-    const int points=std::clamp(static_cast<int>(r.w/2.0f),24,96);
-    float prevY=r.y+r.h*0.5f;
-    for(int i=0;i<points;++i){
-        const float t=points>1?static_cast<float>(i)/static_cast<float>(points-1):0.0f;
-        const size_t available=samples.size()-trigger;
-        const size_t idx=trigger+std::min(
-            available-1,
-            static_cast<size_t>(t*static_cast<float>(available-1)));
-        const float sample=std::clamp(samples[idx],-1.0f,1.0f);
-        const float y=r.y+r.h*0.5f-sample*(r.h*0.43f);
-        const float x=r.x+t*r.w;
+    // Display gain only affects visualization. Strong signals remain 1:1;
+    // quieter signals are enlarged enough to remain legible without turning
+    // silence into a fake waveform.
+    const float displayGain=std::clamp(0.72f/std::max(peak,0.001f),1.0f,7.0f);
+    const size_t available=samples.size()-trigger;
+    const int points=std::clamp(
+        static_cast<int>(r.w*0.48f),
+        96,
+        static_cast<int>(available));
 
-        if(i>0){
-            const float top=std::min(prevY,y);
-            const float bottom=std::max(prevY,y);
-            const auto color=pitchColor((i*12)/std::max(1,points));
-            fillRect({
-                x-2.8f,top-1.0f,5.0f,
-                std::max(3.0f,bottom-top+2.0f)},
-                mix(kTop,color,0.66f));
-            fillRect({
-                x-1.1f,top,2.2f,
-                std::max(2.0f,bottom-top)},
-                mix(color,kWhite,0.14f));
-        }
+    auto sampleAt=[&](int point){
+        if(points<=1||available<=1)return samples[trigger];
+        const float u=static_cast<float>(point)/static_cast<float>(points-1);
+        const float pos=u*static_cast<float>(available-1);
+        const size_t i0=static_cast<size_t>(pos);
+        const size_t i1=std::min(i0+1,available-1);
+        const float f=pos-static_cast<float>(i0);
+        return samples[trigger+i0]*(1.0f-f)+samples[trigger+i1]*f;
+    };
+
+    float prevX=r.x;
+    float prevY=mid-std::clamp(sampleAt(0)*displayGain,-1.0f,1.0f)*(r.h*0.43f);
+    auto& ov=NativeOverlay::instance();
+
+    for(int i=1;i<points;++i){
+        const float u=static_cast<float>(i)/static_cast<float>(points-1);
+        const float x=r.x+u*r.w;
+        const float s=std::clamp(sampleAt(i)*displayGain,-1.0f,1.0f);
+        const float y=mid-s*(r.h*0.43f);
+        const auto color=pitchColor((i*12)/std::max(1,points-1));
+
+        // Soft glow + crisp trace, like the browser oscilloscope.
+        ov.addLine(
+            prevX,prevY,x,y,
+            std::max(4.0f,r.h*0.075f),
+            overlayColor(mix(kTop,color,0.58f),0.46f));
+        ov.addLine(
+            prevX,prevY,x,y,
+            std::max(1.6f,r.h*0.030f),
+            overlayColor(mix(color,kWhite,0.08f),0.98f));
+
+        prevX=x;
         prevY=y;
     }
 }
@@ -1804,14 +1824,14 @@ void NativeUi::render() const noexcept {
     glClear(GL_COLOR_BUFFER_BIT);
 
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float headerH=std::clamp(usableW*0.118f,80.0f,102.0f);
+    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
     fillRect({
         static_cast<float>(safeLeft_),
         static_cast<float>(safeTop_),
         usableW,headerH},kTop);
     auto& overlay=NativeOverlay::instance();
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float logoSize=std::clamp(headerH*0.62f,48.0f,64.0f);
+    const float logoSize=std::clamp(headerH*0.66f,54.0f,70.0f);
     const NativeOverlay::Rect logoR{
         static_cast<float>(safeLeft_)+margin,
         static_cast<float>(safeTop_)+(headerH-logoSize)*0.5f,
@@ -1828,7 +1848,7 @@ void NativeUi::render() const noexcept {
     overlay.addLogo(logoR,overlayColor(kWhite,0.88f));
     overlay.addText(
         "A I O R A",
-        static_cast<float>(safeLeft_)+margin+logoSize+10.0f,
+        static_cast<float>(safeLeft_)+margin+logoSize+14.0f,
         static_cast<float>(safeTop_)+headerH*0.36f,
         1.02f,overlayColor(kWhite));
 
