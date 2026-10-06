@@ -33,8 +33,25 @@ struct PointerVoice {
     int voiceId{-1};
 };
 
+enum class RollGestureKind : uint8_t {
+    None,
+    PitchScroll,
+    TimeScroll,
+    NoteEdit,
+    AutomationEdit
+};
+
+enum class RollNoteEdit : uint8_t {
+    None,
+    Create,
+    Move,
+    Resize
+};
+
 struct RollGesture {
     int32_t pointerId{-1};
+    RollGestureKind kind{RollGestureKind::None};
+    RollNoteEdit noteEdit{RollNoteEdit::None};
     float downX{0.0f};
     float downY{0.0f};
     float lastX{0.0f};
@@ -43,6 +60,12 @@ struct RollGesture {
     float accumY{0.0f};
     int64_t downTimeMs{0};
     bool moved{false};
+
+    int track{-1};
+    int noteIndex{-1};
+    int noteMidi{-1};
+    float noteStart{0.0f};
+    float noteLength{1.0f};
 
     void clear() noexcept { *this = {}; pointerId = -1; }
 };
@@ -836,17 +859,57 @@ void beginRollGesture(
     int32_t pointerId,
     float x,
     float y,
-    int64_t timeMs) {
+    int64_t timeMs,
+    RollGestureKind kind) {
 
+    state.rollGesture.clear();
     state.rollGesture.pointerId = pointerId;
+    state.rollGesture.kind = kind;
     state.rollGesture.downX = x;
     state.rollGesture.downY = y;
     state.rollGesture.lastX = x;
     state.rollGesture.lastY = y;
-    state.rollGesture.accumX = 0.0f;
-    state.rollGesture.accumY = 0.0f;
     state.rollGesture.downTimeMs = timeMs;
-    state.rollGesture.moved = false;
+}
+
+bool beginRollNoteGesture(
+    NativeState& state,
+    int32_t pointerId,
+    float x,
+    float y,
+    int64_t timeMs) {
+
+    auto& project=aiora::ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return false;
+
+    const auto hit=state.ui.hitRollCell(x,y);
+    if(!hit)return false;
+
+    beginRollGesture(state,pointerId,x,y,timeMs,RollGestureKind::NoteEdit);
+    auto& g=state.rollGesture;
+    g.track=track;
+
+    const int note=noteAtCell(track,hit->midi,hit->step);
+    if(note<0){
+        g.noteIndex=project.addNote(track,hit->midi,static_cast<float>(hit->step),1.0f);
+        if(g.noteIndex<0){g.clear();return false;}
+        g.noteEdit=RollNoteEdit::Create;
+        g.noteMidi=hit->midi;
+        g.noteStart=static_cast<float>(hit->step);
+        g.noteLength=1.0f;
+        return true;
+    }
+
+    g.noteIndex=note;
+    g.noteMidi=project.noteMidi(track,note);
+    g.noteStart=project.noteStart(track,note);
+    g.noteLength=project.noteLength(track,note);
+
+    const bool bodyOrTail=static_cast<float>(hit->step)>g.noteStart+0.001f;
+    const bool oneCellEdge=g.noteLength<=1.001f&&hit->normalizedDown>0.55f;
+    g.noteEdit=(bodyOrTail||oneCellEdge)?RollNoteEdit::Resize:RollNoteEdit::Move;
+    return true;
 }
 
 void moveRollGesture(NativeState& state, float x, float y) {
@@ -857,23 +920,60 @@ void moveRollGesture(NativeState& state, float x, float y) {
     const float dy = y - g.lastY;
     g.lastX = x;
     g.lastY = y;
-    g.accumX += dx;
-    g.accumY += dy;
 
     const float totalDx = x - g.downX;
     const float totalDy = y - g.downY;
-    if (std::hypot(totalDx, totalDy) > 8.0f) g.moved = true;
+    if (!g.moved && std::hypot(totalDx,totalDy)>8.0f) g.moved=true;
 
     const float threshold = std::max(16.0f, state.ui.rollCellPixels() * 0.72f);
-    while (std::fabs(g.accumX) >= threshold) {
-        const int delta = g.accumX < 0.0f ? 1 : -1;
-        state.ui.scrollRoll(delta, 0);
-        g.accumX += g.accumX < 0.0f ? threshold : -threshold;
+
+    if(g.kind==RollGestureKind::PitchScroll){
+        g.accumX+=dx;
+        while(std::fabs(g.accumX)>=threshold){
+            const int delta=g.accumX<0.0f?1:-1;
+            state.ui.scrollRoll(delta,0);
+            g.accumX+=g.accumX<0.0f?threshold:-threshold;
+        }
+        return;
     }
-    while (std::fabs(g.accumY) >= threshold) {
-        const int delta = g.accumY < 0.0f ? 1 : -1;
-        state.ui.scrollRoll(0, delta);
-        g.accumY += g.accumY < 0.0f ? threshold : -threshold;
+
+    if(g.kind==RollGestureKind::TimeScroll){
+        g.accumY+=dy;
+        while(std::fabs(g.accumY)>=threshold){
+            const int delta=g.accumY<0.0f?1:-1;
+            state.ui.scrollRoll(0,delta);
+            g.accumY+=g.accumY<0.0f?threshold:-threshold;
+        }
+        return;
+    }
+
+    if(g.kind!=RollGestureKind::NoteEdit||!g.moved||g.track<0||g.noteIndex<0)return;
+
+    const auto hit=state.ui.hitRollCell(x,y);
+    if(!hit)return;
+
+    auto& project=aiora::ProjectCore::instance();
+    if(g.noteEdit==RollNoteEdit::Create){
+        const float length=std::clamp(
+            static_cast<float>(hit->step)-g.noteStart+1.0f,
+            1.0f,64.0f);
+        if(project.updateNote(g.track,g.noteIndex,hit->midi,g.noteStart,length)){
+            g.noteMidi=hit->midi;
+            g.noteLength=length;
+        }
+    }else if(g.noteEdit==RollNoteEdit::Move){
+        if(project.updateNote(
+            g.track,g.noteIndex,hit->midi,static_cast<float>(hit->step),g.noteLength)){
+            g.noteMidi=hit->midi;
+            g.noteStart=static_cast<float>(hit->step);
+        }
+    }else if(g.noteEdit==RollNoteEdit::Resize){
+        const float length=std::clamp(
+            static_cast<float>(hit->step)-g.noteStart+1.0f,
+            1.0f,64.0f);
+        if(project.updateNote(g.track,g.noteIndex,g.noteMidi,g.noteStart,length)){
+            g.noteLength=length;
+        }
     }
 }
 
@@ -918,14 +1018,31 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             }
 
             if (state.ui.page() == aiora::NativePage::Roll) {
-                if (state.rollGesture.pointerId < 0) {
+                if(state.rollGesture.pointerId>=0)return 1;
+                const int64_t timeMs=static_cast<int64_t>(AMotionEvent_getEventTime(event));
+
+                if(state.ui.hitRollPitchHeader(x,y)){
                     beginRollGesture(
-                        state,
-                        pointerId,
-                        x,
-                        y,
-                        static_cast<int64_t>(AMotionEvent_getEventTime(event)));
+                        state,pointerId,x,y,timeMs,RollGestureKind::PitchScroll);
+                    return 1;
                 }
+
+                if(state.ui.hitRollBeatGutter(x,y)){
+                    beginRollGesture(
+                        state,pointerId,x,y,timeMs,RollGestureKind::TimeScroll);
+                    return 1;
+                }
+
+                if(state.ui.hitRollNoteArea(x,y)){
+                    if(state.ui.rollMode()==aiora::RollMode::Notes){
+                        beginRollNoteGesture(state,pointerId,x,y,timeMs);
+                    }else{
+                        beginRollGesture(
+                            state,pointerId,x,y,timeMs,RollGestureKind::AutomationEdit);
+                    }
+                    return 1;
+                }
+
                 return 1;
             }
 
@@ -1034,13 +1151,25 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             }
 
             if (state.rollGesture.pointerId == pointerId) {
+                auto& g=state.rollGesture;
                 const int64_t heldMs =
                     static_cast<int64_t>(AMotionEvent_getEventTime(event)) -
-                    state.rollGesture.downTimeMs;
-                if (!state.rollGesture.moved) {
-                    handleRollTap(state, x, y, heldMs >= kLongPressMs);
+                    g.downTimeMs;
+
+                if(g.kind==RollGestureKind::NoteEdit){
+                    auto& project=aiora::ProjectCore::instance();
+                    if(!g.moved &&
+                       (g.noteEdit==RollNoteEdit::Move||g.noteEdit==RollNoteEdit::Resize) &&
+                       g.track>=0&&g.noteIndex>=0){
+                        project.deleteNote(g.track,g.noteIndex);
+                    }
+                    aiora::AudioEngine::instance().syncProject();
+                    scheduleAutosave(state);
+                }else if(g.kind==RollGestureKind::AutomationEdit&&!g.moved){
+                    handleRollTap(state,x,y,heldMs>=kLongPressMs);
                 }
-                state.rollGesture.clear();
+
+                g.clear();
                 return 1;
             }
 
