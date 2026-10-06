@@ -47,6 +47,11 @@ enum class TrackSwitchAction : int {
     NextPad
 };
 
+enum class TrackUtilityAction : int {
+    DozenalToggle,
+    AiFromClipboard
+};
+
 struct RollCellHit {
     int midi{-1};
     int step{-1};
@@ -116,6 +121,7 @@ public:
     [[nodiscard]] std::optional<TrackSwitchAction> hitTrackSwitch(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<TrackUtilityAction> hitTrackUtility(float x,float y) const noexcept;
     [[nodiscard]] std::optional<ProjectTransferAction> hitProjectTransfer(float x, float y) const noexcept;
     [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
@@ -141,6 +147,13 @@ private:
     [[nodiscard]] Rect trackSwitchRect(int part) const noexcept;
     [[nodiscard]] Rect gridAreaRect() const noexcept;
     [[nodiscard]] Rect gridRect(int visualRow, int column) const noexcept;
+    [[nodiscard]] Rect trackCardRect() const noexcept;
+    [[nodiscard]] Rect patchCardRect() const noexcept;
+    [[nodiscard]] Rect aiCardRect() const noexcept;
+    [[nodiscard]] Rect songCardRect() const noexcept;
+    [[nodiscard]] Rect masterCardRect() const noexcept;
+    [[nodiscard]] Rect trackSongSliderRect(int index) const noexcept;
+    [[nodiscard]] Rect trackUtilityRect(int index) const noexcept;
     [[nodiscard]] Rect projectTransferRect(int index) const noexcept;
     [[nodiscard]] Rect trackRect(int index, int count) const noexcept;
     [[nodiscard]] Rect trackPartRect(int index, int count, int part) const noexcept;
