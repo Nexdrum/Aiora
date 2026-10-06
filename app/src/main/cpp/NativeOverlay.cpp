@@ -321,18 +321,71 @@ bool NativeOverlay::buildFontAtlas(ANativeActivity* activity){
     return ok;
 }
 
+bool NativeOverlay::buildGlyphAtlas(){
+    constexpr int cell=68;
+    constexpr int pad=2;
+    constexpr int columns=4;
+    constexpr int rows=4;
+    constexpr int source=64;
+    glyphAtlasWidth_=cell*columns;
+    glyphAtlasHeight_=cell*rows;
+
+    std::vector<uint8_t> pixels(
+        static_cast<size_t>(glyphAtlasWidth_)*
+        static_cast<size_t>(glyphAtlasHeight_)*4u,0u);
+
+    const auto copyMask=[&](int index,const uint64_t* mask){
+        const int ox=(index%columns)*cell+pad;
+        const int oy=(index/columns)*cell+pad;
+        for(int y=0;y<source;++y){
+            const uint64_t bits=mask[y];
+            for(int x=0;x<source;++x){
+                if((bits&(uint64_t{1}<<(63-x)))==0u)continue;
+                const size_t p=(
+                    static_cast<size_t>(oy+y)*static_cast<size_t>(glyphAtlasWidth_)+
+                    static_cast<size_t>(ox+x))*4u;
+                pixels[p+0u]=255u;
+                pixels[p+1u]=255u;
+                pixels[p+2u]=255u;
+                pixels[p+3u]=255u;
+            }
+        }
+    };
+
+    for(int i=0;i<12;++i)
+        copyMask(i,glyphmask::kPitch64[static_cast<size_t>(i)].data());
+    copyMask(12,glyphmask::kLogo64.data());
+
+    glGenTextures(1,&glyphTexture_);
+    glBindTexture(GL_TEXTURE_2D,glyphTexture_);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT,4);
+    glTexImage2D(
+        GL_TEXTURE_2D,0,GL_RGBA,
+        glyphAtlasWidth_,glyphAtlasHeight_,0,
+        GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
+    glBindTexture(GL_TEXTURE_2D,0);
+    return glyphTexture_!=0;
+}
+
 bool NativeOverlay::init(ANativeActivity* activity){
     if(!program_||!vbo_){
         if(!buildProgram())return false;
     }
     if(!textProgram_||!textVbo_)buildTextProgram();
     if(!fontTexture_&&textProgram_)buildFontAtlas(activity);
+    if(!glyphTexture_&&textProgram_)buildGlyphAtlas();
     return program_&&vbo_;
 }
 
 void NativeOverlay::shutdown() noexcept {
     vertices_.clear();
+    glyphVertices_.clear();
     textVertices_.clear();
+    if(glyphTexture_){glDeleteTextures(1,&glyphTexture_);glyphTexture_=0;}
     if(fontTexture_){glDeleteTextures(1,&fontTexture_);fontTexture_=0;}
     if(textVbo_){glDeleteBuffers(1,&textVbo_);textVbo_=0;}
     if(textProgram_){glDeleteProgram(textProgram_);textProgram_=0;}
@@ -346,8 +399,10 @@ void NativeOverlay::begin(int width,int height){
     const float shortSide=static_cast<float>(std::min(width_,height_));
     fontScale_=std::clamp(shortSide/700.0f,1.08f,1.28f);
     vertices_.clear();
+    glyphVertices_.clear();
     textVertices_.clear();
     vertices_.reserve(12000);
+    glyphVertices_.reserve(6000);
     textVertices_.reserve(12000);
 }
 
@@ -477,6 +532,79 @@ void NativeOverlay::addTextQuad(
     textVertices_.insert(textVertices_.end(),{a,d,b,b,d,e});
 }
 
+void NativeOverlay::addGlyphQuad(
+    Rect r,float u0,float v0,float u1,float v1,Color c){
+    if(r.w<=0.0f||r.h<=0.0f)return;
+    const Rect original=r;
+    if(!clipRect(r))return;
+    if(r.x!=original.x||r.y!=original.y||r.w!=original.w||r.h!=original.h){
+        const float tx0=(r.x-original.x)/original.w;
+        const float ty0=(r.y-original.y)/original.h;
+        const float tx1=(r.x+r.w-original.x)/original.w;
+        const float ty1=(r.y+r.h-original.y)/original.h;
+        const float ou0=u0,ov0=v0,ou1=u1,ov1=v1;
+        u0=ou0+(ou1-ou0)*tx0;
+        v0=ov0+(ov1-ov0)*ty0;
+        u1=ou0+(ou1-ou0)*tx1;
+        v1=ov0+(ov1-ov0)*ty1;
+    }
+    const float x0=r.x/static_cast<float>(width_)*2.0f-1.0f;
+    const float x1=(r.x+r.w)/static_cast<float>(width_)*2.0f-1.0f;
+    const float y0=1.0f-r.y/static_cast<float>(height_)*2.0f;
+    const float y1=1.0f-(r.y+r.h)/static_cast<float>(height_)*2.0f;
+    const TextVertex a{x0,y0,u0,v0,c.r,c.g,c.b,c.a};
+    const TextVertex b{x1,y0,u1,v0,c.r,c.g,c.b,c.a};
+    const TextVertex d{x0,y1,u0,v1,c.r,c.g,c.b,c.a};
+    const TextVertex e{x1,y1,u1,v1,c.r,c.g,c.b,c.a};
+    glyphVertices_.insert(glyphVertices_.end(),{a,d,b,b,d,e});
+}
+
+void NativeOverlay::addGlyphGradientQuad(
+    Rect r,float u0,float v0,float u1,float v1,
+    Color tl,Color tr,Color bl,Color br){
+    if(r.w<=0.0f||r.h<=0.0f)return;
+    const Rect original=r;
+    if(!clipRect(r))return;
+
+    float tx0=0.0f,ty0=0.0f,tx1=1.0f,ty1=1.0f;
+    if(r.x!=original.x||r.y!=original.y||r.w!=original.w||r.h!=original.h){
+        tx0=(r.x-original.x)/original.w;
+        ty0=(r.y-original.y)/original.h;
+        tx1=(r.x+r.w-original.x)/original.w;
+        ty1=(r.y+r.h-original.y)/original.h;
+        const float ou0=u0,ov0=v0,ou1=u1,ov1=v1;
+        u0=ou0+(ou1-ou0)*tx0;
+        v0=ov0+(ov1-ov0)*ty0;
+        u1=ou0+(ou1-ou0)*tx1;
+        v1=ov0+(ov1-ov0)*ty1;
+    }
+
+    const auto lerp=[](Color a,Color b,float t){
+        return Color{
+            a.r+(b.r-a.r)*t,
+            a.g+(b.g-a.g)*t,
+            a.b+(b.b-a.b)*t,
+            a.a+(b.a-a.a)*t};
+    };
+    const auto sample=[&](float x,float y){
+        return lerp(lerp(tl,tr,x),lerp(bl,br,x),y);
+    };
+    const Color ctl=sample(tx0,ty0);
+    const Color ctr=sample(tx1,ty0);
+    const Color cbl=sample(tx0,ty1);
+    const Color cbr=sample(tx1,ty1);
+
+    const float x0=r.x/static_cast<float>(width_)*2.0f-1.0f;
+    const float x1=(r.x+r.w)/static_cast<float>(width_)*2.0f-1.0f;
+    const float y0=1.0f-r.y/static_cast<float>(height_)*2.0f;
+    const float y1=1.0f-(r.y+r.h)/static_cast<float>(height_)*2.0f;
+    const TextVertex a{x0,y0,u0,v0,ctl.r,ctl.g,ctl.b,ctl.a};
+    const TextVertex b{x1,y0,u1,v0,ctr.r,ctr.g,ctr.b,ctr.a};
+    const TextVertex d{x0,y1,u0,v1,cbl.r,cbl.g,cbl.b,cbl.a};
+    const TextVertex e{x1,y1,u1,v1,cbr.r,cbr.g,cbr.b,cbr.a};
+    glyphVertices_.insert(glyphVertices_.end(),{a,d,b,b,d,e});
+}
+
 void NativeOverlay::addBitmapText(
     std::string_view text,float x,float y,float scale,Color color){
     scale*=fontScale_;
@@ -542,11 +670,85 @@ void NativeOverlay::addTextCentered(std::string_view text,Rect r,float scale,Col
 
 void NativeOverlay::addPitchGlyph(int pitchClass,Rect rect,Color color){
     const int pc=((pitchClass%12)+12)%12;
-    addMaskRows64(glyphmask::kPitch64[static_cast<size_t>(pc)].data(),64,64,rect,color);
+    if(!glyphTexture_){
+        addMaskRows64(glyphmask::kPitch64[static_cast<size_t>(pc)].data(),64,64,rect,color);
+        return;
+    }
+    constexpr float cell=68.0f;
+    constexpr float pad=2.0f;
+    constexpr float source=64.0f;
+    constexpr int columns=4;
+    const float x=static_cast<float>(pc%columns)*cell+pad;
+    const float y=static_cast<float>(pc/columns)*cell+pad;
+    addGlyphQuad(
+        rect,
+        x/static_cast<float>(glyphAtlasWidth_),
+        y/static_cast<float>(glyphAtlasHeight_),
+        (x+source)/static_cast<float>(glyphAtlasWidth_),
+        (y+source)/static_cast<float>(glyphAtlasHeight_),
+        color);
 }
 
 void NativeOverlay::addLogo(Rect rect,Color color){
-    addMaskRows64(glyphmask::kLogo64.data(),64,64,rect,color);
+    if(!glyphTexture_){
+        addMaskRows64(glyphmask::kLogo64.data(),64,64,rect,color);
+        return;
+    }
+    constexpr float cell=68.0f;
+    constexpr float pad=2.0f;
+    constexpr float source=64.0f;
+    constexpr int index=12;
+    constexpr int columns=4;
+    const float x=static_cast<float>(index%columns)*cell+pad;
+    const float y=static_cast<float>(index/columns)*cell+pad;
+    addGlyphQuad(
+        rect,
+        x/static_cast<float>(glyphAtlasWidth_),
+        y/static_cast<float>(glyphAtlasHeight_),
+        (x+source)/static_cast<float>(glyphAtlasWidth_),
+        (y+source)/static_cast<float>(glyphAtlasHeight_),
+        color);
+}
+
+void NativeOverlay::addSpectrumLogo(Rect rect){
+    if(!glyphTexture_){
+        addLogo(rect,{0.91f,0.925f,0.945f,1.0f});
+        return;
+    }
+    constexpr float cell=68.0f;
+    constexpr float pad=2.0f;
+    constexpr float source=64.0f;
+    constexpr int index=12;
+    constexpr int columns=4;
+    const float x=static_cast<float>(index%columns)*cell+pad;
+    const float y=static_cast<float>(index/columns)*cell+pad;
+    const float u0=x/static_cast<float>(glyphAtlasWidth_);
+    const float v0=y/static_cast<float>(glyphAtlasHeight_);
+    const float u1=(x+source)/static_cast<float>(glyphAtlasWidth_);
+    const float v1=(y+source)/static_cast<float>(glyphAtlasHeight_);
+
+    const auto expanded=[&](float amount){
+        return Rect{
+            rect.x-amount,rect.y-amount,
+            rect.w+amount*2.0f,rect.h+amount*2.0f};
+    };
+
+    // Match the HTML logo's spectrum: green/cyan across the top,
+    // red/orange at lower left, violet at lower right.
+    const Color tl{0.67f,1.00f,0.00f,1.0f};
+    const Color tr{0.00f,0.90f,1.00f,1.0f};
+    const Color bl{1.00f,0.18f,0.00f,1.0f};
+    const Color br{0.48f,0.00f,0.82f,1.0f};
+    const auto fade=[](Color c,float a){c.a=a;return c;};
+
+    addGlyphGradientQuad(
+        expanded(7.0f),u0,v0,u1,v1,
+        fade(tl,0.10f),fade(tr,0.10f),fade(bl,0.10f),fade(br,0.10f));
+    addGlyphGradientQuad(
+        expanded(3.5f),u0,v0,u1,v1,
+        fade(tl,0.20f),fade(tr,0.20f),fade(bl,0.20f),fade(br,0.20f));
+    addGlyphGradientQuad(rect,u0,v0,u1,v1,tl,tr,bl,br);
+    addLogo(rect,{1.0f,1.0f,1.0f,0.16f});
 }
 
 void NativeOverlay::addLine(float x1,float y1,float x2,float y2,float thickness,Color c){
@@ -817,7 +1019,7 @@ void NativeOverlay::addDrumIcon(int index,Rect r,Color c){
 }
 
 void NativeOverlay::flush(){
-    if(vertices_.empty()&&textVertices_.empty())return;
+    if(vertices_.empty()&&glyphVertices_.empty()&&textVertices_.empty())return;
 
     glDisable(GL_SCISSOR_TEST);
     glEnable(GL_BLEND);
@@ -844,18 +1046,19 @@ void NativeOverlay::flush(){
         glDisableVertexAttribArray(1);
     }
 
-    if(!textVertices_.empty()&&textProgram_&&textVbo_&&fontTexture_){
+    const auto drawTextured=[&](
+        const std::vector<TextVertex>& verts,GLuint texture){
+        if(verts.empty()||!textProgram_||!textVbo_||!texture)return;
         glUseProgram(textProgram_);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D,fontTexture_);
+        glBindTexture(GL_TEXTURE_2D,texture);
         const GLint loc=glGetUniformLocation(textProgram_,"uFont");
         if(loc>=0)glUniform1i(loc,0);
         glBindBuffer(GL_ARRAY_BUFFER,textVbo_);
         glBufferData(
             GL_ARRAY_BUFFER,
-            static_cast<GLsizeiptr>(textVertices_.size()*sizeof(TextVertex)),
-            textVertices_.data(),
-            GL_STREAM_DRAW);
+            static_cast<GLsizeiptr>(verts.size()*sizeof(TextVertex)),
+            verts.data(),GL_STREAM_DRAW);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(
             0,2,GL_FLOAT,GL_FALSE,sizeof(TextVertex),
@@ -868,14 +1071,15 @@ void NativeOverlay::flush(){
         glVertexAttribPointer(
             2,4,GL_FLOAT,GL_FALSE,sizeof(TextVertex),
             reinterpret_cast<void*>(sizeof(float)*4));
-        glDrawArrays(
-            GL_TRIANGLES,0,
-            static_cast<GLsizei>(textVertices_.size()));
+        glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(verts.size()));
         glDisableVertexAttribArray(0);
         glDisableVertexAttribArray(1);
         glDisableVertexAttribArray(2);
         glBindTexture(GL_TEXTURE_2D,0);
-    }
+    };
+
+    drawTextured(glyphVertices_,glyphTexture_);
+    drawTextured(textVertices_,fontTexture_);
 
     glBindBuffer(GL_ARRAY_BUFFER,0);
     glUseProgram(0);
