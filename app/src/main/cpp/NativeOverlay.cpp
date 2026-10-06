@@ -1,9 +1,13 @@
 #include "NativeOverlay.h"
 #include "NativeGlyphMasks.h"
 
+#include <android/bitmap.h>
+#include <jni.h>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 
 namespace aiora {
 namespace {
@@ -25,6 +29,29 @@ void main(){
     fragColor=vColor;
 })";
 
+constexpr char kTextVs[] = R"(#version 300 es
+layout(location=0) in vec2 aPos;
+layout(location=1) in vec2 aUv;
+layout(location=2) in vec4 aColor;
+out vec2 vUv;
+out vec4 vColor;
+void main(){
+    gl_Position=vec4(aPos,0.0,1.0);
+    vUv=aUv;
+    vColor=aColor;
+})";
+
+constexpr char kTextFs[] = R"(#version 300 es
+precision mediump float;
+in vec2 vUv;
+in vec4 vColor;
+uniform sampler2D uFont;
+out vec4 fragColor;
+void main(){
+    float a=texture(uFont,vUv).a;
+    fragColor=vec4(vColor.rgb,vColor.a*a);
+})";
+
 GLuint compile(GLenum type,const char* src){
     const GLuint shader=glCreateShader(type);
     glShaderSource(shader,1,&src,nullptr);
@@ -32,6 +59,47 @@ GLuint compile(GLenum type,const char* src){
     GLint ok=GL_FALSE;glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);
     if(ok!=GL_TRUE){glDeleteShader(shader);return 0;}
     return shader;
+}
+
+JNIEnv* attachEnv(ANativeActivity* activity,bool& attached){
+    attached=false;
+    if(!activity||!activity->vm)return nullptr;
+    JNIEnv* env=nullptr;
+    const jint status=activity->vm->GetEnv(
+        reinterpret_cast<void**>(&env),JNI_VERSION_1_6);
+    if(status==JNI_OK)return env;
+    if(status!=JNI_EDETACHED)return nullptr;
+    if(activity->vm->AttachCurrentThread(&env,nullptr)!=JNI_OK)return nullptr;
+    attached=true;
+    return env;
+}
+
+void detachEnv(ANativeActivity* activity,bool attached){
+    if(attached&&activity&&activity->vm)activity->vm->DetachCurrentThread();
+}
+
+jclass loadAppClass(JNIEnv* env,jobject activity,const char* name){
+    if(!env||!activity)return nullptr;
+    jclass activityClass=env->GetObjectClass(activity);
+    if(!activityClass)return nullptr;
+    jmethodID getLoader=env->GetMethodID(
+        activityClass,"getClassLoader","()Ljava/lang/ClassLoader;");
+    jobject loader=getLoader?env->CallObjectMethod(activity,getLoader):nullptr;
+    jclass loaderClass=loader?env->GetObjectClass(loader):nullptr;
+    jmethodID loadClass=loaderClass
+        ?env->GetMethodID(
+            loaderClass,"loadClass","(Ljava/lang/String;)Ljava/lang/Class;")
+        :nullptr;
+    jstring className=env->NewStringUTF(name);
+    auto cls=loadClass&&className
+        ?static_cast<jclass>(env->CallObjectMethod(loader,loadClass,className))
+        :nullptr;
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(className)env->DeleteLocalRef(className);
+    if(loaderClass)env->DeleteLocalRef(loaderClass);
+    if(loader)env->DeleteLocalRef(loader);
+    env->DeleteLocalRef(activityClass);
+    return cls;
 }
 
 std::array<uint8_t,7> glyph(char c){
@@ -102,13 +170,136 @@ bool NativeOverlay::buildProgram(){
     return vbo_!=0;
 }
 
-bool NativeOverlay::init(){
-    if(program_&&vbo_)return true;
-    return buildProgram();
+bool NativeOverlay::buildTextProgram(){
+    const GLuint vs=compile(GL_VERTEX_SHADER,kTextVs);
+    const GLuint fs=compile(GL_FRAGMENT_SHADER,kTextFs);
+    if(!vs||!fs){if(vs)glDeleteShader(vs);if(fs)glDeleteShader(fs);return false;}
+    textProgram_=glCreateProgram();
+    glAttachShader(textProgram_,vs);
+    glAttachShader(textProgram_,fs);
+    glLinkProgram(textProgram_);
+    glDeleteShader(vs);glDeleteShader(fs);
+    GLint ok=GL_FALSE;
+    glGetProgramiv(textProgram_,GL_LINK_STATUS,&ok);
+    if(ok!=GL_TRUE){
+        glDeleteProgram(textProgram_);
+        textProgram_=0;
+        return false;
+    }
+    glGenBuffers(1,&textVbo_);
+    return textVbo_!=0;
+}
+
+bool NativeOverlay::buildFontAtlas(ANativeActivity* activity){
+    bool attached=false;
+    JNIEnv* env=attachEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+
+    jclass atlasClass=loadAppClass(
+        env,activity->clazz,"com.nexdrum.aiora.FontAtlas");
+    jmethodID build=atlasClass
+        ?env->GetStaticMethodID(
+            atlasClass,"build","(IIIII)Landroid/graphics/Bitmap;")
+        :nullptr;
+
+    constexpr int cellW=64;
+    constexpr int cellH=72;
+    constexpr int columns=16;
+    constexpr int fontPx=52;
+    constexpr int baseline=60;
+    constexpr int xPad=6;
+
+    jobject bitmap=build
+        ?env->CallStaticObjectMethod(
+            atlasClass,build,cellW,cellH,columns,fontPx,0)
+        :nullptr;
+
+    bool ok=false;
+    AndroidBitmapInfo info{};
+    void* raw=nullptr;
+    if(bitmap &&
+       AndroidBitmap_getInfo(env,bitmap,&info)==ANDROID_BITMAP_RESULT_SUCCESS &&
+       info.format==ANDROID_BITMAP_FORMAT_RGBA_8888 &&
+       AndroidBitmap_lockPixels(env,bitmap,&raw)==ANDROID_BITMAP_RESULT_SUCCESS){
+
+        atlasWidth_=static_cast<int>(info.width);
+        atlasHeight_=static_cast<int>(info.height);
+        const auto* bytes=static_cast<const uint8_t*>(raw);
+
+        for(int code=32;code<=126;++code){
+            const int index=code-32;
+            const int cellX=(index%columns)*cellW;
+            const int cellY=(index/columns)*cellH;
+            int minX=cellW,maxX=-1,minY=cellH,maxY=-1;
+
+            for(int yy=0;yy<cellH;++yy){
+                const auto* row=bytes+
+                    static_cast<size_t>(cellY+yy)*info.stride+
+                    static_cast<size_t>(cellX)*4u;
+                for(int xx=0;xx<cellW;++xx){
+                    const uint8_t alpha=row[static_cast<size_t>(xx)*4u+3u];
+                    if(alpha<=6u)continue;
+                    minX=std::min(minX,xx);maxX=std::max(maxX,xx);
+                    minY=std::min(minY,yy);maxY=std::max(maxY,yy);
+                }
+            }
+
+            auto& g=glyphs_[static_cast<size_t>(index)];
+            if(maxX>=minX&&maxY>=minY){
+                g.u0=static_cast<float>(cellX+minX)/static_cast<float>(atlasWidth_);
+                g.v0=static_cast<float>(cellY+minY)/static_cast<float>(atlasHeight_);
+                g.u1=static_cast<float>(cellX+maxX+1)/static_cast<float>(atlasWidth_);
+                g.v1=static_cast<float>(cellY+maxY+1)/static_cast<float>(atlasHeight_);
+                g.xBearing=static_cast<float>(minX-xPad)/static_cast<float>(fontPx);
+                g.yBearing=static_cast<float>(minY-baseline)/static_cast<float>(fontPx);
+                g.width=static_cast<float>(maxX-minX+1)/static_cast<float>(fontPx);
+                g.height=static_cast<float>(maxY-minY+1)/static_cast<float>(fontPx);
+                g.advance=static_cast<float>(maxX-minX+5)/static_cast<float>(fontPx);
+                g.valid=true;
+            }else{
+                g.advance=code==' '?0.34f:0.50f;
+                g.valid=false;
+            }
+        }
+
+        glGenTextures(1,&fontTexture_);
+        glBindTexture(GL_TEXTURE_2D,fontTexture_);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        glPixelStorei(GL_UNPACK_ALIGNMENT,4);
+        glTexImage2D(
+            GL_TEXTURE_2D,0,GL_RGBA,
+            atlasWidth_,atlasHeight_,0,
+            GL_RGBA,GL_UNSIGNED_BYTE,raw);
+        glBindTexture(GL_TEXTURE_2D,0);
+        ok=fontTexture_!=0;
+        AndroidBitmap_unlockPixels(env,bitmap);
+    }
+
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(bitmap)env->DeleteLocalRef(bitmap);
+    if(atlasClass)env->DeleteLocalRef(atlasClass);
+    detachEnv(activity,attached);
+    return ok;
+}
+
+bool NativeOverlay::init(ANativeActivity* activity){
+    if(!program_||!vbo_){
+        if(!buildProgram())return false;
+    }
+    if(!textProgram_||!textVbo_)buildTextProgram();
+    if(!fontTexture_&&textProgram_)buildFontAtlas(activity);
+    return program_&&vbo_;
 }
 
 void NativeOverlay::shutdown() noexcept {
     vertices_.clear();
+    textVertices_.clear();
+    if(fontTexture_){glDeleteTextures(1,&fontTexture_);fontTexture_=0;}
+    if(textVbo_){glDeleteBuffers(1,&textVbo_);textVbo_=0;}
+    if(textProgram_){glDeleteProgram(textProgram_);textProgram_=0;}
     if(vbo_){glDeleteBuffers(1,&vbo_);vbo_=0;}
     if(program_){glDeleteProgram(program_);program_=0;}
 }
@@ -117,9 +308,11 @@ void NativeOverlay::begin(int width,int height){
     width_=std::max(1,width);
     height_=std::max(1,height);
     const float shortSide=static_cast<float>(std::min(width_,height_));
-    fontScale_=std::clamp(shortSide/620.0f,1.10f,1.55f);
+    fontScale_=std::clamp(shortSide/832.0f,0.92f,1.12f);
     vertices_.clear();
+    textVertices_.clear();
     vertices_.reserve(12000);
+    textVertices_.reserve(12000);
 }
 
 void NativeOverlay::addRect(Rect r,Color c){
@@ -167,35 +360,57 @@ uint8_t NativeOverlay::fontRow(char c,int row) noexcept {
 
 float NativeOverlay::textWidth(std::string_view text,float scale) const noexcept {
     if(text.empty())return 0.0f;
-    const float effective=scale*fontScale_;
-    return static_cast<float>(text.size())*6.0f*effective-effective;
+    if(!fontTexture_){
+        const float effective=scale*fontScale_;
+        return static_cast<float>(text.size())*6.0f*effective-effective;
+    }
+    const float px=20.0f*scale*fontScale_;
+    float w=0.0f;
+    for(unsigned char raw:text){
+        const int code=(raw>=32&&raw<=126)?static_cast<int>(raw):static_cast<int>('?');
+        w+=glyphs_[static_cast<size_t>(code-32)].advance*px;
+    }
+    return w;
 }
 
-void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Color color){
-    if(scale<=0.0f)return;
+void NativeOverlay::addTextQuad(
+    float x,float y,float w,float h,
+    float u0,float v0,float u1,float v1,
+    Color c){
+    if(w<=0.0f||h<=0.0f)return;
+    const float x0=x/static_cast<float>(width_)*2.0f-1.0f;
+    const float x1=(x+w)/static_cast<float>(width_)*2.0f-1.0f;
+    const float y0=1.0f-y/static_cast<float>(height_)*2.0f;
+    const float y1=1.0f-(y+h)/static_cast<float>(height_)*2.0f;
+    const TextVertex a{x0,y0,u0,v0,c.r,c.g,c.b,c.a};
+    const TextVertex b{x1,y0,u1,v0,c.r,c.g,c.b,c.a};
+    const TextVertex d{x0,y1,u0,v1,c.r,c.g,c.b,c.a};
+    const TextVertex e{x1,y1,u1,v1,c.r,c.g,c.b,c.a};
+    textVertices_.insert(textVertices_.end(),{a,d,b,b,d,e});
+}
+
+void NativeOverlay::addBitmapText(
+    std::string_view text,float x,float y,float scale,Color color){
     scale*=fontScale_;
     float pen=x;
     for(char raw:text){
         const bool lower=raw>='a'&&raw<='z';
-        const char c=normalizedChar(raw);
+        const char ch=normalizedChar(raw);
         const float gs=lower?scale*0.82f:scale;
         const float xoff=(scale-gs)*0.45f;
         const float yoff=lower?scale*1.18f:0.0f;
         for(int row=0;row<7;++row){
-            const uint8_t bits=fontRow(c,row);
+            const uint8_t bits=fontRow(ch,row);
             int col=0;
             while(col<5){
                 if((bits&(1u<<(4-col)))==0u){++col;continue;}
                 const int start=col;
                 while(col<5&&(bits&(1u<<(4-col)))!=0u)++col;
-                const float rw=std::max(
-                    gs*0.58f,
-                    (col-start)*gs-gs*0.12f);
+                const float rw=std::max(gs*0.58f,(col-start)*gs-gs*0.12f);
                 addRect({
                     pen+xoff+start*gs,
                     y+yoff+row*gs+gs*0.10f,
-                    rw,
-                    gs*0.78f
+                    rw,gs*0.78f
                 },color);
             }
         }
@@ -203,10 +418,36 @@ void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Co
     }
 }
 
+void NativeOverlay::addText(std::string_view text,float x,float y,float scale,Color color){
+    if(scale<=0.0f)return;
+    if(!fontTexture_){
+        addBitmapText(text,x,y,scale,color);
+        return;
+    }
+
+    const float px=20.0f*scale*fontScale_;
+    const float baseline=y+px*0.82f;
+    float pen=x;
+    for(unsigned char raw:text){
+        const int code=(raw>=32&&raw<=126)?static_cast<int>(raw):static_cast<int>('?');
+        const auto& g=glyphs_[static_cast<size_t>(code-32)];
+        if(g.valid){
+            addTextQuad(
+                pen+g.xBearing*px,
+                baseline+g.yBearing*px,
+                g.width*px,
+                g.height*px,
+                g.u0,g.v0,g.u1,g.v1,
+                color);
+        }
+        pen+=g.advance*px;
+    }
+}
+
 void NativeOverlay::addTextCentered(std::string_view text,Rect r,float scale,Color color){
     const float w=textWidth(text,scale);
-    const float h=7.0f*scale*fontScale_;
-    addText(text,r.x+(r.w-w)*0.5f,r.y+(r.h-h)*0.5f,scale,color);
+    const float px=fontTexture_?20.0f*scale*fontScale_:7.0f*scale*fontScale_;
+    addText(text,r.x+(r.w-w)*0.5f,r.y+(r.h-px)*0.5f,scale,color);
 }
 
 void NativeOverlay::addPitchGlyph(int pitchClass,Rect rect,Color color){
@@ -346,19 +587,66 @@ void NativeOverlay::addNavIcon(int index,Rect r,Color c){
 }
 
 void NativeOverlay::flush(){
-    if(vertices_.empty()||!program_||!vbo_)return;
+    if(vertices_.empty()&&textVertices_.empty())return;
+
     glDisable(GL_SCISSOR_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-    glUseProgram(program_);
-    glBindBuffer(GL_ARRAY_BUFFER,vbo_);
-    glBufferData(GL_ARRAY_BUFFER,static_cast<GLsizeiptr>(vertices_.size()*sizeof(Vertex)),vertices_.data(),GL_STREAM_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(0));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(sizeof(float)*2));
-    glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices_.size()));
-    glDisableVertexAttribArray(0);glDisableVertexAttribArray(1);
+
+    if(!vertices_.empty()&&program_&&vbo_){
+        glUseProgram(program_);
+        glBindBuffer(GL_ARRAY_BUFFER,vbo_);
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(vertices_.size()*sizeof(Vertex)),
+            vertices_.data(),
+            GL_STREAM_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(
+            0,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),
+            reinterpret_cast<void*>(0));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(
+            1,4,GL_FLOAT,GL_FALSE,sizeof(Vertex),
+            reinterpret_cast<void*>(sizeof(float)*2));
+        glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices_.size()));
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+    }
+
+    if(!textVertices_.empty()&&textProgram_&&textVbo_&&fontTexture_){
+        glUseProgram(textProgram_);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D,fontTexture_);
+        const GLint loc=glGetUniformLocation(textProgram_,"uFont");
+        if(loc>=0)glUniform1i(loc,0);
+        glBindBuffer(GL_ARRAY_BUFFER,textVbo_);
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(textVertices_.size()*sizeof(TextVertex)),
+            textVertices_.data(),
+            GL_STREAM_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(
+            0,2,GL_FLOAT,GL_FALSE,sizeof(TextVertex),
+            reinterpret_cast<void*>(0));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(
+            1,2,GL_FLOAT,GL_FALSE,sizeof(TextVertex),
+            reinterpret_cast<void*>(sizeof(float)*2));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(
+            2,4,GL_FLOAT,GL_FALSE,sizeof(TextVertex),
+            reinterpret_cast<void*>(sizeof(float)*4));
+        glDrawArrays(
+            GL_TRIANGLES,0,
+            static_cast<GLsizei>(textVertices_.size()));
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(2);
+        glBindTexture(GL_TEXTURE_2D,0);
+    }
+
     glBindBuffer(GL_ARRAY_BUFFER,0);
     glUseProgram(0);
     glDisable(GL_BLEND);
