@@ -115,9 +115,10 @@ NativeEditor::Rect NativeEditor::contentRect() const noexcept {
         5.0f,
         static_cast<float>(std::min(width_,height_))*0.007f);
     const float switchH=std::clamp(contentW*0.090f,68.0f,82.0f);
+    const float editorGap=std::clamp(contentW*0.016f,10.0f,16.0f);
     const float top=
         static_cast<float>(safeTop_)+
-        headerH+navGap+navH+contentGap+switchH+switchGap;
+        headerH+navGap+navH+contentGap+switchH+switchGap+editorGap;
     const float bottom=static_cast<float>(height_-safeBottom_);
     return {
         static_cast<float>(safeLeft_)+margin,
