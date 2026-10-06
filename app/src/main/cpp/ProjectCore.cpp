@@ -180,7 +180,15 @@ int ProjectCore::selectedTrack() const { std::scoped_lock lock(mutex_); return s
 int ProjectCore::trackCount() const { std::scoped_lock lock(mutex_); return static_cast<int>(project_.tracks.size()); }
 
 std::string ProjectCore::trackName(int index) const {std::scoped_lock lock(mutex_);return validTrack(index)?project_.tracks[index].name:std::string{};}
+std::string ProjectCore::trackPatchName(int index) const {
+    std::scoped_lock lock(mutex_);
+    if(!validTrack(index))return {};
+    const auto& t=project_.tracks[index];
+    if(t.drums)return t.patch.name.empty()?std::string("Nexdrum"):t.patch.name;
+    return t.patch.name;
+}
 void ProjectCore::setTrackName(int index,const std::string& name) {std::scoped_lock lock(mutex_);if(!validTrack(index))return;std::string n=name.substr(0,24);project_.tracks[index].name=n.empty()?autoName(index):n;}
+void ProjectCore::clearTrackNotes(int index){std::scoped_lock lock(mutex_);if(validTrack(index))project_.tracks[index].notes.clear();}
 bool ProjectCore::trackIsDrums(int index) const { std::scoped_lock lock(mutex_);return validTrack(index)&&project_.tracks[index].drums; }
 bool ProjectCore::trackMute(int index) const { std::scoped_lock lock(mutex_);return validTrack(index)&&project_.tracks[index].mute; }
 bool ProjectCore::trackSolo(int index) const { std::scoped_lock lock(mutex_);return validTrack(index)&&project_.tracks[index].solo; }
