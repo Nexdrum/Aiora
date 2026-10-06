@@ -25,7 +25,7 @@ namespace {
 
 constexpr char kTag[] = "AIORA";
 constexpr size_t kMaxPointers = 16;
-constexpr int64_t kLongPressMs = 500;
+constexpr int64_t kLongPressMs = 450;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -60,9 +60,14 @@ struct RollGesture {
     float accumY{0.0f};
     int64_t downTimeMs{0};
     bool moved{false};
+    bool longPressTriggered{false};
 
     int track{-1};
     int noteIndex{-1};
+    int curveKind{-1};
+    int curvePoint{-1};
+    bool curveIsNew{false};
+    bool curveFree{false};
     int noteMidi{-1};
     float noteStart{0.0f};
     float noteLength{1.0f};
@@ -525,10 +530,58 @@ void destroySurface(NativeState& state) {
     state.context = EGL_NO_CONTEXT;
 }
 
+int findCurvePointIndex(
+    int track,int note,int kind,float step,float value,bool free){
+    auto& project=aiora::ProjectCore::instance();
+    const int count=project.curvePointCount(track,note,kind);
+    int best=-1;float bestScore=1.0e9f;
+    for(int i=0;i<count;++i){
+        const float ds=std::fabs(project.curvePointStep(track,note,kind,i)-step);
+        const float dv=std::fabs(project.curvePointValue(track,note,kind,i)-value);
+        const float df=project.curvePointFree(track,note,kind,i)==free?0.0f:10.0f;
+        const float score=ds*4.0f+dv+df;
+        if(score<bestScore){bestScore=score;best=i;}
+    }
+    return best;
+}
+
+void serviceRollLongPress(NativeState& state){
+    auto& g=state.rollGesture;
+    if(g.kind!=RollGestureKind::AutomationEdit||
+       g.pointerId<0||g.curveIsNew||g.moved||g.longPressTriggered||
+       g.track<0||g.noteIndex<0||g.curvePoint<0)return;
+    if(nowMs()-g.downTimeMs<kLongPressMs)return;
+
+    auto& project=aiora::ProjectCore::instance();
+    const float step=project.curvePointStep(
+        g.track,g.noteIndex,g.curveKind,g.curvePoint);
+    const float value=project.curvePointValue(
+        g.track,g.noteIndex,g.curveKind,g.curvePoint);
+    const bool free=!project.curvePointFree(
+        g.track,g.noteIndex,g.curveKind,g.curvePoint);
+
+    if(project.updateCurvePoint(
+        g.track,g.noteIndex,g.curveKind,g.curvePoint,
+        free?step:std::round(step),
+        free?value:(g.curveKind==0?std::round(value):value),
+        free)){
+        g.curveFree=free;
+        g.curvePoint=findCurvePointIndex(
+            g.track,g.noteIndex,g.curveKind,
+            free?step:std::round(step),
+            free?value:(g.curveKind==0?std::round(value):value),
+            free);
+        g.longPressTriggered=true;
+        aiora::AudioEngine::instance().syncProject();
+        scheduleAutosave(state);
+    }
+}
+
 void drawFrame(NativeState& state) {
     if (!state.drawable) return;
     serviceEditorPreview(state);
     serviceAutosave(state);
+    serviceRollLongPress(state);
     glViewport(0, 0, state.width, state.height);
     state.ui.render();
     eglSwapBuffers(state.display, state.surface);
@@ -942,6 +995,45 @@ bool beginRollNoteGesture(
     return true;
 }
 
+bool beginRollAutomationGesture(
+    NativeState& state,
+    int32_t pointerId,
+    float x,float y,
+    int64_t timeMs){
+
+    const auto mode=state.ui.rollMode();
+    if(mode==aiora::RollMode::Notes)return false;
+    const int kind=static_cast<int>(mode)-1;
+    const auto hit=state.ui.hitRollAutomation(x,y,kind);
+    if(!hit)return false;
+
+    auto& project=aiora::ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return false;
+
+    beginRollGesture(
+        state,pointerId,x,y,timeMs,RollGestureKind::AutomationEdit);
+    auto& g=state.rollGesture;
+    g.track=track;
+    g.noteIndex=hit->noteIndex;
+    g.curveKind=kind;
+    g.curveFree=hit->free;
+
+    if(hit->pointIndex>=0){
+        g.curvePoint=hit->pointIndex;
+        g.curveIsNew=false;
+    }else{
+        g.curvePoint=project.addCurvePoint(
+            track,hit->noteIndex,kind,hit->step,hit->value,false);
+        if(g.curvePoint<0){g.clear();return false;}
+        g.curveIsNew=true;
+        g.curveFree=false;
+        aiora::AudioEngine::instance().syncProject();
+        scheduleAutosave(state);
+    }
+    return true;
+}
+
 void moveRollGesture(NativeState& state, float x, float y) {
     auto& g = state.rollGesture;
     if (g.pointerId < 0) return;
@@ -973,6 +1065,21 @@ void moveRollGesture(NativeState& state, float x, float y) {
             const int delta=g.accumY<0.0f?1:-1;
             state.ui.scrollRoll(0,delta);
             g.accumY+=g.accumY<0.0f?threshold:-threshold;
+        }
+        return;
+    }
+
+    if(g.kind==RollGestureKind::AutomationEdit){
+        if(!g.moved||g.track<0||g.noteIndex<0||g.curvePoint<0)return;
+        float step=0.0f,value=0.0f;
+        if(!state.ui.rollAutomationPosition(
+            x,y,g.noteIndex,g.curveKind,g.curveFree,step,value))return;
+        auto& project=aiora::ProjectCore::instance();
+        if(project.updateCurvePoint(
+            g.track,g.noteIndex,g.curveKind,g.curvePoint,
+            step,value,g.curveFree)){
+            g.curvePoint=findCurvePointIndex(
+                g.track,g.noteIndex,g.curveKind,step,value,g.curveFree);
         }
         return;
     }
@@ -1049,7 +1156,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
 
             if (state.ui.page() == aiora::NativePage::Roll) {
                 if(state.rollGesture.pointerId>=0)return 1;
-                const int64_t timeMs=static_cast<int64_t>(AMotionEvent_getEventTime(event));
+                const int64_t timeMs=nowMs();
 
                 if(state.ui.hitRollPitchHeader(x,y)){
                     beginRollGesture(
@@ -1067,8 +1174,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     if(state.ui.rollMode()==aiora::RollMode::Notes){
                         beginRollNoteGesture(state,pointerId,x,y,timeMs);
                     }else{
-                        beginRollGesture(
-                            state,pointerId,x,y,timeMs,RollGestureKind::AutomationEdit);
+                        beginRollAutomationGesture(
+                            state,pointerId,x,y,timeMs);
                     }
                     return 1;
                 }
@@ -1182,10 +1289,6 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
 
             if (state.rollGesture.pointerId == pointerId) {
                 auto& g=state.rollGesture;
-                const int64_t heldMs =
-                    static_cast<int64_t>(AMotionEvent_getEventTime(event)) -
-                    g.downTimeMs;
-
                 if(g.kind==RollGestureKind::NoteEdit){
                     auto& project=aiora::ProjectCore::instance();
                     if(!g.moved &&
@@ -1195,8 +1298,18 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     }
                     aiora::AudioEngine::instance().syncProject();
                     scheduleAutosave(state);
-                }else if(g.kind==RollGestureKind::AutomationEdit&&!g.moved){
-                    handleRollTap(state,x,y,heldMs>=kLongPressMs);
+                }else if(g.kind==RollGestureKind::AutomationEdit){
+                    auto& project=aiora::ProjectCore::instance();
+                    bool changed=g.curveIsNew||g.moved||g.longPressTriggered;
+                    if(!g.curveIsNew&&!g.moved&&!g.longPressTriggered&&
+                       g.track>=0&&g.noteIndex>=0&&g.curvePoint>=0){
+                        changed=project.deleteCurvePoint(
+                            g.track,g.noteIndex,g.curveKind,g.curvePoint);
+                    }
+                    if(changed){
+                        aiora::AudioEngine::instance().syncProject();
+                        scheduleAutosave(state);
+                    }
                 }
 
                 g.clear();
