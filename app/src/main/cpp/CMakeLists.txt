@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project(aiora LANGUAGES C CXX)
 
 find_package(oboe REQUIRED CONFIG)
+find_library(jnigraphics-lib jnigraphics)
 
 add_library(aiora SHARED
     ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c
@@ -33,4 +34,5 @@ target_link_libraries(aiora
     log
     EGL
     GLESv3
+    ${jnigraphics-lib}
 )
