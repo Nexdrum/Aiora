@@ -37,8 +37,8 @@ enum class HeaderAction : int {
 };
 
 enum class ProjectTransferAction : int {
-    CopyProject,
-    PasteProject
+    ExportWav,
+    ExportMidi
 };
 
 enum class TrackSwitchAction : int {
