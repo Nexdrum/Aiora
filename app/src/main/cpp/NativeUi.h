@@ -154,10 +154,12 @@ public:
     [[nodiscard]] std::optional<TrackSwitchAction> hitTrackSwitch(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitTrackName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<TrackUtilityAction> hitTrackUtility(float x,float y) const noexcept;
     [[nodiscard]] std::optional<ProjectTransferAction> hitProjectTransfer(float x, float y) const noexcept;
     [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitPadName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
     [[nodiscard]] bool hitRollPitchHeader(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollBeatGutter(float x,float y) const noexcept;
