@@ -1146,9 +1146,9 @@ bool NativeUi::trackPointerDown(float x,float y){
         for(int p=0;p<5;++p){
             const auto r=trackPartRect(t,count,p);if(!r.contains(x,y))continue;
             if(p<2){
-                const float labelW=std::min(16.0f,r.w*0.18f);
-                const float start=r.x+labelW+3.0f;
-                const float width=std::max(2.0f,r.w-labelW-7.0f);
+                const float labelW=34.0f;
+                const float start=r.x+labelW;
+                const float width=std::max(2.0f,r.w-labelW-4.0f);
                 const float n=std::clamp((x-start)/width,0.0f,1.0f);
                 if(p==0)project.setTrackVolume(t,n);else project.setTrackPan(t,n*2.0f-1.0f);
                 trackActiveSlider_=p;trackActiveIndex_=t;trackControlChanged_=true;
