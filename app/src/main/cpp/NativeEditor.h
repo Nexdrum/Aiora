@@ -62,6 +62,11 @@ private:
 
     [[nodiscard]] Rect factoryPresetRect(int index) const noexcept;
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
+    [[nodiscard]] Rect operatorCardRect(int index) const noexcept;
+    [[nodiscard]] Rect operatorWaveFieldRect(int op) const noexcept;
+    [[nodiscard]] Rect operatorCardParamRect(int op,int param) const noexcept;
+    [[nodiscard]] Rect operatorCardToggleRect(int op) const noexcept;
+    [[nodiscard]] Rect operatorCardHarmonicRect(int op,int partial) const noexcept;
     [[nodiscard]] Rect operatorSelectRect(int index) const noexcept;
     [[nodiscard]] Rect waveRect(int index) const noexcept;
     [[nodiscard]] Rect operatorToggleRect() const noexcept;
@@ -70,6 +75,7 @@ private:
     [[nodiscard]] Rect matrixRect(int modulator,int carrier) const noexcept;
 
     [[nodiscard]] Rect fxGroupRect(int index) const noexcept;
+    [[nodiscard]] Rect fxSectionParamRect(int section,int row) const noexcept;
     [[nodiscard]] Rect filterTypeRect(int index) const noexcept;
     [[nodiscard]] Rect lfoTargetRect(int index) const noexcept;
     [[nodiscard]] Rect fxSliderRect(int row,int rowCount,bool hasChoiceRow) const noexcept;
@@ -89,6 +95,8 @@ private:
     [[nodiscard]] static float normalized(float value,Range range) noexcept;
     [[nodiscard]] static float denormalized(float value,Range range) noexcept;
     [[nodiscard]] static ModTarget cycleModTarget(ModTarget current,int direction) noexcept;
+    [[nodiscard]] float editorScrollMax(EditorPage page) const noexcept;
+    void scrollEditor(EditorPage page,float delta) noexcept;
 
     void fillRect(Rect rect,Rgb color) const noexcept;
     void drawSlider(Rect rect,float norm,Rgb accent) const noexcept;
@@ -105,6 +113,10 @@ private:
     int selectedOperator_{0};
     bool matrixMode_{false};
     int fxGroup_{0};
+    float synthScrollY_{0.0f};
+    float fxScrollY_{0.0f};
+    bool scrolling_{false};
+    float scrollLastY_{0.0f};
 
     std::optional<Hit> activeHit_;
     EditorPage activePage_{EditorPage::Synth};
