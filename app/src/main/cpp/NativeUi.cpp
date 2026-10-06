@@ -316,7 +316,7 @@ NativeUi::Rect NativeUi::aiCardRect() const noexcept {
 NativeUi::Rect NativeUi::songCardRect() const noexcept {
     const auto prev=aiCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,386.0f};
+    return {prev.x,prev.y+prev.h+gap,prev.w,486.0f};
 }
 
 NativeUi::Rect NativeUi::masterCardRect() const noexcept {
@@ -329,14 +329,14 @@ NativeUi::Rect NativeUi::trackSongSliderRect(int index) const noexcept {
     const auto card=songCardRect();
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     if(index==0){
-        return {card.x+pad,card.y+150.0f,card.w-pad*2.0f,56.0f};
+        return {card.x+pad,card.y+224.0f,card.w-pad*2.0f,58.0f};
     }
     const float gap=12.0f;
     const float w=(card.w-pad*2.0f-gap)*0.5f;
     return {
         card.x+pad+(index-1)*(w+gap),
-        card.y+220.0f,
-        w,56.0f
+        card.y+296.0f,
+        w,58.0f
     };
 }
 
@@ -344,23 +344,33 @@ NativeUi::Rect NativeUi::trackUtilityRect(int index) const noexcept {
     if(index==0){
         const auto card=songCardRect();
         const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
-        return {card.x+pad,card.y+304.0f,card.w-pad*2.0f,54.0f};
+        return {card.x+pad,card.y+404.0f,card.w-pad*2.0f,56.0f};
     }
-    if(index==2){
-        const auto card=songCardRect();
+    if(index==1){
+        const auto card=aiCardRect();
         const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
-        const float gap=10.0f;
-        const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
-        return {card.x+pad,card.y+64.0f,w,64.0f};
+        return {
+            card.x+card.w*0.64f,
+            card.y+72.0f,
+            card.w*0.32f-pad*0.2f,
+            72.0f
+        };
     }
-    const auto card=aiCardRect();
+
+    const auto card=songCardRect();
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
-    return {
-        card.x+card.w*0.64f,
-        card.y+72.0f,
-        card.w*0.32f-pad*0.2f,
-        72.0f
-    };
+    const float gap=10.0f;
+    const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
+    const float row1=card.y+64.0f;
+    const float row2=card.y+138.0f;
+
+    switch(index){
+        case 2: return {card.x+pad+(w+gap),row1,w,64.0f}; // Clear
+        case 3: return {card.x+pad,row1,w,64.0f};         // Demo
+        case 4: return {card.x+pad+2.0f*(w+gap),row1,w,64.0f}; // Save
+        case 5: return {card.x+pad,row2,w,64.0f};         // Load
+        default:return {};
+    }
 }
 
 NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
@@ -370,7 +380,7 @@ NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
     const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
     return {
         card.x+pad+(index+1)*(w+gap),
-        card.y+64.0f,w,64.0f
+        card.y+138.0f,w,64.0f
     };
 }
 
@@ -922,16 +932,16 @@ void NativeUi::drawTracks() const noexcept {
         overlay.addText(
             std::to_string(i+1),
             rect.x+12.0f,
-            rect.y+14.0f,
-            1.0f,overlayColor(kWhite));
+            rect.y+20.0f,
+            1.08f,overlayColor(kWhite));
 
         std::string name=project.trackName(i);
         if(name.size()>22)name.resize(22);
         overlay.addText(
             name,
             rect.x+numW+12.0f,
-            rect.y+12.0f,
-            1.05f,overlayColor(kWhite));
+            rect.y+18.0f,
+            1.16f,overlayColor(kWhite));
 
         std::string patch=project.trackPatchName(i);
         if(patch.empty())patch=drum?"Nexdrum":"Spectrachord";
@@ -939,8 +949,8 @@ void NativeUi::drawTracks() const noexcept {
         overlay.addText(
             patch,
             rect.x+rect.w*0.43f,
-            rect.y+14.0f,
-            0.84f,overlayColor(kMuted));
+            rect.y+21.0f,
+            0.92f,overlayColor(kMuted));
 
         const float values[2]={
             project.trackVolume(i),
@@ -976,7 +986,7 @@ void NativeUi::drawTracks() const noexcept {
                 active
                     ?mix(kButton,p==2?kMuted:kOrange,0.65f)
                     :kButton);
-            const char* label=p==2?"M":p==3?"S":"x";
+            const char* label=p==2?"M":p==3?"S":"×";
             overlay.addTextCentered(
                 label,{br.x,br.y,br.w,br.h},
                 0.90f,overlayColor(kWhite));
@@ -997,16 +1007,16 @@ void NativeUi::drawTracks() const noexcept {
     if(patchName.empty())patchName="Spectrachord Init";
     overlay.addText(
         patchName,
-        patchCard.x+18.0f,patchCard.y+47.0f,
-        1.02f,overlayColor(kCyan));
+        patchCard.x+20.0f,patchCard.y+58.0f,
+        1.12f,overlayColor(kCyan));
     const Rect patchField{
-        patchCard.x+18.0f,patchCard.y+72.0f,
-        patchCard.w-36.0f,34.0f};
+        patchCard.x+20.0f,patchCard.y+96.0f,
+        patchCard.w-40.0f,56.0f};
     fillRect(patchField,kRollBg);
     overlay.addText(
         patchName,
-        patchField.x+12.0f,patchField.y+8.0f,
-        0.90f,overlayColor(kWhite));
+        patchField.x+14.0f,patchField.y+16.0f,
+        1.00f,overlayColor(kWhite));
     overlay.addDownChevron({
         patchField.x+patchField.w-36.0f,
         patchField.y,36.0f,patchField.h},
@@ -1017,12 +1027,12 @@ void NativeUi::drawTracks() const noexcept {
     drawCard(ai,"AI SOUND DESIGNER");
     overlay.addText(
         "Describe a sound in the clipboard",
-        ai.x+18.0f,ai.y+55.0f,
-        0.86f,overlayColor(kMuted));
+        ai.x+20.0f,ai.y+70.0f,
+        0.94f,overlayColor(kMuted));
     overlay.addText(
         "AI writes the Spectrachord patch + FX.",
-        ai.x+18.0f,ai.y+83.0f,
-        0.80f,overlayColor(kWhite));
+        ai.x+20.0f,ai.y+108.0f,
+        0.90f,overlayColor(kWhite));
     const auto aiBtn=trackUtilityRect(1);
     fillRect(aiBtn,kButton);
     overlay.addTextCentered(
@@ -1032,20 +1042,19 @@ void NativeUi::drawTracks() const noexcept {
     // SONG
     const auto song=songCardRect();
     drawCard(song,"SONG");
+    const auto demo=trackUtilityRect(3);
     const auto clear=trackUtilityRect(2);
-    fillRect(clear,kButton);
-    overlay.addTextCentered(
-        "Clear trk",{clear.x,clear.y,clear.w,clear.h},
-        0.84f,overlayColor(kWhite));
+    const auto save=trackUtilityRect(4);
+    const auto load=trackUtilityRect(5);
     const auto exp=projectTransferRect(0);
     const auto imp=projectTransferRect(1);
-    fillRect(exp,kButton);fillRect(imp,kButton);
-    overlay.addTextCentered(
-        "Export",{exp.x,exp.y,exp.w,exp.h},
-        0.84f,overlayColor(kWhite));
-    overlay.addTextCentered(
-        "Import",{imp.x,imp.y,imp.w,imp.h},
-        0.84f,overlayColor(kWhite));
+    for(const auto& rr:{demo,clear,save,load,exp,imp})fillRect(rr,kButton);
+    overlay.addTextCentered("Demo",{demo.x,demo.y,demo.w,demo.h},0.92f,overlayColor(kWhite));
+    overlay.addTextCentered("Clear trk",{clear.x,clear.y,clear.w,clear.h},0.88f,overlayColor(kWhite));
+    overlay.addTextCentered("Save",{save.x,save.y,save.w,save.h},0.92f,overlayColor(kWhite));
+    overlay.addTextCentered("Load",{load.x,load.y,load.w,load.h},0.92f,overlayColor(kWhite));
+    overlay.addTextCentered("Export",{exp.x,exp.y,exp.w,exp.h},0.92f,overlayColor(kWhite));
+    overlay.addTextCentered("Import",{imp.x,imp.y,imp.w,imp.h},0.92f,overlayColor(kWhite));
 
     const auto tempoR=trackSongSliderRect(0);
     const float tempoN=std::clamp((project.bpm()-12.0f)/276.0f,0.0f,1.0f);
@@ -1071,8 +1080,8 @@ void NativeUi::drawTracks() const noexcept {
 
     overlay.addText(
         "Beats per measure / notes per beat",
-        song.x+18.0f,song.y+200.0f,
-        0.72f,overlayColor(kMuted));
+        song.x+20.0f,song.y+372.0f,
+        0.80f,overlayColor(kMuted));
 
     const auto dz=trackUtilityRect(0);
     fillRect(dz,kPanel);
@@ -1897,6 +1906,9 @@ std::optional<TrackUtilityAction> NativeUi::hitTrackUtility(float x,float y) con
     if(trackUtilityRect(0).contains(x,y))return TrackUtilityAction::DozenalToggle;
     if(trackUtilityRect(1).contains(x,y))return TrackUtilityAction::AiFromClipboard;
     if(trackUtilityRect(2).contains(x,y))return TrackUtilityAction::ClearTrack;
+    if(trackUtilityRect(3).contains(x,y))return TrackUtilityAction::Demo;
+    if(trackUtilityRect(4).contains(x,y))return TrackUtilityAction::SaveProject;
+    if(trackUtilityRect(5).contains(x,y))return TrackUtilityAction::LoadProject;
     return std::nullopt;
 }
 
