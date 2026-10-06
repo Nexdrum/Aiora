@@ -1,10 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string_view>
 #include <vector>
 
 #include <GLES3/gl3.h>
+#include <android/native_activity.h>
 
 namespace aiora {
 
@@ -15,7 +17,7 @@ public:
 
     static NativeOverlay& instance();
 
-    bool init();
+    bool init(ANativeActivity* activity);
     void shutdown() noexcept;
     void begin(int width,int height);
     void flush();
@@ -41,18 +43,48 @@ private:
         float r{},g{},b{},a{};
     };
 
+    struct TextVertex {
+        float x{},y{};
+        float u{},v{};
+        float r{},g{},b{},a{};
+    };
+
+    struct GlyphInfo {
+        float u0{},v0{},u1{},v1{};
+        float xBearing{};
+        float yBearing{};
+        float width{};
+        float height{};
+        float advance{};
+        bool valid{false};
+    };
+
     void addMaskRun(float x,float y,float w,float h,Color color);
     void addMaskRows(const uint32_t* rows,int rowCount,int columnCount,Rect rect,Color color);
     static uint8_t fontRow(char c,int row) noexcept;
     static char normalizedChar(char c) noexcept;
     bool buildProgram();
+    bool buildTextProgram();
+    bool buildFontAtlas(ANativeActivity* activity);
+    void addBitmapText(std::string_view text,float x,float y,float scale,Color color);
+    void addTextQuad(
+        float x,float y,float w,float h,
+        float u0,float v0,float u1,float v1,
+        Color color);
 
     GLuint program_{0};
     GLuint vbo_{0};
+    GLuint textProgram_{0};
+    GLuint textVbo_{0};
+    GLuint fontTexture_{0};
+    int atlasWidth_{0};
+    int atlasHeight_{0};
+    std::array<GlyphInfo,95> glyphs_{};
     int width_{0};
     int height_{0};
     float fontScale_{1.0f};
     std::vector<Vertex> vertices_;
+    std::vector<TextVertex> textVertices_;
 };
 
 } // namespace aiora
