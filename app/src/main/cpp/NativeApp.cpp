@@ -336,6 +336,121 @@ std::string clipboardGetText(ANativeActivity* activity) {
     return out;
 }
 
+bool launchCreateDocument(
+    ANativeActivity* activity,int requestCode,
+    const char* suggestedName,const char* mimeType,
+    const std::string& sourcePath){
+
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+
+    bool ok=false;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls
+        ?env->GetMethodID(
+            cls,"createDocument",
+            "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V")
+        :nullptr;
+    jstring name=env->NewStringUTF(suggestedName?suggestedName:"Aiora");
+    jstring mime=env->NewStringUTF(mimeType?mimeType:"application/octet-stream");
+    jstring path=env->NewStringUTF(sourcePath.c_str());
+    if(method&&name&&mime&&path){
+        env->CallVoidMethod(activity->clazz,method,requestCode,name,mime,path);
+        ok=!env->ExceptionCheck();
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(path)env->DeleteLocalRef(path);
+    if(mime)env->DeleteLocalRef(mime);
+    if(name)env->DeleteLocalRef(name);
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
+bool launchOpenDocument(
+    ANativeActivity* activity,int requestCode,const char* mimeType){
+
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+
+    bool ok=false;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls
+        ?env->GetMethodID(
+            cls,"openDocument","(ILjava/lang/String;)V")
+        :nullptr;
+    jstring mime=env->NewStringUTF(mimeType?mimeType:"application/json");
+    if(method&&mime){
+        env->CallVoidMethod(activity->clazz,method,requestCode,mime);
+        ok=!env->ExceptionCheck();
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(mime)env->DeleteLocalRef(mime);
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
+std::string javaString(JNIEnv* env,jstring value){
+    if(!env||!value)return {};
+    const char* utf=env->GetStringUTFChars(value,nullptr);
+    std::string out=utf?utf:"";
+    if(utf)env->ReleaseStringUTFChars(value,utf);
+    return out;
+}
+
+void serviceDocumentResult(NativeState& state){
+    PendingDocumentResult result;
+    {
+        std::scoped_lock lock(gDocumentResultMutex);
+        if(!gDocumentResult.pending)return;
+        result=std::move(gDocumentResult);
+        gDocumentResult={};
+    }
+
+    if(result.requestCode==kRequestLoadJson){
+        if(!result.success){
+            if(result.message!="Cancelled")
+                __android_log_print(
+                    ANDROID_LOG_WARN,kTag,"song load picker failed: %s",
+                    result.message.c_str());
+            return;
+        }
+
+        aiora::Project loaded;
+        std::string error;
+        if(aiora::loadProjectFile(result.localPath,loaded,&error)){
+            auto& audio=aiora::AudioEngine::instance();
+            audio.stopTransport();
+            aiora::ProjectCore::instance().replaceProject(std::move(loaded),0);
+            audio.syncProject();
+            state.ui.resetDrumRangeArm();
+            scheduleAutosave(state,0);
+            __android_log_print(ANDROID_LOG_INFO,kTag,"loaded AIORA song from document picker");
+        }else{
+            __android_log_print(
+                ANDROID_LOG_WARN,kTag,"selected song could not be loaded: %s",
+                error.c_str());
+        }
+        if(!result.localPath.empty())std::remove(result.localPath.c_str());
+        return;
+    }
+
+    const char* kind=
+        result.requestCode==kRequestSaveJson?"song JSON":
+        result.requestCode==kRequestExportWav?"WAV":
+        result.requestCode==kRequestExportMidi?"MIDI":"document";
+    if(result.success){
+        __android_log_print(ANDROID_LOG_INFO,kTag,"saved AIORA %s",kind);
+    }else if(result.message!="Cancelled"){
+        __android_log_print(
+            ANDROID_LOG_WARN,kTag,"AIORA %s save failed: %s",
+            kind,result.message.c_str());
+    }
+}
+
 struct SystemInsets {
     int left{0};
     int top{0};
