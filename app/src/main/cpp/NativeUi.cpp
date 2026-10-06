@@ -680,8 +680,21 @@ void NativeUi::drawScope() const noexcept {
     std::array<float,AudioEngine::kScopeReadSamples> samples{};
     AudioEngine::instance().copyScope(samples);
 
-    fillRect(r,mix(kTop,kBg,0.38f));
-    fillRect({r.x,r.y+r.h*0.5f,r.w,1.0f},mix(kMuted,kTop,0.35f));
+    fillRect(r,mix(kTop,kBg,0.62f));
+
+    // Keep the HTML version's rainbow identity visible even at silence.
+    constexpr int rainbowSegments=48;
+    for(int i=0;i<rainbowSegments;++i){
+        const float x0=r.x+r.w*static_cast<float>(i)/rainbowSegments;
+        const float x1=r.x+r.w*static_cast<float>(i+1)/rainbowSegments;
+        const auto col=pitchColor((i*12)/rainbowSegments);
+        fillRect({
+            x0,
+            r.y+r.h*0.5f-1.5f,
+            std::max(1.0f,x1-x0+0.5f),
+            3.0f},
+            mix(kTop,col,0.88f));
+    }
 
     size_t trigger=0;
     const size_t searchEnd=samples.size()/2;
@@ -708,8 +721,14 @@ void NativeUi::drawScope() const noexcept {
             const float top=std::min(prevY,y);
             const float bottom=std::max(prevY,y);
             const auto color=pitchColor((i*12)/std::max(1,points));
-            fillRect({x-2.0f,top,3.0f,std::max(2.0f,bottom-top)},mix(kTop,color,0.46f));
-            fillRect({x-0.75f,top,1.5f,std::max(1.5f,bottom-top)},color);
+            fillRect({
+                x-2.8f,top-1.0f,5.0f,
+                std::max(3.0f,bottom-top+2.0f)},
+                mix(kTop,color,0.66f));
+            fillRect({
+                x-1.1f,top,2.2f,
+                std::max(2.0f,bottom-top)},
+                mix(color,kWhite,0.14f));
         }
         prevY=y;
     }
