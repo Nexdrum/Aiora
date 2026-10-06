@@ -315,8 +315,20 @@ void NativeOverlay::begin(int width,int height){
     textVertices_.reserve(12000);
 }
 
+bool NativeOverlay::clipRect(Rect& r) const noexcept {
+    if(r.w<=0.0f||r.h<=0.0f)return false;
+    if(!clipEnabled_)return true;
+    const float x0=std::max(r.x,clip_.x);
+    const float y0=std::max(r.y,clip_.y);
+    const float x1=std::min(r.x+r.w,clip_.x+clip_.w);
+    const float y1=std::min(r.y+r.h,clip_.y+clip_.h);
+    if(x1<=x0||y1<=y0)return false;
+    r={x0,y0,x1-x0,y1-y0};
+    return true;
+}
+
 void NativeOverlay::addRect(Rect r,Color c){
-    if(r.w<=0.0f||r.h<=0.0f)return;
+    if(!clipRect(r))return;
     const float x0=r.x/static_cast<float>(width_)*2.0f-1.0f;
     const float x1=(r.x+r.w)/static_cast<float>(width_)*2.0f-1.0f;
     const float y0=1.0f-r.y/static_cast<float>(height_)*2.0f;
@@ -378,6 +390,22 @@ void NativeOverlay::addTextQuad(
     float u0,float v0,float u1,float v1,
     Color c){
     if(w<=0.0f||h<=0.0f)return;
+    Rect original{x,y,w,h};
+    Rect clipped=original;
+    if(!clipRect(clipped))return;
+    if(clipped.x!=original.x||clipped.y!=original.y||
+       clipped.w!=original.w||clipped.h!=original.h){
+        const float tx0=(clipped.x-original.x)/original.w;
+        const float ty0=(clipped.y-original.y)/original.h;
+        const float tx1=(clipped.x+clipped.w-original.x)/original.w;
+        const float ty1=(clipped.y+clipped.h-original.y)/original.h;
+        const float ou0=u0,ov0=v0,ou1=u1,ov1=v1;
+        u0=ou0+(ou1-ou0)*tx0;
+        v0=ov0+(ov1-ov0)*ty0;
+        u1=ou0+(ou1-ou0)*tx1;
+        v1=ov0+(ov1-ov0)*ty1;
+        x=clipped.x;y=clipped.y;w=clipped.w;h=clipped.h;
+    }
     const float x0=x/static_cast<float>(width_)*2.0f-1.0f;
     const float x1=(x+w)/static_cast<float>(width_)*2.0f-1.0f;
     const float y0=1.0f-y/static_cast<float>(height_)*2.0f;
@@ -460,6 +488,29 @@ void NativeOverlay::addLogo(Rect rect,Color color){
 }
 
 void NativeOverlay::addLine(float x1,float y1,float x2,float y2,float thickness,Color c){
+    if(clipEnabled_){
+        float t0=0.0f,t1=1.0f;
+        const float dx=x2-x1,dy=y2-y1;
+        const float p[4]{-dx,dx,-dy,dy};
+        const float q[4]{
+            x1-clip_.x,
+            clip_.x+clip_.w-x1,
+            y1-clip_.y,
+            clip_.y+clip_.h-y1};
+        for(int i=0;i<4;++i){
+            if(std::fabs(p[i])<1.0e-6f){
+                if(q[i]<0.0f)return;
+                continue;
+            }
+            const float t=q[i]/p[i];
+            if(p[i]<0.0f)t0=std::max(t0,t);
+            else t1=std::min(t1,t);
+            if(t0>t1)return;
+        }
+        const float ox=x1,oy=y1;
+        x1=ox+dx*t0;y1=oy+dy*t0;
+        x2=ox+dx*t1;y2=oy+dy*t1;
+    }
     const float dx=x2-x1,dy=y2-y1;
     const float len=std::sqrt(dx*dx+dy*dy);
     if(len<=0.001f||thickness<=0.0f)return;
