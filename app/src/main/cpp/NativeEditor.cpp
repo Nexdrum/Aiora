@@ -124,138 +124,210 @@ NativeEditor::Rect NativeEditor::editorRect() const noexcept {
 
 NativeEditor::Rect NativeEditor::patchTransferRect(int index) const noexcept {
     const auto e=editorRect();
-    const float gap=std::max(4.0f,height_*0.008f);
-    const float h=std::clamp(e.h*0.085f,30.0f,42.0f);
-    const float w=(e.w-gap*4.0f)/3.0f;
-    return {e.x+gap+index*(w+gap),e.y+e.h-h,w,h};
+    if(index==0)return {};
+    const float gap=std::clamp(e.w*0.014f,9.0f,13.0f);
+    const float h=46.0f;
+    const float w=(e.w-gap*3.0f)*0.5f;
+    return {
+        e.x+gap+(index-1)*(w+gap),
+        e.y+e.h-h-gap,
+        w,h
+    };
 }
 
 NativeEditor::Rect NativeEditor::bodyRect() const noexcept {
     auto r=editorRect();
-    const float gap=std::max(4.0f,height_*0.008f);
-    const float transferH=patchTransferRect(0).h;
-    r.h=std::max(0.0f,r.h-transferH-gap);
+    const float gap=std::clamp(r.w*0.014f,9.0f,13.0f);
+    r.h=std::max(0.0f,r.h-78.0f-gap);
     return r;
 }
 
-NativeEditor::Rect NativeEditor::factoryPresetRect(int index) const noexcept {
-    const auto b=bodyRect();
-    const float gap=std::max(3.0f,width_*0.004f);
-    const float h=std::clamp(b.h*0.075f,30.0f,40.0f);
-    const float w=(b.w-gap*6.0f)/5.0f;
-    return {b.x+gap+index*(w+gap),b.y,w,h};
+NativeEditor::Rect NativeEditor::factoryPresetRect(int) const noexcept {
+    return {};
 }
 
 NativeEditor::Rect NativeEditor::synthTabRect(int index) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(4.0f,width_*0.006f);
-    const auto preset=factoryPresetRect(0);
-    const float top=preset.y+preset.h+gap;
-    const float h=std::clamp(b.h*0.085f,34.0f,48.0f);
+    const auto b=bodyRect();
+    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
+    const float h=48.0f;
     const float w=(b.w-gap*3.0f)*0.5f;
-    return {b.x+gap+index*(w+gap),top,w,h};
+    return {
+        b.x+gap+index*(w+gap),
+        b.y+gap,
+        w,h
+    };
 }
+
+NativeEditor::Rect NativeEditor::operatorCardRect(int index) const noexcept {
+    const auto b=bodyRect();
+    const auto tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
+    const float w=(b.w-gap*3.0f)*0.5f;
+    const float h=610.0f;
+    const int row=index/2,col=index%2;
+    return {
+        b.x+gap+col*(w+gap),
+        tab.y+tab.h+gap+row*(h+gap)-synthScrollY_,
+        w,h
+    };
+}
+
+NativeEditor::Rect NativeEditor::operatorWaveFieldRect(int op) const noexcept {
+    const auto c=operatorCardRect(op);
+    return {c.x+14.0f,c.y+48.0f,c.w-28.0f,44.0f};
+}
+
+NativeEditor::Rect NativeEditor::operatorCardParamRect(int op,int param) const noexcept {
+    const auto c=operatorCardRect(op);
+    return {
+        c.x+14.0f,
+        c.y+102.0f+param*48.0f,
+        c.w-28.0f,
+        42.0f
+    };
+}
+
+NativeEditor::Rect NativeEditor::operatorCardToggleRect(int op) const noexcept {
+    const auto c=operatorCardRect(op);
+    return {c.x+14.0f,c.y+444.0f,c.w-28.0f,46.0f};
+}
+
+NativeEditor::Rect NativeEditor::operatorCardHarmonicRect(int op,int partial) const noexcept {
+    const auto c=operatorCardRect(op);
+    const float gap=6.0f;
+    const int row=partial/8,col=partial%8;
+    const float w=(c.w-28.0f-gap*7.0f)/8.0f;
+    return {
+        c.x+14.0f+col*(w+gap),
+        c.y+504.0f+row*46.0f,
+        w,38.0f
+    };
+}
+
+// Legacy geometry helpers retained as wrappers for compatibility.
 NativeEditor::Rect NativeEditor::operatorSelectRect(int index) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,width_*0.004f);
-    const auto tabs=synthTabRect(0);const float top=tabs.y+tabs.h+gap;
-    const float h=std::clamp(b.h*0.085f,32.0f,44.0f);
-    const float w=(b.w-gap*7.0f)/6.0f;
-    return {b.x+gap+index*(w+gap),top,w,h};
+    return operatorCardRect(index);
 }
 NativeEditor::Rect NativeEditor::waveRect(int index) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,width_*0.004f);
-    const auto op=operatorSelectRect(0);const float top=op.y+op.h+gap;
-    const float h=std::clamp(b.h*0.075f,30.0f,40.0f);
-    const float w=(b.w-gap*7.0f)/6.0f;
-    return {b.x+gap+index*(w+gap),top,w,h};
+    return operatorWaveFieldRect(std::clamp(index,0,5));
 }
 NativeEditor::Rect NativeEditor::operatorToggleRect() const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,width_*0.004f);
-    const auto w=waveRect(0);
-    return {b.x+gap,w.y+w.h+gap,b.w-gap*2.0f,std::clamp(b.h*0.065f,28.0f,38.0f)};
+    return operatorCardToggleRect(std::clamp(selectedOperator_,0,5));
 }
-NativeEditor::Rect NativeEditor::operatorSliderRect(int index,bool custom) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,height_*0.005f);
-    const auto toggle=operatorToggleRect();
-    const float top=toggle.y+toggle.h+gap;
-    const float harmonicReserve=custom?std::clamp(b.h*0.19f,72.0f,112.0f):0.0f;
-    const float available=std::max(0.0f,b.y+b.h-top-harmonicReserve-gap*(custom?1.0f:0.0f));
-    const float rowH=std::max(18.0f,(available-gap*6.0f)/7.0f);
-    return {b.x+std::max(6.0f,b.w*0.025f),top+index*(rowH+gap),b.w-std::max(12.0f,b.w*0.05f),rowH};
+NativeEditor::Rect NativeEditor::operatorSliderRect(int index,bool) const noexcept {
+    return operatorCardParamRect(std::clamp(selectedOperator_,0,5),index);
 }
 NativeEditor::Rect NativeEditor::harmonicRect(int index) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(2.0f,width_*0.003f);
-    const float reserve=std::clamp(b.h*0.19f,72.0f,112.0f);
-    const float top=b.y+b.h-reserve;
-    const int row=index/8,col=index%8;
-    const float w=(b.w-gap*9.0f)/8.0f;
-    const float h=(reserve-gap*3.0f)/2.0f;
-    return {b.x+gap+col*(w+gap),top+gap+row*(h+gap),w,h};
+    return operatorCardHarmonicRect(std::clamp(selectedOperator_,0,5),index);
 }
+
 NativeEditor::Rect NativeEditor::matrixRect(int modulator,int carrier) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,std::min(width_,height_)*0.005f);
+    const auto b=bodyRect();
     const auto tabs=synthTabRect(0);
+    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
     const float top=tabs.y+tabs.h+gap;
     const float availH=std::max(0.0f,b.y+b.h-top-gap);
-    const float cell=std::max(18.0f,std::min((b.w-gap*7.0f)/6.0f,(availH-gap*7.0f)/6.0f));
-    const float gridW=cell*6.0f+gap*5.0f,gridH=cell*6.0f+gap*5.0f;
-    const float ox=b.x+(b.w-gridW)*0.5f,oy=top+(availH-gridH)*0.5f;
-    return {ox+carrier*(cell+gap),oy+modulator*(cell+gap),cell,cell};
+    const float cell=std::max(
+        34.0f,
+        std::min(
+            (b.w-gap*7.0f)/6.0f,
+            (availH-gap*7.0f)/6.0f));
+    const float gridW=cell*6.0f+gap*5.0f;
+    const float gridH=cell*6.0f+gap*5.0f;
+    const float ox=b.x+(b.w-gridW)*0.5f;
+    const float oy=top+(availH-gridH)*0.5f;
+    return {
+        ox+carrier*(cell+gap),
+        oy+modulator*(cell+gap),
+        cell,cell
+    };
 }
 
 NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,width_*0.004f);
-    const float h=std::clamp(b.h*0.085f,34.0f,46.0f);
-    const float w=(b.w-gap*5.0f)/4.0f;
-    return {b.x+gap+index*(w+gap),b.y,w,h};
+    const auto b=bodyRect();
+    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
+    static constexpr float heights[4]={442.0f,482.0f,528.0f,432.0f};
+    float y=b.y+gap-fxScrollY_;
+    for(int i=0;i<index;++i)y+=heights[i]+gap;
+    return {
+        b.x+gap,y,
+        b.w-gap*2.0f,
+        heights[std::clamp(index,0,3)]
+    };
 }
-NativeEditor::Rect NativeEditor::filterTypeRect(int index) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,width_*0.004f);
-    const auto g=fxGroupRect(0);const float top=g.y+g.h+gap;
-    const float h=std::clamp(b.h*0.07f,30.0f,40.0f);
-    const float w=(b.w-gap*4.0f)/3.0f;
-    return {b.x+gap+index*(w+gap),top,w,h};
-}
-NativeEditor::Rect NativeEditor::lfoTargetRect(int index) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,width_*0.004f);
-    const auto g=fxGroupRect(0);const float top=g.y+g.h+gap;
-    const float h=std::clamp(b.h*0.07f,30.0f,40.0f);
-    const float w=(b.w-gap*5.0f)/4.0f;
-    return {b.x+gap+index*(w+gap),top,w,h};
-}
-NativeEditor::Rect NativeEditor::fxSliderRect(int row,int rowCount,bool hasChoiceRow) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(3.0f,height_*0.005f);
-    const auto group=fxGroupRect(0);
-    float top=group.y+group.h+gap;
-    if(hasChoiceRow){
-        const auto choice=fxGroup_==0?filterTypeRect(0):lfoTargetRect(0);
-        top=choice.y+choice.h+gap;
+
+NativeEditor::Rect NativeEditor::fxSectionParamRect(int section,int row) const noexcept {
+    const auto card=fxGroupRect(section);
+    float y=card.y+48.0f;
+    if(section==0)y=card.y+100.0f+row*46.0f;
+    else if(section==1)y=card.y+48.0f+row*46.0f;
+    else if(section==2){
+        const int visualRow=row+(row>=2?1:0);
+        y=card.y+48.0f+visualRow*46.0f;
     }
-    const float available=std::max(0.0f,b.y+b.h-top-gap);
-    const float rowH=std::max(18.0f,(available-gap*std::max(0,rowCount-1))/std::max(1,rowCount));
-    const float side=std::max(6.0f,b.w*0.025f);
-    return {b.x+side,top+row*(rowH+gap),b.w-side*2.0f,rowH};
+    return {card.x+18.0f,y,card.w-36.0f,42.0f};
 }
+
+NativeEditor::Rect NativeEditor::filterTypeRect(int) const noexcept {
+    const auto card=fxGroupRect(0);
+    return {
+        card.x+card.w*0.58f,
+        card.y+48.0f,
+        card.w*0.36f,
+        42.0f
+    };
+}
+
+NativeEditor::Rect NativeEditor::lfoTargetRect(int) const noexcept {
+    const auto card=fxGroupRect(2);
+    return {
+        card.x+card.w*0.58f,
+        card.y+48.0f+2.0f*46.0f,
+        card.w*0.36f,
+        42.0f
+    };
+}
+
+NativeEditor::Rect NativeEditor::fxSliderRect(int row,int,bool) const noexcept {
+    return fxSectionParamRect(std::clamp(fxGroup_,0,2),row);
+}
+
 NativeEditor::Rect NativeEditor::modRowRect(int slot) const noexcept {
-    const auto b=bodyRect();const float gap=std::max(4.0f,height_*0.006f);
-    const auto group=fxGroupRect(0);const float top=group.y+group.h+gap;
-    const float addH=std::clamp(b.h*0.08f,32.0f,42.0f);
-    const float avail=std::max(0.0f,b.y+b.h-top-addH-gap*2.0f);
-    const float rowH=std::max(34.0f,(avail-gap*3.0f)/4.0f);
-    return {b.x+gap,top+slot*(rowH+gap),b.w-gap*2.0f,rowH};
+    const auto card=fxGroupRect(3);
+    return {
+        card.x+18.0f,
+        card.y+50.0f+slot*76.0f,
+        card.w-36.0f,
+        68.0f
+    };
 }
+
 NativeEditor::Rect NativeEditor::modPartRect(int slot,int part) const noexcept {
-    const auto r=modRowRect(slot);const float gap=std::max(2.0f,width_*0.003f);
-    const std::array<float,6> weights{0.08f,0.14f,0.08f,0.29f,0.29f,0.08f};
-    float total=0.0f;for(float w:weights)total+=w;
-    const float usable=r.w-gap*5.0f;float x=r.x;
-    for(int i=0;i<part;++i)x+=usable*(weights[static_cast<size_t>(i)]/total)+gap;
-    const float w=usable*(weights[static_cast<size_t>(part)]/total);
+    const auto r=modRowRect(slot);
+    const float gap=6.0f;
+    // Keep six logical parts so existing interaction types remain usable.
+    // 1=target, 3=min, 4=max, 5=delete are the visible HTML-style controls.
+    static constexpr std::array<float,6> weights{
+        0.01f,0.36f,0.01f,0.24f,0.24f,0.10f};
+    float total=0.0f;
+    for(float w:weights)total+=w;
+    const float usable=r.w-gap*5.0f;
+    float x=r.x;
+    for(int i=0;i<part;++i)
+        x+=usable*(weights[static_cast<size_t>(i)]/total)+gap;
+    const float w=
+        usable*(weights[static_cast<size_t>(part)]/total);
     return {x,r.y,w,r.h};
 }
+
 NativeEditor::Rect NativeEditor::modAddRect() const noexcept {
-    const auto b=bodyRect();const float gap=std::max(4.0f,height_*0.006f);
-    const float h=std::clamp(b.h*0.08f,32.0f,42.0f);
-    return {b.x+gap,b.y+b.h-h,b.w-gap*2.0f,h};
+    const auto card=fxGroupRect(3);
+    return {
+        card.x+18.0f,
+        card.y+card.h-62.0f,
+        std::min(300.0f,card.w-36.0f),
+        46.0f
+    };
 }
 
 NativeEditor::Range NativeEditor::operatorRange(OperatorParam p) noexcept {
@@ -384,6 +456,33 @@ ModTarget NativeEditor::cycleModTarget(ModTarget current,int direction) noexcept
     if(n>last)n=first;
     if(n<first)n=last;
     return static_cast<ModTarget>(n);
+}
+
+float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
+    const auto b=bodyRect();
+    if(page==EditorPage::Synth){
+        if(matrixMode_)return 0.0f;
+        const auto last=operatorCardRect(5);
+        const float bottom=last.y+synthScrollY_+last.h+12.0f;
+        return std::max(0.0f,bottom-(b.y+b.h));
+    }
+    const auto last=fxGroupRect(3);
+    const float bottom=last.y+fxScrollY_+last.h+12.0f;
+    return std::max(0.0f,bottom-(b.y+b.h));
+}
+
+void NativeEditor::scrollEditor(EditorPage page,float delta) noexcept {
+    if(page==EditorPage::Synth){
+        synthScrollY_=std::clamp(
+            synthScrollY_+delta,
+            0.0f,
+            editorScrollMax(EditorPage::Synth));
+    }else{
+        fxScrollY_=std::clamp(
+            fxScrollY_+delta,
+            0.0f,
+            editorScrollMax(EditorPage::Fx));
+    }
 }
 
 void NativeEditor::fillRect(Rect r,Rgb c) const noexcept {
