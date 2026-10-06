@@ -4,6 +4,11 @@ import android.app.NativeActivity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.app.AlertDialog;
+import android.text.InputFilter;
+import android.text.InputType;
+import android.view.WindowManager;
+import android.widget.EditText;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -20,6 +25,8 @@ public class AioraActivity extends NativeActivity {
     public static final int REQUEST_EXPORT_MIDI = 4104;
     public static final int REQUEST_EXPORT_PATCH = 4105;
     public static final int REQUEST_IMPORT_PATCH = 4106;
+    public static final int REQUEST_RENAME_TRACK = 4201;
+    public static final int REQUEST_RENAME_PAD = 4202;
 
     private final Map<Integer, String> pendingSources = new HashMap<>();
 
@@ -73,6 +80,55 @@ public class AioraActivity extends NativeActivity {
                 startActivityForResult(intent, requestCode);
             } catch (Exception e) {
                 writeResult(requestCode, false, "Could not open file picker");
+            }
+        });
+    }
+
+    public void showNameEditor(
+            int requestCode,
+            int targetIndex,
+            String title,
+            String currentName) {
+
+        runOnUiThread(() -> {
+            try {
+                EditText input = new EditText(this);
+                input.setSingleLine(true);
+                input.setInputType(
+                        InputType.TYPE_CLASS_TEXT |
+                        InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+                input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(24)});
+                input.setText(currentName == null ? "" : currentName);
+                input.setSelectAllOnFocus(true);
+                input.setPadding(36, 18, 36, 18);
+
+                AlertDialog dialog = new AlertDialog.Builder(this)
+                        .setTitle(title == null ? "Rename" : title)
+                        .setView(input)
+                        .setPositiveButton("Save", (d, which) ->
+                                writeRenameResult(
+                                        requestCode,
+                                        targetIndex,
+                                        input.getText().toString()))
+                        .setNegativeButton("Cancel", (d, which) ->
+                                writeRenameResult(
+                                        requestCode,
+                                        targetIndex,
+                                        null))
+                        .create();
+
+                dialog.setOnCancelListener(d ->
+                        writeRenameResult(requestCode, targetIndex, null));
+                dialog.setOnShowListener(d -> {
+                    input.requestFocus();
+                    if (dialog.getWindow() != null) {
+                        dialog.getWindow().setSoftInputMode(
+                                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+                    }
+                });
+                dialog.show();
+            } catch (Exception e) {
+                writeRenameResult(requestCode, targetIndex, null);
             }
         });
     }
@@ -151,6 +207,38 @@ public class AioraActivity extends NativeActivity {
             out.write(buffer, 0, count);
         }
         out.flush();
+    }
+
+    private void writeRenameResult(
+            int requestCode,
+            int targetIndex,
+            String name) {
+        File result = new File(getFilesDir(), "aiora_document_result.txt");
+        File temp = new File(getFilesDir(), "aiora_document_result.tmp");
+        boolean success = name != null;
+        String safeName = name == null
+                ? ""
+                : name.replace('\n', ' ').replace('\r', ' ').trim();
+        String payload =
+                requestCode + "\n" +
+                (success ? "1" : "0") + "\n" +
+                targetIndex + "\n" +
+                safeName;
+        try (FileOutputStream out = new FileOutputStream(temp, false)) {
+            out.write(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.flush();
+        } catch (Exception ignored) {
+            return;
+        }
+        if (!temp.renameTo(result)) {
+            try (FileInputStream in = new FileInputStream(temp);
+                 FileOutputStream out = new FileOutputStream(result, false)) {
+                copy(in, out);
+            } catch (Exception ignored) {
+                // Rename failure must never terminate the NativeActivity.
+            }
+            temp.delete();
+        }
     }
 
     private void writeResult(int requestCode, boolean success, String message) {
