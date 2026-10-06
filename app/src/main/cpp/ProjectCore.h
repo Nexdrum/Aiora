@@ -37,7 +37,9 @@ public:
     int trackCount() const;
 
     std::string trackName(int index) const;
+    std::string trackPatchName(int index) const;
     void setTrackName(int index, const std::string& name);
+    void clearTrackNotes(int index);
     bool trackIsDrums(int index) const;
     bool trackMute(int index) const;
     bool trackSolo(int index) const;
