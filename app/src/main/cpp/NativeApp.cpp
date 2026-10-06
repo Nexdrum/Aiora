@@ -34,6 +34,8 @@ constexpr int kRequestSaveJson = 4101;
 constexpr int kRequestLoadJson = 4102;
 constexpr int kRequestExportWav = 4103;
 constexpr int kRequestExportMidi = 4104;
+constexpr int kRequestExportPatch = 4105;
+constexpr int kRequestImportPatch = 4106;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -110,6 +112,8 @@ struct NativeState {
     std::string midiExportPath{};
     std::string documentResultPath{};
     std::string documentLoadPath{};
+    std::string patchExportPath{};
+    std::string patchLoadPath{};
     int64_t autosaveDueMs{0};
     bool autosaveDirty{false};
 };
@@ -386,6 +390,7 @@ bool launchOpenDocument(
 }
 
 void scheduleAutosave(NativeState& state,int64_t delayMs);
+void previewEditorPatch(NativeState& state);
 
 void serviceDocumentResult(NativeState& state){
     if(state.documentResultPath.empty())return;
@@ -439,10 +444,43 @@ void serviceDocumentResult(NativeState& state){
         return;
     }
 
+    if(requestCode==kRequestImportPatch){
+        if(!success){
+            if(message!="Cancelled")
+                __android_log_print(
+                    ANDROID_LOG_WARN,kTag,"patch import picker failed: %s",
+                    message.c_str());
+            return;
+        }
+
+        aiora::Patch imported;
+        std::string error;
+        auto& project=aiora::ProjectCore::instance();
+        if(!state.patchLoadPath.empty()&&
+           aiora::loadPatchFile(state.patchLoadPath,imported,&error)&&
+           project.replaceSelectedPatch(std::move(imported))){
+            aiora::AudioEngine::instance().syncProject();
+            previewEditorPatch(state);
+            scheduleAutosave(state,0);
+            __android_log_print(
+                ANDROID_LOG_INFO,kTag,
+                "loaded AIORA patch from Android document picker");
+        }else{
+            __android_log_print(
+                ANDROID_LOG_WARN,kTag,
+                "selected patch could not be loaded: %s",
+                error.empty()?"patch handoff file missing or no selected patch target":error.c_str());
+        }
+        if(!state.patchLoadPath.empty())
+            std::remove(state.patchLoadPath.c_str());
+        return;
+    }
+
     const char* kind=
         requestCode==kRequestSaveJson?"song JSON":
         requestCode==kRequestExportWav?"WAV":
-        requestCode==kRequestExportMidi?"MIDI":"document";
+        requestCode==kRequestExportMidi?"MIDI":
+        requestCode==kRequestExportPatch?"patch JSON":"document";
     if(success){
         __android_log_print(ANDROID_LOG_INFO,kTag,"saved AIORA %s",kind);
     }else if(message!="Cancelled"){
@@ -1291,23 +1329,27 @@ bool handleUiTap(NativeState& state, float x, float y) {
                     __android_log_print(ANDROID_LOG_WARN,kTag,"AI patch description clipboard is empty");
                 }
             }else if(*transfer==aiora::PatchTransferAction::CopyPatch){
-                const std::string json=aiora::serializePatchJson(project.selectedPatch());
-                const bool ok=clipboardSetText(state.app?state.app->activity:nullptr,json);
-                __android_log_print(ok?ANDROID_LOG_INFO:ANDROID_LOG_WARN,kTag,
-                    ok?"copied AIORA patch JSON":"could not copy AIORA patch JSON");
-            }else{
-                const std::string json=clipboardGetText(state.app?state.app->activity:nullptr);
-                aiora::Patch imported;
                 std::string error;
-                if(!json.empty()&&aiora::deserializePatchJson(json,imported,&error)
-                    &&project.replaceSelectedPatch(std::move(imported))){
-                    audio.syncProject();
-                    previewEditorPatch(state);
-                    scheduleAutosave(state,0);
-                    __android_log_print(ANDROID_LOG_INFO,kTag,"pasted AIORA patch JSON");
-                }else{
-                    __android_log_print(ANDROID_LOG_WARN,kTag,"patch paste failed: %s",
-                        error.empty()?"clipboard does not contain AIORA patch JSON":error.c_str());
+                const bool prepared=!state.patchExportPath.empty()&&
+                    aiora::savePatchFile(
+                        state.patchExportPath,project.selectedPatch(),&error);
+                const bool launched=prepared&&launchCreateDocument(
+                    state.app?state.app->activity:nullptr,
+                    kRequestExportPatch,
+                    "Aiora Patch.patch.json","application/json",
+                    state.patchExportPath);
+                if(!launched){
+                    __android_log_print(
+                        ANDROID_LOG_WARN,kTag,"patch export failed: %s",
+                        error.empty()?"document picker unavailable":error.c_str());
+                }
+            }else{
+                if(!launchOpenDocument(
+                    state.app?state.app->activity:nullptr,
+                    kRequestImportPatch,"application/json")){
+                    __android_log_print(
+                        ANDROID_LOG_WARN,kTag,
+                        "patch file picker could not start");
                 }
             }
             return true;
@@ -1895,6 +1937,8 @@ void android_main(android_app* app) {
         state.midiExportPath=base+"/aiora_song_export.mid";
         state.documentResultPath=base+"/aiora_document_result.txt";
         state.documentLoadPath=base+"/aiora_open_song.json";
+        state.patchExportPath=base+"/aiora_patch_export.patch.json";
+        state.patchLoadPath=base+"/aiora_open_patch.patch.json";
     }
 
     aiora::Project restored;
