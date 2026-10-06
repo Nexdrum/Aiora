@@ -44,6 +44,7 @@ struct RollCellHit {
     int midi{-1};
     int step{-1};
     float normalizedAcross{0.5f};
+    float normalizedDown{0.5f};
 };
 
 class NativeUi {
@@ -103,6 +104,9 @@ public:
     [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
+    [[nodiscard]] bool hitRollPitchHeader(float x,float y) const noexcept;
+    [[nodiscard]] bool hitRollBeatGutter(float x,float y) const noexcept;
+    [[nodiscard]] bool hitRollNoteArea(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollCellHit> hitRollCell(float x, float y) const noexcept;
 
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
