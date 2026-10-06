@@ -705,6 +705,35 @@ bool handleUiTap(NativeState& state, float x, float y) {
         return true;
     }
 
+    if(const auto sw=state.ui.hitTrackSwitch(x,y)){
+        const int count=project.trackCount();
+        if(count>0){
+            int track=std::clamp(project.selectedTrack(),0,count-1);
+            if(*sw==aiora::TrackSwitchAction::PreviousTrack){
+                track=(track+count-1)%count;
+                project.selectTrack(track);
+                state.ui.resetDrumRangeArm();
+            }else if(*sw==aiora::TrackSwitchAction::NextTrack){
+                track=(track+1)%count;
+                project.selectTrack(track);
+                state.ui.resetDrumRangeArm();
+            }else if(project.trackIsDrums(track)){
+                const int pads=project.padCount(track);
+                if(pads>0){
+                    int pad=std::clamp(project.selectedPad(track),0,pads-1);
+                    if(*sw==aiora::TrackSwitchAction::PreviousPad)pad=(pad+pads-1)%pads;
+                    else pad=(pad+1)%pads;
+                    project.selectPad(track,pad);
+                }
+            }
+            if(state.ui.page()==aiora::NativePage::Synth||
+               state.ui.page()==aiora::NativePage::Fx){
+                previewEditorPatch(state);
+            }
+        }
+        return true;
+    }
+
     if (state.ui.page() == aiora::NativePage::Tracks) {
         if(const auto transfer=state.ui.hitProjectTransfer(x,y)){
             if(*transfer==aiora::ProjectTransferAction::CopyProject){
@@ -831,7 +860,8 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (const auto mode = state.ui.hitRollMode(x, y)) {
-        state.ui.setRollMode(*mode);
+        state.ui.setRollMode(state.ui.rollMode()==*mode
+            ?aiora::RollMode::Notes:*mode);
         return true;
     }
 
