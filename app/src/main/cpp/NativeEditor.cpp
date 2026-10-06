@@ -945,6 +945,105 @@ std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
     return std::nullopt;
 }
 
+bool NativeEditor::openDropdownAt(
+    EditorPage page,float x,float y,NativeUi& ui) const {
+    const Patch p=ProjectCore::instance().selectedPatch();
+    const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
+
+    if(page==EditorPage::Synth){
+        static const std::vector<std::string> waveNames{
+            "sine","sawtooth","square","triangle","custom","noise"};
+        for(int op=0;op<6;++op){
+            const auto rr=operatorWaveFieldRect(op);
+            if(!rr.contains(x,y))continue;
+            ui.openDropdown(
+                DropdownKind::Wave,op,anchor(rr),
+                std::clamp(static_cast<int>(p.ops[static_cast<size_t>(op)].wave),0,5),
+                waveNames);
+            return true;
+        }
+        return false;
+    }
+
+    {
+        const auto rr=filterTypeRect(0);
+        if(rr.contains(x,y)){
+            ui.openDropdown(
+                DropdownKind::FilterType,0,anchor(rr),
+                std::clamp(static_cast<int>(p.filter.type),0,2),
+                {"lowpass","highpass","bandpass"});
+            return true;
+        }
+    }
+
+    {
+        const auto rr=lfoTargetRect(0);
+        if(rr.contains(x,y)){
+            ui.openDropdown(
+                DropdownKind::LfoTarget,0,anchor(rr),
+                std::clamp(static_cast<int>(p.lfo.target),0,3),
+                {"none","pitch","filter","amp"});
+            return true;
+        }
+    }
+
+    auto& project=ProjectCore::instance();
+    const int count=project.selectedModSlotCount();
+    static const std::vector<std::string> modNames{
+        "CUTOFF","RESO","FENV",
+        "A ATK","A DEC","A SUS","A REL",
+        "F ATK","F DEC","F SUS","F REL",
+        "OP1","OP2","OP3","OP4","OP5","OP6",
+        "MORPH1","MORPH2","MORPH3","MORPH4","MORPH5","MORPH6",
+        "FM","LFO A","LFO R","UNI","VOL"};
+    for(int slot=0;slot<count&&slot<4;++slot){
+        const auto rr=modPartRect(slot,1);
+        if(!rr.contains(x,y))continue;
+        const auto s=project.selectedModSlot(slot);
+        const int selected=std::clamp(static_cast<int>(s.target)-1,0,
+            static_cast<int>(modNames.size())-1);
+        ui.openDropdown(
+            DropdownKind::ModTarget,slot,anchor(rr),selected,modNames);
+        return true;
+    }
+
+    return false;
+}
+
+bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
+    auto& project=ProjectCore::instance();
+    switch(choice.kind){
+        case DropdownKind::Wave:
+            if(choice.context<0||choice.context>=6||choice.option<0||choice.option>=6)
+                return false;
+            return project.setSelectedOperatorWave(
+                choice.context,static_cast<Wave>(choice.option));
+
+        case DropdownKind::FilterType:
+            if(choice.option<0||choice.option>=3)return false;
+            return project.setSelectedFilterType(
+                static_cast<FilterType>(choice.option));
+
+        case DropdownKind::LfoTarget:
+            if(choice.option<0||choice.option>=4)return false;
+            return project.setSelectedLfoTarget(
+                static_cast<LfoTarget>(choice.option));
+
+        case DropdownKind::ModTarget:{
+            if(choice.context<0||choice.context>=project.selectedModSlotCount()||
+               choice.option<0||choice.option>=28)return false;
+            const auto target=static_cast<ModTarget>(choice.option+1);
+            const auto rr=modRange(target);
+            const float mid=(rr.lo+rr.hi)*0.5f;
+            return project.setSelectedModSlot(
+                choice.context,target,mid,mid);
+        }
+
+        default:
+            return false;
+    }
+}
+
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
     for(int i=0;i<2;++i){
         const auto rr=synthTabRect(i);
