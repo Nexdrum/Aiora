@@ -870,7 +870,7 @@ void NativeUi::drawPageScrollGutter() const noexcept {
             kPitchColors[static_cast<size_t>(idx)],
             kPitchColors[static_cast<size_t>(idx+1)],
             local);
-        const auto color=mix(kBg,spectral,0.78f);
+        const auto color=mix(kBg,spectral,0.18f);
         const float y0=gutter.y+gutter.h*t0;
         const float y1=gutter.y+gutter.h*t1;
         ov.addRect(
@@ -1892,10 +1892,21 @@ void NativeUi::drawRoll() const noexcept {
         cc<visibleCols&&pitchOffset+cc<static_cast<int>(columns.size());
         ++cc){
         const int midi=columns[static_cast<size_t>(pitchOffset+cc)];
-        const float x=viewport.x+gutter+cc*colW;
-        fillRect({x,viewport.y,colW-1.0f,header-2.0f},kPanel);
+        const float rawLeft=viewport.x+gutter+cc*colW;
+        const float rawRight=viewport.x+gutter+(cc+1)*colW;
+        const float x=std::round(rawLeft);
+        const float right=std::round(rawRight);
+        const float cellW=std::max(1.0f,right-x);
         const auto pcColor=pitchColor(midi);
-        fillRect({x,viewport.y+header-4.0f,colW-1.0f,3.0f},pcColor);
+        fillRect(
+            {x,viewport.y,cellW,header-2.0f},
+            mix(kPanel,pcColor,0.10f));
+        fillRect(
+            {right-1.0f,viewport.y,1.0f,header-2.0f},
+            kRollBg);
+        fillRect(
+            {x,viewport.y+header-4.0f,std::max(1.0f,cellW-1.0f),3.0f},
+            pcColor);
 
         auto& rollOv=NativeOverlay::instance();
         if(project.trackIsDrums(track)){
@@ -1907,14 +1918,14 @@ void NativeUi::drawRoll() const noexcept {
             }
             if(padIndex>=0){
                 const int iconIndex=drumIconIndex(project.padIcon(track,padIndex));
-                const float iconS=std::min(colW*0.50f,header*0.40f);
+                const float iconS=std::min(cellW*0.50f,header*0.40f);
                 rollOv.addDrumIcon(
                     iconIndex,
-                    {x+(colW-iconS)*0.5f,viewport.y+4.0f,iconS,iconS},
+                    {x+(cellW-iconS)*0.5f,viewport.y+4.0f,iconS,iconS},
                     overlayColor(pcColor));
             }
-            const float glyphS=std::min(colW*0.62f,header*0.42f);
-            const Rect gr{x+(colW-glyphS)*0.5f,viewport.y+header*0.48f,glyphS,glyphS};
+            const float glyphS=std::min(cellW*0.62f,header*0.42f);
+            const Rect gr{x+(cellW-glyphS)*0.5f,viewport.y+header*0.48f,glyphS,glyphS};
             rollOv.addPitchGlyph(
                 midi%12,
                 {gr.x-1.5f,gr.y-1.5f,gr.w+3.0f,gr.h+3.0f},
@@ -1922,8 +1933,8 @@ void NativeUi::drawRoll() const noexcept {
             rollOv.addPitchGlyph(
                 midi%12,{gr.x,gr.y,gr.w,gr.h},overlayColor(kWhite));
         }else{
-            const float glyphS=std::min(colW*0.62f,header*0.68f);
-            const Rect gr{x+(colW-glyphS)*0.5f,viewport.y+3.0f,glyphS,glyphS};
+            const float glyphS=std::min(cellW*0.62f,header*0.68f);
+            const Rect gr{x+(cellW-glyphS)*0.5f,viewport.y+3.0f,glyphS,glyphS};
             rollOv.addPitchGlyph(
                 midi%12,
                 {gr.x-1.5f,gr.y-1.5f,gr.w+3.0f,gr.h+3.0f},
@@ -1938,7 +1949,7 @@ void NativeUi::drawRoll() const noexcept {
                 octave>0?("+"+std::to_string(octave)):std::to_string(octave);
             rollOv.addText(
                 label,
-                x+colW*0.61f,
+                x+cellW*0.61f,
                 viewport.y+header*(project.trackIsDrums(track)?0.82f:0.66f),
                 0.68f,
                 overlayColor(kMuted));
@@ -1955,7 +1966,23 @@ void NativeUi::drawRoll() const noexcept {
             step%barLen==0?kBar:
             step%beatLen==0?kBeat:kCell;
 
-        fillRect({viewport.x,y,gutter-2.0f,rowH-1.0f},rowColor);
+        const float gutterT=std::clamp(
+            (y-viewport.y-header)/
+                std::max(1.0f,viewport.h-header),
+            0.0f,1.0f);
+        const float spectrumPos=gutterT*11.0f;
+        const int spectrumIndex=std::clamp(
+            static_cast<int>(std::floor(spectrumPos)),0,10);
+        const float spectrumLocal=
+            spectrumPos-static_cast<float>(spectrumIndex);
+        const auto gutterSpectrum=mix(
+            kPitchColors[static_cast<size_t>(spectrumIndex)],
+            kPitchColors[static_cast<size_t>(spectrumIndex+1)],
+            spectrumLocal);
+        const auto gutterColor=mix(rowColor,gutterSpectrum,0.16f);
+        fillRect(
+            {viewport.x,y,gutter-2.0f,rowH-1.0f},
+            gutterColor);
         if(step%barLen==0){
             const int bar=step/barLen+1;
             NativeOverlay::instance().addText(
@@ -1969,8 +1996,17 @@ void NativeUi::drawRoll() const noexcept {
         for(int cc=0;
             cc<visibleCols&&pitchOffset+cc<static_cast<int>(columns.size());
             ++cc){
-            const float x=viewport.x+gutter+cc*colW;
-            fillRect({x,y,colW-1.0f,rowH-1.0f},rowColor);
+            const int midi=columns[static_cast<size_t>(pitchOffset+cc)];
+            const float rawLeft=viewport.x+gutter+cc*colW;
+            const float rawRight=viewport.x+gutter+(cc+1)*colW;
+            const float cellX=std::round(rawLeft);
+            const float cellRight=std::round(rawRight);
+            const float cellW=std::max(1.0f,cellRight-cellX);
+            const auto tinted=mix(rowColor,pitchColor(midi),0.075f);
+            fillRect({cellX,y,cellW,rowH-1.0f},tinted);
+            fillRect(
+                {cellRight-1.0f,y,1.0f,rowH-1.0f},
+                kRollBg);
         }
     }
 
