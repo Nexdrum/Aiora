@@ -124,6 +124,147 @@ void NativeUi::clearPitchActivity() noexcept {
     active_.fill(false);
 }
 
+void NativeUi::openDropdown(
+    DropdownKind kind,int context,Rect anchor,int selected,
+    std::vector<std::string> labels){
+    dropdownKind_=kind;
+    dropdownContext_=context;
+    dropdownAnchor_=anchor;
+    dropdownSelected_=selected;
+    dropdownLabels_=std::move(labels);
+    if(dropdownLabels_.empty())closeDropdown();
+}
+
+void NativeUi::closeDropdown() noexcept {
+    dropdownKind_=DropdownKind::None;
+    dropdownContext_=-1;
+    dropdownSelected_=-1;
+    dropdownAnchor_={};
+    dropdownLabels_.clear();
+}
+
+int NativeUi::dropdownColumns() const noexcept {
+    const int n=static_cast<int>(dropdownLabels_.size());
+    if(n>20)return 3;
+    if(n>10)return 2;
+    return 1;
+}
+
+NativeUi::Rect NativeUi::dropdownPanelRect() const noexcept {
+    const int n=std::max(1,static_cast<int>(dropdownLabels_.size()));
+    const int cols=dropdownColumns();
+    const int rows=(n+cols-1)/cols;
+    const float margin=std::clamp(
+        static_cast<float>(std::max(1,width_-safeLeft_-safeRight_))*0.018f,
+        10.0f,18.0f);
+    const float left=static_cast<float>(safeLeft_)+margin;
+    const float right=static_cast<float>(width_-safeRight_)-margin;
+    const float top=static_cast<float>(safeTop_)+margin;
+    const float bottom=static_cast<float>(height_-safeBottom_)-margin;
+    const float availableW=std::max(80.0f,right-left);
+    const float availableH=std::max(80.0f,bottom-top);
+    const float wantedCol=std::max(164.0f,dropdownAnchor_.w/std::max(1,cols));
+    const float wantedW=std::max(dropdownAnchor_.w,wantedCol*cols+8.0f);
+    const float w=std::min(availableW,wantedW);
+    float itemH=std::clamp(dropdownAnchor_.h,46.0f,62.0f);
+    itemH=std::min(itemH,std::max(32.0f,(availableH-8.0f)/rows));
+    const float h=std::min(availableH,itemH*rows+8.0f);
+    float x=std::clamp(dropdownAnchor_.x,left,std::max(left,right-w));
+    if(x+w>right)x=right-w;
+    const float below=dropdownAnchor_.y+dropdownAnchor_.h+5.0f;
+    const float above=dropdownAnchor_.y-h-5.0f;
+    float y=(below+h<=bottom)?below:above;
+    y=std::clamp(y,top,std::max(top,bottom-h));
+    return {x,y,w,h};
+}
+
+NativeUi::Rect NativeUi::dropdownItemRect(int index) const noexcept {
+    const auto panel=dropdownPanelRect();
+    const int n=std::max(1,static_cast<int>(dropdownLabels_.size()));
+    const int cols=dropdownColumns();
+    const int rows=(n+cols-1)/cols;
+    const float pad=4.0f;
+    const float colW=(panel.w-pad*2.0f)/cols;
+    const float itemH=(panel.h-pad*2.0f)/rows;
+    const int col=index%cols;
+    const int row=index/cols;
+    return {
+        panel.x+pad+col*colW,
+        panel.y+pad+row*itemH,
+        colW,
+        itemH
+    };
+}
+
+bool NativeUi::openUiDropdownAt(float x,float y){
+    auto& project=ProjectCore::instance();
+
+    if(page_!=NativePage::Tracks&&trackSwitchRect(1).contains(x,y)){
+        std::vector<std::string> labels;
+        const int count=project.trackCount();
+        labels.reserve(static_cast<size_t>(std::max(0,count)));
+        for(int i=0;i<count;++i){
+            std::string label=std::to_string(i+1)+" "+project.trackName(i);
+            if(label.size()>26)label.resize(26);
+            labels.push_back(std::move(label));
+        }
+        openDropdown(
+            DropdownKind::Track,-1,trackSwitchRect(1),project.selectedTrack(),
+            std::move(labels));
+        return dropdownOpen();
+    }
+
+    if((page_==NativePage::Synth||page_==NativePage::Fx)){
+        const int track=project.selectedTrack();
+        const auto field=trackSwitchRect(6);
+        if(track>=0&&project.trackIsDrums(track)&&field.contains(x,y)){
+            std::vector<std::string> labels;
+            const int count=project.padCount(track);
+            labels.reserve(static_cast<size_t>(std::max(0,count)));
+            for(int i=0;i<count;++i){
+                std::string label=std::to_string(i+1)+" "+
+                    drumIconName(project.padIcon(track,i))+" "+
+                    pitchCoord(project.padCenter(track,i));
+                if(label.size()>24)label.resize(24);
+                labels.push_back(std::move(label));
+            }
+            openDropdown(
+                DropdownKind::Pad,track,field,project.selectedPad(track),
+                std::move(labels));
+            return dropdownOpen();
+        }
+    }
+
+    if(page_==NativePage::Tracks&&patchPresetRect().contains(x,y)){
+        std::vector<std::string> labels{
+            "Spectrachord Init","Subula","Spectrello","Nebular","Nexdrum"};
+        const std::string current=project.selectedTrack()>=0
+            ?project.trackPatchName(project.selectedTrack()):std::string{};
+        int selected=0;
+        for(int i=0;i<static_cast<int>(labels.size());++i)
+            if(current==labels[static_cast<size_t>(i)]){selected=i;break;}
+        if(project.selectedTrack()>=0&&project.trackIsDrums(project.selectedTrack()))
+            selected=4;
+        openDropdown(
+            DropdownKind::Patch,project.selectedTrack(),patchPresetRect(),selected,
+            std::move(labels));
+        return true;
+    }
+
+    return false;
+}
+
+std::optional<DropdownChoice> NativeUi::hitDropdown(float x,float y){
+    if(!dropdownOpen())return std::nullopt;
+    for(int i=0;i<static_cast<int>(dropdownLabels_.size());++i){
+        if(!dropdownItemRect(i).contains(x,y))continue;
+        const DropdownChoice choice{dropdownKind_,dropdownContext_,i};
+        closeDropdown();
+        return choice;
+    }
+    return std::nullopt;
+}
+
 NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
@@ -306,6 +447,11 @@ NativeUi::Rect NativeUi::patchCardRect() const noexcept {
     const auto prev=trackCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
     return {prev.x,prev.y+prev.h+gap,prev.w,174.0f};
+}
+
+NativeUi::Rect NativeUi::patchPresetRect() const noexcept {
+    const auto card=patchCardRect();
+    return {card.x+20.0f,card.y+96.0f,card.w-40.0f,56.0f};
 }
 
 NativeUi::Rect NativeUi::aiCardRect() const noexcept {
@@ -687,6 +833,35 @@ void NativeUi::fillRect(const Rect& rect, Rgb color) const noexcept {
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
+void NativeUi::drawDropdown() const noexcept {
+    if(!dropdownOpen()||dropdownLabels_.empty())return;
+    auto& ov=NativeOverlay::instance();
+    const auto panel=dropdownPanelRect();
+    fillRect(panel,kCyan);
+    const float border=2.0f;
+    fillRect({
+        panel.x+border,panel.y+border,
+        std::max(0.0f,panel.w-border*2.0f),
+        std::max(0.0f,panel.h-border*2.0f)},kTop);
+
+    for(int i=0;i<static_cast<int>(dropdownLabels_.size());++i){
+        auto rr=dropdownItemRect(i);
+        const float gap=2.0f;
+        rr={rr.x+gap,rr.y+gap,
+            std::max(0.0f,rr.w-gap*2.0f),
+            std::max(0.0f,rr.h-gap*2.0f)};
+        const bool selected=i==dropdownSelected_;
+        fillRect(rr,selected?mix(kButton,kCyan,0.62f):kButton);
+        std::string label=dropdownLabels_[static_cast<size_t>(i)];
+        const size_t maxChars=dropdownColumns()==1?28:18;
+        if(label.size()>maxChars)label.resize(maxChars);
+        ov.addTextCentered(
+            label,{rr.x,rr.y,rr.w,rr.h},
+            std::clamp(rr.h/50.0f,0.78f,1.08f),
+            overlayColor(selected?kBg:kWhite));
+    }
+}
+
 void NativeUi::drawScope() const noexcept {
     const auto r=headerScopeRect();
     if(r.w<56.0f||r.h<20.0f)return;
@@ -1065,9 +1240,7 @@ void NativeUi::drawTracks() const noexcept {
         patchName,
         patchCard.x+20.0f,patchCard.y+58.0f,
         1.12f,overlayColor(kCyan));
-    const Rect patchField{
-        patchCard.x+20.0f,patchCard.y+96.0f,
-        patchCard.w-40.0f,56.0f};
+    const Rect patchField=patchPresetRect();
     fillRect(patchField,kRollBg);
     overlay.addText(
         patchName,
@@ -1932,6 +2105,7 @@ void NativeUi::render() const noexcept {
     }
 
     overlay.clearClip();
+    drawDropdown();
     glDisable(GL_SCISSOR_TEST);
     NativeOverlay::instance().flush();
 }
