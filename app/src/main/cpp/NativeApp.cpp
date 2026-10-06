@@ -820,6 +820,44 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (state.ui.page() == aiora::NativePage::Tracks) {
+        if(const auto utility=state.ui.hitTrackUtility(x,y)){
+            if(*utility==aiora::TrackUtilityAction::DozenalToggle){
+                project.setDozenal(!project.dozenal());
+                scheduleAutosave(state,0);
+            }else if(*utility==aiora::TrackUtilityAction::ClearTrack){
+                const int track=project.selectedTrack();
+                if(track>=0){
+                    project.clearTrackNotes(track);
+                    audio.syncProject();
+                    scheduleAutosave(state,0);
+                }
+            }else{
+                const std::string description=
+                    clipboardGetText(state.app?state.app->activity:nullptr);
+                if(!description.empty()){
+                    aiora::Patch generated=aiora::heuristicPatch(description);
+                    const int track=project.selectedTrack();
+                    if(generated.nexdrumLow>=0&&track>=0){
+                        project.loadNexdrumKit(track);
+                        state.ui.resetDrumRangeArm();
+                    }else{
+                        project.replaceSelectedPatch(std::move(generated));
+                    }
+                    audio.syncProject();
+                    previewEditorPatch(state);
+                    scheduleAutosave(state,0);
+                    __android_log_print(
+                        ANDROID_LOG_INFO,kTag,
+                        "generated AIORA patch from Tracks AI designer");
+                }else{
+                    __android_log_print(
+                        ANDROID_LOG_WARN,kTag,
+                        "Tracks AI designer clipboard is empty");
+                }
+            }
+            return true;
+        }
+
         if(const auto transfer=state.ui.hitProjectTransfer(x,y)){
             if(*transfer==aiora::ProjectTransferAction::CopyProject){
                 const std::string json=aiora::serializeProjectJson(project.projectCopy());
