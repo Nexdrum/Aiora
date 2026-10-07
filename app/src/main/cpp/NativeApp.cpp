@@ -1329,15 +1329,25 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 break;
             case aiora::HeaderAction::TransportStart:
                 state.ui.setRollStartStep(0);
+                state.ui.setPerformanceFollow(true);
                 break;
             case aiora::HeaderAction::TransportToggle:
-                if(audio.transportPlaying()) audio.stopTransport();
-                else audio.playTransport(state.ui.rollStartStep());
+                if(audio.transportPlaying()){
+                    audio.stopTransport();
+                }else{
+                    state.ui.setPerformanceFollow(true);
+                    audio.playTransport(state.ui.rollStartStep());
+                }
                 break;
             case aiora::HeaderAction::TransportEnd:
                 state.ui.setRollStartStep(
                     std::max(0,project.playLengthSteps()));
+                state.ui.setPerformanceFollow(true);
                 break;
+            case aiora::HeaderAction::PerformanceView:
+                releaseAllTouches(state);
+                state.ui.togglePerformancePage();
+                return true;
         }
         if(*action!=aiora::HeaderAction::TransportStart&&
            *action!=aiora::HeaderAction::TransportToggle&&

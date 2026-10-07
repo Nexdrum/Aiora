@@ -460,6 +460,18 @@ std::optional<DropdownChoice> NativeUi::hitDropdown(float x,float y){
     return std::nullopt;
 }
 
+NativeUi::Rect NativeUi::headerPerformanceRect() const noexcept {
+    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
+    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
+    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
+    const float scopeH=std::clamp(headerH*0.56f,54.0f,66.0f);
+    return {
+        static_cast<float>(safeLeft_)+usableW-margin-scopeH,
+        static_cast<float>(safeTop_)+(headerH-scopeH)*0.5f,
+        scopeH,scopeH
+    };
+}
+
 NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float usableW=std::max(0,width_-safeLeft_-safeRight_);
     const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
@@ -472,13 +484,13 @@ NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
     const float transportW=side+buttonGap+play+buttonGap+side;
     const float left=
         static_cast<float>(safeLeft_)+margin+brand+gap+transportW+gap;
-    const float right=
-        static_cast<float>(safeLeft_)+usableW-margin;
+    const auto performance=headerPerformanceRect();
+    const float right=performance.x-gap;
     const float scopeH=std::clamp(headerH*0.56f,54.0f,66.0f);
     return {
         left,
         static_cast<float>(safeTop_)+(headerH-scopeH)*0.5f,
-        std::max(96.0f,right-left),
+        std::max(56.0f,right-left),
         scopeH
     };
 }
@@ -548,7 +560,7 @@ NativeUi::Rect NativeUi::contentRect() const noexcept {
 
 NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
     auto r=contentRect();
-    if(page_==NativePage::Tracks)return r;
+    if(page_==NativePage::Tracks||page_==NativePage::Performance)return r;
     const float gap=std::max(5.0f,std::min(width_,height_)*0.007f);
     const float h=trackSwitchRect(0).h;
     r.y+=h+gap;
@@ -557,7 +569,8 @@ NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
 }
 
 NativeUi::Rect NativeUi::pageScrollViewportRect() const noexcept {
-    return page_==NativePage::Tracks?contentRect():bodyContentRect();
+    return (page_==NativePage::Tracks||page_==NativePage::Performance)
+        ?contentRect():bodyContentRect();
 }
 
 NativeUi::Rect NativeUi::pageScrollGutterRect() const noexcept {
@@ -1008,6 +1021,52 @@ int NativeUi::rollTotalRows() const noexcept {
     return std::max(64, ProjectCore::instance().playLengthSteps() + 32);
 }
 
+float NativeUi::performanceHeaderPixels() const noexcept {
+    return std::clamp(
+        std::min(width_,height_)*0.052f,
+        38.0f,52.0f);
+}
+
+float NativeUi::performanceRowPixels() const noexcept {
+    const auto view=contentRect();
+    const float available=std::max(
+        1.0f,view.h-performanceHeaderPixels());
+    return std::clamp(available/64.0f,14.0f,22.0f);
+}
+
+float NativeUi::performanceStartStep() const noexcept {
+    const auto view=contentRect();
+    const float header=performanceHeaderPixels();
+    const float rowH=performanceRowPixels();
+    const int visibleRows=std::max(
+        1,static_cast<int>(std::floor(
+            (view.h-header)/std::max(1.0f,rowH))));
+    auto& project=ProjectCore::instance();
+    const int total=std::max(
+        64,project.playLengthSteps()+
+           std::max(1,project.beats()*project.divisions()));
+    const float maxStart=
+        static_cast<float>(std::max(0,total-visibleRows));
+    if(performanceFollow_){
+        const float anchor=static_cast<float>(visibleRows)*0.28f;
+        return std::clamp(
+            static_cast<float>(AudioEngine::instance().playheadStep())-anchor,
+            0.0f,maxStart);
+    }
+    return std::clamp(performanceScrollStep_,0.0f,maxStart);
+}
+
+void NativeUi::togglePerformancePage() noexcept {
+    closeDropdown();
+    if(page_==NativePage::Performance){
+        page_=performanceReturnPage_;
+        return;
+    }
+    performanceReturnPage_=page_;
+    performanceFollow_=true;
+    page_=NativePage::Performance;
+}
+
 void NativeUi::scrollRoll(int pitchDelta, int stepDelta) noexcept {
     const auto columns=rollColumns();
     const auto viewport=rollViewportRect();
@@ -1053,10 +1112,33 @@ void NativeUi::scrollPage(float deltaPixels) noexcept {
         const float maxScroll=std::max(0.0f,total-view.h);
         drumScrollY_=std::clamp(
             drumScrollY_+deltaPixels,0.0f,maxScroll);
+    }else if(page_==NativePage::Performance){
+        const auto view=contentRect();
+        const float header=performanceHeaderPixels();
+        const float rowH=performanceRowPixels();
+        const int visibleRows=std::max(
+            1,static_cast<int>(std::floor(
+                (view.h-header)/std::max(1.0f,rowH))));
+        const int total=std::max(
+            64,ProjectCore::instance().playLengthSteps()+
+               std::max(1,ProjectCore::instance().beats()*
+                          ProjectCore::instance().divisions()));
+        const float maxStart=
+            static_cast<float>(std::max(0,total-visibleRows));
+        if(performanceFollow_){
+            performanceScrollStep_=performanceStartStep();
+            performanceFollow_=false;
+        }
+        performanceScrollStep_=std::clamp(
+            performanceScrollStep_+
+                deltaPixels/std::max(1.0f,rowH),
+            0.0f,maxStart);
     }
 }
 
 bool NativeUi::hitScrollableBody(float x,float y) const noexcept {
+    if(page_==NativePage::Performance)
+        return contentRect().contains(x,y);
     if(page_!=NativePage::Tracks&&page_!=NativePage::Drums)return false;
     return pageScrollGutterRect().contains(x,y);
 }
@@ -2611,6 +2693,192 @@ void NativeUi::drawRoll() const noexcept {
     }
 }
 
+void NativeUi::drawPerformance() const noexcept {
+    auto& project=ProjectCore::instance();
+    const auto snapshot=project.projectCopy();
+    const auto view=contentRect();
+    const float header=performanceHeaderPixels();
+    const float gridTop=view.y+header;
+    const float gridBottom=view.y+view.h;
+    const float gutter=std::clamp(view.w*0.054f,40.0f,54.0f);
+    const float gridLeft=view.x+gutter;
+    const float gridRight=view.x+view.w;
+    const float gridW=std::max(1.0f,gridRight-gridLeft);
+    const float rowH=performanceRowPixels();
+    const int visibleRows=std::max(
+        1,static_cast<int>(std::floor(
+            (gridBottom-gridTop)/std::max(1.0f,rowH))));
+    const float startStep=performanceStartStep();
+
+    std::vector<int> columns;
+    columns.reserve(97);
+    for(int midi=14;midi<=110;++midi)columns.push_back(midi);
+    const float colW=gridW/static_cast<float>(columns.size());
+
+    fillRect(view,kRollBg);
+    auto& ov=NativeOverlay::instance();
+
+    // Compact full-range pitch overview: spectrum strip plus D-centered octave
+    // markers. All 97 pitches remain visible at once.
+    fillRect({view.x,view.y,gutter-1.0f,header},mix(kTop,kBg,0.40f));
+    for(size_t i=0;i<columns.size();++i){
+        const float x=gridLeft+static_cast<float>(i)*colW;
+        const auto base=pitchColor(columns[i]);
+        fillRect(
+            {x,view.y,std::max(1.0f,colW),header},
+            mix(base,kRollBg,0.78f));
+        fillRect(
+            {x,view.y+header-4.0f,std::max(1.0f,colW),4.0f},
+            base);
+    }
+    ov.addText(
+        "PERFORMANCE",
+        view.x+7.0f,view.y+header*0.28f,
+        0.66f,overlayColor(kWhite));
+
+    for(int midi=14;midi<=110;midi+=12){
+        const float x=rollPitchX(
+            columns,static_cast<float>(midi),0,gridLeft,colW);
+        ov.addLine(
+            x,view.y,x,gridBottom,
+            1.0f,overlayColor(mix(kBar,kRollBg,0.36f),0.88f));
+        std::string label=pitchCoord(midi);
+        ov.addTextCentered(
+            label,
+            {x-colW*3.0f,view.y+3.0f,colW*6.0f,header-8.0f},
+            0.52f,overlayColor(kWhite,0.78f));
+    }
+
+    const int beatLen=std::max(1,project.divisions());
+    const int barLen=std::max(1,project.beats())*beatLen;
+    const int firstStep=std::max(
+        0,static_cast<int>(std::floor(startStep)));
+    const int lastStep=
+        static_cast<int>(std::ceil(startStep+
+            static_cast<float>(visibleRows)))+1;
+    for(int step=firstStep;step<=lastStep;++step){
+        const float y=
+            gridTop+(static_cast<float>(step)-startStep)*rowH;
+        if(y<gridTop||y>gridBottom)continue;
+        if(step%beatLen!=0)continue;
+        const bool bar=step%barLen==0;
+        ov.addLine(
+            gridLeft,y,gridRight,y,
+            bar?2.0f:1.0f,
+            overlayColor(bar?kBar:kBeat,bar?0.78f:0.48f));
+        if(bar){
+            const int barNumber=step/barLen+1;
+            ov.addText(
+                "b"+std::to_string(barNumber),
+                view.x+5.0f,y+4.0f,
+                0.58f,overlayColor(kWhite,0.72f));
+        }
+    }
+
+    const auto addPerformanceRibbon=[&](
+        const Track& sourceTrack,const Note& note,
+        int sourceTrackIndex,int noteIndex){
+        const float length=std::max(1.0f,note.lengthSteps);
+        if(note.startStep+length<=startStep||
+           note.startStep>=startStep+static_cast<float>(visibleRows)+1.0f)
+            return;
+
+        const int segments=std::clamp(
+            static_cast<int>(std::ceil(length*8.0f)),6,360);
+        (void)sourceTrackIndex;
+        (void)noteIndex;
+
+        for(int i=0;i<segments;++i){
+            const float f0=
+                static_cast<float>(i)/static_cast<float>(segments);
+            const float f1=
+                static_cast<float>(i+1)/static_cast<float>(segments);
+            float y0=
+                gridTop+(note.startStep+f0*length-startStep)*rowH;
+            float y1=
+                gridTop+(note.startStep+f1*length-startStep)*rowH;
+            if(y1<=gridTop||y0>=gridBottom)continue;
+
+            const float s0=rollVisualCurveStep(note,f0);
+            const float s1=rollVisualCurveStep(note,f1);
+            const float pitch0=
+                static_cast<float>(note.midi)+
+                rollBendAt(sourceTrack,note,s0);
+            const float pitch1=
+                static_cast<float>(note.midi)+
+                rollBendAt(sourceTrack,note,s1);
+            const float c0=rollPitchX(
+                columns,pitch0,0,gridLeft,colW);
+            const float c1=rollPitchX(
+                columns,pitch1,0,gridLeft,colW);
+
+            const float minHalf=0.85f;
+            const float maxHalf=std::max(1.25f,colW*0.48f);
+            const float v0=rollLevelAt(note.velocity,note,s0,1.0f);
+            const float v1=rollLevelAt(note.velocity,note,s1,1.0f);
+            const float half0=minHalf+(maxHalf-minHalf)*v0;
+            const float half1=minHalf+(maxHalf-minHalf)*v1;
+            const float rough0=
+                rollLevelAt(note.mod,note,s0,0.0f)*colW*0.15f;
+            const float rough1=
+                rollLevelAt(note.mod,note,s1,0.0f)*colW*0.15f;
+            const float edge0=std::max(
+                0.7f,half0+rollJaggedWave(f0*length)*rough0);
+            const float edge1=std::max(
+                0.7f,half1+rollJaggedWave(f1*length)*rough1);
+
+            const float rawL0=c0-edge0;
+            const float rawR0=c0+edge0;
+            const float rawL1=c1-edge1;
+            const float rawR1=c1+edge1;
+            if(std::max(rawR0,rawR1)<=gridLeft||
+               std::min(rawL0,rawL1)>=gridRight)
+                continue;
+
+            const float x0=std::clamp(rawL0,gridLeft,gridRight);
+            const float x1=std::clamp(rawR0,gridLeft,gridRight);
+            const float x2=std::clamp(rawR1,gridLeft,gridRight);
+            const float x3=std::clamp(rawL1,gridLeft,gridRight);
+            y0=std::clamp(y0,gridTop,gridBottom);
+            y1=std::clamp(y1,gridTop,gridBottom);
+            if(y1<=y0||x1<=x0||x2<=x3)continue;
+
+            const auto topColor=
+                overlayColor(rollSpectrumColor(pitch0),0.90f);
+            const auto bottomColor=
+                overlayColor(rollSpectrumColor(pitch1),0.90f);
+            ov.addGradientQuad(
+                x0,y0,x1,y0,x2,y1,x3,y1,
+                topColor,bottomColor);
+        }
+    };
+
+    // Actual notes only: no harmonic shadows in Performance Display.
+    for(int t=0;t<static_cast<int>(snapshot.tracks.size());++t){
+        const auto& sourceTrack=snapshot.tracks[static_cast<size_t>(t)];
+        for(int n=0;n<static_cast<int>(sourceTrack.notes.size());++n){
+            addPerformanceRibbon(
+                sourceTrack,
+                sourceTrack.notes[static_cast<size_t>(n)],
+                t,n);
+        }
+    }
+
+    // Keep the current transport position fixed near the upper third while
+    // follow mode scrolls the score beneath it.
+    const int playhead=AudioEngine::instance().playheadStep();
+    const float py=
+        gridTop+(static_cast<float>(playhead)-startStep)*rowH;
+    if(py>=gridTop&&py<=gridBottom){
+        ov.addLine(
+            view.x,py,gridRight,py,
+            5.0f,overlayColor(kCyan,0.16f));
+        ov.addLine(
+            view.x,py,gridRight,py,
+            1.8f,overlayColor(kCyan,0.98f));
+    }
+}
+
 void NativeUi::drawPlaceholder() const noexcept {
     const auto content = contentRect();
     fillRect(content, kPanel);
@@ -2689,6 +2957,24 @@ void NativeUi::render() const noexcept {
         1.32f,overlayColor(kWhite));
     drawScope();
 
+    const auto performanceR=headerPerformanceRect();
+    const bool performanceActive=page_==NativePage::Performance;
+    fillRect(performanceR,performanceActive?kCyan:kButton);
+    const float performanceInset=std::max(5.0f,performanceR.w*0.16f);
+    overlay.addNavIcon(
+        2,
+        {performanceR.x+performanceInset,
+         performanceR.y+performanceInset,
+         performanceR.w-performanceInset*2.0f,
+         performanceR.h-performanceInset*2.0f},
+        overlayColor(performanceActive?kBg:kWhite));
+    const float phX=performanceR.x+performanceR.w*0.70f;
+    overlay.addLine(
+        phX,performanceR.y+performanceR.h*0.18f,
+        phX,performanceR.y+performanceR.h*0.82f,
+        2.0f,
+        overlayColor(performanceActive?kBg:kCyan,0.92f));
+
     for (int i = 0; i < 6; ++i) {
         const auto page = kNavPages[static_cast<size_t>(i)];
         const auto nr=navRect(i);
@@ -2700,9 +2986,12 @@ void NativeUi::render() const noexcept {
             overlayColor(page==page_?kBg:kWhite));
     }
 
-    if(page_!=NativePage::Tracks)drawTrackSwitchBar();
+    if(page_!=NativePage::Tracks&&page_!=NativePage::Performance)
+        drawTrackSwitchBar();
 
-    const auto pageClip=page_==NativePage::Tracks?contentRect():bodyContentRect();
+    const auto pageClip=
+        (page_==NativePage::Tracks||page_==NativePage::Performance)
+        ?contentRect():bodyContentRect();
     overlay.setClip({pageClip.x,pageClip.y,pageClip.w,pageClip.h});
 
     switch (page_) {
@@ -2722,6 +3011,9 @@ void NativeUi::render() const noexcept {
         case NativePage::Fx:
             fillRect(bodyContentRect(), kPanel);
             NativeEditor::instance().renderFx();
+            break;
+        case NativePage::Performance:
+            drawPerformance();
             break;
         case NativePage::Play:{
             const auto body=bodyContentRect();
@@ -2768,6 +3060,7 @@ std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept 
     if(headerControlRect(0).contains(x,y))return HeaderAction::TransportStart;
     if(headerControlRect(1).contains(x,y))return HeaderAction::TransportToggle;
     if(headerControlRect(2).contains(x,y))return HeaderAction::TransportEnd;
+    if(headerPerformanceRect().contains(x,y))return HeaderAction::PerformanceView;
     return std::nullopt;
 }
 
@@ -2781,7 +3074,8 @@ std::optional<NativePage> NativeUi::hitNav(float x, float y) const noexcept {
 }
 
 std::optional<TrackSwitchAction> NativeUi::hitTrackSwitch(float x,float y) const noexcept {
-    if(page_==NativePage::Tracks)return std::nullopt;
+    if(page_==NativePage::Tracks||page_==NativePage::Performance)
+        return std::nullopt;
     if(trackSwitchRect(0).contains(x,y))return TrackSwitchAction::PreviousTrack;
     if(trackSwitchRect(2).contains(x,y))return TrackSwitchAction::NextTrack;
 

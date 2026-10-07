@@ -13,7 +13,8 @@ enum class NativePage : int {
     Roll = 2,
     Synth = 3,
     Fx = 4,
-    Play = 5
+    Play = 5,
+    Performance = 6
 };
 
 enum class TrackAddKind : int {
@@ -40,7 +41,8 @@ enum class HeaderAction : int {
     DozenalToggle,
     TransportStart,
     TransportToggle,
-    TransportEnd
+    TransportEnd,
+    PerformanceView
 };
 
 enum class ProjectTransferAction : int {
@@ -128,6 +130,8 @@ public:
     void setSafeInsets(int left,int top,int right,int bottom) noexcept;
     void setPage(NativePage page) noexcept { page_ = page; closeDropdown(); }
     [[nodiscard]] NativePage page() const noexcept { return page_; }
+    void togglePerformancePage() noexcept;
+    void setPerformanceFollow(bool enabled) noexcept { performanceFollow_ = enabled; }
 
     void setPitchActive(int midi, bool active) noexcept;
     void clearPitchActivity() noexcept;
@@ -198,6 +202,7 @@ public:
 
 private:
     [[nodiscard]] Rect headerScopeRect() const noexcept;
+    [[nodiscard]] Rect headerPerformanceRect() const noexcept;
     [[nodiscard]] Rect headerControlRect(int index) const noexcept;
     [[nodiscard]] Rect navRect(int index) const noexcept;
     [[nodiscard]] Rect contentRect() const noexcept;
@@ -235,6 +240,9 @@ private:
     [[nodiscard]] float rollHeaderPixels() const noexcept;
     [[nodiscard]] std::vector<int> rollColumns() const;
     [[nodiscard]] int rollTotalRows() const noexcept;
+    [[nodiscard]] float performanceHeaderPixels() const noexcept;
+    [[nodiscard]] float performanceRowPixels() const noexcept;
+    [[nodiscard]] float performanceStartStep() const noexcept;
     [[nodiscard]] Rgb pitchColor(int midi) const noexcept;
 
     void fillRect(const Rect& rect, Rgb color) const noexcept;
@@ -247,6 +255,7 @@ private:
     void drawDrumEditor() const noexcept;
     void drawDrums() const noexcept;
     void drawRoll() const noexcept;
+    void drawPerformance() const noexcept;
     void drawPlaceholder() const noexcept;
     void drawDropdown() const noexcept;
     [[nodiscard]] Rect dropdownPanelRect() const noexcept;
@@ -280,6 +289,9 @@ private:
     bool rollClipboardAvailable_{false};
     float trackScrollY_{0.0f};
     float drumScrollY_{0.0f};
+    NativePage performanceReturnPage_{NativePage::Roll};
+    bool performanceFollow_{true};
+    float performanceScrollStep_{0.0f};
 
     DropdownKind dropdownKind_{DropdownKind::None};
     int dropdownContext_{-1};
