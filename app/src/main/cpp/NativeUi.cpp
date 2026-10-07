@@ -2288,7 +2288,13 @@ void NativeUi::drawDrumEditor() const noexcept {
         "Note",card.x+20.0f,card.y+62.0f,
         0.96f,overlayColor(kWhite));
 
-    if(track<0||!project.trackIsDrums(track))return;
+    if(track<0||!project.trackIsDrums(track)){
+        ov.addText(
+            "Add a drum track to begin",
+            card.x+20.0f,card.y+108.0f,
+            0.88f,overlayColor(kMuted));
+        return;
+    }
     const int pad=project.selectedPad(track);
     const int count=project.padCount(track);
 
@@ -2361,19 +2367,22 @@ void NativeUi::drawDrums() const noexcept {
         kit.x+92.0f,kit.y+58.0f,
         kit.w-114.0f,58.0f};
     fillRect(kitField,kRollBg);
+    const bool hasDrumTrack=
+        track>=0&&project.trackIsDrums(track);
     ov.addText(
-        (track>=0&&project.trackIsDrums(track))
-            ?"Nexdrum":"Drum kit",
+        hasDrumTrack?"Nexdrum":"No drum track",
         kitField.x+14.0f,kitField.y+17.0f,
-        1.02f,overlayColor(kWhite));
+        1.02f,overlayColor(hasDrumTrack?kWhite:kMuted));
 
     drawPadQuick();
 
     const auto add=drumActionRect(1);
     fillRect(add,kButton);
     ov.addTextCentered(
-        "+ Add Pad",{add.x,add.y,add.w,add.h},
-        0.96f,overlayColor(kWhite));
+        hasDrumTrack?"+ Add Pad":"+ Add drum track",
+        {add.x,add.y,add.w,add.h},
+        hasDrumTrack?0.96f:0.82f,
+        overlayColor(kWhite));
 
     drawDrumEditor();
     drawGrid();
@@ -2381,9 +2390,19 @@ void NativeUi::drawDrums() const noexcept {
 
 bool NativeUi::drumPointerDown(float x,float y){
     if(page_!=NativePage::Drums)return false;
-    auto& project=ProjectCore::instance();const int track=project.selectedTrack();
-    if(track<0||!project.trackIsDrums(track))return false;
-    drumControlChanged_=false;drumActiveSlider_=-1;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    drumControlChanged_=false;
+    drumActiveSlider_=-1;
+
+    if(track<0||!project.trackIsDrums(track)){
+        if(drumActionRect(1).contains(x,y)){
+            drumControlChanged_=project.addTrack(true)>=0;
+            drumRangeArmed_=false;
+            return true;
+        }
+        return false;
+    }
 
     const int initialCount=project.padCount(track);
     for(int p=0;p<initialCount;++p){
