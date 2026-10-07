@@ -2618,10 +2618,52 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         state.rollLastBeatTapMs=0;
                         state.rollLastBeatTapStep=-1;
                     }
+                }else if(g.kind==RollGestureKind::SelectTool){
+                    if(!g.moved&&!g.longPressTriggered){
+                        state.ui.toggleRollSelectionTool();
+                        if(state.ui.rollSelectionTool()==
+                               aiora::RollSelectionTool::Pencil&&
+                           state.ui.rollNoteSelectionActive()&&
+                           (state.ui.rollMode()==aiora::RollMode::Velocity||
+                            state.ui.rollMode()==aiora::RollMode::Mod)){
+                            ensureRollGroupAutomation(
+                                state,
+                                static_cast<int>(state.ui.rollMode())-1);
+                        }else{
+                            state.ui.clearRollGroupAutomation();
+                        }
+                    }
+                }else if(g.kind==RollGestureKind::Lasso){
+                    const int track=
+                        aiora::ProjectCore::instance().selectedTrack();
+                    if(g.moved){
+                        auto hits=state.ui.finishRollLasso();
+                        if(state.ui.rollMultiLasso()){
+                            std::vector<int> merged;
+                            if(state.ui.rollNoteSelectionActive()&&
+                               state.ui.rollSelectedTrack()==track){
+                                merged=state.ui.rollSelectedNotes();
+                            }
+                            merged.insert(merged.end(),hits.begin(),hits.end());
+                            if(!merged.empty())
+                                setRollNoteSelection(
+                                    state,track,std::move(merged));
+                        }else{
+                            setRollNoteSelection(
+                                state,track,std::move(hits));
+                        }
+                    }else{
+                        state.ui.cancelRollLasso();
+                        if(!state.ui.rollMultiLasso()&&
+                           !state.ui.hitRollNote(g.downX,g.downY)){
+                            clearRollNoteSelection(state);
+                        }
+                    }
                 }else if(g.kind==RollGestureKind::NoteEdit){
                     auto& project=aiora::ProjectCore::instance();
-                    if(!g.moved &&
-                       (g.noteEdit==RollNoteEdit::Move||g.noteEdit==RollNoteEdit::Resize) &&
+                    if(!g.moved&&!g.longPressTriggered&&
+                       (g.noteEdit==RollNoteEdit::Move||
+                        g.noteEdit==RollNoteEdit::Resize) &&
                        g.track>=0&&g.noteIndex>=0){
                         project.deleteNote(g.track,g.noteIndex);
                     }
@@ -2634,6 +2676,23 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                        g.track>=0&&g.noteIndex>=0&&g.curvePoint>=0){
                         changed=project.deleteCurvePoint(
                             g.track,g.noteIndex,g.curveKind,g.curvePoint);
+                    }
+                    if(changed){
+                        aiora::AudioEngine::instance().syncProject();
+                        scheduleAutosave(state);
+                    }
+                }else if(g.kind==RollGestureKind::GroupAutomation){
+                    bool changed=g.curveIsNew||g.moved;
+                    auto* curve=groupAutomationForKind(state,g.curveKind);
+                    if(curve&&!g.curveIsNew&&!g.moved&&
+                       g.curvePoint>0&&
+                       g.curvePoint<
+                           static_cast<int>(curve->points.size())-1){
+                        curve->points.erase(
+                            curve->points.begin()+g.curvePoint);
+                        syncRollGroupAutomationUi(state);
+                        changed=applyRollGroupAutomation(
+                            state,g.curveKind)||changed;
                     }
                     if(changed){
                         aiora::AudioEngine::instance().syncProject();
@@ -2668,6 +2727,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             }
             state.pageScrollPointerId=-1;
             state.pageScrollMoved=false;
+            state.ui.cancelRollLasso();
+            state.rollGesture.clear();
             aiora::NativeEditor::instance().cancel();
             state.editorPointerId=-1;
             releaseAllTouches(state);
