@@ -1862,6 +1862,44 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
     }
 
+    if(state.ui.hitRollRangeScopeToggle(x,y)){
+        state.ui.setRollRangeAllTracks(!state.ui.rollRangeAllTracks());
+        return true;
+    }
+
+    if(state.ui.hitRollDelete(x,y)){
+        int removed=0;
+        if(state.ui.rollNoteSelectionActive()){
+            const int selectionTrack=state.ui.rollSelectedTrack();
+            removed=project.deleteNotes(
+                selectionTrack,state.ui.rollSelectedNotes());
+            clearRollNoteSelection(state);
+        }else if(state.ui.rollSelectionActive()&&
+                 state.ui.rollSelectionAnchorStep()!=
+                    state.ui.rollSelectionEndStep()){
+            const float lo=static_cast<float>(std::min(
+                state.ui.rollSelectionAnchorStep(),
+                state.ui.rollSelectionEndStep()));
+            const float hi=static_cast<float>(std::max(
+                state.ui.rollSelectionAnchorStep(),
+                state.ui.rollSelectionEndStep()));
+            if(state.ui.rollRangeAllTracks()){
+                for(int t=0;t<project.trackCount();++t)
+                    removed+=project.deleteNotesInRange(t,lo,hi);
+            }else{
+                const int track=project.selectedTrack();
+                if(track>=0)removed=project.deleteNotesInRange(track,lo,hi);
+            }
+            state.ui.setRollSelection(false,0,0);
+            resetRollGroupAutomation(state);
+        }
+        if(removed>0){
+            audio.syncProject();
+            scheduleAutosave(state,0);
+        }
+        return true;
+    }
+
     if(const auto action=state.ui.hitRollCornerAction(x,y)){
         if(*action==aiora::RollCornerAction::Copy){
             const int track=project.selectedTrack();
@@ -1873,43 +1911,83 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 state.ui.rollSelectionEndStep());
 
             state.rollClipboard.clear();
+            state.rollClipboardAllTracks=state.ui.rollRangeAllTracks();
             const auto snapshot=project.projectCopy();
-            if(track>=0&&track<static_cast<int>(snapshot.tracks.size())&&hi>lo){
-                for(const auto& note:snapshot.tracks[static_cast<size_t>(track)].notes){
-                    if(note.startStep>=static_cast<float>(lo)&&
-                       note.startStep<static_cast<float>(hi)){
-                        auto copy=note;
-                        copy.startStep-=static_cast<float>(lo);
-                        state.rollClipboard.push_back(std::move(copy));
+            if(hi>lo){
+                if(state.rollClipboardAllTracks){
+                    for(int t=0;t<static_cast<int>(snapshot.tracks.size());++t){
+                        RollClipboardTrack entry;
+                        entry.track=t;
+                        for(const auto& note:
+                            snapshot.tracks[static_cast<size_t>(t)].notes){
+                            if(note.startStep>=static_cast<float>(lo)&&
+                               note.startStep<static_cast<float>(hi)){
+                                auto copy=note;
+                                copy.startStep-=static_cast<float>(lo);
+                                entry.notes.push_back(std::move(copy));
+                            }
+                        }
+                        if(!entry.notes.empty())
+                            state.rollClipboard.push_back(std::move(entry));
                     }
+                }else if(
+                    track>=0&&track<static_cast<int>(snapshot.tracks.size())){
+                    RollClipboardTrack entry;
+                    entry.track=-1;
+                    for(const auto& note:
+                        snapshot.tracks[static_cast<size_t>(track)].notes){
+                        if(note.startStep>=static_cast<float>(lo)&&
+                           note.startStep<static_cast<float>(hi)){
+                            auto copy=note;
+                            copy.startStep-=static_cast<float>(lo);
+                            entry.notes.push_back(std::move(copy));
+                        }
+                    }
+                    if(!entry.notes.empty())
+                        state.rollClipboard.push_back(std::move(entry));
                 }
             }
 
             state.ui.setRollSelection(false,0,0);
+            resetRollGroupAutomation(state);
             state.ui.setRollClipboardAvailable(!state.rollClipboard.empty());
             return true;
         }
 
         if(*action==aiora::RollCornerAction::Paste){
-            const int track=project.selectedTrack();
-            if(track>=0&&!state.rollClipboard.empty()){
-                const int added=project.pasteNotes(
-                    track,state.rollClipboard,
+            int added=0;
+            const int selectedTrack=project.selectedTrack();
+            for(const auto& entry:state.rollClipboard){
+                const int target=state.rollClipboardAllTracks
+                    ?entry.track:selectedTrack;
+                if(target<0||target>=project.trackCount())continue;
+                added+=project.pasteNotes(
+                    target,entry.notes,
                     static_cast<float>(state.ui.rollStartStep()));
-                if(added>0){
-                    audio.syncProject();
-                    scheduleAutosave(state,0);
-                }
+            }
+            if(added>0){
+                audio.syncProject();
+                scheduleAutosave(state,0);
             }
             state.rollClipboard.clear();
+            state.rollClipboardAllTracks=false;
             state.ui.setRollClipboardAvailable(false);
             return true;
         }
     }
 
     if (const auto mode = state.ui.hitRollMode(x, y)) {
-        state.ui.setRollMode(state.ui.rollMode()==*mode
-            ?aiora::RollMode::Notes:*mode);
+        const auto next=state.ui.rollMode()==*mode
+            ?aiora::RollMode::Notes:*mode;
+        state.ui.setRollMode(next);
+        if(state.ui.rollNoteSelectionActive()&&
+           state.ui.rollSelectionTool()==aiora::RollSelectionTool::Pencil&&
+           (next==aiora::RollMode::Velocity||next==aiora::RollMode::Mod)){
+            ensureRollGroupAutomation(
+                state,static_cast<int>(next)-1);
+        }else{
+            state.ui.clearRollGroupAutomation();
+        }
         return true;
     }
 
