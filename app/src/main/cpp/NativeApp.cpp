@@ -1406,6 +1406,8 @@ bool handleUiTap(NativeState& state, float x, float y) {
             case aiora::DropdownKind::Track:
                 if(choice->option>=0&&choice->option<project.trackCount()){
                     project.selectTrack(choice->option);
+                    state.ui.setRollSelection(false,0,0);
+                    clearRollNoteSelection(state);
                     state.ui.resetDrumRangeArm();
                     if(state.ui.page()==aiora::NativePage::Synth||
                        state.ui.page()==aiora::NativePage::Fx)
@@ -1558,8 +1560,10 @@ bool handleUiTap(NativeState& state, float x, float y) {
 
     if (const auto nav = state.ui.hitNav(x, y)) {
         releaseAllTouches(state);
-        if(*nav!=aiora::NativePage::Roll)
+        if(*nav!=aiora::NativePage::Roll){
             state.ui.setRollSelection(false,0,0);
+            clearRollNoteSelection(state);
+        }
         state.ui.setPage(*nav);
         state.ui.resetDrumRangeArm();
         if (*nav == aiora::NativePage::Drums) ensureDrumTrackSelected();
@@ -1574,11 +1578,13 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 track=(track+count-1)%count;
                 project.selectTrack(track);
                 state.ui.setRollSelection(false,0,0);
+                clearRollNoteSelection(state);
                 state.ui.resetDrumRangeArm();
             }else if(*sw==aiora::TrackSwitchAction::NextTrack){
                 track=(track+1)%count;
                 project.selectTrack(track);
                 state.ui.setRollSelection(false,0,0);
+                clearRollNoteSelection(state);
                 state.ui.resetDrumRangeArm();
             }else if(project.trackIsDrums(track)){
                 const int pads=project.padCount(track);
