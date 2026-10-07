@@ -182,8 +182,9 @@ float rollBendAt(
         prevStep=ps;
         prevValue=pv;
     }
-    if(prevStep<end-1.0e-5f)
-        return rollLerp(x,prevStep,prevValue,end,0.0f);
+    // Hold the last explicit bend through the note tail. Extending a
+    // note must preserve its current sounding pitch instead of inventing an
+    // implicit glide back to the written MIDI note.
     return prevValue;
 }
 
@@ -220,15 +221,13 @@ float rollVisualCurveStep(const Note& note,float fraction) noexcept {
         0.0f,end);
 }
 
-float rollEdgeNoise(std::uint32_t seed,int sample,int side) noexcept {
-    std::uint32_t x=
-        seed^
-        (static_cast<std::uint32_t>(sample+1)*0x9E3779B9u)^
-        (static_cast<std::uint32_t>(side+1)*0x85EBCA6Bu);
-    x^=x<<13;
-    x^=x>>17;
-    x^=x<<5;
-    return static_cast<float>(x&0xFFFFu)/32767.5f-1.0f;
+float rollJaggedWave(float stepPosition) noexcept {
+    // Two even triangular teeth per sequencer step. M scales only the
+    // amplitude, so the border morphs from smooth to an orderly zigzag rather
+    // than turning into independent random noise on each edge.
+    float phase=std::fmod(std::max(0.0f,stepPosition)*2.0f,1.0f);
+    if(phase<0.0f)phase+=1.0f;
+    return 1.0f-4.0f*std::fabs(phase-0.5f);
 }
 
 float rollPitchX(
@@ -2269,13 +2268,8 @@ void NativeUi::drawRoll() const noexcept {
         const float height=std::max(rowH,length*rowH)-2.0f;
         const int segments=std::clamp(
             static_cast<int>(std::ceil(length*12.0f)),6,480);
-        const std::uint32_t seed=
-            static_cast<std::uint32_t>(
-                (sourceTrackIndex+1)*73856093u)^
-            static_cast<std::uint32_t>(
-                (noteIndex+1)*19349663u)^
-            static_cast<std::uint32_t>(
-                (note.midi+128)*83492791u);
+        (void)sourceTrackIndex;
+        (void)noteIndex;
 
         for(int i=0;i<segments;++i){
             const float f0=
@@ -2306,14 +2300,14 @@ void NativeUi::drawRoll() const noexcept {
             const float rough1=
                 rollLevelAt(note.mod,note,s1,0.0f)*colW*0.11f;
 
-            const float lh0=std::max(
-                1.2f,half0+rollEdgeNoise(seed,i,0)*rough0);
-            const float rh0=std::max(
-                1.2f,half0+rollEdgeNoise(seed,i,1)*rough0);
-            const float lh1=std::max(
-                1.2f,half1+rollEdgeNoise(seed,i+1,0)*rough1);
-            const float rh1=std::max(
-                1.2f,half1+rollEdgeNoise(seed,i+1,1)*rough1);
+            const float jag0=rollJaggedWave(f0*length);
+            const float jag1=rollJaggedWave(f1*length);
+            const float edge0=std::max(1.2f,half0+jag0*rough0);
+            const float edge1=std::max(1.2f,half1+jag1*rough1);
+            const float lh0=edge0;
+            const float rh0=edge0;
+            const float lh1=edge1;
+            const float rh1=edge1;
 
             const float x0=std::clamp(c0-lh0,gridLeft+1.0f,gridRight-1.0f);
             const float x1=std::clamp(c0+rh0,gridLeft+1.0f,gridRight-1.0f);
