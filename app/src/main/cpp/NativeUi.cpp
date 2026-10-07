@@ -2009,6 +2009,36 @@ void NativeUi::drawRoll() const noexcept {
     const int beatLen=std::max(1,project.divisions());
     const int barLen=std::max(1,project.beats())*beatLen;
 
+    // Project-wide harmonic shadow: for each visible time row, record which
+    // pitch classes are active anywhere in the song. A pitch class is either
+    // present or absent, so overlapping tracks never accumulate extra darkness.
+    std::vector<std::array<bool,12>> shadowPitchClasses(
+        static_cast<size_t>(visibleRows));
+    const auto projectSnapshot=project.projectCopy();
+    const float visibleStart=static_cast<float>(stepOffset);
+    const float visibleEnd=static_cast<float>(stepOffset+visibleRows);
+    for(const auto& sourceTrack:projectSnapshot.tracks){
+        for(const auto& note:sourceTrack.notes){
+            const float noteStart=note.startStep;
+            const float noteEnd=
+                note.startStep+std::max(1.0f,note.lengthSteps);
+            if(noteEnd<=visibleStart||noteStart>=visibleEnd)continue;
+
+            const int firstStep=std::max(
+                stepOffset,
+                static_cast<int>(std::floor(noteStart)));
+            const int lastStep=std::min(
+                stepOffset+visibleRows-1,
+                static_cast<int>(std::ceil(noteEnd))-1);
+            const int pitchClass=((note.midi%12)+12)%12;
+            for(int step=firstStep;step<=lastStep;++step){
+                shadowPitchClasses[
+                    static_cast<size_t>(step-stepOffset)]
+                    [static_cast<size_t>(pitchClass)]=true;
+            }
+        }
+    }
+
     for(int rr=0;rr<visibleRows;++rr){
         const int step=stepOffset+rr;
         const float y=viewport.y+header+rr*rowH;
@@ -2052,7 +2082,12 @@ void NativeUi::drawRoll() const noexcept {
             const float cellX=std::round(rawLeft);
             const float cellRight=std::round(rawRight);
             const float cellW=std::max(1.0f,cellRight-cellX);
-            const auto tinted=mix(rowColor,pitchColor(midi),0.075f);
+            const int pitchClass=((midi%12)+12)%12;
+            auto tinted=mix(rowColor,pitchColor(midi),0.075f);
+            if(shadowPitchClasses[static_cast<size_t>(rr)]
+                                  [static_cast<size_t>(pitchClass)]){
+                tinted=mix(tinted,kRollBg,0.34f);
+            }
             fillRect({cellX,y,cellW,rowH-1.0f},tinted);
             fillRect(
                 {cellRight-1.0f,y,1.0f,rowH-1.0f},
