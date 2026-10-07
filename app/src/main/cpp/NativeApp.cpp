@@ -54,15 +54,31 @@ enum class RollGestureKind : uint8_t {
     None,
     PitchScroll,
     TimeScroll,
+    SelectTool,
+    Lasso,
     NoteEdit,
-    AutomationEdit
+    AutomationEdit,
+    GroupAutomation
 };
 
 enum class RollNoteEdit : uint8_t {
     None,
     Create,
     Move,
-    Resize
+    Resize,
+    GroupMove
+};
+
+struct RollClipboardTrack {
+    int track{-1};
+    std::vector<aiora::Note> notes{};
+};
+
+struct GroupAutomationCurve {
+    bool initialized{false};
+    float start{0.0f};
+    float end{0.0f};
+    std::vector<aiora::RollGroupPoint> points{};
 };
 
 struct RollGesture {
@@ -89,6 +105,12 @@ struct RollGesture {
     float noteStart{0.0f};
     float noteLength{1.0f};
 
+    std::vector<int> groupIndices{};
+    int dragCellMidi{-1};
+    int dragCellStep{-1};
+    int groupAppliedMidiDelta{0};
+    int groupAppliedStepDelta{0};
+
     void clear() noexcept { *this = {}; pointerId = -1; }
 };
 
@@ -103,7 +125,9 @@ struct NativeState {
     aiora::NativeUi ui{};
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
-    std::vector<aiora::Note> rollClipboard{};
+    std::vector<RollClipboardTrack> rollClipboard{};
+    bool rollClipboardAllTracks{false};
+    std::array<GroupAutomationCurve,2> rollGroupAutomation{};
     int64_t rollLastBeatTapMs{0};
     int rollLastBeatTapStep{-1};
     int32_t editorPointerId{-1};
