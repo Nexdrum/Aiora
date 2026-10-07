@@ -240,8 +240,7 @@ bool rollPointInPolygon(
         const auto& b=polygon[j];
         const bool crosses=
             ((a.y>y)!=(b.y>y)) &&
-            (x<(b.x-a.x)*(y-a.y)/
-                std::max(1.0e-6f,b.y-a.y)+a.x);
+            (x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x);
         if(crosses)inside=!inside;
         j=i;
     }
