@@ -74,6 +74,16 @@ public:
     int noteCount(int trackIndex) const;
     int addNote(int trackIndex, int midi, float startStep, float lengthSteps);
     int pasteNotes(int trackIndex, const std::vector<Note>& notes, float startStep);
+    std::vector<int> duplicateNotes(
+        int trackIndex,const std::vector<int>& noteIndices,float stepOffset);
+    int deleteNotes(int trackIndex,const std::vector<int>& noteIndices);
+    int deleteNotesInRange(int trackIndex,float startStep,float endStep);
+    bool moveNotes(
+        int trackIndex,const std::vector<int>& noteIndices,
+        int midiDelta,float stepDelta);
+    bool applyGroupAutomation(
+        int trackIndex,const std::vector<int>& noteIndices,int curveKind,
+        float groupStart,const std::vector<CurvePoint>& groupPoints);
     bool deleteNote(int trackIndex, int noteIndex);
     bool updateNote(int trackIndex, int noteIndex, int midi, float startStep, float lengthSteps);
     int noteMidi(int trackIndex, int noteIndex) const;
