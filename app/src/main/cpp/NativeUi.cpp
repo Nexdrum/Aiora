@@ -234,11 +234,26 @@ float rollPitchX(
     const std::vector<int>& columns,float pitch,int pitchOffset,
     float gridLeft,float colW) noexcept {
     if(columns.empty())return gridLeft;
+
+    // Pitch geometry is allowed to continue beyond the defined piano-roll
+    // columns. Only the final ribbon quad is clipped to the viewport. This is
+    // essential for bends and harmonic shadows whose base pitch is offscreen
+    // but whose bent path crosses into view.
     float visualIndex=0.0f;
-    if(pitch<=static_cast<float>(columns.front())){
-        visualIndex=0.0f;
+    if(columns.size()==1){
+        visualIndex=pitch-static_cast<float>(columns.front());
+    }else if(pitch<=static_cast<float>(columns.front())){
+        const float a=static_cast<float>(columns[0]);
+        const float b=static_cast<float>(columns[1]);
+        const float span=std::max(1.0f,b-a);
+        visualIndex=(pitch-a)/span;
     }else if(pitch>=static_cast<float>(columns.back())){
-        visualIndex=static_cast<float>(columns.size()-1);
+        const size_t last=columns.size()-1;
+        const float a=static_cast<float>(columns[last-1]);
+        const float b=static_cast<float>(columns[last]);
+        const float span=std::max(1.0f,b-a);
+        visualIndex=
+            static_cast<float>(last)+(pitch-b)/span;
     }else{
         const auto hi=std::lower_bound(
             columns.begin(),columns.end(),pitch,
@@ -2356,7 +2371,18 @@ void NativeUi::drawRoll() const noexcept {
                note.startStep>=static_cast<float>(stepOffset+visibleRows))
                 continue;
             const int pc=((note.midi%12)+12)%12;
-            for(const int targetMidi:columns){
+            int shadowLow=columns.empty()?note.midi:columns.front();
+            int shadowHigh=columns.empty()?note.midi:columns.back();
+            if(!project.trackIsDrums(track)){
+                // Include one extra octave beyond each absolute roll edge.
+                // Bend is limited to +/-12 semitones, so this is enough for a
+                // shadow that begins outside the piano roll to bend into view.
+                shadowLow-=12;
+                shadowHigh+=12;
+            }
+            for(int targetMidi=shadowLow;
+                targetMidi<=shadowHigh;
+                ++targetMidi){
                 if(((targetMidi%12)+12)%12!=pc)continue;
                 addRibbon(
                     sourceTrack,note,
