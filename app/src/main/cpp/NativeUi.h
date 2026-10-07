@@ -88,6 +88,11 @@ struct RollCellHit {
     float normalizedDown{0.5f};
 };
 
+struct RollNoteHit {
+    int noteIndex{-1};
+    bool tail{false};
+};
+
 struct RollAutomationHit {
     int noteIndex{-1};
     int pointIndex{-1};
@@ -181,6 +186,7 @@ public:
     [[nodiscard]] std::optional<int> hitRollBeatStep(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollCornerAction> hitRollCornerAction(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollNoteArea(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<RollNoteHit> hitRollNote(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollCellHit> hitRollCell(float x, float y) const noexcept;
     [[nodiscard]] std::optional<RollAutomationHit> hitRollAutomation(
         float x,float y,int curveKind) const noexcept;
