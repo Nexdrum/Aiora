@@ -24,6 +24,7 @@ public:
     void flush();
 
     void addRect(Rect rect,Color color);
+    void addQuad(float x0,float y0,float x1,float y1,float x2,float y2,float x3,float y3,Color color);
     void addText(std::string_view text,float x,float y,float scale,Color color);
     void addTextCentered(std::string_view text,Rect rect,float scale,Color color);
     void addPitchGlyph(int pitchClass,Rect rect,Color color);
