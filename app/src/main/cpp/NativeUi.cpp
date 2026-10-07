@@ -2042,9 +2042,7 @@ void NativeUi::drawRoll() const noexcept {
     for(int rr=0;rr<visibleRows;++rr){
         const int step=stepOffset+rr;
         const float y=viewport.y+header+rr*rowH;
-        const Rgb rowColor=
-            step%barLen==0?kBar:
-            step%beatLen==0?kBeat:kCell;
+        const Rgb rowColor=kCell;
 
         const float gutterT=std::clamp(
             (y-viewport.y-header)/
@@ -2092,6 +2090,22 @@ void NativeUi::drawRoll() const noexcept {
             fillRect(
                 {cellRight-1.0f,y,1.0f,rowH-1.0f},
                 kRollBg);
+        }
+
+        // Keep rhythmic structure in line weight instead of cell brightness.
+        // This leaves harmonic shadows as the only source of grid darkening.
+        if(step%beatLen==0){
+            const bool barBoundary=step%barLen==0;
+            const float lineWeight=barBoundary?3.0f:2.0f;
+            const auto lineColor=barBoundary?kBar:kBeat;
+            const float gridX=viewport.x+gutter;
+            const float gridW=std::max(0.0f,viewport.w-gutter);
+            fillRect(
+                {gridX,y,gridW,lineWeight},
+                lineColor);
+            fillRect(
+                {gridX,y+rowH-lineWeight,gridW,lineWeight},
+                lineColor);
         }
     }
 
