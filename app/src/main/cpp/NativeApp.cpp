@@ -940,6 +940,150 @@ int findCurvePointIndex(
     return best;
 }
 
+void resetRollGroupAutomation(NativeState& state){
+    state.rollGroupAutomation={};
+    state.ui.clearRollGroupAutomation();
+}
+
+bool rollSelectedBounds(
+    NativeState& state,float& start,float& end){
+    if(!state.ui.rollNoteSelectionActive())return false;
+    const int track=state.ui.rollSelectedTrack();
+    const auto snapshot=aiora::ProjectCore::instance().projectCopy();
+    if(track<0||track>=static_cast<int>(snapshot.tracks.size()))return false;
+    const auto& notes=snapshot.tracks[static_cast<size_t>(track)].notes;
+    bool any=false;
+    start=1.0e9f;
+    end=-1.0e9f;
+    for(int index:state.ui.rollSelectedNotes()){
+        if(index<0||index>=static_cast<int>(notes.size()))continue;
+        const auto& note=notes[static_cast<size_t>(index)];
+        start=std::min(start,note.startStep);
+        end=std::max(
+            end,
+            note.startStep+
+                std::max(0.0f,std::max(1.0f,note.lengthSteps)-1.0f));
+        any=true;
+    }
+    if(!any)return false;
+    if(end<start)end=start;
+    return true;
+}
+
+GroupAutomationCurve* groupAutomationForKind(
+    NativeState& state,int kind){
+    if(kind!=1&&kind!=2)return nullptr;
+    return &state.rollGroupAutomation[static_cast<size_t>(kind-1)];
+}
+
+void syncRollGroupAutomationUi(NativeState& state){
+    const auto mode=state.ui.rollMode();
+    const int kind=static_cast<int>(mode)-1;
+    if(state.ui.rollSelectionTool()!=aiora::RollSelectionTool::Pencil||
+       !state.ui.rollNoteSelectionActive()||
+       (kind!=1&&kind!=2)){
+        state.ui.clearRollGroupAutomation();
+        return;
+    }
+    auto* curve=groupAutomationForKind(state,kind);
+    if(!curve||!curve->initialized){
+        state.ui.clearRollGroupAutomation();
+        return;
+    }
+    state.ui.setRollGroupAutomation(
+        kind,curve->start,curve->end,curve->points);
+}
+
+bool ensureRollGroupAutomation(NativeState& state,int kind){
+    auto* curve=groupAutomationForKind(state,kind);
+    if(!curve)return false;
+
+    float start=0.0f,end=0.0f;
+    if(!rollSelectedBounds(state,start,end))return false;
+    const float duration=std::max(0.0f,end-start);
+    if(!curve->initialized){
+        curve->initialized=true;
+        curve->start=start;
+        curve->end=end;
+        const float fallback=kind==1?1.0f:0.0f;
+        curve->points.clear();
+        curve->points.push_back({0.0f,fallback});
+        if(duration>1.0e-5f)
+            curve->points.push_back({duration,fallback});
+    }else{
+        const float oldDuration=std::max(0.0f,curve->end-curve->start);
+        curve->start=start;
+        curve->end=end;
+        if(std::fabs(oldDuration-duration)>1.0e-4f){
+            const float fallback=kind==1?1.0f:0.0f;
+            curve->points.clear();
+            curve->points.push_back({0.0f,fallback});
+            if(duration>1.0e-5f)
+                curve->points.push_back({duration,fallback});
+        }
+    }
+    syncRollGroupAutomationUi(state);
+    return true;
+}
+
+bool applyRollGroupAutomation(NativeState& state,int kind){
+    auto* curve=groupAutomationForKind(state,kind);
+    if(!curve||!curve->initialized||
+       !state.ui.rollNoteSelectionActive())return false;
+    std::vector<aiora::CurvePoint> points;
+    points.reserve(curve->points.size());
+    for(const auto& p:curve->points)
+        points.push_back({p.step,p.value,true});
+    return aiora::ProjectCore::instance().applyGroupAutomation(
+        state.ui.rollSelectedTrack(),
+        state.ui.rollSelectedNotes(),
+        kind,curve->start,points);
+}
+
+void refreshRollGroupAutomationBounds(NativeState& state){
+    float start=0.0f,end=0.0f;
+    if(!rollSelectedBounds(state,start,end)){
+        resetRollGroupAutomation(state);
+        return;
+    }
+    for(auto& curve:state.rollGroupAutomation){
+        if(!curve.initialized)continue;
+        curve.start=start;
+        curve.end=end;
+    }
+    syncRollGroupAutomationUi(state);
+}
+
+void setRollNoteSelection(
+    NativeState& state,int track,std::vector<int> indices,
+    bool preserveGroupAutomation=false){
+    state.ui.setRollNoteSelection(track,std::move(indices));
+    if(!preserveGroupAutomation)resetRollGroupAutomation(state);
+    else refreshRollGroupAutomationBounds(state);
+    if(state.ui.rollNoteSelectionActive()&&
+       state.ui.rollMode()==aiora::RollMode::Bend){
+        state.ui.setRollMode(aiora::RollMode::Notes);
+    }
+}
+
+void clearRollNoteSelection(NativeState& state){
+    state.ui.clearRollNoteSelection();
+    resetRollGroupAutomation(state);
+}
+
+int findGroupPointIndex(
+    const GroupAutomationCurve& curve,float step,float value){
+    int best=-1;
+    float bestScore=1.0e9f;
+    for(int i=0;i<static_cast<int>(curve.points.size());++i){
+        const auto& p=curve.points[static_cast<size_t>(i)];
+        const float score=std::fabs(p.step-step)*4.0f+
+            std::fabs(p.value-value);
+        if(score<bestScore){bestScore=score;best=i;}
+    }
+    return best;
+}
+
 void serviceRollLongPress(NativeState& state){
     auto& g=state.rollGesture;
 
