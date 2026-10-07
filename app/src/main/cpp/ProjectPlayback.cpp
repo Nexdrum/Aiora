@@ -28,7 +28,9 @@ DspCurve bendCurve(const Note& note,const DrumPad* pad) {
         }
         pushPoint(out,std::clamp(p.step,0.0f,L),value);
     }
-    if(out.count==0 || std::fabs(out.points[out.count-1].step-L)>1.0e-5f)pushPoint(out,L,0.0f);
+    const float last=out.count?out.points[out.count-1].value:0.0f;
+    if(out.count==0 || std::fabs(out.points[out.count-1].step-L)>1.0e-5f)
+        pushPoint(out,L,last);
     return out;
 }
 
