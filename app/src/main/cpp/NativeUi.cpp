@@ -2952,6 +2952,89 @@ bool NativeUi::hitRollNoteArea(float x,float y) const noexcept {
            y>=viewport.y+header && y<viewport.y+viewport.h;
 }
 
+std::optional<RollNoteHit> NativeUi::hitRollNote(
+    float x,float y) const noexcept {
+
+    if(page_!=NativePage::Roll||!hitRollNoteArea(x,y))
+        return std::nullopt;
+
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return std::nullopt;
+
+    const auto snapshot=project.projectCopy();
+    if(track>=static_cast<int>(snapshot.tracks.size()))
+        return std::nullopt;
+    const auto& sourceTrack=snapshot.tracks[static_cast<size_t>(track)];
+
+    const auto viewport=rollViewportRect();
+    const float colW=rollColumnPixels();
+    const float rowH=rollCellPixels();
+    const float gutter=rollGutterPixels();
+    const float header=rollHeaderPixels();
+    const auto columns=rollColumns();
+    if(columns.empty())return std::nullopt;
+
+    const float gridLeft=viewport.x+gutter;
+    const float gridTop=viewport.y+header;
+    const float bodyMargin=std::max(5.0f,std::min(colW,rowH)*0.10f);
+    const float tailYRadius=std::max(18.0f,rowH*0.34f);
+    const float tailXMargin=std::max(8.0f,colW*0.12f);
+
+    // Iterate in reverse draw order so the visually top-most selected-track
+    // ribbon wins when shaped notes overlap.
+    for(int n=static_cast<int>(sourceTrack.notes.size())-1;n>=0;--n){
+        const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
+        const float length=std::max(1.0f,note.lengthSteps);
+        const float top=
+            gridTop+
+            (note.startStep-static_cast<float>(rollStepOffset_))*rowH+1.0f;
+        const float height=std::max(rowH,length*rowH)-2.0f;
+        const float bottom=top+height;
+        if(y<top-bodyMargin||y>bottom+bodyMargin)continue;
+
+        const float fraction=std::clamp(
+            (y-top)/std::max(1.0f,height),0.0f,1.0f);
+        const float step=rollVisualCurveStep(note,fraction);
+        const float center=rollPitchX(
+            columns,
+            static_cast<float>(note.midi)+
+                rollBendAt(sourceTrack,note,step),
+            rollPitchOffset_,gridLeft,colW);
+
+        const float minHalf=std::max(1.5f,colW*0.055f);
+        const float maxHalf=std::max(minHalf,colW*0.5f-2.0f);
+        const float velocity=rollLevelAt(
+            note.velocity,note,step,1.0f);
+        const float half=
+            minHalf+(maxHalf-minHalf)*velocity;
+        const float rough=
+            rollLevelAt(note.mod,note,step,0.0f)*colW*0.11f;
+        if(std::fabs(x-center)>half+rough+bodyMargin)continue;
+
+        const float tailStep=rollVisualCurveStep(note,1.0f);
+        const float tailCenter=rollPitchX(
+            columns,
+            static_cast<float>(note.midi)+
+                rollBendAt(sourceTrack,note,tailStep),
+            rollPitchOffset_,gridLeft,colW);
+        const float tailVelocity=rollLevelAt(
+            note.velocity,note,tailStep,1.0f);
+        const float tailHalf=
+            minHalf+(maxHalf-minHalf)*tailVelocity;
+        const float tailRough=
+            rollLevelAt(note.mod,note,tailStep,0.0f)*colW*0.11f;
+        const bool tail=
+            std::fabs(y-bottom)<=tailYRadius&&
+            std::fabs(x-tailCenter)<=
+                tailHalf+tailRough+tailXMargin;
+
+        return RollNoteHit{n,tail};
+    }
+
+    return std::nullopt;
+}
+
 std::optional<RollCellHit> NativeUi::hitRollCell(float x,float y) const noexcept {
     if(page_!=NativePage::Roll)return std::nullopt;
 
