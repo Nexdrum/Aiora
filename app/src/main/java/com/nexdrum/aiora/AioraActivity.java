@@ -28,6 +28,7 @@ public class AioraActivity extends NativeActivity {
     public static final int REQUEST_RENAME_TRACK = 4201;
     public static final int REQUEST_RENAME_PAD = 4202;
     public static final int REQUEST_OPERATOR_RATIO = 4203;
+    public static final int REQUEST_NEW_PROJECT = 4204;
 
     private final Map<Integer, String> pendingSources = new HashMap<>();
 
@@ -130,6 +131,31 @@ public class AioraActivity extends NativeActivity {
                 dialog.show();
             } catch (Exception e) {
                 writeRenameResult(requestCode, targetIndex, null);
+            }
+        });
+    }
+
+    public void showConfirmation(
+            int requestCode,
+            String title,
+            String message) {
+
+        runOnUiThread(() -> {
+            try {
+                AlertDialog dialog = new AlertDialog.Builder(this)
+                        .setTitle(title == null ? "Confirm" : title)
+                        .setMessage(message == null ? "Are you sure?" : message)
+                        .setPositiveButton("Yes", (d, which) ->
+                                writeResult(requestCode, true, ""))
+                        .setNegativeButton("No", (d, which) ->
+                                writeResult(requestCode, false, "Cancelled"))
+                        .create();
+
+                dialog.setOnCancelListener(d ->
+                        writeResult(requestCode, false, "Cancelled"));
+                dialog.show();
+            } catch (Exception e) {
+                writeResult(requestCode, false, "Cancelled");
             }
         });
     }
