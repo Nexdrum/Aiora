@@ -230,6 +230,24 @@ float rollJaggedWave(float stepPosition) noexcept {
     return 1.0f-4.0f*std::fabs(phase-0.5f);
 }
 
+bool rollPointInPolygon(
+    const std::vector<RollLassoPoint>& polygon,float x,float y) noexcept {
+    if(polygon.size()<3)return false;
+    bool inside=false;
+    size_t j=polygon.size()-1;
+    for(size_t i=0;i<polygon.size();++i){
+        const auto& a=polygon[i];
+        const auto& b=polygon[j];
+        const bool crosses=
+            ((a.y>y)!=(b.y>y)) &&
+            (x<(b.x-a.x)*(y-a.y)/
+                std::max(1.0e-6f,b.y-a.y)+a.x);
+        if(crosses)inside=!inside;
+        j=i;
+    }
+    return inside;
+}
+
 float rollPitchX(
     const std::vector<int>& columns,float pitch,int pitchOffset,
     float gridLeft,float colW) noexcept {
@@ -601,10 +619,10 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
     const float prevW=h,nextW=h;
 
     if(page_==NativePage::Roll){
-        const float modeW=h*0.90f;
+        const float modeW=h*0.82f;
         const float mainW=std::max(
             90.0f,
-            content.w-prevW-nextW-modeW*3.0f-gap*5.0f);
+            content.w-prevW-nextW-modeW*4.0f-gap*6.0f);
         float x=content.x;
         if(part==0)return {x,content.y,prevW,h};
         x+=prevW+gap;
@@ -612,7 +630,7 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
         x+=mainW+gap;
         if(part==2)return {x,content.y,nextW,h};
         x+=nextW+gap;
-        if(part>=3&&part<=5)
+        if(part>=3&&part<=6)
             return {x+(part-3)*(modeW+gap),content.y,modeW,h};
         return {};
     }
@@ -954,9 +972,36 @@ NativeUi::Rect NativeUi::drumIconRect(int index) const noexcept {
     };
 }
 
+NativeUi::Rect NativeUi::rollSelectionToolRect() const noexcept {
+    return trackSwitchRect(3);
+}
+
 NativeUi::Rect NativeUi::rollModeRect(int index) const noexcept {
     if(index<0||index>2)return {};
-    return trackSwitchRect(index+3);
+    return trackSwitchRect(index+4);
+}
+
+NativeUi::Rect NativeUi::rollGroupAutomationRect() const noexcept {
+    if(rollGroupAutomationKind_<1||rollGroupAutomationKind_>2||
+       !rollNoteSelectionActive())return {};
+    const auto viewport=rollViewportRect();
+    const float rowH=rollCellPixels();
+    const float header=rollHeaderPixels();
+    const float width=std::clamp(rollGutterPixels()*0.70f,52.0f,78.0f);
+    const float gridTop=viewport.y+header;
+    const float gridBottom=viewport.y+viewport.h;
+    float top=gridTop+
+        (rollGroupAutomationStart_+0.5f-
+         static_cast<float>(rollStepOffset_))*rowH;
+    float bottom=gridTop+
+        (rollGroupAutomationEnd_+0.5f-
+         static_cast<float>(rollStepOffset_))*rowH;
+    if(bottom<top)std::swap(top,bottom);
+    if(std::fabs(bottom-top)<rowH*0.75f)bottom=top+rowH*0.75f;
+    top=std::max(gridTop,top);
+    bottom=std::min(gridBottom,bottom);
+    if(bottom<=top)return {};
+    return {viewport.x+viewport.w-width,top,width,bottom-top};
 }
 
 NativeUi::Rect NativeUi::rollViewportRect() const noexcept {
@@ -1091,9 +1136,182 @@ void NativeUi::setRollStartStep(int step) noexcept {
 }
 
 void NativeUi::setRollSelection(bool active,int anchorStep,int endStep) noexcept {
+    if(active){
+        if(!rollSelectionActive_)rollRangeAllTracks_=false;
+        clearRollNoteSelection();
+    }else{
+        rollRangeAllTracks_=false;
+    }
     rollSelectionActive_=active;
     rollSelectionAnchorStep_=std::max(0,anchorStep);
     rollSelectionEndStep_=std::max(0,endStep);
+}
+
+void NativeUi::setRollNoteSelection(int track,std::vector<int> indices){
+    indices.erase(
+        std::remove_if(
+            indices.begin(),indices.end(),
+            [](int i){return i<0;}),
+        indices.end());
+    std::sort(indices.begin(),indices.end());
+    indices.erase(std::unique(indices.begin(),indices.end()),indices.end());
+    if(indices.empty()){
+        clearRollNoteSelection();
+        return;
+    }
+    rollSelectionActive_=false;
+    rollRangeAllTracks_=false;
+    rollSelectedTrack_=track;
+    rollSelectedNotes_=std::move(indices);
+    clearRollGroupAutomation();
+}
+
+void NativeUi::clearRollNoteSelection() noexcept {
+    rollSelectedTrack_=-1;
+    rollSelectedNotes_.clear();
+    clearRollGroupAutomation();
+}
+
+bool NativeUi::rollNoteSelected(int noteIndex) const noexcept {
+    return rollSelectedTrack_>=0&&
+        std::binary_search(
+            rollSelectedNotes_.begin(),rollSelectedNotes_.end(),noteIndex);
+}
+
+void NativeUi::beginRollLasso(float x,float y){
+    rollLassoPath_.clear();
+    rollLassoPath_.push_back({x,y});
+}
+
+void NativeUi::appendRollLasso(float x,float y){
+    if(rollLassoPath_.empty()){
+        rollLassoPath_.push_back({x,y});
+        return;
+    }
+    const auto& last=rollLassoPath_.back();
+    const float dx=x-last.x,dy=y-last.y;
+    if(dx*dx+dy*dy>=16.0f)
+        rollLassoPath_.push_back({x,y});
+}
+
+std::vector<int> NativeUi::finishRollLasso(){
+    std::vector<int> hits;
+    const auto polygon=rollLassoPath_;
+    rollLassoPath_.clear();
+    if(polygon.size()<3)return hits;
+
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return hits;
+    const auto snapshot=project.projectCopy();
+    if(track>=static_cast<int>(snapshot.tracks.size()))return hits;
+    const auto& sourceTrack=snapshot.tracks[static_cast<size_t>(track)];
+
+    const auto viewport=rollViewportRect();
+    const float colW=rollColumnPixels();
+    const float rowH=rollCellPixels();
+    const float gridLeft=viewport.x+rollGutterPixels();
+    const float gridTop=viewport.y+rollHeaderPixels();
+    const auto columns=rollColumns();
+    if(columns.empty())return hits;
+
+    for(int n=0;n<static_cast<int>(sourceTrack.notes.size());++n){
+        const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
+        const float length=std::max(1.0f,note.lengthSteps);
+        bool selected=false;
+        constexpr int samples=10;
+        for(int s=0;s<=samples&&!selected;++s){
+            const float fraction=
+                static_cast<float>(s)/static_cast<float>(samples);
+            const float py=gridTop+
+                (note.startStep+fraction*length-
+                 static_cast<float>(rollStepOffset_))*rowH;
+            if(py<gridTop-rowH||py>viewport.y+viewport.h+rowH)continue;
+            const float rel=rollVisualCurveStep(note,fraction);
+            const float px=rollPitchX(
+                columns,
+                static_cast<float>(note.midi)+
+                    rollBendAt(sourceTrack,note,rel),
+                rollPitchOffset_,gridLeft,colW);
+            selected=rollPointInPolygon(polygon,px,py);
+        }
+        if(selected)hits.push_back(n);
+    }
+    return hits;
+}
+
+void NativeUi::setRollGroupAutomation(
+    int kind,float start,float end,std::vector<RollGroupPoint> points){
+    rollGroupAutomationKind_=kind;
+    rollGroupAutomationStart_=std::max(0.0f,start);
+    rollGroupAutomationEnd_=std::max(rollGroupAutomationStart_,end);
+    for(auto& p:points){
+        p.step=std::clamp(
+            p.step,0.0f,
+            std::max(0.0f,rollGroupAutomationEnd_-rollGroupAutomationStart_));
+        p.value=std::clamp(p.value,0.0f,1.0f);
+    }
+    std::sort(
+        points.begin(),points.end(),
+        [](const RollGroupPoint&a,const RollGroupPoint&b){
+            return a.step<b.step;
+        });
+    rollGroupAutomationPoints_=std::move(points);
+}
+
+void NativeUi::clearRollGroupAutomation() noexcept {
+    rollGroupAutomationKind_=-1;
+    rollGroupAutomationStart_=0.0f;
+    rollGroupAutomationEnd_=0.0f;
+    rollGroupAutomationPoints_.clear();
+}
+
+bool NativeUi::hitRollGroupAutomationGutter(float x,float y) const noexcept {
+    const auto r=rollGroupAutomationRect();
+    return r.w>0.0f&&r.h>0.0f&&r.contains(x,y);
+}
+
+std::optional<int> NativeUi::hitRollGroupAutomationPoint(
+    float x,float y) const noexcept {
+    if(!hitRollGroupAutomationGutter(x,y))return std::nullopt;
+    const auto r=rollGroupAutomationRect();
+    const auto viewport=rollViewportRect();
+    const float rowH=rollCellPixels();
+    const float gridTop=viewport.y+rollHeaderPixels();
+    const float radius=std::max(16.0f,std::min(r.w,rowH)*0.34f);
+    const float radius2=radius*radius;
+    int best=-1;
+    float bestDist=radius2;
+    for(int i=0;i<static_cast<int>(rollGroupAutomationPoints_.size());++i){
+        const auto& p=rollGroupAutomationPoints_[static_cast<size_t>(i)];
+        const float px=r.x+p.value*r.w;
+        const float py=gridTop+
+            (rollGroupAutomationStart_+p.step+0.5f-
+             static_cast<float>(rollStepOffset_))*rowH;
+        const float dx=px-x,dy=py-y;
+        const float d=dx*dx+dy*dy;
+        if(d<=bestDist){bestDist=d;best=i;}
+    }
+    if(best<0)return std::nullopt;
+    return best;
+}
+
+bool NativeUi::rollGroupAutomationPosition(
+    float x,float y,float& step,float& value) const noexcept {
+    const auto r=rollGroupAutomationRect();
+    if(r.w<=0.0f||r.h<=0.0f)return false;
+    const auto viewport=rollViewportRect();
+    const float rowH=rollCellPixels();
+    const float gridTop=viewport.y+rollHeaderPixels();
+    const float absolute=
+        static_cast<float>(rollStepOffset_)+
+        (y-gridTop)/std::max(1.0f,rowH)-0.5f;
+    const float duration=
+        std::max(0.0f,rollGroupAutomationEnd_-rollGroupAutomationStart_);
+    step=std::clamp(
+        absolute-rollGroupAutomationStart_,0.0f,duration);
+    value=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+    return true;
 }
 
 
