@@ -93,7 +93,7 @@ enum class TrackUtilityAction : int {
     DozenalToggle,
     AiFromClipboard,
     ClearTrack,
-    Demo,
+    NewProject,
     SaveProject,
     LoadProject
 };
