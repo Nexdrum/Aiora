@@ -2067,12 +2067,38 @@ bool beginRollNoteGesture(
     if(!hit)return false;
     const auto noteHit=state.ui.hitRollNote(x,y);
 
+    if(state.ui.rollNoteSelectionActive()){
+        if(state.ui.rollSelectedTrack()!=track){
+            clearRollNoteSelection(state);
+            return false;
+        }
+        if(!noteHit||!state.ui.rollNoteSelected(noteHit->noteIndex)){
+            // In Pencil mode, touching anything outside the active group only
+            // clears the selection; it does not leak through into note editing.
+            clearRollNoteSelection(state);
+            return false;
+        }
+
+        beginRollGesture(state,pointerId,x,y,timeMs,RollGestureKind::NoteEdit);
+        auto& g=state.rollGesture;
+        g.track=track;
+        g.noteIndex=noteHit->noteIndex;
+        g.noteEdit=RollNoteEdit::GroupMove;
+        g.groupIndices=state.ui.rollSelectedNotes();
+        g.dragCellMidi=hit->midi;
+        g.dragCellStep=hit->step;
+        g.groupAppliedMidiDelta=0;
+        g.groupAppliedStepDelta=0;
+        return true;
+    }
+
     beginRollGesture(state,pointerId,x,y,timeMs,RollGestureKind::NoteEdit);
     auto& g=state.rollGesture;
     g.track=track;
 
     if(!noteHit){
-        g.noteIndex=project.addNote(track,hit->midi,static_cast<float>(hit->step),1.0f);
+        g.noteIndex=project.addNote(
+            track,hit->midi,static_cast<float>(hit->step),1.0f);
         if(g.noteIndex<0){g.clear();return false;}
         g.noteEdit=RollNoteEdit::Create;
         g.noteMidi=hit->midi;
@@ -2088,6 +2114,8 @@ bool beginRollNoteGesture(
     g.noteStart=project.noteStart(track,note);
     g.noteLength=project.noteLength(track,note);
     g.noteEdit=noteHit->tail?RollNoteEdit::Resize:RollNoteEdit::Move;
+    g.dragCellMidi=hit->midi;
+    g.dragCellStep=hit->step;
     return true;
 }
 
@@ -2130,6 +2158,54 @@ bool beginRollAutomationGesture(
     return true;
 }
 
+bool beginRollGroupAutomationGesture(
+    NativeState& state,int32_t pointerId,
+    float x,float y,int64_t timeMs){
+    const auto mode=state.ui.rollMode();
+    if(mode!=aiora::RollMode::Velocity&&mode!=aiora::RollMode::Mod)
+        return false;
+    const int kind=static_cast<int>(mode)-1;
+    if(!ensureRollGroupAutomation(state,kind)||
+       !state.ui.hitRollGroupAutomationGutter(x,y))
+        return false;
+
+    auto* curve=groupAutomationForKind(state,kind);
+    if(!curve)return false;
+
+    beginRollGesture(
+        state,pointerId,x,y,timeMs,RollGestureKind::GroupAutomation);
+    auto& g=state.rollGesture;
+    g.track=state.ui.rollSelectedTrack();
+    g.curveKind=kind;
+
+    if(const auto point=state.ui.hitRollGroupAutomationPoint(x,y)){
+        g.curvePoint=*point;
+        g.curveIsNew=false;
+        return true;
+    }
+
+    float step=0.0f,value=0.0f;
+    if(!state.ui.rollGroupAutomationPosition(x,y,step,value)){
+        g.clear();
+        return false;
+    }
+    if(curve->points.size()>=24){
+        g.clear();
+        return false;
+    }
+    curve->points.push_back({step,value});
+    std::sort(
+        curve->points.begin(),curve->points.end(),
+        [](const aiora::RollGroupPoint&a,const aiora::RollGroupPoint&b){
+            return a.step<b.step;
+        });
+    g.curvePoint=findGroupPointIndex(*curve,step,value);
+    g.curveIsNew=true;
+    syncRollGroupAutomationUi(state);
+    applyRollGroupAutomation(state,kind);
+    return true;
+}
+
 void moveRollGesture(NativeState& state, float x, float y) {
     auto& g = state.rollGesture;
     if (g.pointerId < 0) return;
@@ -2165,6 +2241,42 @@ void moveRollGesture(NativeState& state, float x, float y) {
         return;
     }
 
+    if(g.kind==RollGestureKind::SelectTool){
+        return;
+    }
+
+    if(g.kind==RollGestureKind::Lasso){
+        if(g.moved)state.ui.appendRollLasso(x,y);
+        return;
+    }
+
+    if(g.kind==RollGestureKind::GroupAutomation){
+        if(!g.moved||g.curveKind<1||g.curveKind>2||
+           g.curvePoint<0)return;
+        auto* curve=groupAutomationForKind(state,g.curveKind);
+        if(!curve||g.curvePoint>=static_cast<int>(curve->points.size()))return;
+
+        float step=0.0f,value=0.0f;
+        if(!state.ui.rollGroupAutomationPosition(x,y,step,value))return;
+        const bool first=g.curvePoint==0;
+        const bool last=
+            g.curvePoint==static_cast<int>(curve->points.size())-1;
+        const float duration=std::max(0.0f,curve->end-curve->start);
+        if(first)step=0.0f;
+        if(last)step=duration;
+
+        curve->points[static_cast<size_t>(g.curvePoint)]={step,value};
+        std::sort(
+            curve->points.begin(),curve->points.end(),
+            [](const aiora::RollGroupPoint&a,const aiora::RollGroupPoint&b){
+                return a.step<b.step;
+            });
+        g.curvePoint=findGroupPointIndex(*curve,step,value);
+        syncRollGroupAutomationUi(state);
+        applyRollGroupAutomation(state,g.curveKind);
+        return;
+    }
+
     if(g.kind==RollGestureKind::AutomationEdit){
         if(!g.moved||g.track<0||g.noteIndex<0||g.curvePoint<0)return;
         float step=0.0f,value=0.0f;
@@ -2186,6 +2298,22 @@ void moveRollGesture(NativeState& state, float x, float y) {
     if(!hit)return;
 
     auto& project=aiora::ProjectCore::instance();
+    if(g.noteEdit==RollNoteEdit::GroupMove){
+        const int totalMidi=hit->midi-g.dragCellMidi;
+        const int totalStep=hit->step-g.dragCellStep;
+        const int midiDelta=totalMidi-g.groupAppliedMidiDelta;
+        const int stepDelta=totalStep-g.groupAppliedStepDelta;
+        if((midiDelta!=0||stepDelta!=0)&&
+           project.moveNotes(
+               g.track,g.groupIndices,midiDelta,
+               static_cast<float>(stepDelta))){
+            g.groupAppliedMidiDelta=totalMidi;
+            g.groupAppliedStepDelta=totalStep;
+            refreshRollGroupAutomationBounds(state);
+        }
+        return;
+    }
+
     if(g.noteEdit==RollNoteEdit::Create){
         const float length=std::clamp(
             static_cast<float>(hit->step)-g.noteStart+1.0f,
