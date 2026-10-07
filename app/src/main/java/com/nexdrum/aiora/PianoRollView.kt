@@ -13,34 +13,43 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
 
 private enum class RollMode(val label: String, val curveKind: Int?) {
     Notes("Notes", null), Bend("∿", 0), Velocity("V", 1), Mod("M", 2)
 }
-
-private data class RollNote(
-    val index: Int,
-    val midi: Int,
-    val start: Float,
-    val length: Float
-)
 
 private data class RollPoint(
     val index: Int,
     val step: Float,
     val value: Float,
     val free: Boolean
+)
+
+private data class RollNote(
+    val track: Int,
+    val index: Int,
+    val midi: Int,
+    val start: Float,
+    val length: Float,
+    val bend: List<RollPoint>,
+    val velocity: List<RollPoint>,
+    val mod: List<RollPoint>,
+    val bendLow: Float?,
+    val bendHigh: Float?
 )
 
 @Composable
@@ -54,6 +63,7 @@ fun NativePianoRollView(revision: Int, onChanged: () -> Unit) {
     var mode by remember { mutableStateOf(RollMode.Notes) }
     val columns = remember(track, revision) { rollColumns(track) }
     val notes = remember(track, revision) { readNotes(track) }
+    val shadowSources = remember(revision) { readAllNotes() }
     val rows = max(64, NativeBridge.playLengthSteps() + 32)
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -159,7 +169,7 @@ fun NativePianoRollView(revision: Int, onChanged: () -> Unit) {
                     drawRect(rowColor, Offset(0f, y), Size(gutter - 2f, cell - 1f))
                     val label = if (isBar) {
                         val bar = row / barLen + 1
-                        if (NativeBridge.dozenal()) "b${AioraNotation.dozenalInt(bar)}" else "b$bar"
+                        if (NativeBridge.dozenal()) "b" + AioraNotation.dozenalInt(bar) else "b$bar"
                     } else row.toString()
                     drawText(
                         textMeasurer,
@@ -173,23 +183,60 @@ fun NativePianoRollView(revision: Int, onChanged: () -> Unit) {
                     }
                 }
 
-                // Notes and their automation overlays.
+                // Harmonic shadows: one aggregate path means overlapping shadows never
+                // become darker than the fixed shadow opacity.
+                val shadowPath = Path()
+                shadowSources.forEach { source ->
+                    val pc = positivePitchClass(source.midi)
+                    columns.forEach { targetMidi ->
+                        if (positivePitchClass(targetMidi) == pc) {
+                            appendRibbon(
+                                path = shadowPath,
+                                note = source,
+                                targetMidi = targetMidi,
+                                columns = columns,
+                                gutter = gutter,
+                                header = header,
+                                cell = cell,
+                                seed = ribbonSeed(source)
+                            )
+                        }
+                    }
+                }
+                drawPath(shadowPath, Color(0x52000000))
+
+                // Selected-track notes are permanent performance ribbons:
+                // bend = center path, velocity = width, M = edge roughness.
                 notes.forEach { note ->
                     val col = columns.indexOf(note.midi)
                     if (col < 0) return@forEach
-                    val x = gutter + col * cell
-                    val y = header + note.start * cell
-                    val h = max(cell, note.length * cell)
                     val pc = AioraNotation.pitchColor(note.midi)
-                    drawRect(pc, Offset(x + 1f, y + 1f), Size(cell - 3f, h - 2f))
-                    drawRect(Color(0x88001414), Offset(x + 1f, y + h - 4f), Size(cell - 3f, 3f))
-
-                    drawNoteCurves(track, note, mode, x, y, cell, textMeasurer)
+                    val notePath = Path()
+                    val tail = appendRibbon(
+                        path = notePath,
+                        note = note,
+                        targetMidi = note.midi,
+                        columns = columns,
+                        gutter = gutter,
+                        header = header,
+                        cell = cell,
+                        seed = ribbonSeed(note)
+                    )
+                    drawPath(notePath, pc)
+                    drawLine(
+                        Color(0x88001414),
+                        start = tail.first,
+                        end = tail.second,
+                        strokeWidth = 3f
+                    )
+                    drawNoteCurves(note, mode, columns, gutter, header, cell)
                 }
             }
         }
     }
 }
+
+private fun positivePitchClass(midi: Int): Int = ((midi % 12) + 12) % 12
 
 private fun rollColumns(track: Int): List<Int> {
     if (!NativeBridge.trackIsDrums(track)) return (14..110).toList()
@@ -204,14 +251,28 @@ private fun rollColumns(track: Int): List<Int> {
 
 private fun readNotes(track: Int): List<RollNote> = buildList {
     repeat(NativeBridge.noteCount(track)) { i ->
+        val midi = NativeBridge.noteMidi(track, i)
+        val bounds = drumBendBounds(track, midi)
         add(
             RollNote(
+                track = track,
                 index = i,
-                midi = NativeBridge.noteMidi(track, i),
+                midi = midi,
                 start = NativeBridge.noteStart(track, i),
-                length = NativeBridge.noteLength(track, i)
+                length = NativeBridge.noteLength(track, i),
+                bend = readPoints(track, i, 0),
+                velocity = readPoints(track, i, 1),
+                mod = readPoints(track, i, 2),
+                bendLow = bounds?.first,
+                bendHigh = bounds?.second
             )
         )
+    }
+}
+
+private fun readAllNotes(): List<RollNote> = buildList {
+    repeat(NativeBridge.trackCount()) { track ->
+        addAll(readNotes(track))
     }
 }
 
@@ -226,6 +287,203 @@ private fun readPoints(track: Int, note: Int, kind: Int): List<RollPoint> = buil
             )
         )
     }
+}.sortedBy { it.step }
+
+private fun drumBendBounds(track: Int, midi: Int): Pair<Float, Float>? {
+    if (!NativeBridge.trackIsDrums(track)) return null
+    repeat(NativeBridge.padCount(track)) { p ->
+        val lo = min(NativeBridge.padLow(track, p), NativeBridge.padHigh(track, p))
+        val hi = max(NativeBridge.padLow(track, p), NativeBridge.padHigh(track, p))
+        if (midi in lo..hi) {
+            return (lo - 0.5f - midi) to (hi + 0.5f - midi)
+        }
+    }
+    return null
+}
+
+private fun curveLength(note: RollNote): Float = max(0f, max(1f, note.length) - 1f)
+
+private fun clampBend(note: RollNote, value: Float): Float {
+    val v = value.coerceIn(-12f, 12f)
+    val lo = note.bendLow
+    val hi = note.bendHigh
+    return if (lo != null && hi != null) v.coerceIn(lo, hi) else v
+}
+
+private fun lerpAt(
+    x: Float,
+    x0: Float,
+    y0: Float,
+    x1: Float,
+    y1: Float
+): Float {
+    if (abs(x1 - x0) < 1.0e-5f) return y1
+    val t = ((x - x0) / (x1 - x0)).coerceIn(0f, 1f)
+    return y0 + (y1 - y0) * t
+}
+
+private fun bendValue(note: RollNote, step: Float): Float {
+    val l = curveLength(note)
+    val x = step.coerceIn(0f, l)
+    if (note.bend.isEmpty()) return 0f
+
+    var prevStep = 0f
+    var prevValue = 0f
+    note.bend.forEach { point ->
+        val ps = point.step.coerceIn(0f, l)
+        val pv = clampBend(note, point.value)
+        if (abs(ps - prevStep) < 1.0e-5f) {
+            prevValue = pv
+        } else {
+            if (x <= ps) return lerpAt(x, prevStep, prevValue, ps, pv)
+            prevStep = ps
+            prevValue = pv
+        }
+    }
+    return if (prevStep < l) lerpAt(x, prevStep, prevValue, l, 0f) else prevValue
+}
+
+private fun levelValue(points: List<RollPoint>, note: RollNote, step: Float, fallback: Float): Float {
+    if (points.isEmpty()) return fallback
+    val l = curveLength(note)
+    val x = step.coerceIn(0f, l)
+    var prevStep = 0f
+    var prevValue = points.first().value.coerceIn(0f, 1f)
+    points.forEach { point ->
+        val ps = point.step.coerceIn(0f, l)
+        val pv = point.value.coerceIn(0f, 1f)
+        if (abs(ps - prevStep) < 1.0e-5f) {
+            prevValue = pv
+        } else {
+            if (x <= ps) return lerpAt(x, prevStep, prevValue, ps, pv)
+            prevStep = ps
+            prevValue = pv
+        }
+    }
+    return prevValue
+}
+
+private fun velocityValue(note: RollNote, step: Float): Float =
+    levelValue(note.velocity, note, step, 1f)
+
+private fun modValue(note: RollNote, step: Float): Float =
+    levelValue(note.mod, note, step, 0f)
+
+private fun pitchXFor(columns: List<Int>, pitch: Float, gutter: Float, cell: Float): Float {
+    if (columns.isEmpty()) return gutter
+    val firstCenter = gutter + cell / 2f
+    val lastCenter = gutter + (columns.lastIndex + 0.5f) * cell
+    if (pitch <= columns.first()) return firstCenter
+    if (pitch >= columns.last()) return lastCenter
+    for (i in 0 until columns.lastIndex) {
+        val a = columns[i].toFloat()
+        val b = columns[i + 1].toFloat()
+        if (pitch <= b) {
+            val t = if (abs(b - a) < 1.0e-5f) 0f else ((pitch - a) / (b - a)).coerceIn(0f, 1f)
+            return gutter + (i + 0.5f + t) * cell
+        }
+    }
+    return lastCenter
+}
+
+private fun pitchForX(columns: List<Int>, x: Float, gutter: Float, cell: Float): Float {
+    if (columns.isEmpty()) return 62f
+    val visual = (x - gutter) / cell - 0.5f
+    if (visual <= 0f) return columns.first().toFloat()
+    if (visual >= columns.lastIndex) return columns.last().toFloat()
+    val i = floor(visual).toInt().coerceIn(0, columns.lastIndex - 1)
+    val t = visual - i
+    val a = columns[i].toFloat()
+    val b = columns[i + 1].toFloat()
+    return a + (b - a) * t
+}
+
+private fun ribbonSeed(note: RollNote): Int =
+    note.track * 73856093 xor note.index * 19349663 xor note.midi * 83492791
+
+private fun edgeNoise(seed: Int, sample: Int, side: Int): Float {
+    val s = seed.toDouble()
+    val i = sample.toDouble()
+    val a = sin(s * 0.0000137 + i * 1.731 + side * 2.137)
+    val b = sin(s * 0.0000311 + i * 3.117 + side * 5.071)
+    return (a * 0.68 + b * 0.32).toFloat().coerceIn(-1f, 1f)
+}
+
+private fun visualCurveStep(note: RollNote, fraction: Float): Float {
+    val l = curveLength(note)
+    if (l <= 0f) return 0f
+    val visualSteps = max(1f, note.length)
+    return (fraction.coerceIn(0f, 1f) * visualSteps - 0.5f).coerceIn(0f, l)
+}
+
+private fun ribbonHalfWidth(note: RollNote, step: Float, cell: Float): Float {
+    val minHalf = max(1.25f, cell * 0.055f)
+    val maxHalf = max(minHalf, cell / 2f - 2f)
+    return minHalf + (maxHalf - minHalf) * velocityValue(note, step)
+}
+
+private fun appendRibbon(
+    path: Path,
+    note: RollNote,
+    targetMidi: Int,
+    columns: List<Int>,
+    gutter: Float,
+    header: Float,
+    cell: Float,
+    seed: Int
+): Pair<Offset, Offset> {
+    val length = max(1f, note.length)
+    val top = header + note.start * cell
+    val height = length * cell
+    val segments = ceil(length * 5f).toInt().coerceIn(5, 320)
+    val left = ArrayList<Offset>(segments + 1)
+    val right = ArrayList<Offset>(segments + 1)
+
+    for (i in 0..segments) {
+        val fraction = i.toFloat() / segments.toFloat()
+        val step = visualCurveStep(note, fraction)
+        val center = pitchXFor(columns, targetMidi + bendValue(note, step), gutter, cell)
+        val half = ribbonHalfWidth(note, step, cell)
+        val roughness = modValue(note, step) * cell * 0.11f
+        val leftHalf = max(1.1f, half + edgeNoise(seed, i, 0) * roughness)
+        val rightHalf = max(1.1f, half + edgeNoise(seed, i, 1) * roughness)
+        val y = top + fraction * height
+        left += Offset(center - leftHalf, y)
+        right += Offset(center + rightHalf, y)
+    }
+
+    path.moveTo(left.first().x, left.first().y)
+    for (i in 1 until left.size) path.lineTo(left[i].x, left[i].y)
+    for (i in right.indices.reversed()) path.lineTo(right[i].x, right[i].y)
+    path.close()
+    return left.last() to right.last()
+}
+
+private fun noteAtPosition(
+    notes: List<RollNote>,
+    columns: List<Int>,
+    pos: Offset,
+    gutter: Float,
+    header: Float,
+    cell: Float
+): RollNote? {
+    if (pos.x < gutter || pos.y < header) return null
+    val absoluteStep = (pos.y - header) / cell
+    var best: RollNote? = null
+    var bestDistance = Float.MAX_VALUE
+    notes.forEach { note ->
+        if (absoluteStep < note.start || absoluteStep >= note.start + max(1f, note.length)) return@forEach
+        val localFraction = ((pos.y - (header + note.start * cell)) / (max(1f, note.length) * cell)).coerceIn(0f, 1f)
+        val step = visualCurveStep(note, localFraction)
+        val center = pitchXFor(columns, note.midi + bendValue(note, step), gutter, cell)
+        val tolerance = ribbonHalfWidth(note, step, cell) + modValue(note, step) * cell * 0.11f + 5f
+        val distance = abs(pos.x - center)
+        if (distance <= tolerance && distance < bestDistance) {
+            best = note
+            bestDistance = distance
+        }
+    }
+    return best
 }
 
 private fun handleRollTap(
@@ -242,20 +500,30 @@ private fun handleRollTap(
     val header = 44f * density
     if (pos.x < gutter || pos.y < header) return
     val col = floor((pos.x - gutter) / cell).toInt()
-    val step = floor((pos.y - header) / cell).toInt()
-    if (col !in columns.indices || step < 0) return
+    if (col !in columns.indices) return
+    val absoluteStep = (pos.y - header) / cell
+    if (absoluteStep < 0f) return
+    val snappedStep = floor(absoluteStep).toInt()
     val midi = columns[col]
-    val note = notes.firstOrNull { it.midi == midi && step.toFloat() >= it.start && step.toFloat() < it.start + it.length }
+    val note = noteAtPosition(notes, columns, pos, gutter, header, cell)
 
     if (mode == RollMode.Notes) {
         if (note != null) NativeBridge.deleteNote(track, note.index)
-        else NativeBridge.addNote(track, midi, step.toFloat(), 1f)
+        else NativeBridge.addNote(track, midi, snappedStep.toFloat(), 1f)
         return
     }
     note ?: return
     val kind = mode.curveKind ?: return
-    val relativeStep = (step.toFloat() - note.start).coerceIn(0f, max(0f, note.length - 1f))
-    val existing = readPoints(track, note.index, kind).minByOrNull { abs(it.step - relativeStep) }
+    val l = curveLength(note)
+    val freeRelative = (absoluteStep - note.start - 0.5f).coerceIn(0f, l)
+    val snappedRelative = (snappedStep.toFloat() - note.start).coerceIn(0f, l)
+    val relativeStep = if (longPress) freeRelative else snappedRelative
+    val points = when (kind) {
+        0 -> note.bend
+        1 -> note.velocity
+        else -> note.mod
+    }
+    val existing = points.minByOrNull { abs(it.step - relativeStep) }
     if (existing != null && abs(existing.step - relativeStep) <= 0.3f) {
         if (longPress) {
             NativeBridge.updateCurvePoint(track, note.index, kind, existing.index, existing.step, existing.value, !existing.free)
@@ -264,58 +532,94 @@ private fun handleRollTap(
         }
         return
     }
-    val colLeft = gutter + col * cell
-    val normalizedAcross = ((pos.x - colLeft) / cell).coerceIn(0f, 1f)
+
     val value = when (mode) {
-        RollMode.Bend -> 0f
-        RollMode.Velocity, RollMode.Mod -> abs(normalizedAcross - 0.5f) * 2f
+        RollMode.Bend -> {
+            val pitch = if (longPress) pitchForX(columns, pos.x, gutter, cell) else midi.toFloat()
+            clampBend(note, pitch - note.midi)
+        }
+        RollMode.Velocity, RollMode.Mod -> {
+            val center = pitchXFor(columns, note.midi + bendValue(note, relativeStep), gutter, cell)
+            (abs(pos.x - center) / max(1f, cell / 2f - 2f)).coerceIn(0f, 1f)
+        }
         else -> 0f
     }
     NativeBridge.addCurvePoint(track, note.index, kind, relativeStep, value, longPress)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNoteCurves(
-    track: Int,
     note: RollNote,
     mode: RollMode,
-    x: Float,
-    y: Float,
-    cell: Float,
-    textMeasurer: androidx.compose.ui.text.TextMeasurer
+    columns: List<Int>,
+    gutter: Float,
+    header: Float,
+    cell: Float
 ) {
-    val kinds = if (mode.curveKind != null) listOf(mode.curveKind) else listOf(0, 1, 2)
-    kinds.filterNotNull().forEach { kind ->
-        val points = readPoints(track, note.index, kind)
-        if (points.isEmpty()) return@forEach
-        val color = when (kind) {
-            0 -> Color(0xFF00FFFF)
-            1 -> Color(0xFFE8ECF1)
-            else -> Color(0xFFC98EFF)
+    if (mode == RollMode.Notes) return
+
+    val yTop = header + note.start * cell
+    val length = max(1f, note.length)
+    val height = length * cell
+    val segments = ceil(length * 5f).toInt().coerceIn(5, 320)
+
+    if (mode == RollMode.Bend) {
+        val color = Color(0xFF00FFFF)
+        val centerPath = Path()
+        for (i in 0..segments) {
+            val fraction = i.toFloat() / segments.toFloat()
+            val step = visualCurveStep(note, fraction)
+            val px = pitchXFor(columns, note.midi + bendValue(note, step), gutter, cell)
+            val py = yTop + fraction * height
+            if (i == 0) centerPath.moveTo(px, py) else centerPath.lineTo(px, py)
         }
-        if (kind == 0) {
-            val path = Path()
-            points.forEachIndexed { i, p ->
-                val px = x + cell / 2f + p.value * cell
-                val py = y + (p.step + 0.5f) * cell
-                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
-                drawCircle(color, if (p.free) 4.5f else 3.2f, Offset(px, py))
-            }
-            drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f))
+        drawPath(centerPath, color, style = Stroke(width = 2f))
+        note.bend.forEach { p ->
+            val px = pitchXFor(columns, note.midi + clampBend(note, p.value), gutter, cell)
+            val py = yTop + (p.step + 0.5f).coerceIn(0f, length) * cell
+            drawCircle(color, if (p.free) 4.5f else 3.2f, Offset(px, py))
+        }
+        return
+    }
+
+    val points = if (mode == RollMode.Velocity) note.velocity else note.mod
+    val color = if (mode == RollMode.Velocity) Color(0xFFE8ECF1) else Color(0xFFC98EFF)
+    val centerPath = Path()
+    for (i in 0..segments) {
+        val fraction = i.toFloat() / segments.toFloat()
+        val step = visualCurveStep(note, fraction)
+        val px = pitchXFor(columns, note.midi + bendValue(note, step), gutter, cell)
+        val py = yTop + fraction * height
+        if (i == 0) centerPath.moveTo(px, py) else centerPath.lineTo(px, py)
+    }
+    drawPath(centerPath, color.copy(alpha = 0.28f), style = Stroke(width = 1f))
+    if (points.isEmpty()) return
+
+    val left = Path()
+    val right = Path()
+    for (i in 0..segments) {
+        val fraction = i.toFloat() / segments.toFloat()
+        val step = visualCurveStep(note, fraction)
+        val center = pitchXFor(columns, note.midi + bendValue(note, step), gutter, cell)
+        val value = if (mode == RollMode.Velocity) velocityValue(note, step) else modValue(note, step)
+        val half = value * max(1f, cell / 2f - 2f)
+        val py = yTop + fraction * height
+        if (i == 0) {
+            left.moveTo(center - half, py)
+            right.moveTo(center + half, py)
         } else {
-            val left = Path()
-            val right = Path()
-            points.forEachIndexed { i, p ->
-                val half = p.value.coerceIn(0f, 1f) * (cell / 2f - 2f)
-                val py = y + (p.step + 0.5f) * cell
-                val lx = x + cell / 2f - half
-                val rx = x + cell / 2f + half
-                if (i == 0) { left.moveTo(lx, py); right.moveTo(rx, py) }
-                else { left.lineTo(lx, py); right.lineTo(rx, py) }
-                drawCircle(color, if (p.free) 4.5f else 3.0f, Offset(lx, py))
-                drawCircle(color, if (p.free) 4.5f else 3.0f, Offset(rx, py))
-            }
-            drawPath(left, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6f))
-            drawPath(right, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6f))
+            left.lineTo(center - half, py)
+            right.lineTo(center + half, py)
         }
+    }
+    drawPath(left, color, style = Stroke(width = 1.6f))
+    drawPath(right, color, style = Stroke(width = 1.6f))
+
+    points.forEach { p ->
+        val step = p.step.coerceIn(0f, curveLength(note))
+        val center = pitchXFor(columns, note.midi + bendValue(note, step), gutter, cell)
+        val half = p.value.coerceIn(0f, 1f) * max(1f, cell / 2f - 2f)
+        val py = yTop + (p.step + 0.5f).coerceIn(0f, length) * cell
+        drawCircle(color, if (p.free) 4.5f else 3.0f, Offset(center - half, py))
+        drawCircle(color, if (p.free) 4.5f else 3.0f, Offset(center + half, py))
     }
 }

@@ -51,7 +51,7 @@ private fun AioraApp() {
     var preset by remember { mutableIntStateOf(NativeBridge.factoryPreset()) }
     var selectedPad by remember { mutableIntStateOf(6) }
     var revision by remember { mutableIntStateOf(0) }
-    val changed = { revision++ }
+    val changed: () -> Unit = { revision += 1 }
     val pages = listOf("Tracks", "Drums", "Roll", "Synth", "FX", "Play")
 
     MaterialTheme(colorScheme = darkColorScheme(primary = AioraCyan, background = AioraBg, surface = AioraPanel)) {
