@@ -71,6 +71,18 @@ NativeUi::Rgb mix(NativeUi::Rgb a, NativeUi::Rgb b, float amount) noexcept {
     };
 }
 
+NativeUi::Rgb rollSpectrumColor(float pitch) noexcept {
+    const int lower=static_cast<int>(std::floor(pitch));
+    const float amount=std::clamp(
+        pitch-static_cast<float>(lower),0.0f,1.0f);
+    const int pc0=((lower%12)+12)%12;
+    const int pc1=(pc0+1)%12;
+    return mix(
+        kPitchColors[static_cast<size_t>(pc0)],
+        kPitchColors[static_cast<size_t>(pc1)],
+        amount);
+}
+
 NativeOverlay::Color overlayColor(NativeUi::Rgb c,float alpha=1.0f) noexcept {
     return {c.r,c.g,c.b,alpha};
 }
@@ -2249,7 +2261,7 @@ void NativeUi::drawRoll() const noexcept {
     const auto addRibbon=[&](
         const Track& sourceTrack,const Note& note,
         int sourceTrackIndex,int noteIndex,int targetMidi,
-        NativeOverlay::Color color){
+        NativeOverlay::Color color,bool spectrum){
         const float length=std::max(1.0f,note.lengthSteps);
         const float top=
             viewport.y+header+
@@ -2276,14 +2288,16 @@ void NativeUi::drawRoll() const noexcept {
 
             const float s0=rollVisualCurveStep(note,f0);
             const float s1=rollVisualCurveStep(note,f1);
+            const float pitch0=
+                static_cast<float>(targetMidi)+
+                rollBendAt(sourceTrack,note,s0);
+            const float pitch1=
+                static_cast<float>(targetMidi)+
+                rollBendAt(sourceTrack,note,s1);
             const float c0=rollPitchX(
-                columns,
-                static_cast<float>(targetMidi)+rollBendAt(sourceTrack,note,s0),
-                pitchOffset,gridLeft,colW);
+                columns,pitch0,pitchOffset,gridLeft,colW);
             const float c1=rollPitchX(
-                columns,
-                static_cast<float>(targetMidi)+rollBendAt(sourceTrack,note,s1),
-                pitchOffset,gridLeft,colW);
+                columns,pitch1,pitchOffset,gridLeft,colW);
 
             const float half0=ribbonHalfWidth(note,s0);
             const float half1=ribbonHalfWidth(note,s1);
@@ -2309,8 +2323,13 @@ void NativeUi::drawRoll() const noexcept {
             y1=std::clamp(y1,gridTop,gridBottom);
             if(y1<=y0||x1<=x0||x2<=x3)continue;
 
-            rollOverlay.addQuad(
-                x0,y0,x1,y0,x2,y1,x3,y1,color);
+            const auto topColor=
+                spectrum?overlayColor(rollSpectrumColor(pitch0)):color;
+            const auto bottomColor=
+                spectrum?overlayColor(rollSpectrumColor(pitch1)):color;
+            rollOverlay.addGradientQuad(
+                x0,y0,x1,y0,x2,y1,x3,y1,
+                topColor,bottomColor);
         }
     };
 
@@ -2345,7 +2364,7 @@ void NativeUi::drawRoll() const noexcept {
                 addRibbon(
                     sourceTrack,note,
                     sourceTrackIndex,noteIndex,targetMidi,
-                    shadowColor);
+                    shadowColor,false);
             }
         }
     }
@@ -2387,7 +2406,7 @@ void NativeUi::drawRoll() const noexcept {
 
             addRibbon(
                 selectedTrack,note,track,n,midi,
-                overlayColor(pitchColor(midi)));
+                overlayColor(pitchColor(midi)),true);
 
             const float tailY=
                 viewport.y+header+
