@@ -1778,13 +1778,13 @@ bool beginRollNoteGesture(
 
     const auto hit=state.ui.hitRollCell(x,y);
     if(!hit)return false;
+    const auto noteHit=state.ui.hitRollNote(x,y);
 
     beginRollGesture(state,pointerId,x,y,timeMs,RollGestureKind::NoteEdit);
     auto& g=state.rollGesture;
     g.track=track;
 
-    const int note=noteAtCell(track,hit->midi,hit->step);
-    if(note<0){
+    if(!noteHit){
         g.noteIndex=project.addNote(track,hit->midi,static_cast<float>(hit->step),1.0f);
         if(g.noteIndex<0){g.clear();return false;}
         g.noteEdit=RollNoteEdit::Create;
@@ -1795,14 +1795,12 @@ bool beginRollNoteGesture(
         return true;
     }
 
+    const int note=noteHit->noteIndex;
     g.noteIndex=note;
     g.noteMidi=project.noteMidi(track,note);
     g.noteStart=project.noteStart(track,note);
     g.noteLength=project.noteLength(track,note);
-
-    const bool bodyOrTail=static_cast<float>(hit->step)>g.noteStart+0.001f;
-    const bool oneCellEdge=g.noteLength<=1.001f&&hit->normalizedDown>0.55f;
-    g.noteEdit=(bodyOrTail||oneCellEdge)?RollNoteEdit::Resize:RollNoteEdit::Move;
+    g.noteEdit=noteHit->tail?RollNoteEdit::Resize:RollNoteEdit::Move;
     return true;
 }
 
