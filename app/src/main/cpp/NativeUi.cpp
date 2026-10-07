@@ -784,7 +784,7 @@ NativeUi::Rect NativeUi::trackUtilityRect(int index) const noexcept {
 
     switch(index){
         case 2: return {card.x+pad+(w+gap),row1,w,64.0f}; // Clear
-        case 3: return {card.x+pad,row1,w,64.0f};         // Demo
+        case 3: return {card.x+pad,row1,w,64.0f};         // New
         case 4: return {card.x+pad+2.0f*(w+gap),row1,w,64.0f}; // Save
         case 5: return {card.x+pad,row2,w,64.0f};         // Load
         default:return {};
@@ -1972,14 +1972,14 @@ void NativeUi::drawTracks() const noexcept {
     // SONG
     const auto song=songCardRect();
     drawCard(song,"SONG");
-    const auto demo=trackUtilityRect(3);
+    const auto fresh=trackUtilityRect(3);
     const auto clear=trackUtilityRect(2);
     const auto save=trackUtilityRect(4);
     const auto load=trackUtilityRect(5);
     const auto exp=projectTransferRect(0);
     const auto imp=projectTransferRect(1);
-    for(const auto& rr:{demo,clear,save,load,exp,imp})fillRect(rr,kButton);
-    overlay.addTextCentered("Demo",{demo.x,demo.y,demo.w,demo.h},0.92f,overlayColor(kWhite));
+    for(const auto& rr:{fresh,clear,save,load,exp,imp})fillRect(rr,kButton);
+    overlay.addTextCentered("New",{fresh.x,fresh.y,fresh.w,fresh.h},0.92f,overlayColor(kWhite));
     overlay.addTextCentered("Clear trk",{clear.x,clear.y,clear.w,clear.h},0.88f,overlayColor(kWhite));
     overlay.addTextCentered("Save",{save.x,save.y,save.w,save.h},0.92f,overlayColor(kWhite));
     overlay.addTextCentered("Load",{load.x,load.y,load.w,load.h},0.92f,overlayColor(kWhite));
@@ -3624,7 +3624,7 @@ std::optional<TrackUtilityAction> NativeUi::hitTrackUtility(float x,float y) con
     if(trackUtilityRect(0).contains(x,y))return TrackUtilityAction::DozenalToggle;
     if(trackUtilityRect(1).contains(x,y))return TrackUtilityAction::AiFromClipboard;
     if(trackUtilityRect(2).contains(x,y))return TrackUtilityAction::ClearTrack;
-    if(trackUtilityRect(3).contains(x,y))return TrackUtilityAction::Demo;
+    if(trackUtilityRect(3).contains(x,y))return TrackUtilityAction::NewProject;
     if(trackUtilityRect(4).contains(x,y))return TrackUtilityAction::SaveProject;
     if(trackUtilityRect(5).contains(x,y))return TrackUtilityAction::LoadProject;
     return std::nullopt;
