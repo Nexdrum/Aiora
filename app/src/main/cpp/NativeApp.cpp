@@ -1086,16 +1086,25 @@ int findGroupPointIndex(
 
 void serviceRollLongPress(NativeState& state){
     auto& g=state.rollGesture;
+    if(g.pointerId<0||g.moved||g.longPressTriggered)return;
+    if(nowMs()-g.downTimeMs<kLongPressMs)return;
 
-    if(g.kind==RollGestureKind::TimeScroll&&
-       g.pointerId>=0&&!g.moved&&!g.longPressTriggered&&
-       nowMs()-g.downTimeMs>=kLongPressMs){
+    if(g.kind==RollGestureKind::SelectTool){
+        if(state.ui.rollSelectionTool()==aiora::RollSelectionTool::Lasso){
+            state.ui.toggleRollMultiLasso();
+            g.longPressTriggered=true;
+        }
+        return;
+    }
+
+    if(g.kind==RollGestureKind::TimeScroll){
         if(const auto step=state.ui.hitRollBeatStep(g.downX,g.downY)){
             if(state.ui.rollSelectionActive()){
                 state.ui.setRollSelection(false,0,0);
             }else{
                 state.ui.setRollSelection(true,*step,*step);
             }
+            resetRollGroupAutomation(state);
             state.rollLastBeatTapMs=0;
             state.rollLastBeatTapStep=-1;
             g.longPressTriggered=true;
@@ -1103,10 +1112,32 @@ void serviceRollLongPress(NativeState& state){
         return;
     }
 
+    if(g.kind==RollGestureKind::NoteEdit&&
+       g.track>=0&&g.noteIndex>=0&&
+       g.noteEdit!=RollNoteEdit::Create){
+        const bool hadGroup=
+            g.noteEdit==RollNoteEdit::GroupMove&&!g.groupIndices.empty();
+        std::vector<int> source=
+            hadGroup?g.groupIndices:std::vector<int>{g.noteIndex};
+        auto added=aiora::ProjectCore::instance().duplicateNotes(
+            g.track,source,1.0f);
+        if(!added.empty()){
+            setRollNoteSelection(
+                state,g.track,added,hadGroup);
+            g.noteEdit=RollNoteEdit::GroupMove;
+            g.groupIndices=std::move(added);
+            g.noteIndex=g.groupIndices.front();
+            g.groupAppliedMidiDelta=0;
+            g.groupAppliedStepDelta=0;
+            g.longPressTriggered=true;
+            aiora::AudioEngine::instance().syncProject();
+            scheduleAutosave(state,0);
+        }
+        return;
+    }
+
     if(g.kind!=RollGestureKind::AutomationEdit||
-       g.pointerId<0||g.curveIsNew||g.moved||g.longPressTriggered||
-       g.track<0||g.noteIndex<0||g.curvePoint<0)return;
-    if(nowMs()-g.downTimeMs<kLongPressMs)return;
+       g.curveIsNew||g.track<0||g.noteIndex<0||g.curvePoint<0)return;
 
     auto& project=aiora::ProjectCore::instance();
     const float step=project.curvePointStep(
