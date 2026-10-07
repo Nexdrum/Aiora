@@ -43,6 +43,7 @@ constexpr int kRequestImportPatch = 4106;
 constexpr int kRequestRenameTrack = 4201;
 constexpr int kRequestRenamePad = 4202;
 constexpr int kRequestOperatorRatio = 4203;
+constexpr int kRequestNewProject = 4204;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -178,38 +179,6 @@ void createDefaultProject() {
     project.setTrackName(drums,"Nexdrum");
 
     project.selectTrack(bass);
-}
-
-void createDemoProject() {
-    createDefaultProject();
-    auto& project=aiora::ProjectCore::instance();
-    project.setBpm(112.0f);
-    project.setSignature(4,4);
-
-    // Bass
-    for(int s:{0,8,16,24})project.addNote(0,38,static_cast<float>(s),4.0f);
-
-    // Harmony
-    for(int s:{0,16}){
-        project.addNote(1,50,static_cast<float>(s),8.0f);
-        project.addNote(1,57,static_cast<float>(s),8.0f);
-        project.addNote(1,64,static_cast<float>(s),8.0f);
-    }
-
-    // Lead
-    const int leadMidi[8]{62,64,69,67,66,64,62,57};
-    for(int i=0;i<8;++i)
-        project.addNote(2,leadMidi[i],static_cast<float>(i*4),2.0f);
-
-    // Nexdrum: kick / snare / ride-crash examples using actual mapped ranges.
-    for(int s:{0,4,8,12,16,20,24,28})
-        project.addNote(3,38,static_cast<float>(s),1.0f);
-    for(int s:{4,12,20,28})
-        project.addNote(3,59,static_cast<float>(s),1.0f);
-    for(int s:{2,6,10,14,18,22,26,30})
-        project.addNote(3,73,static_cast<float>(s),1.0f);
-
-    project.selectTrack(0);
 }
 
 void ensureDrumTrackSelected() {
@@ -453,6 +422,36 @@ bool launchNameEditor(
     return ok;
 }
 
+bool launchConfirmation(
+    ANativeActivity* activity,int requestCode,
+    const char* title,const char* message){
+
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+
+    bool ok=false;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls
+        ?env->GetMethodID(
+            cls,"showConfirmation",
+            "(ILjava/lang/String;Ljava/lang/String;)V")
+        :nullptr;
+    jstring jTitle=env->NewStringUTF(title?title:"Confirm");
+    jstring jMessage=env->NewStringUTF(message?message:"Are you sure?");
+    if(method&&jTitle&&jMessage){
+        env->CallVoidMethod(
+            activity->clazz,method,requestCode,jTitle,jMessage);
+        ok=!env->ExceptionCheck();
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(jMessage)env->DeleteLocalRef(jMessage);
+    if(jTitle)env->DeleteLocalRef(jTitle);
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
 bool launchNumberEditor(
     ANativeActivity* activity,int requestCode,int targetIndex,
     const char* title,const std::string& currentValue){
@@ -506,6 +505,37 @@ void serviceDocumentResult(NativeState& state){
     int requestCode=0;
     try{requestCode=std::stoi(requestLine);}catch(...){return;}
     const bool success=successLine=="1";
+
+    if(requestCode==kRequestNewProject){
+        if(!success)return;
+
+        auto& audio=aiora::AudioEngine::instance();
+        audio.stopTransport();
+        audio.panic();
+
+        auto& project=aiora::ProjectCore::instance();
+        project.reset();
+
+        state.rollClipboard.clear();
+        state.rollClipboardAllTracks=false;
+        state.rollGroupAutomation={};
+        state.ui.setRollClipboardAvailable(false);
+        state.ui.setRollSelection(false,0,0);
+        state.ui.clearRollNoteSelection();
+        state.ui.clearRollGroupAutomation();
+        state.ui.setRollStartStep(0);
+        state.ui.setRollMode(aiora::RollMode::Notes);
+        state.ui.setRollSelectionTool(aiora::RollSelectionTool::Pencil);
+        state.ui.setRollMultiLasso(false);
+        state.ui.resetDrumRangeArm();
+
+        audio.syncProject();
+        scheduleAutosave(state,0);
+        __android_log_print(
+            ANDROID_LOG_INFO,kTag,
+            "created blank AIORA song");
+        return;
+    }
 
     if(requestCode==kRequestRenameTrack||requestCode==kRequestRenamePad){
         if(!success)return;
@@ -1633,12 +1663,16 @@ bool handleUiTap(NativeState& state, float x, float y) {
                     break;
                 }
 
-                case aiora::TrackUtilityAction::Demo:
-                    audio.stopTransport();
-                    createDemoProject();
-                    audio.syncProject();
-                    state.ui.resetDrumRangeArm();
-                    scheduleAutosave(state,0);
+                case aiora::TrackUtilityAction::NewProject:
+                    if(!launchConfirmation(
+                        state.app?state.app->activity:nullptr,
+                        kRequestNewProject,
+                        "New song?",
+                        "Are you sure you want to start a new song? The current song will be cleared.")){
+                        __android_log_print(
+                            ANDROID_LOG_WARN,kTag,
+                            "New song confirmation dialog could not start");
+                    }
                     break;
 
                 case aiora::TrackUtilityAction::SaveProject:{
