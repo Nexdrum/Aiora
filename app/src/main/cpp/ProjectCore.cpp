@@ -29,6 +29,21 @@ const std::vector<CurvePoint>* curveFor(const Note& n,int kind){
 }
 float clampCurveValue(int kind,float v){return kind==0?std::clamp(v,-12.0f,12.0f):std::clamp(v,0.0f,1.0f);}
 
+float groupCurveValue(
+    const std::vector<CurvePoint>& points,float step,float fallback) noexcept {
+    if(points.empty())return fallback;
+    if(points.size()==1||step<=points.front().step)return points.front().value;
+    for(size_t i=1;i<points.size();++i){
+        if(step<=points[i].step){
+            const auto& a=points[i-1];
+            const auto& b=points[i];
+            const float t=(step-a.step)/std::max(1.0e-6f,b.step-a.step);
+            return a.value+(b.value-a.value)*std::clamp(t,0.0f,1.0f);
+        }
+    }
+    return points.back().value;
+}
+
 float clampOperatorParam(OperatorParam param,float v){
     switch(param){
         case OperatorParam::Ratio:return std::clamp(v,0.125f,16.0f);
@@ -278,8 +293,9 @@ int ProjectCore::addNote(int t,int midi,float start,float length){
     std::scoped_lock lock(mutex_);if(!validTrack(t)||!pitchAllowed(t,midi))return -1;
     start=std::max(0.0f,start);length=std::max(1.0f,length);
     auto& notes=project_.tracks[t].notes;
-    for(int i=0;i<static_cast<int>(notes.size());++i)if(notes[i].midi==midi&&std::fabs(notes[i].startStep-start)<0.001f)return i;
-    notes.push_back(Note{midi,start,length,{},{},{}});return static_cast<int>(notes.size())-1;
+    // Notes are intentionally polyphonic even on the same pitch and time.
+    notes.push_back(Note{midi,start,length,{},{},{}});
+    return static_cast<int>(notes.size())-1;
 }
 int ProjectCore::pasteNotes(int t,const std::vector<Note>& source,float start){
     std::scoped_lock lock(mutex_);
@@ -292,18 +308,146 @@ int ProjectCore::pasteNotes(int t,const std::vector<Note>& source,float start){
         Note copy=src;
         copy.startStep=std::max(0.0f,start+src.startStep);
         copy.lengthSteps=std::max(1.0f,copy.lengthSteps);
-        bool duplicate=false;
-        for(const auto& existing:notes){
-            if(existing.midi==copy.midi&&
-               std::fabs(existing.startStep-copy.startStep)<0.001f){
-                duplicate=true;break;
-            }
-        }
-        if(duplicate)continue;
         notes.push_back(std::move(copy));
         ++added;
     }
     return added;
+}
+std::vector<int> ProjectCore::duplicateNotes(
+    int t,const std::vector<int>& noteIndices,float stepOffset){
+    std::scoped_lock lock(mutex_);
+    std::vector<int> added;
+    if(!validTrack(t)||noteIndices.empty())return added;
+    const auto& source=project_.tracks[t].notes;
+    std::vector<Note> copies;
+    copies.reserve(noteIndices.size());
+    for(int index:noteIndices){
+        if(index<0||index>=static_cast<int>(source.size()))continue;
+        Note copy=source[static_cast<size_t>(index)];
+        copy.startStep=std::max(0.0f,copy.startStep+stepOffset);
+        if(!pitchAllowed(t,copy.midi))continue;
+        copies.push_back(std::move(copy));
+    }
+    auto& notes=project_.tracks[t].notes;
+    added.reserve(copies.size());
+    for(auto& copy:copies){
+        notes.push_back(std::move(copy));
+        added.push_back(static_cast<int>(notes.size())-1);
+    }
+    return added;
+}
+int ProjectCore::deleteNotes(int t,const std::vector<int>& noteIndices){
+    std::scoped_lock lock(mutex_);
+    if(!validTrack(t)||noteIndices.empty())return 0;
+    auto indices=noteIndices;
+    std::sort(indices.begin(),indices.end());
+    indices.erase(std::unique(indices.begin(),indices.end()),indices.end());
+    std::sort(indices.rbegin(),indices.rend());
+    auto& notes=project_.tracks[t].notes;
+    int removed=0;
+    for(int index:indices){
+        if(index<0||index>=static_cast<int>(notes.size()))continue;
+        notes.erase(notes.begin()+index);
+        ++removed;
+    }
+    return removed;
+}
+int ProjectCore::deleteNotesInRange(int t,float startStep,float endStep){
+    std::scoped_lock lock(mutex_);
+    if(!validTrack(t))return 0;
+    if(endStep<startStep)std::swap(startStep,endStep);
+    auto& notes=project_.tracks[t].notes;
+    const auto old=notes.size();
+    notes.erase(
+        std::remove_if(
+            notes.begin(),notes.end(),
+            [&](const Note& n){
+                return n.startStep>=startStep&&n.startStep<endStep;
+            }),
+        notes.end());
+    return static_cast<int>(old-notes.size());
+}
+bool ProjectCore::moveNotes(
+    int t,const std::vector<int>& noteIndices,
+    int midiDelta,float stepDelta){
+    std::scoped_lock lock(mutex_);
+    if(!validTrack(t)||noteIndices.empty())return false;
+    auto indices=noteIndices;
+    std::sort(indices.begin(),indices.end());
+    indices.erase(std::unique(indices.begin(),indices.end()),indices.end());
+    auto& notes=project_.tracks[t].notes;
+    for(int index:indices){
+        if(index<0||index>=static_cast<int>(notes.size()))return false;
+        const auto& n=notes[static_cast<size_t>(index)];
+        if(n.startStep+stepDelta<0.0f||
+           !pitchAllowed(t,n.midi+midiDelta))
+            return false;
+    }
+    for(int index:indices){
+        auto& n=notes[static_cast<size_t>(index)];
+        n.midi+=midiDelta;
+        n.startStep+=stepDelta;
+    }
+    return true;
+}
+bool ProjectCore::applyGroupAutomation(
+    int t,const std::vector<int>& noteIndices,int kind,
+    float groupStart,const std::vector<CurvePoint>& groupPoints){
+    std::scoped_lock lock(mutex_);
+    if(!validTrack(t)||(kind!=1&&kind!=2)||
+       noteIndices.empty()||groupPoints.empty())return false;
+
+    auto points=groupPoints;
+    for(auto& p:points){
+        p.step=std::max(0.0f,p.step);
+        p.value=clampCurveValue(kind,p.value);
+    }
+    std::sort(
+        points.begin(),points.end(),
+        [](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
+
+    auto indices=noteIndices;
+    std::sort(indices.begin(),indices.end());
+    indices.erase(std::unique(indices.begin(),indices.end()),indices.end());
+    auto& notes=project_.tracks[t].notes;
+    const float fallback=kind==1?1.0f:0.0f;
+    bool changed=false;
+
+    for(int index:indices){
+        if(index<0||index>=static_cast<int>(notes.size()))continue;
+        auto& note=notes[static_cast<size_t>(index)];
+        auto* curve=curveFor(note,kind);
+        if(!curve)continue;
+
+        const float localEnd=
+            std::max(0.0f,std::max(1.0f,note.lengthSteps)-1.0f);
+        const float groupA=note.startStep-groupStart;
+        const float groupB=groupA+localEnd;
+
+        std::vector<CurvePoint> projected;
+        projected.reserve(std::min<size_t>(points.size()+2,kMaxCurvePoints));
+        projected.push_back({
+            0.0f,
+            std::clamp(groupCurveValue(points,groupA,fallback),0.0f,1.0f),
+            true});
+
+        if(localEnd>1.0e-5f){
+            for(const auto& p:points){
+                if(p.step<=groupA+1.0e-5f||p.step>=groupB-1.0e-5f)continue;
+                if(projected.size()>=static_cast<size_t>(kMaxCurvePoints-1))break;
+                projected.push_back({
+                    p.step-groupA,std::clamp(p.value,0.0f,1.0f),true});
+            }
+            projected.push_back({
+                localEnd,
+                std::clamp(groupCurveValue(points,groupB,fallback),0.0f,1.0f),
+                true});
+        }
+
+        *curve=std::move(projected);
+        changed=true;
+    }
+    return changed;
 }
 bool ProjectCore::deleteNote(int t,int n){std::scoped_lock lock(mutex_);if(!validNote(t,n))return false;project_.tracks[t].notes.erase(project_.tracks[t].notes.begin()+n);return true;}
 bool ProjectCore::updateNote(int t,int n,int midi,float start,float length){
