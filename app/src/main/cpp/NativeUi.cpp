@@ -2309,10 +2309,18 @@ void NativeUi::drawRoll() const noexcept {
             const float lh1=edge1;
             const float rh1=edge1;
 
-            const float x0=std::clamp(c0-lh0,gridLeft+1.0f,gridRight-1.0f);
-            const float x1=std::clamp(c0+rh0,gridLeft+1.0f,gridRight-1.0f);
-            const float x2=std::clamp(c1+rh1,gridLeft+1.0f,gridRight-1.0f);
-            const float x3=std::clamp(c1-lh1,gridLeft+1.0f,gridRight-1.0f);
+            const float rawL0=c0-lh0;
+            const float rawR0=c0+rh0;
+            const float rawL1=c1-lh1;
+            const float rawR1=c1+rh1;
+            if(std::max(rawR0,rawR1)<=gridLeft||
+               std::min(rawL0,rawL1)>=gridRight)
+                continue;
+
+            const float x0=std::clamp(rawL0,gridLeft+1.0f,gridRight-1.0f);
+            const float x1=std::clamp(rawR0,gridLeft+1.0f,gridRight-1.0f);
+            const float x2=std::clamp(rawR1,gridLeft+1.0f,gridRight-1.0f);
+            const float x3=std::clamp(rawL1,gridLeft+1.0f,gridRight-1.0f);
             y0=std::clamp(y0,gridTop,gridBottom);
             y1=std::clamp(y1,gridTop,gridBottom);
             if(y1<=y0||x1<=x0||x2<=x3)continue;
@@ -2348,12 +2356,7 @@ void NativeUi::drawRoll() const noexcept {
                note.startStep>=static_cast<float>(stepOffset+visibleRows))
                 continue;
             const int pc=((note.midi%12)+12)%12;
-            for(int cc=0;
-                cc<visibleCols&&
-                pitchOffset+cc<static_cast<int>(columns.size());
-                ++cc){
-                const int targetMidi=
-                    columns[static_cast<size_t>(pitchOffset+cc)];
+            for(const int targetMidi:columns){
                 if(((targetMidi%12)+12)%12!=pc)continue;
                 addRibbon(
                     sourceTrack,note,
@@ -2386,12 +2389,6 @@ void NativeUi::drawRoll() const noexcept {
         for(int n=0;n<static_cast<int>(selectedTrack.notes.size());++n){
             const auto& note=selectedTrack.notes[static_cast<size_t>(n)];
             const int midi=note.midi;
-            const auto it=std::lower_bound(columns.begin(),columns.end(),midi);
-            if(it==columns.end()||*it!=midi)continue;
-            const int colIndex=
-                static_cast<int>(std::distance(columns.begin(),it));
-            const int visibleCol=colIndex-pitchOffset;
-            if(visibleCol<0||visibleCol>=visibleCols)continue;
 
             const float start=note.startStep;
             const float length=std::max(1.0f,note.lengthSteps);
@@ -2412,13 +2409,15 @@ void NativeUi::drawRoll() const noexcept {
                     static_cast<float>(midi)+rollBendAt(selectedTrack,note,step),
                     pitchOffset,gridLeft,colW);
                 const float half=ribbonHalfWidth(note,step);
-                rollOverlay.addLine(
-                    std::clamp(center-half,gridLeft+1.0f,gridRight-1.0f),
-                    tailY,
-                    std::clamp(center+half,gridLeft+1.0f,gridRight-1.0f),
-                    tailY,
-                    3.0f,
-                    overlayColor(kTop));
+                if(center+half>gridLeft&&center-half<gridRight){
+                    rollOverlay.addLine(
+                        std::clamp(center-half,gridLeft+1.0f,gridRight-1.0f),
+                        tailY,
+                        std::clamp(center+half,gridLeft+1.0f,gridRight-1.0f),
+                        tailY,
+                        3.0f,
+                        overlayColor(kTop));
+                }
             }
 
             if(rollMode_==RollMode::Notes)continue;
