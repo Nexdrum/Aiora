@@ -185,10 +185,14 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
                     previousStep,0,std::max(0,playback_->lengthSteps-1));
                 samplesIntoStep_=previousPhase*transportSamplesPerStep_;
                 playheadStep_.store(transportStep_,std::memory_order_relaxed);
+                playheadPosition_.store(
+                    static_cast<float>(transportStep_)+static_cast<float>(previousPhase),
+                    std::memory_order_relaxed);
             }else{
                 transportStep_=0;
                 samplesIntoStep_=0;
                 playheadStep_.store(0,std::memory_order_relaxed);
+                playheadPosition_.store(0.0f,std::memory_order_relaxed);
             }
             if(old&&!retiredSnapshots_.push(old)){/* rare UI-side collection starvation: keep old allocated rather than deleting on RT */}
             return;
@@ -202,13 +206,19 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             transportStep_=std::clamp(e.source,0,std::max(0,playback_->lengthSteps-1));
             samplesIntoStep_=0;
             playheadStep_.store(transportStep_,std::memory_order_relaxed);
+            playheadPosition_.store(
+                static_cast<float>(transportStep_),
+                std::memory_order_relaxed);
             transportPlaying_.store(true,std::memory_order_relaxed);
             triggerStep(transportStep_);
             return;
         case EventType::StopTransport:
             transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
             for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();masterFx_.reset();
-            transportStep_=0;samplesIntoStep_=0;playheadStep_.store(0,std::memory_order_relaxed);return;
+            transportStep_=0;samplesIntoStep_=0;
+            playheadStep_.store(0,std::memory_order_relaxed);
+            playheadPosition_.store(0.0f,std::memory_order_relaxed);
+            return;
     }
 }
 
@@ -264,6 +274,14 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audio
         advanceTransport();
     }
     scopeWrite_.store(scopeWrite,std::memory_order_release);
+    if(transportPlaying_.load(std::memory_order_relaxed)&&playback_){
+        const double phase=transportSamplesPerStep_>0.0
+            ?std::clamp(samplesIntoStep_/transportSamplesPerStep_,0.0,1.0)
+            :0.0;
+        playheadPosition_.store(
+            static_cast<float>(transportStep_)+static_cast<float>(phase),
+            std::memory_order_relaxed);
+    }
     return oboe::DataCallbackResult::Continue;
 }
 

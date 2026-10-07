@@ -29,6 +29,7 @@ public:
     void collectRetiredSnapshots() noexcept;
     [[nodiscard]] bool transportPlaying() const noexcept { return transportPlaying_.load(std::memory_order_relaxed); }
     [[nodiscard]] int playheadStep() const noexcept { return playheadStep_.load(std::memory_order_relaxed); }
+    [[nodiscard]] float playheadPosition() const noexcept { return playheadPosition_.load(std::memory_order_relaxed); }
     int factoryPreset() const noexcept { return selectedPreset_.load(std::memory_order_relaxed); }
     int sampleRate() const noexcept { return sampleRate_.load(std::memory_order_relaxed); }
 
@@ -91,6 +92,7 @@ private:
     std::atomic<int32_t> selectedPreset_{0};
     std::atomic<bool> transportPlaying_{false};
     std::atomic<int32_t> playheadStep_{0};
+    std::atomic<float> playheadPosition_{0.0f};
     int32_t transportStep_{0};
     double samplesIntoStep_{0.0};
     double transportSamplesPerStep_{1.0};

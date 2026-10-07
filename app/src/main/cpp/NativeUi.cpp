@@ -1050,7 +1050,7 @@ float NativeUi::performanceStartStep() const noexcept {
     if(performanceFollow_){
         const float anchor=static_cast<float>(visibleRows)*0.28f;
         return std::clamp(
-            static_cast<float>(AudioEngine::instance().playheadStep())-anchor,
+            AudioEngine::instance().playheadPosition()-anchor,
             0.0f,maxStart);
     }
     return std::clamp(performanceScrollStep_,0.0f,maxStart);
@@ -2866,9 +2866,9 @@ void NativeUi::drawPerformance() const noexcept {
 
     // Keep the current transport position fixed near the upper third while
     // follow mode scrolls the score beneath it.
-    const int playhead=AudioEngine::instance().playheadStep();
+    const float playhead=AudioEngine::instance().playheadPosition();
     const float py=
-        gridTop+(static_cast<float>(playhead)-startStep)*rowH;
+        gridTop+(playhead-startStep)*rowH;
     if(py>=gridTop&&py<=gridBottom){
         ov.addLine(
             view.x,py,gridRight,py,
@@ -2968,10 +2968,10 @@ void NativeUi::render() const noexcept {
          performanceR.w-performanceInset*2.0f,
          performanceR.h-performanceInset*2.0f},
         overlayColor(performanceActive?kBg:kWhite));
-    const float phX=performanceR.x+performanceR.w*0.70f;
+    const float phY=performanceR.y+performanceR.h*0.22f;
     overlay.addLine(
-        phX,performanceR.y+performanceR.h*0.18f,
-        phX,performanceR.y+performanceR.h*0.82f,
+        performanceR.x+performanceR.w*0.18f,phY,
+        performanceR.x+performanceR.w*0.82f,phY,
         2.0f,
         overlayColor(performanceActive?kBg:kCyan,0.92f));
 
