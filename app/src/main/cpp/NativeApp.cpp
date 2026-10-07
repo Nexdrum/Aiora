@@ -2622,10 +2622,16 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     if(!g.moved&&!g.longPressTriggered){
                         state.ui.toggleRollSelectionTool();
                         if(state.ui.rollSelectionTool()==
-                               aiora::RollSelectionTool::Pencil&&
-                           state.ui.rollNoteSelectionActive()&&
-                           (state.ui.rollMode()==aiora::RollMode::Velocity||
-                            state.ui.rollMode()==aiora::RollMode::Mod)){
+                               aiora::RollSelectionTool::Lasso){
+                            if(state.ui.rollMode()==aiora::RollMode::Velocity||
+                               state.ui.rollMode()==aiora::RollMode::Mod){
+                                state.ui.setRollMode(aiora::RollMode::Notes);
+                            }
+                            state.ui.clearRollGroupAutomation();
+                        }else if(
+                            state.ui.rollNoteSelectionActive()&&
+                            (state.ui.rollMode()==aiora::RollMode::Velocity||
+                             state.ui.rollMode()==aiora::RollMode::Mod)){
                             ensureRollGroupAutomation(
                                 state,
                                 static_cast<int>(state.ui.rollMode())-1);
