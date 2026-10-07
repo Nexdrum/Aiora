@@ -2388,6 +2388,16 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
+            if(state.ui.page()==aiora::NativePage::Roll&&
+               state.ui.hitRollSelectionTool(x,y)){
+                if(state.rollGesture.pointerId<0){
+                    beginRollGesture(
+                        state,pointerId,x,y,nowMs(),
+                        RollGestureKind::SelectTool);
+                }
+                return 1;
+            }
+
             if (handleUiTap(state, x, y)) return 1;
 
             if (state.ui.page() == aiora::NativePage::Synth ||
@@ -2417,6 +2427,38 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 }
 
                 if(state.ui.hitRollNoteArea(x,y)){
+                    if(!state.ui.rollSelectionActive()&&
+                       state.ui.rollSelectionTool()==
+                           aiora::RollSelectionTool::Lasso){
+                        beginRollGesture(
+                            state,pointerId,x,y,timeMs,
+                            RollGestureKind::Lasso);
+                        state.ui.beginRollLasso(x,y);
+                        return 1;
+                    }
+
+                    if(state.ui.rollNoteSelectionActive()&&
+                       state.ui.rollSelectionTool()==
+                           aiora::RollSelectionTool::Pencil){
+                        const auto mode=state.ui.rollMode();
+                        if((mode==aiora::RollMode::Velocity||
+                            mode==aiora::RollMode::Mod)&&
+                           state.ui.hitRollGroupAutomationGutter(x,y)){
+                            beginRollGroupAutomationGesture(
+                                state,pointerId,x,y,timeMs);
+                            return 1;
+                        }
+
+                        const auto noteHit=state.ui.hitRollNote(x,y);
+                        if(noteHit&&state.ui.rollNoteSelected(noteHit->noteIndex)){
+                            beginRollNoteGesture(
+                                state,pointerId,x,y,timeMs);
+                        }else{
+                            clearRollNoteSelection(state);
+                        }
+                        return 1;
+                    }
+
                     if(state.ui.rollMode()==aiora::RollMode::Notes){
                         beginRollNoteGesture(state,pointerId,x,y,timeMs);
                     }else{
