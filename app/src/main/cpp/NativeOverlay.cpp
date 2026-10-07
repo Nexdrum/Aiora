@@ -448,6 +448,24 @@ void NativeOverlay::addQuad(
     vertices_.insert(vertices_.end(),{a,d,b,b,d,e});
 }
 
+void NativeOverlay::addGradientQuad(
+    float x0,float y0,float x1,float y1,
+    float x2,float y2,float x3,float y3,
+    Color top,Color bottom){
+    auto vtx=[&](float x,float y,Color c){
+        return Vertex{
+            x/static_cast<float>(width_)*2.0f-1.0f,
+            1.0f-y/static_cast<float>(height_)*2.0f,
+            c.r,c.g,c.b,c.a
+        };
+    };
+    const Vertex a=vtx(x0,y0,top);
+    const Vertex b=vtx(x1,y1,top);
+    const Vertex d=vtx(x3,y3,bottom);
+    const Vertex e=vtx(x2,y2,bottom);
+    vertices_.insert(vertices_.end(),{a,d,b,b,d,e});
+}
+
 void NativeOverlay::addMaskRun(float x,float y,float w,float h,Color c){
     addRect({x,y,w,h},c);
 }
