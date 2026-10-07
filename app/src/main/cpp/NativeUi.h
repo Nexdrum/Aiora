@@ -29,6 +29,21 @@ enum class RollMode : int {
     Mod = 3
 };
 
+enum class RollSelectionTool : int {
+    Pencil = 0,
+    Lasso = 1
+};
+
+struct RollLassoPoint {
+    float x{0.0f};
+    float y{0.0f};
+};
+
+struct RollGroupPoint {
+    float step{0.0f};
+    float value{0.0f};
+};
+
 enum class RollCornerAction : int {
     Copy,
     Paste
@@ -149,6 +164,49 @@ public:
 
     void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
     [[nodiscard]] RollMode rollMode() const noexcept { return rollMode_; }
+
+    void setRollSelectionTool(RollSelectionTool tool) noexcept { rollSelectionTool_=tool; }
+    [[nodiscard]] RollSelectionTool rollSelectionTool() const noexcept { return rollSelectionTool_; }
+    void toggleRollSelectionTool() noexcept {
+        rollSelectionTool_=rollSelectionTool_==RollSelectionTool::Pencil
+            ?RollSelectionTool::Lasso:RollSelectionTool::Pencil;
+    }
+    void setRollMultiLasso(bool enabled) noexcept { rollMultiLasso_=enabled; }
+    [[nodiscard]] bool rollMultiLasso() const noexcept { return rollMultiLasso_; }
+    void toggleRollMultiLasso() noexcept { rollMultiLasso_=!rollMultiLasso_; }
+
+    void setRollNoteSelection(int track,std::vector<int> indices);
+    void clearRollNoteSelection() noexcept;
+    [[nodiscard]] bool rollNoteSelectionActive() const noexcept {
+        return rollSelectedTrack_>=0&&!rollSelectedNotes_.empty();
+    }
+    [[nodiscard]] int rollSelectedTrack() const noexcept { return rollSelectedTrack_; }
+    [[nodiscard]] const std::vector<int>& rollSelectedNotes() const noexcept {
+        return rollSelectedNotes_;
+    }
+    [[nodiscard]] bool rollNoteSelected(int noteIndex) const noexcept;
+
+    void beginRollLasso(float x,float y);
+    void appendRollLasso(float x,float y);
+    std::vector<int> finishRollLasso();
+    void cancelRollLasso() noexcept { rollLassoPath_.clear(); }
+
+    void setRollGroupAutomation(
+        int kind,float start,float end,std::vector<RollGroupPoint> points);
+    void clearRollGroupAutomation() noexcept;
+    [[nodiscard]] bool hitRollGroupAutomationGutter(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitRollGroupAutomationPoint(
+        float x,float y) const noexcept;
+    [[nodiscard]] bool rollGroupAutomationPosition(
+        float x,float y,float& step,float& value) const noexcept;
+
+    void setRollRangeAllTracks(bool enabled) noexcept { rollRangeAllTracks_=enabled; }
+    [[nodiscard]] bool rollRangeAllTracks() const noexcept { return rollRangeAllTracks_; }
+    [[nodiscard]] bool rollHasAnySelection() const noexcept {
+        return rollNoteSelectionActive()||
+            (rollSelectionActive_&&rollSelectionAnchorStep_!=rollSelectionEndStep_);
+    }
+
     void scrollRoll(int pitchDelta, int stepDelta) noexcept;
     void setRollStartStep(int step) noexcept;
     [[nodiscard]] int rollStartStep() const noexcept { return rollStartStep_; }
@@ -184,6 +242,9 @@ public:
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
+    [[nodiscard]] bool hitRollSelectionTool(float x,float y) const noexcept;
+    [[nodiscard]] bool hitRollRangeScopeToggle(float x,float y) const noexcept;
+    [[nodiscard]] bool hitRollDelete(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollPitchHeader(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitRollPitchHeaderMidi(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollBeatGutter(float x,float y) const noexcept;
@@ -234,7 +295,9 @@ private:
     [[nodiscard]] Rect drumSliderRect(int index) const noexcept;
     [[nodiscard]] Rect drumIconRect(int index) const noexcept;
 
+    [[nodiscard]] Rect rollSelectionToolRect() const noexcept;
     [[nodiscard]] Rect rollModeRect(int index) const noexcept;
+    [[nodiscard]] Rect rollGroupAutomationRect() const noexcept;
     [[nodiscard]] Rect rollViewportRect() const noexcept;
     [[nodiscard]] float rollGutterPixels() const noexcept;
     [[nodiscard]] float rollHeaderPixels() const noexcept;
@@ -280,6 +343,16 @@ private:
     bool drumControlChanged_{false};
 
     RollMode rollMode_{RollMode::Notes};
+    RollSelectionTool rollSelectionTool_{RollSelectionTool::Pencil};
+    bool rollMultiLasso_{false};
+    int rollSelectedTrack_{-1};
+    std::vector<int> rollSelectedNotes_{};
+    std::vector<RollLassoPoint> rollLassoPath_{};
+    int rollGroupAutomationKind_{-1};
+    float rollGroupAutomationStart_{0.0f};
+    float rollGroupAutomationEnd_{0.0f};
+    std::vector<RollGroupPoint> rollGroupAutomationPoints_{};
+    bool rollRangeAllTracks_{false};
     int rollPitchOffset_{0};
     int rollStepOffset_{0};
     int rollStartStep_{0};
