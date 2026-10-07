@@ -1583,21 +1583,111 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
     }
 
     if(page_==NativePage::Roll){
+        const bool rangeSelected=
+            rollSelectionActive_&&
+            rollSelectionAnchorStep_!=rollSelectionEndStep_;
+        const bool noteSelected=
+            rollNoteSelectionActive()&&rollSelectedTrack_==track;
+        const auto tool=rollSelectionToolRect();
+
+        if(rangeSelected){
+            fillRect(tool,rollRangeAllTracks_?kCyan:kButton);
+            ov.addTextCentered(
+                rollRangeAllTracks_?"ALL":"1T",
+                {tool.x,tool.y,tool.w,tool.h},
+                std::max(0.70f,tool.h/42.0f),
+                overlayColor(rollRangeAllTracks_?kBg:kWhite));
+        }else{
+            const bool lasso=rollSelectionTool_==RollSelectionTool::Lasso;
+            fillRect(tool,lasso?kCyan:kButton);
+            const auto col=overlayColor(lasso?kBg:kWhite);
+            const float thick=std::max(2.0f,tool.h*0.042f);
+
+            const auto drawLasso=[&](float cx,float cy,float rx,float ry){
+                float px=cx+rx,py=cy;
+                for(int s=1;s<=18;++s){
+                    const float a=
+                        static_cast<float>(s)*6.28318530718f/18.0f;
+                    const float x=cx+std::cos(a)*rx;
+                    const float y=cy+std::sin(a)*ry;
+                    ov.addLine(px,py,x,y,thick,col);
+                    px=x;py=y;
+                }
+                ov.addLine(
+                    cx+rx*0.72f,cy+ry*0.70f,
+                    cx+rx*1.08f,cy+ry*1.18f,
+                    thick,col);
+            };
+            const auto drawPencil=[&](float cx,float cy,float scale){
+                const float dx=scale*0.42f,dy=scale*0.34f;
+                ov.addLine(cx-dx,cy+dy,cx+dx,cy-dy,thick*1.5f,col);
+                ov.addLine(
+                    cx+dx,cy-dy,
+                    cx+dx+scale*0.16f,cy-dy-scale*0.16f,
+                    thick,col);
+                ov.addLine(
+                    cx-dx,cy+dy,
+                    cx-dx-scale*0.12f,cy+dy+scale*0.12f,
+                    thick,col);
+            };
+
+            if(lasso){
+                drawLasso(
+                    tool.x+tool.w*0.50f,tool.y+tool.h*0.40f,
+                    tool.w*0.24f,tool.h*0.20f);
+                drawPencil(
+                    tool.x+tool.w*0.50f,tool.y+tool.h*0.76f,
+                    tool.h*0.19f);
+                if(rollMultiLasso_){
+                    ov.addText(
+                        "+",
+                        tool.x+tool.w*0.72f,
+                        tool.y+tool.h*0.10f,
+                        0.72f,col);
+                }
+            }else{
+                drawPencil(
+                    tool.x+tool.w*0.50f,tool.y+tool.h*0.37f,
+                    tool.h*0.34f);
+                drawLasso(
+                    tool.x+tool.w*0.50f,tool.y+tool.h*0.76f,
+                    tool.w*0.13f,tool.h*0.10f);
+            }
+        }
+
         const RollMode modes[3]{RollMode::Bend,RollMode::Velocity,RollMode::Mod};
         for(int i=0;i<3;++i){
             const auto rr=rollModeRect(i);
-            const bool active=rollMode_==modes[i];
-            fillRect(rr,active?kCyan:kButton);
+            const bool deleteButton=i==0&&(rangeSelected||noteSelected);
+            const bool active=!deleteButton&&rollMode_==modes[i];
+            fillRect(rr,deleteButton?kRed:(active?kCyan:kButton));
             const auto col=overlayColor(active?kBg:kWhite);
             if(i==0){
-                const float cx=rr.x+rr.w*0.5f,cy=rr.y+rr.h*0.5f;
-                float px=cx-rr.w*0.22f,py=cy;
-                for(int s=1;s<=8;++s){
-                    const float u=static_cast<float>(s)/8.0f;
-                    const float x=cx-rr.w*0.22f+u*rr.w*0.44f;
-                    const float y=cy+std::sin(u*6.28318530718f)*rr.h*0.13f;
-                    ov.addLine(px,py,x,y,std::max(2.0f,rr.h*0.045f),col);
-                    px=x;py=y;
+                if(deleteButton){
+                    const float w=rr.w*0.30f,h=rr.h*0.35f;
+                    const float x=rr.x+(rr.w-w)*0.5f;
+                    const float y=rr.y+rr.h*0.37f;
+                    ov.addRect({x,y,w,h},overlayColor(kWhite));
+                    ov.addLine(
+                        x-w*0.10f,y-h*0.16f,
+                        x+w*1.10f,y-h*0.16f,
+                        std::max(2.0f,rr.h*0.045f),
+                        overlayColor(kWhite));
+                    ov.addLine(
+                        x+w*0.30f,y-h*0.28f,
+                        x+w*0.70f,y-h*0.28f,
+                        std::max(2.0f,rr.h*0.045f),
+                        overlayColor(kWhite));
+                }else{
+                    const float cx=rr.x+rr.w*0.5f,cy=rr.y+rr.h*0.5f;
+                    float px=cx-rr.w*0.22f,py=cy;
+                    for(int s=1;s<=8;++s){
+                        const float u=static_cast<float>(s)/8.0f;
+                        const float x=cx-rr.w*0.22f+u*rr.w*0.44f;
+                        const float y=cy+std::sin(u*6.28318530718f)*rr.h*0.13f;
+                        ov.addLine(px,py,x,y,std::max(2.0f,rr.h*0.045f),col);
+                        px=x;py=y;
+                    }
                 }
             }else{
                 ov.addTextCentered(i==1?"V":"M",{rr.x,rr.y,rr.w,rr.h},
@@ -2712,6 +2802,10 @@ void NativeUi::drawRoll() const noexcept {
     if(track<static_cast<int>(projectSnapshot.tracks.size())){
         const auto& selectedTrack=
             projectSnapshot.tracks[static_cast<size_t>(track)];
+        const bool groupEditing=
+            rollSelectedTrack_==track&&rollNoteSelectionActive()&&
+            rollSelectionTool_==RollSelectionTool::Pencil&&
+            (rollMode_==RollMode::Velocity||rollMode_==RollMode::Mod);
         for(int n=0;n<static_cast<int>(selectedTrack.notes.size());++n){
             const auto& note=selectedTrack.notes[static_cast<size_t>(n)];
             const int midi=note.midi;
@@ -2724,6 +2818,39 @@ void NativeUi::drawRoll() const noexcept {
             addRibbon(
                 selectedTrack,note,track,n,midi,
                 overlayColor(pitchColor(midi)),true);
+
+            if(rollSelectedTrack_==track&&rollNoteSelected(n)){
+                const int highlightSegments=std::clamp(
+                    static_cast<int>(std::ceil(length*8.0f)),6,240);
+                float prevX=0.0f,prevY=0.0f;
+                bool have=false;
+                for(int i=0;i<=highlightSegments;++i){
+                    const float fraction=
+                        static_cast<float>(i)/
+                        static_cast<float>(highlightSegments);
+                    const float rel=rollVisualCurveStep(note,fraction);
+                    const float hx=rollPitchX(
+                        columns,
+                        static_cast<float>(midi)+
+                            rollBendAt(selectedTrack,note,rel),
+                        pitchOffset,gridLeft,colW);
+                    const float hy=
+                        viewport.y+header+
+                        (start+fraction*length-
+                         static_cast<float>(stepOffset))*rowH;
+                    if(have){
+                        rollOverlay.addLine(
+                            prevX,prevY,hx,hy,
+                            std::max(5.0f,colW*0.13f),
+                            overlayColor(kCyan,0.82f));
+                        rollOverlay.addLine(
+                            prevX,prevY,hx,hy,
+                            std::max(1.8f,colW*0.045f),
+                            overlayColor(kWhite,0.92f));
+                    }
+                    prevX=hx;prevY=hy;have=true;
+                }
+            }
 
             const float tailY=
                 viewport.y+header+
@@ -2746,7 +2873,7 @@ void NativeUi::drawRoll() const noexcept {
                 }
             }
 
-            if(rollMode_==RollMode::Notes)continue;
+            if(rollMode_==RollMode::Notes||groupEditing)continue;
             const int kind=static_cast<int>(rollMode_)-1;
             const Rgb pointColor=
                 rollMode_==RollMode::Bend?kCyan:
@@ -2845,6 +2972,78 @@ void NativeUi::drawRoll() const noexcept {
                         center+half,py,radius,thick,color);
                 }
             }
+        }
+    }
+
+    const bool groupEditingNow=
+        rollSelectedTrack_==track&&rollNoteSelectionActive()&&
+        rollSelectionTool_==RollSelectionTool::Pencil&&
+        ((rollMode_==RollMode::Velocity&&rollGroupAutomationKind_==1)||
+         (rollMode_==RollMode::Mod&&rollGroupAutomationKind_==2));
+    if(groupEditingNow&&!rollGroupAutomationPoints_.empty()){
+        const auto gr=rollGroupAutomationRect();
+        if(gr.w>0.0f&&gr.h>0.0f){
+            rollOverlay.addRect(
+                {gr.x,gr.y,gr.w,gr.h},
+                overlayColor(mix(kPanel,kRollBg,0.40f),0.92f));
+            rollOverlay.addLine(
+                gr.x,gr.y,gr.x,gr.y+gr.h,
+                2.0f,overlayColor(kCyan,0.75f));
+            const float duration=
+                std::max(
+                    1.0e-5f,
+                    rollGroupAutomationEnd_-rollGroupAutomationStart_);
+            float prevX=0.0f,prevY=0.0f;
+            bool have=false;
+            for(const auto& p:rollGroupAutomationPoints_){
+                const float px=gr.x+p.value*gr.w;
+                const float py=gridTop+
+                    (rollGroupAutomationStart_+p.step+0.5f-
+                     static_cast<float>(stepOffset))*rowH;
+                if(have){
+                    rollOverlay.addLine(
+                        prevX,prevY,px,py,
+                        std::max(2.5f,rowH*0.065f),
+                        overlayColor(
+                            rollGroupAutomationKind_==1?kWhite:kPurple,
+                            0.98f));
+                }
+                if(py>=gridTop-16.0f&&py<=gridBottom+16.0f){
+                    rollOverlay.addCircle(
+                        px,py,
+                        std::max(6.0f,rowH*0.12f),
+                        std::max(2.0f,rowH*0.045f),
+                        overlayColor(
+                            rollGroupAutomationKind_==1?kWhite:kPurple,
+                            0.98f));
+                }
+                prevX=px;prevY=py;have=true;
+            }
+            rollOverlay.addText(
+                rollGroupAutomationKind_==1?"V":"M",
+                gr.x+5.0f,gr.y+5.0f,
+                0.62f,
+                overlayColor(kWhite,0.78f));
+            (void)duration;
+        }
+    }
+
+    if(rollLassoPath_.size()>=2){
+        for(size_t i=1;i<rollLassoPath_.size();++i){
+            const auto& a=rollLassoPath_[i-1];
+            const auto& b=rollLassoPath_[i];
+            rollOverlay.addLine(
+                a.x,a.y,b.x,b.y,
+                3.0f,
+                overlayColor(kCyan,0.96f));
+        }
+        if(rollLassoPath_.size()>=3){
+            const auto& a=rollLassoPath_.back();
+            const auto& b=rollLassoPath_.front();
+            rollOverlay.addLine(
+                a.x,a.y,b.x,b.y,
+                2.0f,
+                overlayColor(kCyan,0.42f));
         }
     }
 
@@ -3410,8 +3609,30 @@ std::optional<int> NativeUi::hitPadName(float x,float y) const noexcept {
 std::optional<RollMode> NativeUi::hitRollMode(float x, float y) const noexcept {
     if(page_!=NativePage::Roll)return std::nullopt;
     const RollMode modes[3]{RollMode::Bend,RollMode::Velocity,RollMode::Mod};
-    for(int i=0;i<3;++i)if(rollModeRect(i).contains(x,y))return modes[i];
+    for(int i=0;i<3;++i){
+        if(i==0&&rollHasAnySelection())continue;
+        if(rollModeRect(i).contains(x,y))return modes[i];
+    }
     return std::nullopt;
+}
+
+bool NativeUi::hitRollSelectionTool(float x,float y) const noexcept {
+    if(page_!=NativePage::Roll)return false;
+    if(rollSelectionActive_&&
+       rollSelectionAnchorStep_!=rollSelectionEndStep_)return false;
+    return rollSelectionToolRect().contains(x,y);
+}
+
+bool NativeUi::hitRollRangeScopeToggle(float x,float y) const noexcept {
+    if(page_!=NativePage::Roll||
+       !rollSelectionActive_||
+       rollSelectionAnchorStep_==rollSelectionEndStep_)return false;
+    return rollSelectionToolRect().contains(x,y);
+}
+
+bool NativeUi::hitRollDelete(float x,float y) const noexcept {
+    return page_==NativePage::Roll&&rollHasAnySelection()&&
+        rollModeRect(0).contains(x,y);
 }
 
 bool NativeUi::hitRollPitchHeader(float x,float y) const noexcept {
