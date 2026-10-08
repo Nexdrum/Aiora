@@ -37,7 +37,7 @@ DspCurve bendCurve(const Note& note,const DrumPad* pad) {
 DspCurve levelCurve(const std::vector<CurvePoint>& source,float length) {
     DspCurve out;
     if(source.empty())return out;
-    const float L=std::max(0.0f,std::max(1.0f,length)-1.0f);
+    const float L=std::max(0.0f,std::max(1.0f,length)-0.5f);
     auto pts=source;
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     const float first=std::clamp(pts.front().value,0.0f,1.0f);
