@@ -132,6 +132,15 @@ float rollCurveLength(const Note& note) noexcept {
     return std::max(0.0f,std::max(1.0f,note.lengthSteps)-1.0f);
 }
 
+// V/M points may reach the line after the last cell center; bends are unchanged.
+float rollLevelCurveLength(const Note& note) noexcept {
+    return std::max(0.0f,std::max(1.0f,note.lengthSteps)-0.5f);
+}
+
+float snapAutomationHalfCell(float position) noexcept {
+    return std::round(position*2.0f)*0.5f;
+}
+
 const DrumPad* rollPadForMidi(const Track& track,int midi) noexcept {
     if(!track.drums)return nullptr;
     for(const auto& pad:track.pads){
@@ -194,7 +203,7 @@ float rollLevelAt(
     const std::vector<CurvePoint>& points,
     const Note& note,float step,float fallback) noexcept {
     if(points.empty())return fallback;
-    const float end=rollCurveLength(note);
+    const float end=rollLevelCurveLength(note);
     const float x=std::clamp(step,0.0f,end);
     float prevStep=0.0f;
     float prevValue=std::clamp(points.front().value,0.0f,1.0f);
@@ -215,7 +224,7 @@ float rollLevelAt(
 }
 
 float rollVisualCurveStep(const Note& note,float fraction) noexcept {
-    const float end=rollCurveLength(note);
+    const float end=rollLevelCurveLength(note);
     if(end<=0.0f)return 0.0f;
     const float visualSteps=std::max(1.0f,note.lengthSteps);
     return std::clamp(
@@ -3214,10 +3223,27 @@ void NativeUi::drawRoll() const noexcept {
                     const float half=
                         std::clamp(point.value,0.0f,1.0f)*
                         (colW*0.48f);
-                    rollOverlay.addCircle(
-                        center-half,py,radius,thick,color);
-                    rollOverlay.addCircle(
-                        center+half,py,radius,thick,color);
+                    const auto drawHandle=[&](float px){
+                        if(free){
+                            // Free: large hollow diamond on both mirrored edges.
+                            const float r=radius*1.08f;
+                            rollOverlay.addQuad(
+                                px,py-r,px+r,py,px,py+r,px-r,py,
+                                overlayColor(kRollBg,0.98f));
+                            rollOverlay.addLine(px,py-r,px+r,py,thick,color);
+                            rollOverlay.addLine(px+r,py,px,py+r,thick,color);
+                            rollOverlay.addLine(px,py+r,px-r,py,thick,color);
+                            rollOverlay.addLine(px-r,py,px,py-r,thick,color);
+                        }else{
+                            // Snapped: solid circle with a contrasting rim.
+                            rollOverlay.addFilledCircle(px,py,radius,color);
+                            rollOverlay.addCircle(
+                                px,py,radius,std::max(1.5f,thick*0.65f),
+                                overlayColor(kRollBg,0.9f));
+                        }
+                    };
+                    drawHandle(center-half);
+                    if(half>0.5f)drawHandle(center+half);
                 }
             }
         }
@@ -4104,19 +4130,25 @@ bool NativeUi::rollAutomationPosition(
 
     const float start=note.startStep;
     const float length=std::max(1.0f,note.lengthSteps);
-    const float maxStep=std::max(0.0f,length-1.0f);
+    const float maxStep=curveKind==0
+        ?std::max(0.0f,length-1.0f)
+        :std::max(0.0f,length-0.5f);
 
+    const float absolute=
+        rollStepOffset_+
+        (y-viewport.y-header)/rowH-0.5f;
+    const float relative=std::clamp(absolute-start,0.0f,maxStep);
     if(free){
-        const float absolute=
-            rollStepOffset_+
-            (y-viewport.y-header)/rowH-0.5f;
-        step=std::clamp(absolute-start,0.0f,maxStep);
-    }else{
+        step=relative;
+    }else if(curveKind==0){
         const auto hit=hitRollCell(x,y);
         if(!hit)return false;
         step=std::clamp(
-            static_cast<float>(hit->step)-start,
-            0.0f,maxStep);
+            static_cast<float>(hit->step)-start,0.0f,maxStep);
+    }else{
+        // Y: snap at time cell centers and between-cell grid lines.
+        step=std::clamp(
+            snapAutomationHalfCell(relative),0.0f,maxStep);
     }
 
     if(curveKind==0){
@@ -4141,6 +4173,10 @@ bool NativeUi::rollAutomationPosition(
         value=std::clamp(
             std::fabs(x-centerX)/(colW*0.48f),
             0.0f,1.0f);
+        if(!free){
+            // X: three usable dynamic positions in each automation half-cell.
+            value=std::clamp(snapAutomationHalfCell(value),0.0f,1.0f);
+        }
     }
     return true;
 }
