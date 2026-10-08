@@ -369,7 +369,17 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
     w.raw(",\"vel\":{\"amp\":");w.number(p.velocityAmp);w.raw(",\"filter\":");w.number(p.velocityFilter);w.raw("}");
     w.raw(",\"mod\":{\"slots\":[");
-    for(int i=0;i<static_cast<int>(p.modSlotCount)&&i<4;++i){if(i)w.raw(",");const auto&s=p.modSlots[i];w.raw("{\"t\":");w.string(modName(s.target));w.raw(",\"min\":");w.number(s.min);w.raw(",\"max\":");w.number(s.max);w.raw("}");}
+    for(int i=0;
+        i<static_cast<int>(p.modSlotCount)&&
+        i<static_cast<int>(p.modSlots.size());
+        ++i){
+        if(i)w.raw(",");
+        const auto&s=p.modSlots[static_cast<size_t>(i)];
+        w.raw("{\"t\":");w.string(modName(s.target));
+        w.raw(",\"min\":");w.number(s.min);
+        w.raw(",\"max\":");w.number(s.max);
+        w.raw("}");
+    }
     w.raw("]}");
     w.raw(",\"fx\":{\"dist\":");w.number(p.fx.distortion);w.raw(",\"delay\":");w.number(p.fx.delay);w.raw(",\"delayTime\":");w.number(p.fx.delayTime);w.raw(",\"delayFb\":");w.number(p.fx.delayFeedback);w.raw(",\"reverb\":");w.number(p.fx.reverb);w.raw("}");
     w.raw(",\"unison\":");w.number(p.unison);w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
@@ -437,8 +447,27 @@ bool readPatch(const Json& src,Patch& p){
     }
     if(const Json* v=src.get("vel");v&&v->type==Json::Type::Object){p.velocityAmp=clampf(num(v->get("amp"),0),0,1,0);p.velocityFilter=clampf(num(v->get("filter"),0),0,1,0);}
     p.modSlotCount=0;
-    if(const Json* mod=src.get("mod");mod&&mod->type==Json::Type::Object)if(const Json* slots=mod->get("slots");slots&&slots->type==Json::Type::Array){
-        for(size_t i=0;i<std::min<size_t>(4,slots->array.size());++i){const auto& js=slots->array[i];if(js.type!=Json::Type::Object)continue;const ModTarget target=parseMod(str(js.get("t"),"none"));if(target==ModTarget::None)continue;const auto [lo,hi]=modBounds(target);auto& s=p.modSlots[p.modSlotCount++];s.target=target;s.min=clampf(num(js.get("min"),lo),lo,hi,lo);s.max=clampf(num(js.get("max"),hi),lo,hi,hi);}
+    if(const Json* mod=src.get("mod");
+       mod&&mod->type==Json::Type::Object){
+        if(const Json* slots=mod->get("slots");
+           slots&&slots->type==Json::Type::Array){
+            const size_t limit=std::min(
+                p.modSlots.size(),slots->array.size());
+            for(size_t i=0;i<limit;++i){
+                const auto& js=slots->array[i];
+                if(js.type!=Json::Type::Object)continue;
+                const ModTarget target=parseMod(
+                    str(js.get("t"),"none"));
+                if(target==ModTarget::None)continue;
+                const auto [lo,hi]=modBounds(target);
+                auto& s=p.modSlots[p.modSlotCount++];
+                s.target=target;
+                s.min=clampf(
+                    num(js.get("min"),lo),lo,hi,lo);
+                s.max=clampf(
+                    num(js.get("max"),hi),lo,hi,hi);
+            }
+        }
     }
     if(const Json* x=src.get("fx");x&&x->type==Json::Type::Object){p.fx.distortion=clampf(num(x->get("dist"),0),0,1,0);p.fx.delay=clampf(num(x->get("delay"),0),0,1,0);p.fx.delayTime=clampf(num(x->get("delayTime"),.32),.03f,1,.32f);p.fx.delayFeedback=clampf(num(x->get("delayFb"),.3),0,1,.3f);p.fx.reverb=clampf(num(x->get("reverb"),0),0,1,0);}
     p.unison=clampf(num(src.get("unison"),0),0,1,0);p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
