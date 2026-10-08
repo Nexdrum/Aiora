@@ -44,6 +44,7 @@ constexpr int kRequestRenameTrack = 4201;
 constexpr int kRequestRenamePad = 4202;
 constexpr int kRequestOperatorRatio = 4203;
 constexpr int kRequestNewProject = 4204;
+constexpr int kRequestOperatorSemitone = 4205;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -547,11 +548,12 @@ void serviceDocumentResult(NativeState& state){
         return;
     }
 
-    if(requestCode==kRequestOperatorRatio){
+    if(requestCode==kRequestOperatorRatio||
+       requestCode==kRequestOperatorSemitone){
         if(!success)return;
 
         int op=0;
-        float entered=1.0f;
+        float entered=0.0f;
         try{
             op=std::stoi(thirdLine);
             entered=std::stof(fourthLine);
@@ -560,18 +562,11 @@ void serviceDocumentResult(NativeState& state){
         }
         if(!std::isfinite(entered)||op<0||op>=6)return;
 
-        const bool semitone=
-            aiora::NativeEditor::instance().operatorSemitoneMode(op);
-        float ratio=entered;
-        if(semitone){
-            const float semitones=std::clamp(entered,-36.0f,48.0f);
-            ratio=std::exp2(semitones/12.0f);
-        }
-        if(!std::isfinite(ratio))return;
-
         auto& project=aiora::ProjectCore::instance();
-        if(project.setSelectedOperatorParam(
-            op,aiora::OperatorParam::Ratio,ratio)){
+        const auto param=requestCode==kRequestOperatorRatio
+            ?aiora::OperatorParam::Ratio
+            :aiora::OperatorParam::Semitone;
+        if(project.setSelectedOperatorParam(op,param,entered)){
             aiora::AudioEngine::instance().syncProject();
             previewEditorPatch(state);
             scheduleAutosave(state,0);
@@ -1508,26 +1503,16 @@ bool handleUiTap(NativeState& state, float x, float y) {
     if(state.ui.page()==aiora::NativePage::Synth){
         auto& editor=aiora::NativeEditor::instance();
 
-        if(const auto op=editor.hitOperatorRatioMode(x,y)){
-            editor.toggleOperatorRatioMode(*op);
-            return true;
-        }
-
         if(const auto op=editor.hitOperatorRatio(x,y)){
             const auto patch=project.selectedPatch();
             const float ratio=patch.ops[static_cast<size_t>(*op)].ratio;
-            const bool semitone=editor.operatorSemitoneMode(*op);
-            const float shown=semitone
-                ?12.0f*std::log2(std::max(0.000001f,ratio))
-                :ratio;
             char value[32]{};
             std::snprintf(
                 value,sizeof(value),
-                semitone?"%.4g":"%.6g",
-                static_cast<double>(shown));
+                "%.6g",
+                static_cast<double>(ratio));
             const std::string title=
-                "Operator "+std::to_string(*op+1)+
-                (semitone?" semitones":" ratio");
+                "Operator "+std::to_string(*op+1)+" ratio";
             if(!launchNumberEditor(
                 state.app?state.app->activity:nullptr,
                 kRequestOperatorRatio,*op,
@@ -1535,7 +1520,27 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 value)){
                 __android_log_print(
                     ANDROID_LOG_WARN,kTag,
-                    "operator tuning editor could not start");
+                    "operator ratio editor could not start");
+            }
+            return true;
+        }
+
+        if(const auto op=editor.hitOperatorSemitone(x,y)){
+            const auto patch=project.selectedPatch();
+            const int semitones=static_cast<int>(std::lround(
+                patch.ops[static_cast<size_t>(*op)].semitoneOffset));
+            char value[16]{};
+            std::snprintf(value,sizeof(value),"%d",semitones);
+            const std::string title=
+                "Operator "+std::to_string(*op+1)+" semitone offset";
+            if(!launchNumberEditor(
+                state.app?state.app->activity:nullptr,
+                kRequestOperatorSemitone,*op,
+                title.c_str(),
+                value)){
+                __android_log_print(
+                    ANDROID_LOG_WARN,kTag,
+                    "operator semitone editor could not start");
             }
             return true;
         }
