@@ -172,7 +172,8 @@ public class AioraActivity extends NativeActivity {
                 input.setSingleLine(true);
                 input.setInputType(
                         InputType.TYPE_CLASS_NUMBER |
-                        InputType.TYPE_NUMBER_FLAG_DECIMAL);
+                        InputType.TYPE_NUMBER_FLAG_DECIMAL |
+                        InputType.TYPE_NUMBER_FLAG_SIGNED);
                 input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(12)});
                 input.setText(currentValue == null ? "" : currentValue);
                 input.setSelectAllOnFocus(true);
