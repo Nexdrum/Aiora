@@ -1164,22 +1164,14 @@ void serviceRollLongPress(NativeState& state){
 
     if(project.updateCurvePoint(
         g.track,g.noteIndex,g.curveKind,g.curvePoint,
-        free?step:
-            (g.curveKind==0?std::round(step):
-                std::round(step*2.0f)*0.5f),
-        free?value:
-            (g.curveKind==0?std::round(value):
-                std::round(value*2.0f)*0.5f),
+        free?step:std::round(step*2.0f)*0.5f,
+        free?value:std::round(value*2.0f)*0.5f,
         free)){
         g.curveFree=free;
         g.curvePoint=findCurvePointIndex(
             g.track,g.noteIndex,g.curveKind,
-            free?step:
-                (g.curveKind==0?std::round(step):
-                    std::round(step*2.0f)*0.5f),
-            free?value:
-                (g.curveKind==0?std::round(value):
-                    std::round(value*2.0f)*0.5f),
+            free?step:std::round(step*2.0f)*0.5f,
+            free?value:std::round(value*2.0f)*0.5f,
             free);
         g.longPressTriggered=true;
         if(g.curveKind==1||g.curveKind==2)
@@ -2207,9 +2199,16 @@ bool beginRollAutomationGesture(
         g.curvePoint=hit->pointIndex;
         g.curveIsNew=false;
     }else{
+        const int before=project.curvePointCount(track,hit->noteIndex,kind);
         g.curvePoint=project.addCurvePoint(
             track,hit->noteIndex,kind,hit->step,hit->value,false);
-        if(g.curvePoint<0){g.clear();return false;}
+        if(g.curvePoint<0){g.clear();return true;}
+        if(project.curvePointCount(track,hit->noteIndex,kind)==before){
+            // Occupied time position: do not turn it into a newly created
+            // or deletable gesture. The existing point stays untouched.
+            g.clear();
+            return true;
+        }
         g.curveIsNew=true;
         g.curveFree=false;
         aiora::AudioEngine::instance().syncProject();

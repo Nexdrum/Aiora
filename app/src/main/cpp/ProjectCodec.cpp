@@ -483,8 +483,18 @@ void writeCurve(Writer& w,const std::vector<CurvePoint>& points,bool bend){
 }
 void readCurve(const Json* j,std::vector<CurvePoint>& out,bool bend){
     out.clear();if(!j||j->type!=Json::Type::Array)return;
-    for(size_t i=0;i<std::min<size_t>(24,j->array.size());++i){const auto& p=j->array[i];if(p.type!=Json::Type::Object)continue;CurvePoint cp;cp.step=clampf(num(p.get("d"),0),0,64,0);cp.value=bend?clampf(num(p.get("o"),0),-12,12,0):clampf(num(p.get("v"),1),0,1,1);cp.free=boolean(p.get("f"),false);out.push_back(cp);}
-    std::sort(out.begin(),out.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
+    for(size_t i=0;i<std::min<size_t>(24,j->array.size());++i){const auto& p=j->array[i];if(p.type!=Json::Type::Object)continue;CurvePoint cp;cp.step=clampf(num(p.get("d"),0),-0.5,1024,0);cp.value=bend?clampf(num(p.get("o"),0),-12,12,0):clampf(num(p.get("v"),1),0,1,1);cp.free=boolean(p.get("f"),false);out.push_back(cp);}
+    std::stable_sort(out.begin(),out.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
+    // Malformed and historical project files may contain stacked points.
+    // Retain the last value at each time, matching the prior DSP overwrite.
+    std::vector<CurvePoint> distinct;
+    distinct.reserve(out.size());
+    for(const auto& point:out){
+        if(!distinct.empty() && std::fabs(distinct.back().step-point.step)<0.0001f)
+            distinct.back()=point;
+        else distinct.push_back(point);
+    }
+    out=std::move(distinct);
 }
 
 void setError(std::string* error,const std::string& value){if(error)*error=value;}

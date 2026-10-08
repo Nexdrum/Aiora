@@ -128,13 +128,14 @@ std::string pitchCoord(int midi){
 }
 
 
+// Step zero is the first CELL CENTER. -0.5 is the note's leading edge,
+// length-0.5 is the trailing edge. This convention preserves older points.
+constexpr float kAutomationStartEdge=-0.5f;
 float rollCurveLength(const Note& note) noexcept {
-    return std::max(0.0f,std::max(1.0f,note.lengthSteps)-1.0f);
+    return std::max(1.0f,note.lengthSteps)-0.5f;
 }
-
-// V/M points may reach the line after the last cell center; bends are unchanged.
 float rollLevelCurveLength(const Note& note) noexcept {
-    return std::max(0.0f,std::max(1.0f,note.lengthSteps)-0.5f);
+    return rollCurveLength(note);
 }
 
 float snapAutomationHalfCell(float position) noexcept {
@@ -175,13 +176,13 @@ float rollLerp(
 float rollBendAt(
     const Track& track,const Note& note,float step) noexcept {
     const float end=rollCurveLength(note);
-    const float x=std::clamp(step,0.0f,end);
+    const float x=std::clamp(step,kAutomationStartEdge,end);
     if(note.bend.empty())return 0.0f;
 
-    float prevStep=0.0f;
+    float prevStep=kAutomationStartEdge;
     float prevValue=0.0f;
     for(const auto& point:note.bend){
-        const float ps=std::clamp(point.step,0.0f,end);
+        const float ps=std::clamp(point.step,kAutomationStartEdge,end);
         const float pv=rollClampBend(track,note,point.value);
         if(ps<=prevStep+1.0e-5f){
             prevStep=ps;
@@ -204,11 +205,11 @@ float rollLevelAt(
     const Note& note,float step,float fallback) noexcept {
     if(points.empty())return fallback;
     const float end=rollLevelCurveLength(note);
-    const float x=std::clamp(step,0.0f,end);
-    float prevStep=0.0f;
+    const float x=std::clamp(step,kAutomationStartEdge,end);
+    float prevStep=kAutomationStartEdge;
     float prevValue=std::clamp(points.front().value,0.0f,1.0f);
     for(const auto& point:points){
-        const float ps=std::clamp(point.step,0.0f,end);
+        const float ps=std::clamp(point.step,kAutomationStartEdge,end);
         const float pv=std::clamp(point.value,0.0f,1.0f);
         if(ps<=prevStep+1.0e-5f){
             prevStep=ps;
@@ -229,7 +230,7 @@ float rollVisualCurveStep(const Note& note,float fraction) noexcept {
     const float visualSteps=std::max(1.0f,note.lengthSteps);
     return std::clamp(
         fraction*visualSteps-0.5f,
-        0.0f,end);
+        kAutomationStartEdge,end);
 }
 
 float rollJaggedWave(float stepPosition) noexcept {
@@ -3184,7 +3185,7 @@ void NativeUi::drawRoll() const noexcept {
                 kind==1?note.velocity:note.mod;
             for(const auto& point:points){
                 const float rel=
-                    std::clamp(point.step,0.0f,rollCurveLength(note));
+                    std::clamp(point.step,kAutomationStartEdge,rollCurveLength(note));
                 const float py=
                     viewport.y+header+
                     (start+rel+0.5f-
@@ -4130,40 +4131,27 @@ bool NativeUi::rollAutomationPosition(
 
     const float start=note.startStep;
     const float length=std::max(1.0f,note.lengthSteps);
-    const float maxStep=curveKind==0
-        ?std::max(0.0f,length-1.0f)
-        :std::max(0.0f,length-0.5f);
+    const float maxStep=rollCurveLength(note);
 
     const float absolute=
         rollStepOffset_+
         (y-viewport.y-header)/rowH-0.5f;
-    const float relative=std::clamp(absolute-start,0.0f,maxStep);
-    if(free){
-        step=relative;
-    }else if(curveKind==0){
-        const auto hit=hitRollCell(x,y);
-        if(!hit)return false;
-        step=std::clamp(
-            static_cast<float>(hit->step)-start,0.0f,maxStep);
-    }else{
-        // Y: snap at time cell centers and between-cell grid lines.
-        step=std::clamp(
-            snapAutomationHalfCell(relative),0.0f,maxStep);
-    }
+    const float relative=std::clamp(
+        absolute-start,kAutomationStartEdge,maxStep);
+    // All three automation types share the same vertical snap grid:
+    // physical note edges, every row center, and every intervening line.
+    step=free?relative:
+        std::clamp(snapAutomationHalfCell(relative),
+                   kAutomationStartEdge,maxStep);
 
     if(curveKind==0){
-        if(free){
-            const float targetPitch=rollPitchFromX(
-                columns,x,rollPitchOffset_,gridLeft,colW);
-            value=rollClampBend(
-                sourceTrack,note,targetPitch-static_cast<float>(midi));
-        }else{
-            const auto hit=hitRollCell(x,y);
-            if(!hit)return false;
-            value=rollClampBend(
-                sourceTrack,note,
-                static_cast<float>(hit->midi-midi));
-        }
+        const float targetPitch=rollPitchFromX(
+            columns,x,rollPitchOffset_,gridLeft,colW);
+        const float rawBend=targetPitch-static_cast<float>(midi);
+        // Horizontal grid snapping includes pitch cell boundaries
+        // (half-semitones) as well as the pitch column centers.
+        value=rollClampBend(sourceTrack,note,
+            free?rawBend:snapAutomationHalfCell(rawBend));
     }else{
         const float centerX=rollPitchX(
             columns,
@@ -4267,11 +4255,15 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
         const float start=note.startStep;
         const float length=std::max(1.0f,note.lengthSteps);
-        if(static_cast<float>(cellHit->step)<start||
-           static_cast<float>(cellHit->step)>start+length-1.0f)continue;
+        // Use the touch's exact Y, not the integer cell under it:
+        // points on the first and last note grid lines must be reachable.
+        const float absolute=rollStepOffset_+
+            (y-viewport.y-header)/rowH;
+        if(absolute<start-0.001f||
+           absolute>start+length+0.001f)continue;
         const float rel=std::clamp(
-            static_cast<float>(cellHit->step)-start,
-            0.0f,rollCurveLength(note));
+            absolute-start-0.5f,
+            kAutomationStartEdge,rollCurveLength(note));
         const float center=rollPitchX(
             columns,
             static_cast<float>(note.midi)+

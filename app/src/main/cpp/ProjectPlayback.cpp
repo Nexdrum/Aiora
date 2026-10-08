@@ -15,7 +15,7 @@ void pushPoint(DspCurve& out,float step,float value) noexcept {
 
 DspCurve bendCurve(const Note& note,const DrumPad* pad) {
     DspCurve out;
-    const float L=std::max(0.0f,std::max(1.0f,note.lengthSteps)-1.0f);
+    const float L=std::max(1.0f,note.lengthSteps);
     pushPoint(out,0.0f,0.0f);
     auto pts=note.bend;
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
@@ -26,7 +26,7 @@ DspCurve bendCurve(const Note& note,const DrumPad* pad) {
             const float hi=static_cast<float>(std::max(pad->lowMidi,pad->highMidi))+0.5f-static_cast<float>(note.midi);
             value=std::clamp(value,lo,hi);
         }
-        pushPoint(out,std::clamp(p.step,0.0f,L),value);
+        pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),value);
     }
     const float last=out.count?out.points[out.count-1].value:0.0f;
     if(out.count==0 || std::fabs(out.points[out.count-1].step-L)>1.0e-5f)
@@ -37,12 +37,12 @@ DspCurve bendCurve(const Note& note,const DrumPad* pad) {
 DspCurve levelCurve(const std::vector<CurvePoint>& source,float length) {
     DspCurve out;
     if(source.empty())return out;
-    const float L=std::max(0.0f,std::max(1.0f,length)-0.5f);
+    const float L=std::max(1.0f,length);
     auto pts=source;
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     const float first=std::clamp(pts.front().value,0.0f,1.0f);
     pushPoint(out,0.0f,first);
-    for(const auto& p:pts)pushPoint(out,std::clamp(p.step,0.0f,L),std::clamp(p.value,0.0f,1.0f));
+    for(const auto& p:pts)pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),std::clamp(p.value,0.0f,1.0f));
     const float last=out.count?out.points[out.count-1].value:first;
     if(out.count==0 || std::fabs(out.points[out.count-1].step-L)>1.0e-5f)pushPoint(out,L,last);
     return out;
