@@ -842,6 +842,20 @@ void NativeOverlay::addCircle(float cx,float cy,float radius,float thickness,Col
     }
 }
 
+void NativeOverlay::addFilledCircle(float cx,float cy,float radius,Color color){
+    if(radius<=0.0f)return;
+    constexpr int segments=24;
+    for(int i=0;i<segments;++i){
+        const float a0=static_cast<float>(i)*6.28318530718f/segments;
+        const float a1=static_cast<float>(i+1)*6.28318530718f/segments;
+        // One filled triangle per arc segment.
+        addQuad(cx,cy,
+            cx+std::cos(a0)*radius,cy+std::sin(a0)*radius,
+            cx+std::cos(a1)*radius,cy+std::sin(a1)*radius,
+            cx,cy,color);
+    }
+}
+
 void NativeOverlay::addChevron(Rect r,bool right,Color c){
     const float t=std::max(2.0f,std::min(r.w,r.h)*0.11f);
     const float cx=r.x+r.w*0.5f,cy=r.y+r.h*0.5f;
