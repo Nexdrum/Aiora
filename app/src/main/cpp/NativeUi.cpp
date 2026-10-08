@@ -4161,10 +4161,7 @@ bool NativeUi::rollAutomationPosition(
         value=std::clamp(
             std::fabs(x-centerX)/(colW*0.48f),
             0.0f,1.0f);
-        if(!free){
-            // X: three usable dynamic positions in each automation half-cell.
-            value=std::clamp(snapAutomationHalfCell(value),0.0f,1.0f);
-        }
+        // V/M X values stay continuous in both time-snap and free modes.
     }
     return true;
 }

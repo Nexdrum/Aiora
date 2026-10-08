@@ -52,7 +52,7 @@ There is no WebView, JavaScript runtime, Jetpack Compose UI, or Kotlin applicati
 - melodic range MIDI 14–110
 - drum tracks show only assigned pad pitches
 - Notes / bend / V / M editing
-- Bend / V / M points snap to pitch/value centers and half positions in X, and every cell center, interior line, and exact note edge in Y. Each curve has one point per time position (including imported projects), and overlapping moves or snapped conversions are rejected. Filled V/M circles, hollow free diamonds, and conversion haptic feedback remain.
+- Bend points snap to pitch centers and half-semitone grid lines in X and to cell centers, interior lines and exact note edges in Y. V/M values remain horizontally continuous in both modes while their time positions snap in Y. Each curve has one point per time position (including imported projects), and overlapping moves or snapped conversions are rejected. Filled V/M circles, hollow free diamonds, and conversion haptic feedback remain.
 - drum bends constrained to the pad range
 - native playhead and transport
 - track volume, pan, mute and solo

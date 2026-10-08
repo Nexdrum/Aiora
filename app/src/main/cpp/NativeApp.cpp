@@ -1165,13 +1165,15 @@ void serviceRollLongPress(NativeState& state){
     if(project.updateCurvePoint(
         g.track,g.noteIndex,g.curveKind,g.curvePoint,
         free?step:std::round(step*2.0f)*0.5f,
-        free?value:std::round(value*2.0f)*0.5f,
+        (free||g.curveKind!=0)?value:
+            std::round(value*2.0f)*0.5f,
         free)){
         g.curveFree=free;
         g.curvePoint=findCurvePointIndex(
             g.track,g.noteIndex,g.curveKind,
             free?step:std::round(step*2.0f)*0.5f,
-            free?value:std::round(value*2.0f)*0.5f,
+            (free||g.curveKind!=0)?value:
+            std::round(value*2.0f)*0.5f,
             free);
         g.longPressTriggered=true;
         if(g.curveKind==1||g.curveKind==2)
