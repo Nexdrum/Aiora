@@ -33,8 +33,9 @@ There is no WebView, JavaScript runtime, Jetpack Compose UI, or Kotlin applicati
 - unison and glide
 - four M-envelope modulation links
 - distortion, delay, delay time, feedback and reverb
-- factory bank: Spectrachord Init, Subula, Spectrello, Nebular, Nexdrum, Violin, Viola, Cello, Contrabass
+- factory bank: Spectrachord Init, Subula, Spectrello, Nebular, Nexdrum, Violin, Viola, Cello, Contrabass, Flute, Clarinet, Oboe, Bassoon
 - four solo symphonic bowed-string voices with distinct 16-partial body spectra and responsive bow noise; the M curve controls bow pressure/harshness while V independently controls dynamics
+- four solo woodwind presets: Flute (M = focused air jet to audible breath), Clarinet (M = single-reed embouchure pressure), Oboe (M = double-reed compression / nasal brightness), and Bassoon (M = woody resonance to double-reed grain). Each combines instrument-specific harmonic/bore profiles with attack turbulence; V remains independent dynamics. French horn belongs in a later brass bank.
 
 ### Nexdrum
 

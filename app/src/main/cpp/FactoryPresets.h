@@ -14,7 +14,11 @@ enum class FactoryPreset : int32_t {
     Viola = 6,
     Cello = 7,
     Contrabass = 8,
-    Count = 9
+    Flute = 9,
+    Clarinet = 10,
+    Oboe = 11,
+    Bassoon = 12,
+    Count = 13
 };
 
 Patch makeDefaultPatch(const char* name = "Spectrachord Init");

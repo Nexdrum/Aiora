@@ -119,6 +119,137 @@ void configureBowedString(Patch& p, FactoryPreset preset) {
     p.fx.reverb=tone.reverb;
 }
 
+
+// Woodwind voices use pitched harmonic bore resonance, physically different
+// reed/air edge spectra, and controlled stochastic breath or reed turbulence.
+// M is a TIMBRE gesture. Velocity remains the separate loudness gesture.
+// No samples or changes to the DSP/project format are necessary.
+struct WoodwindTone {
+    std::array<float,16> core, corePressed, bore, upper, edge, edgePressed;
+    float attack{0.06f},release{0.22f};
+    float cutoff{4200.0f},darkCutoff{2600.0f},brightCutoff{7200.0f},resonance{0.85f};
+    float bodyLevel{0.16f},upperLevel{0.06f},edgeLevel{0.06f},edgeMax{0.22f};
+    float airLevel{0.005f},airMax{0.055f},tongueLevel{0.018f},tongueMax{0.035f};
+    float vibratoRate{5.2f},vibratoDepth{0.04f},fmDepth{0.009f},reverb{0.10f};
+};
+
+void configureWoodwind(Patch& p,FactoryPreset preset) {
+    WoodwindTone t{};
+    if(preset==FactoryPreset::Flute) {
+        // Edge-blown air jet: dominant fundamental, weak harmonics.
+        // At high M the jet becomes breathier, not merely louder.
+        t.core={1,.23f,.085f,.042f,.021f,.012f,.007f,.004f,.003f,.002f,.001f,0,0,0,0,0};
+        t.corePressed={1,.14f,.060f,.028f,.015f,.008f,.004f,.002f,.001f,0,0,0,0,0,0,0};
+        t.bore={1,.32f,.11f,.038f,.018f,.008f,.003f,.002f,0,0,0,0,0,0,0,0};
+        t.upper={1,.18f,.067f,.025f,.009f,.003f,.001f,0,0,0,0,0,0,0,0,0};
+        t.edge={1,.29f,.12f,.075f,.044f,.025f,.014f,.008f,.004f,.003f,.002f,.001f,0,0,0,0};
+        t.edgePressed={1,.35f,.19f,.13f,.09f,.066f,.047f,.033f,.022f,.015f,.010f,.006f,.004f,.002f,.001f,0};
+        t.attack=.064f;t.release=.17f;
+        t.cutoff=5700;t.darkCutoff=4300;t.brightCutoff=8500;t.resonance=.68f;
+        t.bodyLevel=.095f;t.upperLevel=.028f;t.edgeLevel=.012f;t.edgeMax=.039f;
+        t.airLevel=.004f;t.airMax=.155f;t.tongueLevel=.012f;t.tongueMax=.028f;
+        t.vibratoRate=5.25f;t.vibratoDepth=.034f;t.fmDepth=.0015f;t.reverb=.085f;
+    }else if(preset==FactoryPreset::Clarinet){
+        // Cylindrical, effectively stopped bore: hollow odd-harmonic
+        // chalumeau-like timbre, with more even and upper partials under M.
+        t.core={1,.040f,.72f,.025f,.37f,.014f,.22f,.010f,.13f,.006f,.081f,.004f,.045f,.002f,.026f,.001f};
+        t.corePressed={1,.13f,.86f,.095f,.55f,.07f,.39f,.055f,.27f,.036f,.18f,.025f,.12f,.019f,.077f,.015f};
+        t.bore={1,.02f,.69f,.018f,.37f,.012f,.19f,.008f,.10f,.005f,.05f,.003f,.022f,.002f,.011f,.001f};
+        t.upper={1,.21f,.48f,.13f,.32f,.09f,.23f,.07f,.15f,.045f,.10f,.025f,.060f,.018f,.035f,.01f};
+        t.edge={1,.24f,.66f,.14f,.44f,.1f,.30f,.065f,.2f,.045f,.13f,.032f,.085f,.021f,.055f,.014f};
+        t.edgePressed={1,.39f,.78f,.32f,.65f,.24f,.48f,.18f,.34f,.13f,.23f,.095f,.16f,.07f,.11f,.05f};
+        t.attack=.040f;t.release=.205f;
+        t.cutoff=3500;t.darkCutoff=2000;t.brightCutoff=6400;t.resonance=.89f;
+        t.bodyLevel=.20f;t.upperLevel=.065f;t.edgeLevel=.045f;t.edgeMax=.23f;
+        t.airLevel=.002f;t.airMax=.031f;t.tongueLevel=.015f;t.tongueMax=.035f;
+        t.vibratoRate=5.0f;t.vibratoDepth=.006f;t.fmDepth=.008f;t.reverb=.092f;
+    }else if(preset==FactoryPreset::Oboe){
+        // Double reed + conical bore: present 2nd/3rd/4th harmonics,
+        // a narrow, nasal formant, and increasingly driven reed buzz.
+        t.core={.86f,1,.92f,.76f,.54f,.40f,.30f,.22f,.16f,.13f,.095f,.074f,.055f,.038f,.026f,.018f};
+        t.corePressed={.82f,1,.98f,.93f,.80f,.72f,.59f,.48f,.39f,.32f,.26f,.21f,.17f,.13f,.10f,.077f};
+        t.bore={.70f,.98f,1,.85f,.65f,.48f,.32f,.23f,.16f,.11f,.074f,.048f,.032f,.02f,.013f,.008f};
+        t.upper={.62f,.95f,1,.85f,.71f,.56f,.45f,.35f,.27f,.20f,.14f,.10f,.07f,.047f,.03f,.02f};
+        t.edge={.39f,.69f,.92f,1,.92f,.79f,.66f,.55f,.44f,.34f,.26f,.20f,.16f,.115f,.087f,.064f};
+        t.edgePressed={.36f,.65f,.89f,1,.99f,.92f,.85f,.75f,.66f,.56f,.47f,.39f,.31f,.25f,.20f,.16f};
+        t.attack=.051f;t.release=.19f;
+        t.cutoff=4500;t.darkCutoff=2850;t.brightCutoff=8000;t.resonance=1.08f;
+        t.bodyLevel=.245f;t.upperLevel=.10f;t.edgeLevel=.075f;t.edgeMax=.29f;
+        t.airLevel=.007f;t.airMax=.064f;t.tongueLevel=.021f;t.tongueMax=.050f;
+        t.vibratoRate=5.4f;t.vibratoDepth=.053f;t.fmDepth=.019f;t.reverb=.092f;
+    }else if(preset==FactoryPreset::Bassoon){
+        // The larger folded double-reed bore gives strong low/mid partials,
+        // a muted woody core and a reedy growl as embouchure pressure rises.
+        t.core={1,.84f,.76f,.62f,.48f,.37f,.27f,.19f,.14f,.10f,.075f,.055f,.04f,.028f,.019f,.013f};
+        t.corePressed={.95f,.93f,.88f,.81f,.70f,.62f,.52f,.43f,.35f,.29f,.23f,.18f,.14f,.105f,.079f,.059f};
+        t.bore={1,.95f,.79f,.53f,.33f,.20f,.11f,.063f,.037f,.022f,.013f,.008f,.004f,.003f,.001f,0};
+        t.upper={.88f,1,.92f,.74f,.55f,.37f,.24f,.15f,.095f,.060f,.036f,.021f,.012f,.007f,.004f,.002f};
+        t.edge={.67f,.91f,1,.87f,.69f,.52f,.40f,.30f,.23f,.17f,.12f,.089f,.063f,.046f,.032f,.022f};
+        t.edgePressed={.58f,.81f,1,.98f,.89f,.79f,.69f,.60f,.51f,.43f,.35f,.29f,.23f,.18f,.14f,.11f};
+        t.attack=.079f;t.release=.285f;
+        t.cutoff=2600;t.darkCutoff=1550;t.brightCutoff=5600;t.resonance=1.07f;
+        t.bodyLevel=.29f;t.upperLevel=.085f;t.edgeLevel=.045f;t.edgeMax=.235f;
+        t.airLevel=.003f;t.airMax=.053f;t.tongueLevel=.014f;t.tongueMax=.034f;
+        t.vibratoRate=4.7f;t.vibratoDepth=.041f;t.fmDepth=.013f;t.reverb=.105f;
+    }
+
+    const float a=t.attack,r=t.release;
+    setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.83f,a,.20f,.94f,r);
+    setHarm(p.ops[0],t.core);
+    setHarmMute(p.ops[0],t.corePressed);
+
+    // Independent air-column/body and octave resonances; no chorus unison.
+    setOp(p.ops[1],Wave::Custom,1.0f,0.0f,t.bodyLevel,
+        a+.012f,.27f,.87f,r*1.1f);
+    setHarm(p.ops[1],t.bore);
+    setOp(p.ops[2],Wave::Custom,2.0f,0.0f,t.upperLevel,
+        a+.006f,.23f,.78f,r*.86f);
+    setHarm(p.ops[2],t.upper);
+
+    // Reed/edge coloration. M shapes spectral distribution and this layer.
+    setOp(p.ops[3],Wave::Custom,1.0f,0.0f,t.edgeLevel,
+        std::max(.006f,a*.65f),.15f,.81f,r*.83f);
+    setHarm(p.ops[3],t.edge);
+    setHarmMute(p.ops[3],t.edgePressed);
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,t.airLevel,
+        .009f,.17f,.81f,.08f);
+    setOp(p.ops[5],Wave::Noise,1.0f,0.0f,t.tongueLevel,
+        .0015f,.035f,.0f,.065f);
+    p.matrix[3][0]=t.fmDepth;
+
+    p.filter={FilterType::Lowpass,t.cutoff,t.resonance,.038f,
+        {.035f,.21f,.58f,.16f}};
+    p.amp={a,.24f,.96f,r};
+    p.velocityAmp=.77f;
+    p.velocityFilter=preset==FactoryPreset::Flute?.17f:.27f;
+    p.lfo={t.vibratoRate,t.vibratoDepth,.30f,.34f,LfoTarget::Pitch};
+
+    // Flute: jet turbulence; clarinet: single-reed embouchure bite;
+    // oboe/bassoon: double-reed compression with different formants.
+    if(preset==FactoryPreset::Flute){
+        slots(p,{
+            {ModTarget::Morph1,0.0f,.65f},
+            {ModTarget::Morph4,0.0f,.68f},
+            {ModTarget::Op4,.012f,t.edgeMax},
+            {ModTarget::Op5,t.airLevel,t.airMax},
+            {ModTarget::Op6,t.tongueLevel,t.tongueMax},
+            {ModTarget::Cutoff,t.darkCutoff,t.brightCutoff}
+        });
+    }else{
+        slots(p,{
+            {ModTarget::Morph1,0.0f,1.0f},
+            {ModTarget::Morph4,0.0f,1.0f},
+            {ModTarget::Op4,t.edgeLevel,t.edgeMax},
+            {ModTarget::Op5,t.airLevel,t.airMax},
+            {ModTarget::Cutoff,t.darkCutoff,t.brightCutoff},
+            {ModTarget::Fm,.30f,1.25f}
+        });
+    }
+    p.unison=0.0f;p.glide=0.0f;p.volume=.86f;
+    p.fx.distortion=0.0f;p.fx.delay=0.0f;
+    p.fx.delayFeedback=0.0f;p.fx.reverb=t.reverb;
+}
+
 } // namespace
 
 Patch makeDefaultPatch(const char* name) {
@@ -158,6 +289,10 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::Viola: name="Viola"; break;
         case FactoryPreset::Cello: name="Cello"; break;
         case FactoryPreset::Contrabass: name="Contrabass"; break;
+        case FactoryPreset::Flute: name="Flute"; break;
+        case FactoryPreset::Clarinet: name="Clarinet"; break;
+        case FactoryPreset::Oboe: name="Oboe"; break;
+        case FactoryPreset::Bassoon: name="Bassoon"; break;
         default: break;
     }
     Patch p = makeDefaultPatch(name);
@@ -167,6 +302,14 @@ Patch makeFactoryPatch(FactoryPreset preset) {
        preset==FactoryPreset::Cello ||
        preset==FactoryPreset::Contrabass){
         configureBowedString(p,preset);
+        return p;
+    }
+
+    if(preset==FactoryPreset::Flute ||
+       preset==FactoryPreset::Clarinet ||
+       preset==FactoryPreset::Oboe ||
+       preset==FactoryPreset::Bassoon){
+        configureWoodwind(p,preset);
         return p;
     }
 
@@ -284,7 +427,11 @@ const std::array<Patch, static_cast<size_t>(FactoryPreset::Count)>& factoryBank(
         makeFactoryPatch(FactoryPreset::Violin),
         makeFactoryPatch(FactoryPreset::Viola),
         makeFactoryPatch(FactoryPreset::Cello),
-        makeFactoryPatch(FactoryPreset::Contrabass)
+        makeFactoryPatch(FactoryPreset::Contrabass),
+        makeFactoryPatch(FactoryPreset::Flute),
+        makeFactoryPatch(FactoryPreset::Clarinet),
+        makeFactoryPatch(FactoryPreset::Oboe),
+        makeFactoryPatch(FactoryPreset::Bassoon)
     };
     return bank;
 }
