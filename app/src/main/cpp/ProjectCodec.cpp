@@ -351,7 +351,10 @@ void writePatch(Writer& w,const Patch& p){
     for(size_t i=0;i<p.ops.size();++i){
         if(i)w.raw(",");const auto& o=p.ops[i];
         w.raw("{\"enabled\":");w.boolean(o.enabled);w.raw(",\"wave\":");w.string(waveName(o.wave));
-        w.raw(",\"ratio\":");w.number(o.ratio);w.raw(",\"detune\":");w.number(o.detuneCents);w.raw(",\"level\":");w.number(o.level);
+        w.raw(",\"ratio\":");w.number(o.ratio);
+        w.raw(",\"semi\":");w.number(o.semitoneOffset);
+        w.raw(",\"detune\":");w.number(o.detuneCents);
+        w.raw(",\"level\":");w.number(o.level);
         w.raw(",\"attack\":");w.number(o.env.attack);w.raw(",\"decay\":");w.number(o.env.decay);w.raw(",\"sustain\":");w.number(o.env.sustain);w.raw(",\"release\":");w.number(o.env.release);
         w.raw(",\"harm\":");if(o.hasHarm)writeFloatArray(w,o.harm);else w.raw("null");
         if(o.hasHarmMute){w.raw(",\"harmMute\":");writeFloatArray(w,o.harmMute);}
@@ -389,8 +392,32 @@ bool readPatch(const Json& src,Patch& p){
     p.name=str(src.get("name"),"Imported").substr(0,40);
     for(size_t i=0;i<6;++i){
         const auto& jo=ops->array[i];if(jo.type!=Json::Type::Object)continue;auto& o=p.ops[i];
-        o.enabled=boolean(jo.get("enabled"),o.enabled);o.wave=parseWave(str(jo.get("wave"),"sine"));
-        o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,16,o.ratio);o.detuneCents=clampf(num(jo.get("detune"),o.detuneCents),-100,100,o.detuneCents);o.level=clampf(num(jo.get("level"),o.level),0,1,o.level);
+        o.enabled=boolean(jo.get("enabled"),o.enabled);
+        o.wave=parseWave(str(jo.get("wave"),"sine"));
+        o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,8.0f,o.ratio);
+
+        float semi=clampf(
+            num(jo.get("semi"),o.semitoneOffset),
+            -12.0f,12.0f,o.semitoneOffset);
+        float fine=static_cast<float>(
+            num(jo.get("detune"),o.detuneCents));
+
+        // Legacy patches only had ±100-cent detune. Fold any excess beyond
+        // the new ±50-cent fine range into whole semitone steps so their
+        // audible pitch is preserved.
+        while(fine>50.0f&&semi<12.0f){
+            fine-=100.0f;
+            semi+=1.0f;
+        }
+        while(fine<-50.0f&&semi>-12.0f){
+            fine+=100.0f;
+            semi-=1.0f;
+        }
+        o.semitoneOffset=std::round(
+            std::clamp(semi,-12.0f,12.0f));
+        o.detuneCents=std::round(
+            std::clamp(fine,-50.0f,50.0f));
+        o.level=clampf(num(jo.get("level"),o.level),0,1,o.level);
         o.env.attack=clampf(num(jo.get("attack"),o.env.attack),.0005f,2,o.env.attack);o.env.decay=clampf(num(jo.get("decay"),o.env.decay),.005f,3,o.env.decay);o.env.sustain=clampf(num(jo.get("sustain"),o.env.sustain),0,1,o.env.sustain);o.env.release=clampf(num(jo.get("release"),o.env.release),.02f,3,o.env.release);
         o.hasHarm=readFloatArray(jo.get("harm"),o.harm);o.hasHarmMute=readFloatArray(jo.get("harmMute"),o.harmMute);
     }
