@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aiOra-android-${{ github.ref }}
+  group: aiOra-android-0.7.8-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
