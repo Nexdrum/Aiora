@@ -14,7 +14,7 @@ Patch pad0() {
     p.ops[3].enabled=true; p.ops[3].wave=Wave::Noise; p.ops[3].ratio=2.0f; p.ops[3].detuneCents=0.0f; p.ops[3].level=0.84f; p.ops[3].env={0.001f,0.18f,0.43f,0.02f};
     p.ops[3].harm={1.0f,0.5f,0.33f,0.25f,0.2f,0.16f,0.14f,0.12f,0.1f,0.09f,0.08f,0.07f,0.06f,0.05f,0.04f,0.03f}; p.ops[3].hasHarm=true;
     p.ops[4].enabled=false; p.ops[4].wave=Wave::Sine; p.ops[4].ratio=0.5f; p.ops[4].detuneCents=0.0f; p.ops[4].level=0.0f; p.ops[4].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[5].enabled=false; p.ops[5].wave=Wave::Sine; p.ops[5].ratio=4.0f; p.ops[5].detuneCents=80.0f; p.ops[5].level=0.0f; p.ops[5].env={0.005f,0.1f,0.8f,0.15f};
+    p.ops[5].enabled=false; p.ops[5].wave=Wave::Sine; p.ops[5].ratio=4.0f; p.ops[5].semitoneOffset=1.0f; p.ops[5].detuneCents=-20.0f; p.ops[5].level=0.0f; p.ops[5].env={0.005f,0.1f,0.8f,0.15f};
     p.filter={FilterType::Highpass,5800.0f,0.75f,0.0f,{0.005f,0.1f,0.5f,0.12f}};
     p.amp={0.001f,1.55f,0.0f,1.7f};
     p.velocityAmp=0.5f; p.velocityFilter=0.22f;
@@ -128,7 +128,7 @@ Patch pad5() {
     p.ops[1].enabled=true; p.ops[1].wave=Wave::Sine; p.ops[1].ratio=1.0f; p.ops[1].detuneCents=37.0f; p.ops[1].level=0.67f; p.ops[1].env={0.001f,0.08f,0.0f,0.13f};
     p.ops[2].enabled=true; p.ops[2].wave=Wave::Noise; p.ops[2].ratio=2.0f; p.ops[2].detuneCents=0.0f; p.ops[2].level=0.29f; p.ops[2].env={0.001f,0.005f,0.0f,0.02f};
     p.ops[3].enabled=false; p.ops[3].wave=Wave::Sine; p.ops[3].ratio=1.01f; p.ops[3].detuneCents=0.0f; p.ops[3].level=0.0f; p.ops[3].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[4].enabled=false; p.ops[4].wave=Wave::Sine; p.ops[4].ratio=0.5f; p.ops[4].detuneCents=-100.0f; p.ops[4].level=0.0f; p.ops[4].env={0.005f,0.1f,0.8f,0.15f};
+    p.ops[4].enabled=false; p.ops[4].wave=Wave::Sine; p.ops[4].ratio=0.5f; p.ops[4].semitoneOffset=-1.0f; p.ops[4].detuneCents=0.0f; p.ops[4].level=0.0f; p.ops[4].env={0.005f,0.1f,0.8f,0.15f};
     p.ops[5].enabled=false; p.ops[5].wave=Wave::Sine; p.ops[5].ratio=4.0f; p.ops[5].detuneCents=0.0f; p.ops[5].level=0.0f; p.ops[5].env={0.005f,0.1f,0.8f,0.15f};
     p.filter={FilterType::Lowpass,5000.0f,10.0f,0.0f,{0.01f,0.09f,0.17f,0.08f}};
     p.amp={0.001f,0.9f,0.0f,1.0f};
