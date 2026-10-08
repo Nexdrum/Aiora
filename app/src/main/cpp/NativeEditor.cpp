@@ -249,6 +249,17 @@ NativeEditor::Rect NativeEditor::operatorCardParamRect(int op,int param) const n
     };
 }
 
+NativeEditor::Rect NativeEditor::operatorRatioModeRect(int op) const noexcept {
+    const auto r=operatorCardParamRect(op,0);
+    constexpr float w=58.0f;
+    return {
+        r.x+r.w-w,
+        r.y+6.0f,
+        w,
+        r.h-12.0f
+    };
+}
+
 NativeEditor::Rect NativeEditor::operatorCardToggleRect(int op) const noexcept {
     const auto c=operatorCardRect(op);
     return {c.x+16.0f,c.y+736.0f,c.w-32.0f,70.0f};
@@ -758,13 +769,26 @@ void NativeEditor::renderSynth() const noexcept {
                     std::max(20.0f,rr.w-labelW-valueW-6.0f);
 
                 if(paramIndex==0){
+                    const bool semitone=
+                        operatorSemitoneMode_[static_cast<size_t>(op)];
+                    const float shown=semitone
+                        ?12.0f*std::log2(std::max(0.000001f,value))
+                        :value;
                     fillRect(
                         {trackX,rr.y+4.0f,trackW,rr.h-8.0f},
                         mix(kRollBg,kButton,0.22f));
                     ov.addText(
-                        shortValue(value),
+                        shortValue(shown),
                         trackX+10.0f,rr.y+22.0f,
                         1.00f,overlayColor(kWhite));
+
+                    const auto mode=operatorRatioModeRect(op);
+                    fillRect(mode,semitone?kCyan:kButton);
+                    ov.addTextCentered(
+                        semitone?"ST":"RATIO",
+                        {mode.x,mode.y,mode.w,mode.h},
+                        semitone?0.80f:0.62f,
+                        overlayColor(semitone?kBg:kWhite));
                 }else{
                     const float cy=rr.y+rr.h*0.52f;
                     fillRect({trackX,cy-3.0f,trackW,6.0f},kTrack);
@@ -776,13 +800,15 @@ void NativeEditor::renderSynth() const noexcept {
                         trackX+trackW*norm-knob*0.5f,
                         cy-knob*0.5f,knob,knob},
                         mix(kWhite,paramIndex<3?kCyan:kOrange,0.25f));
-                }
 
-                ov.addText(
-                    shortValue(value),
-                    rr.x+rr.w-valueW+4.0f,
-                    rr.y+rr.h*0.26f,
-                    0.86f,overlayColor(kMuted));
+                    const float shown=param==OperatorParam::Detune
+                        ?std::round(value):value;
+                    ov.addText(
+                        shortValue(shown),
+                        rr.x+rr.w-valueW+4.0f,
+                        rr.y+rr.h*0.26f,
+                        0.86f,overlayColor(kMuted));
+                }
             }
 
             const auto toggle=operatorCardToggleRect(op);
@@ -1119,9 +1145,31 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
 }
 
 std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
+    for(int op=0;op<6;++op){
+        if(operatorRatioModeRect(op).contains(x,y))return std::nullopt;
+    }
     const auto hit=hitSynth(x,y);
     if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=0)return std::nullopt;
     return std::clamp(hit->a,0,5);
+}
+
+std::optional<int> NativeEditor::hitOperatorRatioMode(float x,float y) const noexcept {
+    if(matrixMode_)return std::nullopt;
+    for(int op=0;op<6;++op){
+        if(operatorRatioModeRect(op).contains(x,y))return op;
+    }
+    return std::nullopt;
+}
+
+bool NativeEditor::operatorSemitoneMode(int op) const noexcept {
+    if(op<0||op>=6)return false;
+    return operatorSemitoneMode_[static_cast<size_t>(op)];
+}
+
+void NativeEditor::toggleOperatorRatioMode(int op) noexcept {
+    if(op<0||op>=6)return;
+    auto& value=operatorSemitoneMode_[static_cast<size_t>(op)];
+    value=!value;
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
@@ -1284,9 +1332,12 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
                 (nx-labelFraction)/std::max(0.01f,1.0f-labelFraction),
                 0.0f,1.0f);
 
+            float value=denormalized(
+                controlNx,operatorRange(param));
+            if(param==OperatorParam::Detune)
+                value=std::round(value);
             return project.setSelectedOperatorParam(
-                op,param,
-                denormalized(controlNx,operatorRange(param)));
+                op,param,value);
         }
 
         case HitKind::Harmonic:
