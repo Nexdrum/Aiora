@@ -2502,7 +2502,10 @@ void NativeUi::drawDrums() const noexcept {
         overlayColor(hasTrack?kWhite:kMuted));
 
     drawDrumEditor();
-    drawGrid();
+    // The pitch grid belongs to an actual drum kit. On an empty song or a
+    // normal Spectrachord track it only creates visual/touch clutter beneath
+    // the blank/convert messaging.
+    if(hasDrumTrack)drawGrid();
 }
 
 bool NativeUi::drumPointerDown(float x,float y){
