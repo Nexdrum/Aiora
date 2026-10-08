@@ -35,12 +35,13 @@ struct Filter { FilterType type{FilterType::Lowpass}; float cutoff{6500},resonan
 struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget target{LfoTarget::None}; };
 struct Fx { float distortion{0},delay{0.18f},delayTime{0.32f},delayFeedback{0.32f},reverb{0.25f}; };
 struct ModSlot { ModTarget target{ModTarget::None}; float min{0},max{1}; };
+constexpr int kMaxModSlots = 64;
 
 struct Patch {
     std::string name{"Spectrachord Init"};
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
     Filter filter{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
-    std::array<ModSlot,4> modSlots{}; uint8_t modSlotCount{0}; Lfo lfo{}; Fx fx{};
+    std::array<ModSlot,kMaxModSlots> modSlots{}; uint8_t modSlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
 };
