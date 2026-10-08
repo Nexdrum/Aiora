@@ -33,6 +33,7 @@ public:
     void addSpectrumLogo(Rect rect);
     void addLine(float x1,float y1,float x2,float y2,float thickness,Color color);
     void addCircle(float cx,float cy,float radius,float thickness,Color color);
+    void addFilledCircle(float cx,float cy,float radius,Color color);
     void addNavIcon(int index,Rect rect,Color color);
     void addDrumIcon(int index,Rect rect,Color color);
     void addChevron(Rect rect,bool right,Color color);
