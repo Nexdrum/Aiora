@@ -154,32 +154,10 @@ struct NativeState {
     bool autosaveDirty{false};
 };
 
-void createDefaultProject() {
-    auto& project=aiora::ProjectCore::instance();
-    project.reset();
-
-    const int bass=project.addTrack(false);
-    project.setTrackName(bass,"Bass");
-    project.selectTrack(bass);
-    project.replaceSelectedPatch(
-        aiora::makeFactoryPatch(aiora::FactoryPreset::Subula));
-
-    const int harmony=project.addTrack(false);
-    project.setTrackName(harmony,"Harmony");
-    project.selectTrack(harmony);
-    project.replaceSelectedPatch(
-        aiora::makeFactoryPatch(aiora::FactoryPreset::Spectrello));
-
-    const int lead=project.addTrack(false);
-    project.setTrackName(lead,"Lead");
-    project.selectTrack(lead);
-    project.replaceSelectedPatch(
-        aiora::makeFactoryPatch(aiora::FactoryPreset::Nebular));
-
-    const int drums=project.addTrack(true);
-    project.setTrackName(drums,"Nexdrum");
-
-    project.selectTrack(bass);
+void createBlankProject() {
+    // A fresh install must begin exactly like "New song": no tracks,
+    // no seeded factory instruments, and no implicit selection.
+    aiora::ProjectCore::instance().reset();
 }
 
 JNIEnv* androidEnv(ANativeActivity* activity,bool& attached) {
@@ -2885,7 +2863,7 @@ void android_main(android_app* app) {
         aiora::ProjectCore::instance().replaceProject(std::move(restored),0);
         __android_log_print(ANDROID_LOG_INFO,kTag,"restored AIORA autosave");
     }else{
-        createDefaultProject();
+        createBlankProject();
     }
     serviceDocumentResult(state);
 
