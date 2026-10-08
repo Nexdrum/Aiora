@@ -103,8 +103,8 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         p.fx={
             0.0f, // distortion
             0.0f, // delay level
-            0.32f,
-            0.32f,
+            0.03f, // minimum delay time
+            0.0f, // feedback
             0.0f  // reverb level
         };
         p.unison=0.0f;
