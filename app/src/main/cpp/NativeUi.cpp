@@ -2076,7 +2076,11 @@ void NativeUi::drawTracks() const noexcept {
 
 bool NativeUi::trackPointerDown(float x,float y){
     if(page_!=NativePage::Tracks)return false;
-    auto& project=ProjectCore::instance();trackControlChanged_=false;trackActiveSlider_=-1;trackActiveIndex_=-1;
+    auto& project=ProjectCore::instance();
+    trackControlChanged_=false;
+    trackActiveSlider_=-1;
+    trackActiveIndex_=-1;
+    trackReorderIndex_=-1;
 
     for(int i=0;i<2;++i){
         const auto r=masterSliderRect(i);if(!r.contains(x,y))continue;
@@ -2104,6 +2108,13 @@ bool NativeUi::trackPointerDown(float x,float y){
 
     const int count=project.trackCount();
     for(int t=0;t<count;++t){
+        if(trackReorderRect(t,count).contains(x,y)){
+            project.selectTrack(t);
+            trackReorderIndex_=t;
+            return true;
+        }
+    }
+    for(int t=0;t<count;++t){
         for(int p=0;p<5;++p){
             const auto r=trackPartRect(t,count,p);if(!r.contains(x,y))continue;
             if(p<2){
@@ -2122,9 +2133,29 @@ bool NativeUi::trackPointerDown(float x,float y){
     return false;
 }
 
-bool NativeUi::trackPointerMove(float x,float){
+bool NativeUi::trackPointerMove(float x,float y){
     auto& project=ProjectCore::instance();
-    if(page_!=NativePage::Tracks||trackActiveSlider_<0)return false;
+    if(page_!=NativePage::Tracks)return false;
+
+    if(trackReorderIndex_>=0){
+        const int count=project.trackCount();
+        if(count<=1)return true;
+        int target=trackReorderIndex_;
+        float best=1.0e9f;
+        for(int i=0;i<count;++i){
+            const auto row=trackRect(i,count);
+            const float d=std::fabs(y-(row.y+row.h*0.5f));
+            if(d<best){best=d;target=i;}
+        }
+        if(target!=trackReorderIndex_&&
+           project.reorderTrack(trackReorderIndex_,target)){
+            trackReorderIndex_=target;
+            trackControlChanged_=true;
+        }
+        return true;
+    }
+
+    if(trackActiveSlider_<0)return false;
 
     if(trackActiveSlider_==2||trackActiveSlider_==3){
         const int i=trackActiveSlider_-2;
@@ -2162,7 +2193,10 @@ bool NativeUi::trackPointerMove(float x,float){
 
 bool NativeUi::trackPointerUp(){
     const bool changed=trackControlChanged_;
-    trackControlChanged_=false;trackActiveSlider_=-1;trackActiveIndex_=-1;
+    trackControlChanged_=false;
+    trackActiveSlider_=-1;
+    trackActiveIndex_=-1;
+    trackReorderIndex_=-1;
     return changed;
 }
 
@@ -2445,10 +2479,13 @@ bool NativeUi::drumPointerDown(float x,float y){
     const int track=project.selectedTrack();
     drumControlChanged_=false;
     drumActiveSlider_=-1;
+    drumReorderIndex_=-1;
 
-    if(track<0||!project.trackIsDrums(track)){
+    if(track<0||track>=project.trackCount())return false;
+
+    if(!project.trackIsDrums(track)){
         if(drumActionRect(1).contains(x,y)){
-            drumControlChanged_=project.addTrack(true)>=0;
+            drumControlChanged_=project.convertTrackToDrumKit(track);
             drumRangeArmed_=false;
             return true;
         }
@@ -2456,6 +2493,14 @@ bool NativeUi::drumPointerDown(float x,float y){
     }
 
     const int initialCount=project.padCount(track);
+    for(int p=0;p<initialCount;++p){
+        if(padReorderRect(p,initialCount).contains(x,y)){
+            project.selectPad(track,p);
+            drumReorderIndex_=p;
+            drumRangeArmed_=false;
+            return true;
+        }
+    }
     for(int p=0;p<initialCount;++p){
         const auto row=padQuickRect(p,initialCount);
         const Rect del{
@@ -2516,11 +2561,33 @@ bool NativeUi::drumPointerDown(float x,float y){
     return false;
 }
 
-bool NativeUi::drumPointerMove(float x,float){
-    if(page_!=NativePage::Drums||drumActiveSlider_<0)return false;
-    auto& project=ProjectCore::instance();const int track=project.selectedTrack();
+bool NativeUi::drumPointerMove(float x,float y){
+    if(page_!=NativePage::Drums)return false;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
     if(track<0||!project.trackIsDrums(track))return false;
-    const int pad=project.selectedPad(track);if(pad<0||pad>=project.padCount(track))return false;
+
+    if(drumReorderIndex_>=0){
+        const int count=project.padCount(track);
+        if(count<=1)return true;
+        int target=drumReorderIndex_;
+        float best=1.0e9f;
+        for(int i=0;i<count;++i){
+            const auto row=padQuickRect(i,count);
+            const float d=std::fabs(y-(row.y+row.h*0.5f));
+            if(d<best){best=d;target=i;}
+        }
+        if(target!=drumReorderIndex_&&
+           project.reorderDrumPad(track,drumReorderIndex_,target)){
+            drumReorderIndex_=target;
+            drumControlChanged_=true;
+        }
+        return true;
+    }
+
+    if(drumActiveSlider_<0)return false;
+    const int pad=project.selectedPad(track);
+    if(pad<0||pad>=project.padCount(track))return false;
     const auto r=drumSliderRect(drumActiveSlider_);
     const float start=r.x+42.0f;
     const float width=std::max(1.0f,r.w-42.0f);
@@ -2531,7 +2598,9 @@ bool NativeUi::drumPointerMove(float x,float){
 
 bool NativeUi::drumPointerUp(){
     const bool changed=drumControlChanged_;
-    drumControlChanged_=false;drumActiveSlider_=-1;
+    drumControlChanged_=false;
+    drumActiveSlider_=-1;
+    drumReorderIndex_=-1;
     return changed;
 }
 
