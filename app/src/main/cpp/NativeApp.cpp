@@ -898,7 +898,9 @@ void previewEditorPatch(NativeState& state) {
         aiora::AudioEngine::instance().noteOff(state.editorPreviewVoice);
         state.editorPreviewVoice=-1;
     }
-    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOn(60,0.82f);
+    // AIORA is D-centered: normal synth/operator previews use D4.
+    // Drum-kit previews above intentionally keep each pad's own center pitch.
+    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOn(62,0.82f);
     if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
 }
 
