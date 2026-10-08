@@ -139,9 +139,28 @@ float SpectrachordVoice::render() noexcept {
     std::array<float,6>now{};
     for(size_t i=0;i<6;++i){
         const auto&op=P.ops[i];if(!op.enabled||op.level<=0.001f){opEnv_[i].next(sampleRate_);continue;}
-        const float env=opEnv_[i].next(sampleRate_),level=opLevel(i,m)*env;float fmHz=0;const float baseF=std::max(20.0f,midiHz(baseMidi)*op.ratio);const float fmScale=std::max(0.0f,slotValue(ModTarget::Fm,m,1));
-        for(size_t mod=0;mod<6;++mod)fmHz+=lastOp_[mod]*P.matrix[mod][i]*baseF*2.5f*fmScale;
-        float opSum=0;for(int u=0;u<uniCount;++u){const float uniCents=u?unison*12:0;const float cents=op.detuneCents+uniCents+pitchLfoCents;const float f=std::max(20.0f,(baseF+fmHz)*std::pow(2.0f,cents/1200));float&ph=phase_[i][u];opSum+=waveSample(op,ph,morphValue(i,m));ph+=kTwoPi*f/sampleRate_;while(ph>=kTwoPi)ph-=kTwoPi;while(ph<0)ph+=kTwoPi;}
+        const float env=opEnv_[i].next(sampleRate_),level=opLevel(i,m)*env;
+        const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
+        float fmHz=0;
+        const float baseF=std::max(
+            20.0f,
+            midiHz(baseMidi)*op.ratio*semitoneScale);
+        const float fmScale=std::max(0.0f,slotValue(ModTarget::Fm,m,1));
+        for(size_t mod=0;mod<6;++mod)
+            fmHz+=lastOp_[mod]*P.matrix[mod][i]*baseF*2.5f*fmScale;
+        float opSum=0;
+        for(int u=0;u<uniCount;++u){
+            const float uniCents=u?unison*12:0;
+            const float cents=op.detuneCents+uniCents+pitchLfoCents;
+            const float f=std::max(
+                20.0f,
+                (baseF+fmHz)*std::pow(2.0f,cents/1200.0f));
+            float&ph=phase_[i][u];
+            opSum+=waveSample(op,ph,morphValue(i,m));
+            ph+=kTwoPi*f/sampleRate_;
+            while(ph>=kTwoPi)ph-=kTwoPi;
+            while(ph<0)ph+=kTwoPi;
+        }
         now[i]=opSum/static_cast<float>(uniCount)*level;
     }
     lastOp_=now;float sum=0;for(float v:now)sum+=v;
