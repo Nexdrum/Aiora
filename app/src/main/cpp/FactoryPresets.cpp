@@ -19,13 +19,14 @@ void setHarm(Operator& o, const std::array<float,16>& h) { o.harm = h; o.hasHarm
 void setHarmMute(Operator& o, const std::array<float,16>& h) { o.harmMute = h; o.hasHarmMute = true; }
 
 void slots(Patch& p, std::initializer_list<ModSlot> list) {
-    p.modSlotCount = static_cast<uint8_t>(std::min<size_t>(4, list.size()));
-    size_t i = 0;
-    for (const auto& s : list) {
-        if (i >= 4) break;
-        p.modSlots[i++] = s;
+    p.modSlots.fill({});
+    const size_t count=std::min(p.modSlots.size(),list.size());
+    p.modSlotCount=static_cast<uint8_t>(count);
+    size_t i=0;
+    for(const auto& s:list){
+        if(i>=count)break;
+        p.modSlots[i++]=s;
     }
-    for (; i < 4; ++i) p.modSlots[i] = {};
 }
 
 } // namespace
@@ -66,6 +67,52 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         default: break;
     }
     Patch p = makeDefaultPatch(name);
+
+    if(preset==FactoryPreset::SpectrachordInit){
+        // A genuinely blank starting point: six identical pure-sine
+        // operators, with only OP1 active.
+        const Operator neutral=[]{
+            Operator o;
+            o.enabled=false;
+            o.wave=Wave::Sine;
+            o.ratio=1.0f;
+            o.semitoneOffset=0.0f;
+            o.detuneCents=0.0f;
+            o.level=0.9f;
+            o.env={0.005f,0.1f,0.8f,0.15f};
+            o.harm.fill(0.0f);
+            o.harmMute.fill(0.0f);
+            o.hasHarm=false;
+            o.hasHarmMute=false;
+            return o;
+        }();
+        p.ops.fill(neutral);
+        p.ops[0].enabled=true;
+        for(auto& row:p.matrix)row.fill(0.0f);
+
+        p.filter={
+            FilterType::Lowpass,
+            18000.0f,0.7f,0.0f,
+            {0.01f,0.15f,0.7f,0.2f}};
+        p.amp={0.008f,0.12f,0.85f,0.25f};
+        p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
+        p.velocityAmp=0.0f;
+        p.velocityFilter=0.0f;
+        p.modSlots.fill({});
+        p.modSlotCount=0;
+        p.fx={
+            0.0f, // distortion
+            0.0f, // delay level
+            0.32f,
+            0.32f,
+            0.0f  // reverb level
+        };
+        p.unison=0.0f;
+        p.glide=0.0f;
+        p.octave=0.0f;
+        p.volume=0.8f;
+        return p;
+    }
 
     if (preset == FactoryPreset::Spectrello) {
         setOp(p.ops[0],Wave::Custom,1.0f,0.0f,0.85f,0.09f,0.3f,0.9f,0.45f);
