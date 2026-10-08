@@ -695,11 +695,15 @@ int ProjectCore::selectedModSlotCount() const {
 }
 ModSlot ProjectCore::selectedModSlot(int slotIndex) const {
     std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0||slotIndex>=static_cast<int>(p->modSlotCount)||slotIndex>=4)return {};
+    if(!p||slotIndex<0||
+       slotIndex>=static_cast<int>(p->modSlotCount)||
+       slotIndex>=static_cast<int>(p->modSlots.size()))return {};
     return p->modSlots[slotIndex];
 }
 bool ProjectCore::addSelectedModSlot(ModTarget target){
-    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||p->modSlotCount>=4)return false;
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();
+    if(!p||p->modSlotCount>=p->modSlots.size())return false;
     const int index=p->modSlotCount++;
     float v=0.0f;
     switch(target){
@@ -737,7 +741,9 @@ bool ProjectCore::removeSelectedModSlot(int slotIndex){
 }
 bool ProjectCore::setSelectedModSlot(int slotIndex,ModTarget target,float minValue,float maxValue){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0||slotIndex>=static_cast<int>(p->modSlotCount)||slotIndex>=4)return false;
+    if(!p||slotIndex<0||
+       slotIndex>=static_cast<int>(p->modSlotCount)||
+       slotIndex>=static_cast<int>(p->modSlots.size()))return false;
     p->modSlots[slotIndex]={target,clampModValue(target,minValue),clampModValue(target,maxValue)};return true;
 }
 
