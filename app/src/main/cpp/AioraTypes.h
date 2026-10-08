@@ -50,7 +50,7 @@ struct Patch {
 struct DspPatch {
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
     Filter filter{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
-    std::array<ModSlot,4> modSlots{}; uint8_t modSlotCount{0}; Lfo lfo{}; Fx fx{};
+    std::array<ModSlot,kMaxModSlots> modSlots{}; uint8_t modSlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
 };
 static_assert(std::is_trivially_copyable_v<DspPatch>);
