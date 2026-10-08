@@ -1,6 +1,7 @@
 #include "NativeUi.h"
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
+#include "FactoryPresets.h"
 
 #include <GLES3/gl3.h>
 
@@ -449,8 +450,11 @@ bool NativeUi::openUiDropdownAt(float x,float y){
     }
 
     if(page_==NativePage::Tracks&&patchPresetRect().contains(x,y)){
-        std::vector<std::string> labels{
-            "Spectrachord Init","Subula","Spectrello","Nebular","Nexdrum"};
+        // Keep the UI selector synchronized with the compiled factory bank.
+        std::vector<std::string> labels;
+        const auto& bank=factoryBank();
+        labels.reserve(bank.size());
+        for(const auto& patch:bank) labels.push_back(patch.name);
         const std::string current=project.selectedTrack()>=0
             ?project.trackPatchName(project.selectedTrack()):std::string{};
         int selected=0;

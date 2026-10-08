@@ -29,6 +29,96 @@ void slots(Patch& p, std::initializer_list<ModSlot> list) {
     }
 }
 
+
+struct BowedStringTone {
+    std::array<float,16> stringOpen, stringPressed, body, mid, bridge, bridgePressed;
+    float attack, release, cutoff, softCutoff, hardCutoff, resonance, vibratoRate, vibratoDepth;
+    float bodyLevel, midLevel, bridgeLevel, noiseLevel, scratchLevel, noiseMax, scratchMax, fmDepth, reverb;
+};
+
+// All resonating layers are synthesized from Spectrachord's existing custom
+// harmonic oscillators and per-operator ADSRs. Bow friction occupies OP5/OP6.
+// The M curve changes bow PRESSURE/TEXTURE, while V remains independent volume.
+void configureBowedString(Patch& p, FactoryPreset preset) {
+    BowedStringTone tone{};
+    if (preset == FactoryPreset::Violin) {
+        tone = {
+            {1.0f,0.78f,0.61f,0.49f,0.4f,0.32f,0.27f,0.23f,0.2f,0.16f,0.13f,0.11f,0.09f,0.07f,0.055f,0.04f}, // Open string: natural harmonic envelope
+            {1.0f,0.89f,0.82f,0.75f,0.66f,0.59f,0.53f,0.48f,0.43f,0.38f,0.34f,0.29f,0.26f,0.22f,0.18f,0.15f}, // Increased pressure: stronger high harmonics
+            {1.0f,0.77f,0.36f,0.21f,0.11f,0.065f,0.04f,0.024f,0.013f,0.008f,0.005f,0.003f,0.002f,0.001f,0.0f,0.0f}, // Lower body coloration
+            {0.9f,0.6f,0.38f,0.23f,0.13f,0.08f,0.045f,0.026f,0.015f,0.008f,0.005f,0.003f,0.001f,0.0f,0.0f,0.0f}, // Midrange resonant coloration
+            {0.8f,0.61f,0.46f,0.34f,0.23f,0.17f,0.12f,0.09f,0.064f,0.045f,0.03f,0.021f,0.015f,0.01f,0.008f,0.005f}, // Upper string/bridge response
+            {0.84f,0.78f,0.67f,0.56f,0.47f,0.38f,0.32f,0.27f,0.22f,0.18f,0.14f,0.11f,0.09f,0.07f,0.055f,0.04f}, // Bow bite at high pressure
+            0.032f,0.22f,6100.0f,3300.0f,10500.0f,1.05f,5.65f,0.075f,0.29f,0.16f,0.12f,0.025f,0.012f,0.15f,0.09f,0.018f,0.1f
+        };
+    } else     if (preset == FactoryPreset::Viola) {
+        tone = {
+            {1.0f,0.64f,0.48f,0.43f,0.37f,0.25f,0.17f,0.115f,0.08f,0.06f,0.043f,0.033f,0.023f,0.016f,0.01f,0.006f}, // Open string: natural harmonic envelope
+            {1.0f,0.77f,0.66f,0.62f,0.58f,0.44f,0.36f,0.29f,0.24f,0.19f,0.15f,0.12f,0.09f,0.07f,0.055f,0.04f}, // Increased pressure: stronger high harmonics
+            {1.0f,0.82f,0.61f,0.37f,0.18f,0.095f,0.053f,0.029f,0.017f,0.01f,0.005f,0.003f,0.002f,0.001f,0.0f,0.0f}, // Lower body coloration
+            {0.73f,0.84f,0.69f,0.49f,0.34f,0.22f,0.14f,0.09f,0.05f,0.031f,0.018f,0.01f,0.006f,0.003f,0.001f,0.0f}, // Midrange resonant coloration
+            {0.78f,0.57f,0.34f,0.19f,0.11f,0.066f,0.039f,0.026f,0.017f,0.01f,0.006f,0.004f,0.002f,0.001f,0.0f,0.0f}, // Upper string/bridge response
+            {0.82f,0.75f,0.58f,0.48f,0.38f,0.32f,0.26f,0.2f,0.16f,0.12f,0.09f,0.07f,0.05f,0.04f,0.03f,0.02f}, // Bow bite at high pressure
+            0.052f,0.34f,3900.0f,2000.0f,7300.0f,1.25f,5.1f,0.068f,0.38f,0.22f,0.085f,0.02f,0.01f,0.13f,0.078f,0.015f,0.105f
+        };
+    } else     if (preset == FactoryPreset::Cello) {
+        tone = {
+            {1.0f,0.79f,0.53f,0.38f,0.29f,0.24f,0.19f,0.14f,0.1f,0.08f,0.06f,0.045f,0.034f,0.024f,0.017f,0.012f}, // Open string: natural harmonic envelope
+            {1.0f,0.88f,0.72f,0.63f,0.56f,0.47f,0.4f,0.34f,0.28f,0.23f,0.2f,0.17f,0.14f,0.11f,0.085f,0.065f}, // Increased pressure: stronger high harmonics
+            {1.0f,0.89f,0.64f,0.37f,0.19f,0.105f,0.06f,0.035f,0.02f,0.012f,0.007f,0.004f,0.002f,0.001f,0.0f,0.0f}, // Lower body coloration
+            {1.0f,0.68f,0.39f,0.22f,0.14f,0.078f,0.042f,0.024f,0.013f,0.008f,0.004f,0.002f,0.001f,0.0f,0.0f,0.0f}, // Midrange resonant coloration
+            {0.73f,0.48f,0.32f,0.19f,0.12f,0.08f,0.051f,0.033f,0.021f,0.014f,0.009f,0.006f,0.004f,0.002f,0.001f,0.0f}, // Upper string/bridge response
+            {0.76f,0.66f,0.53f,0.4f,0.31f,0.25f,0.2f,0.16f,0.12f,0.09f,0.07f,0.055f,0.042f,0.032f,0.023f,0.016f}, // Bow bite at high pressure
+            0.074f,0.44f,4200.0f,1700.0f,7400.0f,1.0f,4.85f,0.062f,0.46f,0.19f,0.075f,0.02f,0.01f,0.115f,0.065f,0.013f,0.12f
+        };
+    } else     if (preset == FactoryPreset::Contrabass) {
+        tone = {
+            {1.0f,0.65f,0.43f,0.32f,0.23f,0.18f,0.14f,0.115f,0.088f,0.07f,0.052f,0.039f,0.028f,0.02f,0.014f,0.01f}, // Open string: natural harmonic envelope
+            {1.0f,0.82f,0.68f,0.57f,0.47f,0.4f,0.34f,0.29f,0.25f,0.21f,0.18f,0.145f,0.12f,0.1f,0.08f,0.065f}, // Increased pressure: stronger high harmonics
+            {1.0f,0.88f,0.72f,0.46f,0.28f,0.15f,0.085f,0.045f,0.025f,0.014f,0.008f,0.004f,0.002f,0.001f,0.0f,0.0f}, // Lower body coloration
+            {1.0f,0.85f,0.49f,0.29f,0.165f,0.085f,0.044f,0.025f,0.014f,0.008f,0.005f,0.003f,0.001f,0.0f,0.0f,0.0f}, // Midrange resonant coloration
+            {0.68f,0.48f,0.3f,0.19f,0.11f,0.07f,0.043f,0.029f,0.018f,0.012f,0.008f,0.005f,0.003f,0.002f,0.001f,0.0f}, // Upper string/bridge response
+            {0.78f,0.66f,0.5f,0.39f,0.3f,0.23f,0.18f,0.14f,0.11f,0.085f,0.065f,0.052f,0.04f,0.03f,0.02f,0.013f}, // Bow bite at high pressure
+            0.116f,0.58f,2100.0f,950.0f,4600.0f,1.0f,4.35f,0.04f,0.51f,0.2f,0.06f,0.017f,0.008f,0.112f,0.063f,0.01f,0.095f
+        };
+    }
+    const float a=tone.attack, r=tone.release;
+    setOp(p.ops[0],Wave::Custom,1.0f,0.0f,0.88f,a,0.22f,0.95f,r);
+    setHarm(p.ops[0],tone.stringOpen);
+    setHarmMute(p.ops[0],tone.stringPressed);
+    setOp(p.ops[1],Wave::Custom,1.0f,-1.8f,tone.bodyLevel,a+0.013f,0.32f,0.88f,r*1.22f);
+    setHarm(p.ops[1],tone.body);
+    setOp(p.ops[2],Wave::Custom,2.0f,1.1f,tone.midLevel,a+0.008f,0.25f,0.83f,r*0.92f);
+    setHarm(p.ops[2],tone.mid);
+    setOp(p.ops[3],Wave::Custom,3.0f,0.0f,tone.bridgeLevel,a+0.003f,0.14f,0.74f,r*0.8f);
+    setHarm(p.ops[3],tone.bridge);
+    setHarmMute(p.ops[3],tone.bridgePressed);
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,tone.noiseLevel,0.012f,0.16f,0.84f,0.10f);
+    setOp(p.ops[5],Wave::Noise,1.0f,0.0f,tone.scratchLevel,0.0015f,0.060f,0.03f,0.09f);
+    p.matrix[3][0]=tone.fmDepth; // very subtle nonlinear string bite
+    p.filter={FilterType::Lowpass,tone.cutoff,tone.resonance,0.05f,
+              {0.045f,0.30f,0.6f,0.27f}};
+    p.amp={a,0.22f,0.94f,r};
+    p.velocityAmp=0.78f;
+    p.velocityFilter=0.24f;
+    p.lfo={tone.vibratoRate,tone.vibratoDepth,0.38f,0.25f,LfoTarget::Pitch};
+    slots(p, {
+        {ModTarget::Morph1,0.0f,1.0f}, // fundamental harmonics: smooth -> pressed
+        {ModTarget::Morph4,0.0f,1.0f}, // high harmonic/bow bite
+        {ModTarget::Op5,0.006f,tone.noiseMax}, // continuous hair/string friction
+        {ModTarget::Op6,0.002f,tone.scratchMax}, // scratch at bow onset
+        {ModTarget::Cutoff,tone.softCutoff,tone.hardCutoff},
+        {ModTarget::Fm,0.25f,1.5f} // subtle nonlinear roughness
+    });
+    p.unison=0.0f; // solo instrument: avoid synthetic ensemble doubling
+    p.glide=0.0f;
+    p.volume=0.87f;
+    p.fx.distortion=0.0f;
+    p.fx.delay=0.0f;
+    p.fx.delayFeedback=0.0f;
+    p.fx.reverb=tone.reverb;
+}
+
 } // namespace
 
 Patch makeDefaultPatch(const char* name) {
@@ -64,9 +154,21 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::Spectrello: name="Spectrello"; break;
         case FactoryPreset::Nebular: name="Nebular"; break;
         case FactoryPreset::Nexdrum: name="Nexdrum"; break;
+        case FactoryPreset::Violin: name="Violin"; break;
+        case FactoryPreset::Viola: name="Viola"; break;
+        case FactoryPreset::Cello: name="Cello"; break;
+        case FactoryPreset::Contrabass: name="Contrabass"; break;
         default: break;
     }
     Patch p = makeDefaultPatch(name);
+
+    if(preset==FactoryPreset::Violin ||
+       preset==FactoryPreset::Viola ||
+       preset==FactoryPreset::Cello ||
+       preset==FactoryPreset::Contrabass){
+        configureBowedString(p,preset);
+        return p;
+    }
 
     if(preset==FactoryPreset::SpectrachordInit){
         // A genuinely blank starting point: six identical pure-sine
@@ -178,7 +280,11 @@ const std::array<Patch, static_cast<size_t>(FactoryPreset::Count)>& factoryBank(
         makeFactoryPatch(FactoryPreset::Subula),
         makeFactoryPatch(FactoryPreset::Spectrello),
         makeFactoryPatch(FactoryPreset::Nebular),
-        makeFactoryPatch(FactoryPreset::Nexdrum)
+        makeFactoryPatch(FactoryPreset::Nexdrum),
+        makeFactoryPatch(FactoryPreset::Violin),
+        makeFactoryPatch(FactoryPreset::Viola),
+        makeFactoryPatch(FactoryPreset::Cello),
+        makeFactoryPatch(FactoryPreset::Contrabass)
     };
     return bank;
 }

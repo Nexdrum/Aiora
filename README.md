@@ -33,7 +33,8 @@ There is no WebView, JavaScript runtime, Jetpack Compose UI, or Kotlin applicati
 - unison and glide
 - four M-envelope modulation links
 - distortion, delay, delay time, feedback and reverb
-- factory bank: Spectrachord Init, Subula, Spectrello, Nebular, Nexdrum
+- factory bank: Spectrachord Init, Subula, Spectrello, Nebular, Nexdrum, Violin, Viola, Cello, Contrabass
+- four solo symphonic bowed-string voices with distinct 16-partial body spectra and responsive bow noise; the M curve controls bow pressure/harshness while V independently controls dynamics
 
 ### Nexdrum
 
