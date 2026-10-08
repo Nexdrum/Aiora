@@ -1040,6 +1040,19 @@ bool NativeEditor::openDropdownAt(
     const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
 
     if(page==EditorPage::Synth){
+        // Wave selectors only exist on the Operators tab. Their geometric
+        // rectangles may still lie behind the fixed tab strip while the
+        // operator body is scrolled, so respect both the active tab and the
+        // visible clipped content region before testing them.
+        if(matrixMode_)return false;
+
+        const auto b=bodyRect();
+        const auto tab=synthTabRect(0);
+        const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
+        const float contentTop=tab.y+tab.h+gap;
+        const float contentBottom=b.y+b.h;
+        if(y<contentTop||y>=contentBottom)return false;
+
         static const std::vector<std::string> waveNames{
             "sine","sawtooth","square","triangle","custom","noise"};
         for(int op=0;op<6;++op){
@@ -1047,7 +1060,10 @@ bool NativeEditor::openDropdownAt(
             if(!rr.contains(x,y))continue;
             ui.openDropdown(
                 DropdownKind::Wave,op,anchor(rr),
-                std::clamp(static_cast<int>(p.ops[static_cast<size_t>(op)].wave),0,5),
+                std::clamp(
+                    static_cast<int>(
+                        p.ops[static_cast<size_t>(op)].wave),
+                    0,5),
                 waveNames);
             return true;
         }
