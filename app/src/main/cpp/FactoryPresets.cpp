@@ -250,6 +250,141 @@ void configureWoodwind(Patch& p,FactoryPreset preset) {
     p.fx.delayFeedback=0.0f;p.fx.reverb=t.reverb;
 }
 
+
+// Four solo brass voices. Each consists of lip oscillation (OP1), bore/body
+// resonance (OP2/OP3), a driven/brassy edge (OP4), turbulent air (OP5) and
+// a very short tongue/lip onset (OP6). V is independent dynamics; M controls
+// the way the instrument is excited, or the French horn bell/hand shading.
+// Pitch bending/slide movement is intentionally left entirely to Bend.
+struct BrassTone {
+    std::array<float,16> open, shaped, body, upper, drive, driven;
+    float attack, release, cutoff, mCutoffStart, mCutoffEnd, resonance;
+    float bodyLevel, bodyMax, upperLevel, upperMax, driveLevel, driveMax;
+    float airLevel, airMax, onsetLevel, fmDepth, reverb;
+};
+
+void configureBrass(Patch& p,FactoryPreset preset) {
+    BrassTone t{};
+    if(preset==FactoryPreset::FrenchHorn){
+        // Conical bore: mellow open bell -> covered/shaded bell -> stopped
+        // nasal/brassy character. The horn's pitch is never auto-transposed.
+        t={
+            {1.0f,.83f,.65f,.52f,.38f,.27f,.18f,.115f,.074f,.047f,.030f,.018f,.010f,.006f,.003f,.002f},
+            {1.0f,.61f,.49f,.33f,.23f,.13f,.073f,.039f,.022f,.012f,.006f,.003f,.002f,.001f,0,0},
+            {1.0f,.87f,.64f,.40f,.24f,.14f,.079f,.045f,.024f,.013f,.007f,.004f,.002f,.001f,0,0},
+            {.80f,.91f,.80f,.58f,.37f,.21f,.11f,.065f,.036f,.019f,.010f,.006f,.003f,.001f,0,0},
+            {.56f,.72f,.84f,1.0f,.81f,.59f,.38f,.24f,.15f,.089f,.055f,.033f,.020f,.011f,.006f,.003f},
+            {.32f,.44f,.69f,.99f,1.0f,.87f,.74f,.61f,.47f,.36f,.26f,.19f,.13f,.087f,.059f,.037f},
+            .092f,.31f,3350.0f,3100.0f,3700.0f,1.04f,
+            .29f,.135f,.090f,.13f,.015f,.275f,
+            .0035f,.036f,.015f,.012f,.12f
+        };
+    }else if(preset==FactoryPreset::Trumpet){
+        // Trumpet overdrive: restrained centered brass to brilliantly
+        // loaded lips. Rich upper harmonics without automatic octave jumps.
+        t={
+            {1.0f,.72f,.57f,.40f,.30f,.22f,.16f,.12f,.085f,.061f,.043f,.03f,.020f,.014f,.009f,.005f},
+            {1.0f,.95f,.89f,.82f,.75f,.69f,.60f,.54f,.46f,.40f,.34f,.29f,.23f,.19f,.15f,.12f},
+            {1.0f,.70f,.44f,.26f,.15f,.087f,.048f,.027f,.015f,.008f,.004f,.002f,.001f,0,0,0},
+            {.73f,.96f,1.0f,.90f,.74f,.59f,.46f,.35f,.27f,.19f,.14f,.097f,.068f,.048f,.033f,.023f},
+            {.57f,.82f,1.0f,.95f,.82f,.71f,.58f,.49f,.39f,.31f,.24f,.19f,.14f,.11f,.077f,.055f},
+            {.40f,.68f,.94f,1.0f,.99f,.91f,.82f,.73f,.64f,.55f,.46f,.38f,.31f,.25f,.20f,.16f},
+            .030f,.17f,5600.0f,3800.0f,11500.0f,.82f,
+            .17f,.20f,.11f,.225f,.050f,.43f,
+            .0025f,.038f,.023f,.025f,.095f
+        };
+    }else if(preset==FactoryPreset::Trombone){
+        // Wide, low-register brass: rounded low-mid sound develops a broad
+        // coarse bark instead of trumpet-like shrillness. Slide = Bend.
+        t={
+            {1.0f,.91f,.76f,.56f,.42f,.31f,.22f,.15f,.105f,.075f,.051f,.033f,.023f,.015f,.009f,.005f},
+            {1.0f,.99f,.93f,.85f,.77f,.67f,.55f,.47f,.39f,.32f,.26f,.20f,.16f,.12f,.09f,.065f},
+            {1.0f,.97f,.83f,.63f,.43f,.28f,.16f,.085f,.045f,.025f,.014f,.008f,.004f,.002f,.001f,0},
+            {.86f,1.0f,.96f,.82f,.65f,.48f,.35f,.24f,.16f,.105f,.068f,.042f,.025f,.014f,.008f,.005f},
+            {.74f,.91f,1.0f,.97f,.83f,.68f,.54f,.42f,.33f,.25f,.19f,.14f,.10f,.073f,.052f,.036f},
+            {.57f,.81f,1.0f,1.0f,.95f,.87f,.77f,.67f,.58f,.49f,.40f,.32f,.26f,.21f,.16f,.12f},
+            .048f,.24f,3700.0f,2750.0f,7500.0f,.88f,
+            .29f,.33f,.093f,.17f,.038f,.355f,
+            .003f,.060f,.023f,.027f,.11f
+        };
+    }else if(preset==FactoryPreset::Tuba){
+        // Large conical bore: substantial low partials, a deep round column
+        // and more growling lip excitation with stronger blowing effort.
+        t={
+            {1.0f,.98f,.78f,.56f,.38f,.25f,.16f,.10f,.062f,.038f,.021f,.012f,.007f,.004f,.002f,.001f},
+            {1.0f,1.0f,.97f,.87f,.74f,.60f,.47f,.35f,.26f,.19f,.135f,.095f,.066f,.047f,.032f,.021f},
+            {1.0f,.92f,.67f,.42f,.24f,.13f,.071f,.038f,.021f,.011f,.005f,.002f,.001f,0,0,0},
+            {.90f,.99f,.84f,.62f,.43f,.29f,.19f,.12f,.075f,.044f,.025f,.014f,.008f,.004f,.002f,.001f},
+            {.88f,1.0f,.98f,.86f,.73f,.57f,.44f,.33f,.24f,.17f,.12f,.084f,.058f,.040f,.027f,.018f},
+            {.65f,.86f,1.0f,1.0f,.93f,.84f,.72f,.61f,.50f,.40f,.32f,.25f,.19f,.145f,.105f,.074f},
+            .079f,.39f,2500.0f,1700.0f,5300.0f,1.05f,
+            .35f,.38f,.065f,.14f,.031f,.305f,
+            .003f,.067f,.014f,.022f,.095f
+        };
+    }
+
+    const float a=t.attack,r=t.release;
+    setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.87f,a,.21f,.95f,r);
+    setHarm(p.ops[0],t.open);
+    setHarmMute(p.ops[0],t.shaped);
+
+    setOp(p.ops[1],Wave::Custom,1.0f,0.0f,t.bodyLevel,
+        a+.010f,.28f,.91f,r*1.15f);
+    setHarm(p.ops[1],t.body);
+    setOp(p.ops[2],Wave::Custom,2.0f,0.0f,t.upperLevel,
+        a+.005f,.22f,.84f,r*.86f);
+    setHarm(p.ops[2],t.upper);
+
+    setOp(p.ops[3],Wave::Custom,1.0f,0.0f,t.driveLevel,
+        std::max(.005f,a*.68f),.18f,.84f,r*.82f);
+    setHarm(p.ops[3],t.drive);
+    setHarmMute(p.ops[3],t.driven);
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,t.airLevel,
+        .006f,.15f,.75f,.075f);
+    setOp(p.ops[5],Wave::Noise,1.0f,0.0f,t.onsetLevel,
+        .0015f,.033f,0.0f,.057f);
+    p.matrix[3][0]=t.fmDepth;
+    p.filter={FilterType::Lowpass,t.cutoff,t.resonance,.035f,
+        {.035f,.23f,.56f,.20f}};
+    p.amp={a,.23f,.96f,r};
+    p.velocityAmp=.78f;
+    p.velocityFilter=.25f;
+    // Never impose a fixed vibrato, fall, lip slur, or other articulation.
+    // The composer performs those gestures with per-note Bend/V/M.
+    p.lfo={5.0f,0.0f,.30f,.0f,LfoTarget::None};
+
+    if(preset==FactoryPreset::FrenchHorn){
+        // Reduce open-bell body as the tonal coloration changes, while
+        // stopped-bell nasal harmonics take over. No automatic pitch shift.
+        slots(p,{
+            {ModTarget::Morph1,0.0f,1.0f},
+            {ModTarget::Op2,t.bodyLevel,t.bodyMax},
+            {ModTarget::Op4,t.driveLevel,t.driveMax},
+            {ModTarget::Morph4,0.0f,1.0f},
+            {ModTarget::Cutoff,t.mCutoffStart,t.mCutoffEnd},
+            {ModTarget::Op3,t.upperLevel,t.upperMax}
+        });
+    }else{
+        // Excitation control: soft -> strongly driven, instrument-specific
+        // spectral envelope, lip buzz, filter and moderate breath/turbulence.
+        slots(p,{
+            {ModTarget::Morph1,0.0f,1.0f},
+            {ModTarget::Morph4,0.0f,1.0f},
+            {ModTarget::Op4,t.driveLevel,t.driveMax},
+            {ModTarget::Cutoff,t.mCutoffStart,t.mCutoffEnd},
+            {ModTarget::Op5,t.airLevel,t.airMax},
+            {ModTarget::Fm,.25f,1.25f}
+        });
+    }
+    p.unison=0.0f;
+    p.glide=0.0f;
+    p.volume=preset==FactoryPreset::Tuba?.90f:.85f;
+    p.fx.distortion=0.0f;
+    p.fx.delay=0.0f;
+    p.fx.delayFeedback=0.0f;
+    p.fx.reverb=t.reverb;
+}
+
 } // namespace
 
 Patch makeDefaultPatch(const char* name) {
@@ -293,6 +428,10 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::Clarinet: name="Clarinet"; break;
         case FactoryPreset::Oboe: name="Oboe"; break;
         case FactoryPreset::Bassoon: name="Bassoon"; break;
+        case FactoryPreset::FrenchHorn: name="French Horn"; break;
+        case FactoryPreset::Trumpet: name="Trumpet"; break;
+        case FactoryPreset::Trombone: name="Trombone"; break;
+        case FactoryPreset::Tuba: name="Tuba"; break;
         default: break;
     }
     Patch p = makeDefaultPatch(name);
@@ -310,6 +449,14 @@ Patch makeFactoryPatch(FactoryPreset preset) {
        preset==FactoryPreset::Oboe ||
        preset==FactoryPreset::Bassoon){
         configureWoodwind(p,preset);
+        return p;
+    }
+
+    if(preset==FactoryPreset::FrenchHorn ||
+       preset==FactoryPreset::Trumpet ||
+       preset==FactoryPreset::Trombone ||
+       preset==FactoryPreset::Tuba){
+        configureBrass(p,preset);
         return p;
     }
 
@@ -431,7 +578,11 @@ const std::array<Patch, static_cast<size_t>(FactoryPreset::Count)>& factoryBank(
         makeFactoryPatch(FactoryPreset::Flute),
         makeFactoryPatch(FactoryPreset::Clarinet),
         makeFactoryPatch(FactoryPreset::Oboe),
-        makeFactoryPatch(FactoryPreset::Bassoon)
+        makeFactoryPatch(FactoryPreset::Bassoon),
+        makeFactoryPatch(FactoryPreset::FrenchHorn),
+        makeFactoryPatch(FactoryPreset::Trumpet),
+        makeFactoryPatch(FactoryPreset::Trombone),
+        makeFactoryPatch(FactoryPreset::Tuba)
     };
     return bank;
 }
