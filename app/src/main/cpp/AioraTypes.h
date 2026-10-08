@@ -21,7 +21,12 @@ enum class ModTarget : uint8_t {
 
 struct Envelope { float attack{0.008f}, decay{0.12f}, sustain{0.85f}, release{0.25f}; };
 struct Operator {
-    bool enabled{true}; Wave wave{Wave::Sine}; float ratio{1.0f},detuneCents{0.0f},level{0.0f};
+    bool enabled{true};
+    Wave wave{Wave::Sine};
+    float ratio{1.0f};
+    float semitoneOffset{0.0f};
+    float detuneCents{0.0f};
+    float level{0.0f};
     Envelope env{0.005f,0.1f,0.8f,0.15f};
     std::array<float,16> harm{}; std::array<float,16> harmMute{};
     bool hasHarm{false},hasHarmMute{false};
