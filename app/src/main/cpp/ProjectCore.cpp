@@ -318,9 +318,12 @@ bool ProjectCore::deleteDrumPad(int trackIndex,int padIndex){
     auto& t=project_.tracks[trackIndex];
 
     if(t.pads.size()==1){
-        // Deleting the final pad unwraps its sound back into a normal
+        // Deleting the final pad unwraps its complete sound back into a normal
         // Spectrachord track instead of destroying the sound.
-        t.patch=t.pads.front().patch;
+        const auto finalPad=t.pads.front();
+        t.patch=finalPad.patch;
+        t.volume=std::clamp(t.volume*finalPad.volume,0.0f,1.0f);
+        t.pan=std::clamp(t.pan+finalPad.pan,-1.0f,1.0f);
         t.pads.clear();
         t.selectedPad=0;
         t.drums=false;
