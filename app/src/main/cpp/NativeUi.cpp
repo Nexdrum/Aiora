@@ -864,6 +864,18 @@ NativeUi::Rect NativeUi::trackPartRect(int index,int count,int part) const noexc
     };
 }
 
+NativeUi::Rect NativeUi::trackReorderRect(int index,int count) const noexcept {
+    const auto r=trackRect(index,count);
+    const float button=std::clamp(r.h*0.28f,36.0f,44.0f);
+    const float gap=std::clamp(r.w*0.010f,6.0f,10.0f);
+    const auto del=trackPartRect(index,count,4);
+    return {
+        del.x-button-gap,
+        del.y,
+        button,button
+    };
+}
+
 NativeUi::Rect NativeUi::drumKitCardRect() const noexcept {
     const auto view=pageScrollContentRect();
     auto& project=ProjectCore::instance();
@@ -904,6 +916,15 @@ NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
         top+index*(rowH+gap),
         card.w-gap*2.0f,
         rowH
+    };
+}
+
+NativeUi::Rect NativeUi::padReorderRect(int index,int count) const noexcept {
+    const auto row=padQuickRect(index,count);
+    return {
+        row.x+row.w-118.0f,
+        row.y+18.0f,
+        44.0f,44.0f
     };
 }
 
@@ -1923,6 +1944,16 @@ void NativeUi::drawTracks() const noexcept {
                 label,{br.x,br.y,br.w,br.h},
                 1.00f,overlayColor(kWhite));
         }
+
+        const auto grip=trackReorderRect(i,count);
+        fillRect(grip,kButton);
+        for(int g=0;g<3;++g){
+            const float gy=grip.y+grip.h*(0.32f+g*0.18f);
+            overlay.addLine(
+                grip.x+grip.w*0.24f,gy,
+                grip.x+grip.w*0.76f,gy,
+                2.2f,overlayColor(kMuted));
+        }
     }
 
     const auto add=addTrackRect(TrackAddKind::Melodic);
@@ -2219,6 +2250,16 @@ void NativeUi::drawPadQuick() const noexcept {
             infoX,row.y+54.0f,
             0.78f,overlayColor(kMuted));
 
+        const auto grip=padReorderRect(i,count);
+        fillRect(grip,kButton);
+        for(int g=0;g<3;++g){
+            const float gy=grip.y+grip.h*(0.32f+g*0.18f);
+            ov.addLine(
+                grip.x+grip.w*0.24f,gy,
+                grip.x+grip.w*0.76f,gy,
+                2.2f,overlayColor(kMuted));
+        }
+
         const Rect del{
             row.x+row.w-62.0f,
             row.y+18.0f,
@@ -2288,11 +2329,18 @@ void NativeUi::drawDrumEditor() const noexcept {
         "Note",card.x+20.0f,card.y+62.0f,
         0.96f,overlayColor(kWhite));
 
-    if(track<0||!project.trackIsDrums(track)){
+    if(track<0||track>=project.trackCount()){
         ov.addText(
-            "Add a drum track to begin",
+            "Create a Spectrachord track on the Tracks page",
             card.x+20.0f,card.y+108.0f,
-            0.88f,overlayColor(kMuted));
+            0.82f,overlayColor(kMuted));
+        return;
+    }
+    if(!project.trackIsDrums(track)){
+        ov.addText(
+            "Convert this track to a drum kit above",
+            card.x+20.0f,card.y+108.0f,
+            0.84f,overlayColor(kMuted));
         return;
     }
     const int pad=project.selectedPad(track);
@@ -2367,22 +2415,25 @@ void NativeUi::drawDrums() const noexcept {
         kit.x+92.0f,kit.y+58.0f,
         kit.w-114.0f,58.0f};
     fillRect(kitField,kRollBg);
-    const bool hasDrumTrack=
-        track>=0&&project.trackIsDrums(track);
+    const bool hasTrack=track>=0&&track<project.trackCount();
+    const bool hasDrumTrack=hasTrack&&project.trackIsDrums(track);
     ov.addText(
-        hasDrumTrack?"Nexdrum":"No drum track",
+        hasDrumTrack?"Drum kit":
+        hasTrack?"Instrument track":"No track selected",
         kitField.x+14.0f,kitField.y+17.0f,
-        1.02f,overlayColor(hasDrumTrack?kWhite:kMuted));
+        1.02f,
+        overlayColor(hasTrack?kWhite:kMuted));
 
     drawPadQuick();
 
     const auto add=drumActionRect(1);
-    fillRect(add,kButton);
+    fillRect(add,hasTrack?kButton:mix(kButton,kRollBg,0.58f));
     ov.addTextCentered(
-        hasDrumTrack?"+ Add Pad":"+ Add drum track",
+        hasDrumTrack?"+ Add Pad":
+        hasTrack?"Convert to drum kit":"Create a track on Tracks page",
         {add.x,add.y,add.w,add.h},
-        hasDrumTrack?0.96f:0.82f,
-        overlayColor(kWhite));
+        hasDrumTrack?0.96f:0.78f,
+        overlayColor(hasTrack?kWhite:kMuted));
 
     drawDrumEditor();
     drawGrid();
