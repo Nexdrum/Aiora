@@ -51,9 +51,11 @@ constexpr std::array<PatchParam,9> kLfoFxParams{
     PatchParam::LfoRate,PatchParam::LfoAmount,PatchParam::LfoAttack,PatchParam::LfoVelocity,
     PatchParam::Distortion,PatchParam::Delay,PatchParam::DelayTime,PatchParam::DelayFeedback,PatchParam::Reverb
 };
-constexpr std::array<OperatorParam,7> kOperatorParams{
-    OperatorParam::Ratio,OperatorParam::Detune,OperatorParam::Level,
-    OperatorParam::Attack,OperatorParam::Decay,OperatorParam::Sustain,OperatorParam::Release
+constexpr std::array<OperatorParam,8> kOperatorParams{
+    OperatorParam::Ratio,OperatorParam::Semitone,
+    OperatorParam::Detune,OperatorParam::Level,
+    OperatorParam::Attack,OperatorParam::Decay,
+    OperatorParam::Sustain,OperatorParam::Release
 };
 
 NativeEditor::Rgb mix(NativeEditor::Rgb a,NativeEditor::Rgb b,float t) noexcept {
@@ -225,7 +227,7 @@ NativeEditor::Rect NativeEditor::operatorCardRect(int index) const noexcept {
     const auto tab=synthTabRect(0);
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
     const float w=(b.w-gap*3.0f)*0.5f;
-    const float h=940.0f;
+    const float h=1022.0f;
     const int row=index/2,col=index%2;
     return {
         b.x+gap+col*(w+gap),
@@ -249,20 +251,9 @@ NativeEditor::Rect NativeEditor::operatorCardParamRect(int op,int param) const n
     };
 }
 
-NativeEditor::Rect NativeEditor::operatorRatioModeRect(int op) const noexcept {
-    const auto r=operatorCardParamRect(op,0);
-    constexpr float w=58.0f;
-    return {
-        r.x+r.w-w,
-        r.y+6.0f,
-        w,
-        r.h-12.0f
-    };
-}
-
 NativeEditor::Rect NativeEditor::operatorCardToggleRect(int op) const noexcept {
     const auto c=operatorCardRect(op);
-    return {c.x+16.0f,c.y+736.0f,c.w-32.0f,70.0f};
+    return {c.x+16.0f,c.y+818.0f,c.w-32.0f,70.0f};
 }
 
 NativeEditor::Rect NativeEditor::operatorCardHarmonicRect(int op,int partial) const noexcept {
@@ -272,7 +263,7 @@ NativeEditor::Rect NativeEditor::operatorCardHarmonicRect(int op,int partial) co
     const float w=(c.w-32.0f-gap*7.0f)/8.0f;
     return {
         c.x+16.0f+col*(w+gap),
-        c.y+826.0f+row*56.0f,
+        c.y+908.0f+row*56.0f,
         w,48.0f
     };
 }
@@ -410,8 +401,9 @@ NativeEditor::Rect NativeEditor::modAddRect() const noexcept {
 
 NativeEditor::Range NativeEditor::operatorRange(OperatorParam p) noexcept {
     switch(p){
-        case OperatorParam::Ratio:return {0.125f,16.0f};
-        case OperatorParam::Detune:return {-100.0f,100.0f};
+        case OperatorParam::Ratio:return {0.125f,8.0f};
+        case OperatorParam::Semitone:return {-12.0f,12.0f};
+        case OperatorParam::Detune:return {-50.0f,50.0f};
         case OperatorParam::Level:return {0.0f,1.0f};
         case OperatorParam::Attack:return {0.001f,1.0f};
         case OperatorParam::Decay:return {0.005f,1.5f};
@@ -480,6 +472,7 @@ float NativeEditor::operatorValue(const Patch& p,int op,OperatorParam param) noe
     if(op<0||op>=6)return 0.0f;const auto& o=p.ops[static_cast<size_t>(op)];
     switch(param){
         case OperatorParam::Ratio:return o.ratio;
+        case OperatorParam::Semitone:return o.semitoneOffset;
         case OperatorParam::Detune:return o.detuneCents;
         case OperatorParam::Level:return o.level;
         case OperatorParam::Attack:return o.env.attack;
@@ -713,8 +706,8 @@ void NativeEditor::renderSynth() const noexcept {
     }else{
         static constexpr const char* kWaveNames[6]={
             "sine","sawtooth","square","triangle","custom","noise"};
-        static constexpr const char* kLabels[7]={
-            "R","F","L","A","D","S","R"};
+        static constexpr const char* kLabels[8]={
+            "R","ST","F","L","A","D","S","R"};
 
         const auto shortValue=[](float v){
             std::string s=std::to_string(v);
@@ -751,7 +744,7 @@ void NativeEditor::renderSynth() const noexcept {
                 {wave.x+wave.w-38.0f,wave.y,38.0f,wave.h},
                 overlayColor(kWhite));
 
-            for(int paramIndex=0;paramIndex<7;++paramIndex){
+            for(int paramIndex=0;paramIndex<8;++paramIndex){
                 const auto param=kOperatorParams[static_cast<size_t>(paramIndex)];
                 const auto rr=operatorCardParamRect(op,paramIndex);
                 const float value=operatorValue(p,op,param);
@@ -760,7 +753,8 @@ void NativeEditor::renderSynth() const noexcept {
                 ov.addText(
                     kLabels[paramIndex],
                     rr.x,rr.y+rr.h*0.26f,
-                    0.82f,overlayColor(kWhite));
+                    paramIndex==1?0.72f:0.82f,
+                    overlayColor(kWhite));
 
                 const float labelW=38.0f;
                 const float valueW=62.0f;
@@ -768,38 +762,31 @@ void NativeEditor::renderSynth() const noexcept {
                 const float trackW=
                     std::max(20.0f,rr.w-labelW-valueW-6.0f);
 
-                if(paramIndex==0){
-                    const bool semitone=
-                        operatorSemitoneMode_[static_cast<size_t>(op)];
-                    const float shown=semitone
-                        ?12.0f*std::log2(std::max(0.000001f,value))
-                        :value;
+                if(param==OperatorParam::Ratio||
+                   param==OperatorParam::Semitone){
                     fillRect(
                         {trackX,rr.y+4.0f,trackW,rr.h-8.0f},
                         mix(kRollBg,kButton,0.22f));
+                    const float shown=param==OperatorParam::Semitone
+                        ?std::round(value):value;
                     ov.addText(
                         shortValue(shown),
                         trackX+10.0f,rr.y+22.0f,
                         1.00f,overlayColor(kWhite));
-
-                    const auto mode=operatorRatioModeRect(op);
-                    fillRect(mode,semitone?kCyan:kButton);
-                    ov.addTextCentered(
-                        semitone?"ST":"RATIO",
-                        {mode.x,mode.y,mode.w,mode.h},
-                        semitone?0.80f:0.62f,
-                        overlayColor(semitone?kBg:kWhite));
                 }else{
                     const float cy=rr.y+rr.h*0.52f;
                     fillRect({trackX,cy-3.0f,trackW,6.0f},kTrack);
                     fillRect({
                         trackX,cy-3.0f,trackW*norm,6.0f},
-                        paramIndex<3?kCyan:kOrange);
+                        paramIndex<4?kCyan:kOrange);
                     const float knob=22.0f;
                     fillRect({
                         trackX+trackW*norm-knob*0.5f,
                         cy-knob*0.5f,knob,knob},
-                        mix(kWhite,paramIndex<3?kCyan:kOrange,0.25f));
+                        mix(
+                            kWhite,
+                            paramIndex<4?kCyan:kOrange,
+                            0.25f));
 
                     const float shown=param==OperatorParam::Detune
                         ?std::round(value):value;
@@ -1145,31 +1132,17 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
 }
 
 std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
-    for(int op=0;op<6;++op){
-        if(operatorRatioModeRect(op).contains(x,y))return std::nullopt;
-    }
     const auto hit=hitSynth(x,y);
-    if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=0)return std::nullopt;
+    if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=0)
+        return std::nullopt;
     return std::clamp(hit->a,0,5);
 }
 
-std::optional<int> NativeEditor::hitOperatorRatioMode(float x,float y) const noexcept {
-    if(matrixMode_)return std::nullopt;
-    for(int op=0;op<6;++op){
-        if(operatorRatioModeRect(op).contains(x,y))return op;
-    }
-    return std::nullopt;
-}
-
-bool NativeEditor::operatorSemitoneMode(int op) const noexcept {
-    if(op<0||op>=6)return false;
-    return operatorSemitoneMode_[static_cast<size_t>(op)];
-}
-
-void NativeEditor::toggleOperatorRatioMode(int op) noexcept {
-    if(op<0||op>=6)return;
-    auto& value=operatorSemitoneMode_[static_cast<size_t>(op)];
-    value=!value;
+std::optional<int> NativeEditor::hitOperatorSemitone(float x,float y) const noexcept {
+    const auto hit=hitSynth(x,y);
+    if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=1)
+        return std::nullopt;
+    return std::clamp(hit->a,0,5);
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
@@ -1206,7 +1179,7 @@ std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const n
         if(toggle.contains(x,y))
             return Hit{HitKind::OperatorToggle,op,-1,toggle};
 
-        for(int param=0;param<7;++param){
+        for(int param=0;param<8;++param){
             const auto rr=operatorCardParamRect(op,param);
             if(rr.contains(x,y))
                 return Hit{HitKind::OperatorParam,op,param,rr};
@@ -1323,7 +1296,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 
         case HitKind::OperatorParam:{
             const int op=std::clamp(hit.a,0,5);
-            const int paramIndex=std::clamp(hit.b,0,6);
+            const int paramIndex=std::clamp(hit.b,0,7);
             const auto param=kOperatorParams[static_cast<size_t>(paramIndex)];
 
             // The left portion of the row is the label in the HTML layout.
@@ -1334,7 +1307,8 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 
             float value=denormalized(
                 controlNx,operatorRange(param));
-            if(param==OperatorParam::Detune)
+            if(param==OperatorParam::Semitone||
+               param==OperatorParam::Detune)
                 value=std::round(value);
             return project.setSelectedOperatorParam(
                 op,param,value);
