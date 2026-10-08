@@ -181,23 +181,6 @@ void createDefaultProject() {
     project.selectTrack(bass);
 }
 
-void selectExistingDrumTrack() {
-    auto& project = aiora::ProjectCore::instance();
-    const int selected = project.selectedTrack();
-    if (selected >= 0 && project.trackIsDrums(selected)) return;
-
-    const int count = project.trackCount();
-    for (int i = 0; i < count; ++i) {
-        if (project.trackIsDrums(i)) {
-            project.selectTrack(i);
-            return;
-        }
-    }
-    // Navigation must never mutate the song. If no drum track exists,
-    // leave the current selection alone and let the Drums page present
-    // an explicit "+ Add drum track" action.
-}
-
 JNIEnv* androidEnv(ANativeActivity* activity,bool& attached) {
     attached=false;
     if(!activity||!activity->vm)return nullptr;
@@ -1598,7 +1581,6 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
         state.ui.setPage(*nav);
         state.ui.resetDrumRangeArm();
-        if (*nav == aiora::NativePage::Drums) selectExistingDrumTrack();
         return true;
     }
 
