@@ -285,9 +285,11 @@ private:
     [[nodiscard]] Rect projectTransferRect(int index) const noexcept;
     [[nodiscard]] Rect trackRect(int index, int count) const noexcept;
     [[nodiscard]] Rect trackPartRect(int index, int count, int part) const noexcept;
+    [[nodiscard]] Rect trackReorderRect(int index,int count) const noexcept;
     [[nodiscard]] Rect addTrackRect(TrackAddKind kind) const noexcept;
     [[nodiscard]] Rect masterSliderRect(int index) const noexcept;
     [[nodiscard]] Rect padQuickRect(int index, int count) const noexcept;
+    [[nodiscard]] Rect padReorderRect(int index,int count) const noexcept;
     [[nodiscard]] Rect drumKitCardRect() const noexcept;
     [[nodiscard]] Rect drumPadCardRect() const noexcept;
     [[nodiscard]] Rect drumEditorRect() const noexcept;
@@ -336,10 +338,12 @@ private:
 
     int trackActiveSlider_{-1};
     int trackActiveIndex_{-1};
+    int trackReorderIndex_{-1};
     bool trackControlChanged_{false};
 
     bool drumRangeArmed_{false};
     int drumActiveSlider_{-1};
+    int drumReorderIndex_{-1};
     bool drumControlChanged_{false};
 
     RollMode rollMode_{RollMode::Notes};
