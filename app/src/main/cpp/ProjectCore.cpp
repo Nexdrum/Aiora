@@ -46,8 +46,9 @@ float groupCurveValue(
 
 float clampOperatorParam(OperatorParam param,float v){
     switch(param){
-        case OperatorParam::Ratio:return std::clamp(v,0.125f,16.0f);
-        case OperatorParam::Detune:return std::clamp(v,-100.0f,100.0f);
+        case OperatorParam::Ratio:return std::clamp(v,0.125f,8.0f);
+        case OperatorParam::Semitone:return std::clamp(v,-12.0f,12.0f);
+        case OperatorParam::Detune:return std::clamp(v,-50.0f,50.0f);
         case OperatorParam::Level:return std::clamp(v,0.0f,1.0f);
         case OperatorParam::Attack:return std::clamp(v,0.001f,1.0f);
         case OperatorParam::Decay:return std::clamp(v,0.005f,1.5f);
@@ -624,7 +625,12 @@ bool ProjectCore::setSelectedOperatorParam(int opIndex,OperatorParam param,float
     auto& op=p->ops[opIndex];const float v=clampOperatorParam(param,value);
     switch(param){
         case OperatorParam::Ratio:op.ratio=v;break;
-        case OperatorParam::Detune:op.detuneCents=v;break;
+        case OperatorParam::Semitone:
+            op.semitoneOffset=std::round(v);
+            break;
+        case OperatorParam::Detune:
+            op.detuneCents=std::round(v);
+            break;
         case OperatorParam::Level:op.level=v;break;
         case OperatorParam::Attack:op.env.attack=v;break;
         case OperatorParam::Decay:op.env.decay=v;break;
