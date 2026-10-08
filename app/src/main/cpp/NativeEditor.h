@@ -38,6 +38,9 @@ public:
         EditorPage page, float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitFactoryPreset(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitOperatorRatio(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitOperatorRatioMode(float x,float y) const noexcept;
+    [[nodiscard]] bool operatorSemitoneMode(int op) const noexcept;
+    void toggleOperatorRatioMode(int op) noexcept;
     bool openDropdownAt(EditorPage page,float x,float y,NativeUi& ui) const;
     bool applyDropdownChoice(const DropdownChoice& choice);
 
@@ -72,6 +75,7 @@ private:
     [[nodiscard]] Rect operatorCardRect(int index) const noexcept;
     [[nodiscard]] Rect operatorWaveFieldRect(int op) const noexcept;
     [[nodiscard]] Rect operatorCardParamRect(int op,int param) const noexcept;
+    [[nodiscard]] Rect operatorRatioModeRect(int op) const noexcept;
     [[nodiscard]] Rect operatorCardToggleRect(int op) const noexcept;
     [[nodiscard]] Rect operatorCardHarmonicRect(int op,int partial) const noexcept;
     [[nodiscard]] Rect operatorSelectRect(int index) const noexcept;
@@ -119,6 +123,7 @@ private:
     int safeRight_{0};
     int safeBottom_{0};
     int selectedOperator_{0};
+    std::array<bool,6> operatorSemitoneMode_{};
     bool matrixMode_{false};
     int fxGroup_{0};
     float synthScrollY_{0.0f};
