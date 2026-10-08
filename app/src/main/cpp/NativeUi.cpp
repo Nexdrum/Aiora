@@ -1469,7 +1469,8 @@ void NativeUi::drawScope() const noexcept {
     if(r.w<56.0f||r.h<20.0f)return;
 
     std::array<float,AudioEngine::kScopeReadSamples> samples{};
-    AudioEngine::instance().copyScope(samples);
+    auto& audio=AudioEngine::instance();
+    audio.copyScope(samples);
     auto& ov=NativeOverlay::instance();
 
     fillRect(r,mix(kTop,kBg,0.70f));
@@ -1481,53 +1482,84 @@ void NativeUi::drawScope() const noexcept {
         r.w,1.0f},
         mix(kMuted,kTop,0.70f));
 
-    float peak=0.0f;
-    for(float s:samples)peak=std::max(peak,std::fabs(s));
-    // Keep quiet signals readable without pumping loud material beyond the box.
-    const float gain=peak>0.0005f
-        ?std::clamp(0.82f/peak,1.0f,10.0f)
-        :1.0f;
+    // AIORA is D-centered. Calibrate the horizontal scope window so one
+    // complete D4 reference cycle (293.66 Hz) fills the scope width.
+    constexpr float kScopeReferenceHz=293.66f;
+    const float sampleRate=
+        static_cast<float>(std::max(1,audio.sampleRate()));
+    const float requestedPeriod=sampleRate/kScopeReferenceHz;
+    const float periodSamples=std::clamp(
+        requestedPeriod,
+        2.0f,
+        static_cast<float>(samples.size()-2));
 
-    // Trigger on a rising zero crossing in the first half of the buffer.
-    size_t trigger=0;
-    float bestSlope=0.0f;
-    const size_t searchEnd=samples.size()/2;
-    for(size_t i=1;i<searchEnd;++i){
-        if(samples[i-1]<=0.0f&&samples[i]>0.0f){
-            const float slope=samples[i]-samples[i-1];
-            if(slope>bestSlope){
-                bestSlope=slope;
-                trigger=i;
+    // Find the freshest rising zero crossing that still leaves a complete
+    // D4 reference period available. Interpolate the crossing so the left
+    // edge begins at phase zero rather than at the next integer sample.
+    const float maxTrigger=
+        static_cast<float>(samples.size()-1)-periodSamples;
+    float trigger=0.0f;
+    bool foundTrigger=false;
+    const size_t lastSearch=std::min(
+        samples.size()-1,
+        static_cast<size_t>(std::floor(std::max(1.0f,maxTrigger)))+1);
+    for(size_t i=lastSearch;i>0;--i){
+        const float a=samples[i-1];
+        const float b=samples[i];
+        if(a<=0.0f&&b>0.0f){
+            const float denom=b-a;
+            const float fraction=
+                std::fabs(denom)>1.0e-8f
+                    ?std::clamp(-a/denom,0.0f,1.0f)
+                    :0.0f;
+            const float crossing=
+                static_cast<float>(i-1)+fraction;
+            if(crossing<=maxTrigger+1.0e-4f){
+                trigger=crossing;
+                foundTrigger=true;
+                break;
             }
         }
     }
-
-    const size_t available=samples.size()-trigger;
-    if(available<2)return;
-
-    const int points=std::clamp(
-        static_cast<int>(r.w/2.0f),
-        64,
-        static_cast<int>(available));
+    if(!foundTrigger)trigger=std::max(0.0f,maxTrigger);
 
     auto sampleAt=[&](float t){
-        const float pos=
-            static_cast<float>(trigger)+
-            t*static_cast<float>(available-1);
-        const size_t i0=std::min(
-            samples.size()-1,
-            static_cast<size_t>(std::floor(pos)));
+        const float pos=std::clamp(
+            trigger+t*periodSamples,
+            0.0f,
+            static_cast<float>(samples.size()-1));
+        const size_t i0=static_cast<size_t>(std::floor(pos));
         const size_t i1=std::min(samples.size()-1,i0+1);
         const float f=pos-static_cast<float>(i0);
         return samples[i0]+(samples[i1]-samples[i0])*f;
     };
+
+    const int availablePoints=std::max(
+        2,
+        static_cast<int>(std::ceil(periodSamples))+1);
+    const int points=std::clamp(
+        static_cast<int>(r.w/2.0f),
+        64,
+        std::min(512,availablePoints));
+
+    float peak=0.0f;
+    for(int i=0;i<points;++i){
+        const float t=static_cast<float>(i)/
+            static_cast<float>(std::max(1,points-1));
+        peak=std::max(peak,std::fabs(sampleAt(t)));
+    }
+    // Keep quiet signals readable without pumping loud material beyond the box.
+    const float gain=peak>0.0005f
+        ?std::clamp(0.82f/peak,1.0f,10.0f)
+        :1.0f;
 
     float prevX=r.x;
     float prevY=r.y+r.h*0.5f-
         std::clamp(sampleAt(0.0f)*gain,-1.0f,1.0f)*(r.h*0.43f);
 
     for(int i=1;i<points;++i){
-        const float t=static_cast<float>(i)/static_cast<float>(points-1);
+        const float t=static_cast<float>(i)/
+            static_cast<float>(points-1);
         const float x=r.x+t*r.w;
         const float s=std::clamp(sampleAt(t)*gain,-1.0f,1.0f);
         const float y=r.y+r.h*0.5f-s*(r.h*0.43f);
