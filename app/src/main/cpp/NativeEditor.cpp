@@ -764,8 +764,10 @@ void NativeEditor::renderSynth() const noexcept {
 
                 if(param==OperatorParam::Ratio||
                    param==OperatorParam::Semitone){
+                    const float editW=
+                        std::max(20.0f,rr.w-labelW-4.0f);
                     fillRect(
-                        {trackX,rr.y+4.0f,trackW,rr.h-8.0f},
+                        {trackX,rr.y+4.0f,editW,rr.h-8.0f},
                         mix(kRollBg,kButton,0.22f));
                     const float shown=param==OperatorParam::Semitone
                         ?std::round(value):value;
