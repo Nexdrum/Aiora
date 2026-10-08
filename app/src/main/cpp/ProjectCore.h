@@ -32,6 +32,7 @@ public:
     bool replaceSelectedPatch(Patch patch);
     int addTrack(bool drums = false);
     bool deleteTrack(int index);
+    bool reorderTrack(int fromIndex,int toIndex);
     bool selectTrack(int index);
     int selectedTrack() const;
     int trackCount() const;
@@ -51,8 +52,10 @@ public:
     void setTrackPan(int index, float value);
 
     bool loadNexdrumKit(int trackIndex);
+    bool convertTrackToDrumKit(int trackIndex);
     int addDrumPad(int trackIndex);
     bool deleteDrumPad(int trackIndex, int padIndex);
+    bool reorderDrumPad(int trackIndex,int fromIndex,int toIndex);
     bool setPadCenter(int trackIndex, int padIndex, int midi);
     bool setPadIcon(int trackIndex, int padIndex, const std::string& icon);
     int padCount(int trackIndex) const;
