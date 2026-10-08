@@ -570,13 +570,13 @@ float ProjectCore::curvePointValue(int t,int n,int kind,int p) const {std::scope
 bool ProjectCore::curvePointFree(int t,int n,int kind,int p) const {std::scoped_lock lock(mutex_);if(!validNote(t,n))return false;const auto*c=curveFor(project_.tracks[t].notes[n],kind);return c&&p>=0&&p<static_cast<int>(c->size())&&(*c)[p].free;}
 int ProjectCore::addCurvePoint(int t,int n,int kind,float step,float value,bool free){
     std::scoped_lock lock(mutex_);if(!validNote(t,n))return -1;auto*c=curveFor(project_.tracks[t].notes[n],kind);if(!c||static_cast<int>(c->size())>=kMaxCurvePoints)return -1;
-    const float maxStep=std::max(0.0f,project_.tracks[t].notes[n].lengthSteps-1.0f);c->push_back({std::clamp(step,0.0f,maxStep),clampCurveValue(kind,value),free});
+    const float maxStep=std::max(0.0f,project_.tracks[t].notes[n].lengthSteps-(kind==0?1.0f:0.5f));c->push_back({std::clamp(step,0.0f,maxStep),clampCurveValue(kind,value),free});
     std::sort(c->begin(),c->end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     for(int i=0;i<static_cast<int>(c->size());++i)if(std::fabs((*c)[i].step-std::clamp(step,0.0f,maxStep))<0.0001f&&(*c)[i].free==free)return i;return static_cast<int>(c->size())-1;
 }
 bool ProjectCore::updateCurvePoint(int t,int n,int kind,int p,float step,float value,bool free){
     std::scoped_lock lock(mutex_);if(!validNote(t,n))return false;auto*c=curveFor(project_.tracks[t].notes[n],kind);if(!c||p<0||p>=static_cast<int>(c->size()))return false;
-    const float maxStep=std::max(0.0f,project_.tracks[t].notes[n].lengthSteps-1.0f);(*c)[p]={std::clamp(step,0.0f,maxStep),clampCurveValue(kind,value),free};std::sort(c->begin(),c->end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});return true;
+    const float maxStep=std::max(0.0f,project_.tracks[t].notes[n].lengthSteps-(kind==0?1.0f:0.5f));(*c)[p]={std::clamp(step,0.0f,maxStep),clampCurveValue(kind,value),free};std::sort(c->begin(),c->end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});return true;
 }
 bool ProjectCore::deleteCurvePoint(int t,int n,int kind,int p){std::scoped_lock lock(mutex_);if(!validNote(t,n))return false;auto*c=curveFor(project_.tracks[t].notes[n],kind);if(!c||p<0||p>=static_cast<int>(c->size()))return false;c->erase(c->begin()+p);return true;}
 float ProjectCore::lastStep() const {std::scoped_lock lock(mutex_);float mx=-1;for(const auto&t:project_.tracks)for(const auto&n:t.notes)mx=std::max(mx,n.startStep+std::max(1.0f,n.lengthSteps)-1.0f);return mx;}
