@@ -176,6 +176,22 @@ void detachAndroidEnv(ANativeActivity* activity,bool attached) {
     if(attached&&activity&&activity->vm)activity->vm->DetachCurrentThread();
 }
 
+// NativeActivity input runs off the Android UI thread. The Java method
+// posts the short haptic event to the main thread and honors system settings.
+void pulseCurveModeHaptic(ANativeActivity* activity) {
+    if(!activity)return;
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env)return;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    const jmethodID pulse=cls?env->GetMethodID(
+        cls,"pulseCurveModeHaptic","()V"):nullptr;
+    if(pulse)env->CallVoidMethod(activity->clazz,pulse);
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+}
+
 bool clipboardSetText(ANativeActivity* activity,const std::string& text) {
     bool attached=false;
     JNIEnv* env=androidEnv(activity,attached);
@@ -1148,16 +1164,26 @@ void serviceRollLongPress(NativeState& state){
 
     if(project.updateCurvePoint(
         g.track,g.noteIndex,g.curveKind,g.curvePoint,
-        free?step:std::round(step),
-        free?value:(g.curveKind==0?std::round(value):value),
+        free?step:
+            (g.curveKind==0?std::round(step):
+                std::round(step*2.0f)*0.5f),
+        free?value:
+            (g.curveKind==0?std::round(value):
+                std::round(value*2.0f)*0.5f),
         free)){
         g.curveFree=free;
         g.curvePoint=findCurvePointIndex(
             g.track,g.noteIndex,g.curveKind,
-            free?step:std::round(step),
-            free?value:(g.curveKind==0?std::round(value):value),
+            free?step:
+                (g.curveKind==0?std::round(step):
+                    std::round(step*2.0f)*0.5f),
+            free?value:
+                (g.curveKind==0?std::round(value):
+                    std::round(value*2.0f)*0.5f),
             free);
         g.longPressTriggered=true;
+        if(g.curveKind==1||g.curveKind==2)
+            pulseCurveModeHaptic(state.app?state.app->activity:nullptr);
         aiora::AudioEngine::instance().syncProject();
         scheduleAutosave(state);
     }
