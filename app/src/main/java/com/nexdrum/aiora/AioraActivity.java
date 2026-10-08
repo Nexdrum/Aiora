@@ -8,6 +8,8 @@ import android.app.AlertDialog;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.WindowManager;
+import android.view.HapticFeedbackConstants;
+import android.view.View;
 import android.widget.EditText;
 
 import java.io.File;
@@ -31,6 +33,17 @@ public class AioraActivity extends NativeActivity {
     public static final int REQUEST_NEW_PROJECT = 4204;
 
     private final Map<Integer, String> pendingSources = new HashMap<>();
+
+    // Called on a successful V/M point snap/free long-press transition.
+    // View haptics respect the user's Android feedback settings.
+    public void pulseCurveModeHaptic() {
+        runOnUiThread(() -> {
+            View decor = getWindow().getDecorView();
+            if (decor != null) {
+                decor.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            }
+        });
+    }
 
     @Override
     protected void onCreate(Bundle state) {
