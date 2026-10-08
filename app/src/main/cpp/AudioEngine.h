@@ -33,8 +33,10 @@ public:
     int factoryPreset() const noexcept { return selectedPreset_.load(std::memory_order_relaxed); }
     int sampleRate() const noexcept { return sampleRate_.load(std::memory_order_relaxed); }
 
-    static constexpr size_t kScopeSamples = 512;
-    static constexpr size_t kScopeReadSamples = 256;
+    // Keep enough history for a D4-calibrated display window at common
+    // Android sample rates, including 96 kHz.
+    static constexpr size_t kScopeSamples = 2048;
+    static constexpr size_t kScopeReadSamples = 1024;
     void copyScope(std::array<float, kScopeReadSamples>& out) const noexcept;
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* audioData, int32_t numFrames) override;
