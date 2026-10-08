@@ -316,12 +316,22 @@ NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
     static constexpr float heights[4]={760.0f,844.0f,916.0f,650.0f};
+    const int clamped=std::clamp(index,0,3);
     float y=b.y+gap-fxScrollY_;
-    for(int i=0;i<index;++i)y+=heights[i]+gap;
+    for(int i=0;i<clamped;++i)y+=heights[i]+gap;
+
+    float height=heights[clamped];
+    if(clamped==3){
+        const int count=ProjectCore::instance().selectedModSlotCount();
+        height=std::max(
+            650.0f,
+            176.0f+112.0f*static_cast<float>(std::max(0,count)));
+    }
+
     return {
         b.x+gap,y,
         b.w-gap*2.0f,
-        heights[std::clamp(index,0,3)]
+        height
     };
 }
 
@@ -377,7 +387,7 @@ NativeEditor::Rect NativeEditor::modPartRect(int slot,int part) const noexcept {
     // Keep six logical parts so existing interaction types remain usable.
     // 1=target, 3=min, 4=max, 5=delete are the visible HTML-style controls.
     static constexpr std::array<float,6> weights{
-        0.01f,0.36f,0.01f,0.24f,0.24f,0.10f};
+        0.08f,0.34f,0.01f,0.23f,0.23f,0.10f};
     float total=0.0f;
     for(float w:weights)total+=w;
     const float usable=r.w-gap*5.0f;
@@ -978,15 +988,16 @@ void NativeEditor::renderFx() const noexcept {
     drawSection(3);
     auto& project=ProjectCore::instance();
     const int count=project.selectedModSlotCount();
-    for(int slot=0;slot<count&&slot<4;++slot){
+    for(int slot=0;slot<count;++slot){
         const auto s=project.selectedModSlot(slot);
         const auto row=modRowRect(slot);
         fillRect(row,mix(kPanel,kButton,0.18f));
 
-        ov.addText(
+        const auto label=modPartRect(slot,0);
+        ov.addTextCentered(
             "M"+std::to_string(slot+1),
-            row.x,row.y+31.0f,
-            0.92f,overlayColor(kWhite));
+            {label.x,label.y,label.w,label.h},
+            0.82f,overlayColor(kWhite));
 
         const auto target=modPartRect(slot,1);
         const auto mn=modPartRect(slot,3);
@@ -1020,11 +1031,12 @@ void NativeEditor::renderFx() const noexcept {
     }
 
     const auto add=modAddRect();
-    drawButton(add,count<4,kGreen);
+    const bool canAdd=count<kMaxModSlots;
+    drawButton(add,canAdd,kGreen);
     ov.addTextCentered(
-        "+ Add link (max 4)",
+        "+ Add link",
         {add.x,add.y,add.w,add.h},
-        0.94f,overlayColor(count<4?kWhite:kMuted));
+        0.94f,overlayColor(canAdd?kWhite:kMuted));
 
     drawPatchTransfer(EditorPage::Fx);
 }
@@ -1101,7 +1113,7 @@ bool NativeEditor::openDropdownAt(
         "OP1","OP2","OP3","OP4","OP5","OP6",
         "MORPH1","MORPH2","MORPH3","MORPH4","MORPH5","MORPH6",
         "FM","LFO A","LFO R","UNI","VOL"};
-    for(int slot=0;slot<count&&slot<4;++slot){
+    for(int slot=0;slot<count;++slot){
         const auto rr=modPartRect(slot,1);
         if(!rr.contains(x,y))continue;
         const auto s=project.selectedModSlot(slot);
@@ -1252,7 +1264,7 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
 
     auto& project=ProjectCore::instance();
     const int count=project.selectedModSlotCount();
-    for(int slot=0;slot<count&&slot<4;++slot){
+    for(int slot=0;slot<count;++slot){
         const auto targetRect=modPartRect(slot,1);
         if(targetRect.contains(x,y))
             return Hit{HitKind::ModTargetNext,slot,-1,targetRect};
