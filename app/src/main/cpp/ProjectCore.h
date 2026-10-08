@@ -9,7 +9,7 @@ namespace aiora {
 struct PlaybackSnapshot;
 
 enum class OperatorParam : uint8_t {
-    Ratio, Detune, Level, Attack, Decay, Sustain, Release
+    Ratio, Semitone, Detune, Level, Attack, Decay, Sustain, Release
 };
 
 enum class PatchParam : uint8_t {
