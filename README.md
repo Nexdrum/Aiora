@@ -72,6 +72,7 @@ There is no WebView, JavaScript runtime, Jetpack Compose UI, or Kotlin applicati
 - realtime triggered output oscilloscope
 - native multitouch Play grid
 - Tracks, Drums, Roll, Synth, FX and Play views
+- selecting a factory preset on a melodic track automatically renames the track to the preset name; new melodic tracks still start as blank Spectrachord, and drum-pad preset edits do not rename the kit
 
 ### Project interchange
 

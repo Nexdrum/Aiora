@@ -1463,6 +1463,16 @@ bool handleUiTap(NativeState& state, float x, float y) {
                             aiora::makeFactoryPatch(
                                 static_cast<aiora::FactoryPreset>(choice->option)));
                     }
+                    // Selecting a factory instrument names the melodic track
+                    // after that preset. Preserve per-pad preset editing on
+                    // existing drum tracks; loading the Nexdrum kit itself
+                    // still gives the whole track the Nexdrum name.
+                    if(changed &&
+                       (choice->option==static_cast<int>(aiora::FactoryPreset::Nexdrum) ||
+                        !project.trackIsDrums(track))){
+                        project.setTrackName(
+                            track,aiora::factoryBank()[static_cast<size_t>(choice->option)].name);
+                    }
                 }
                 break;
             }
