@@ -80,7 +80,7 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
     modActive_=automation_.mod.count>0;velocityCurveActive_=automation_.velocity.count>0;
     const float m0=curveValue(automation_.mod,0,0),mEnd=automation_.mod.count?automation_.mod.points[automation_.mod.count-1].value:0,mMean=curveMean(automation_.mod,0);
-    modValue_=m0;fixedUnison_=modActive_?clamp01(mappedValue(ModTarget::Unison,mMean,patch_.unison)):patch_.unison;
+    modValue_=m0;timpaniRingGain_=1.0f;fixedUnison_=modActive_?clamp01(mappedValue(ModTarget::Unison,mMean,patch_.unison)):patch_.unison;
     fixedFilterEnvAmount_=modActive_?clamp01(mappedValue(ModTarget::FilterEnv,mMean,patch_.filter.envAmount)):patch_.filter.envAmount;
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
     for(size_t i=0;i<6;++i)opEnv_[i].reset(patch_.ops[i].env,sampleRate_);
@@ -130,6 +130,13 @@ float SpectrachordVoice::render() noexcept {
     const float lvlScale=1-P.velocityAmp+P.velocityAmp*(0.15f+0.85f*pressure*pressure);
     const float cutScale=1-P.velocityFilter+P.velocityFilter*(0.4f+0.6f*pressure);
     const float m=modValue_;
+    // First ~65 ms: M sets mallet attack spectral hardness. Thereafter
+    // the SAME M line represents player-applied felt/head damping.
+    // Damping is cumulative and irreversible, as with a real drumhead.
+    if(P.timpaniMembrane && modActive_ && elapsedSamples_>static_cast<uint32_t>(sampleRate_*.065f)){
+        const float damping=std::max(0.0f,m);
+        timpaniRingGain_*=std::exp(-damping*10.0f/sampleRate_);
+    }
 
     const float lfo=std::sin(lfoPhase_);lfoPhase_+=kTwoPi*std::max(0.05f,slotValue(ModTarget::LfoRate,m,P.lfo.rate))/sampleRate_;if(lfoPhase_>=kTwoPi)lfoPhase_-=kTwoPi;
     lfoAge_+=1/sampleRate_;const float lfoFade=P.lfo.attack<=0?1:std::min(1.0f,lfoAge_/P.lfo.attack);const float lfoVel=(1-P.lfo.velocitySensitivity)+P.lfo.velocitySensitivity*pressure;
@@ -167,7 +174,7 @@ float SpectrachordVoice::render() noexcept {
     const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
     if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
     const float amp=ampEnv_.next(sampleRate_)*lvlScale;if(ampEnv_.done()){active_=false;return 0;}float gain=std::max(0.0f,slotValue(ModTarget::Volume,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);
-    ++elapsedSamples_;return filtered*amp*gain*P.volume*velocityGain;
+    ++elapsedSamples_;return filtered*amp*gain*P.volume*velocityGain*(P.timpaniMembrane?timpaniRingGain_:1.0f);
 }
 
 } // namespace aiora

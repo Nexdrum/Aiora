@@ -44,6 +44,7 @@ struct Patch {
     std::array<ModSlot,kMaxModSlots> modSlots{}; uint8_t modSlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
+    bool timpaniMembrane{false};
 };
 
 /** Audio-thread copy of Patch: fixed-size and trivially copyable, with no std::string. */
@@ -52,13 +53,15 @@ struct DspPatch {
     Filter filter{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
     std::array<ModSlot,kMaxModSlots> modSlots{}; uint8_t modSlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
+    bool timpaniMembrane{false};
 };
 static_assert(std::is_trivially_copyable_v<DspPatch>);
 
 inline DspPatch toDspPatch(const Patch& p) noexcept {
     DspPatch d;d.ops=p.ops;d.matrix=p.matrix;d.filter=p.filter;d.amp=p.amp;
     d.velocityAmp=p.velocityAmp;d.velocityFilter=p.velocityFilter;d.modSlots=p.modSlots;d.modSlotCount=p.modSlotCount;
-    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;return d;
+    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
+    d.timpaniMembrane=p.timpaniMembrane;return d;
 }
 
 constexpr size_t kDspCurvePoints = 26;

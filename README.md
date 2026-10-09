@@ -33,11 +33,13 @@ There is no WebView, JavaScript runtime, Jetpack Compose UI, or Kotlin applicati
 - unison and glide
 - four M-envelope modulation links
 - distortion, delay, delay time, feedback and reverb
-- factory bank: Spectrachord Init, Subula, Spectrello, Nebular, Nexdrum, Violin, Viola, Cello, Contrabass, Flute, Clarinet, Oboe, Bassoon, French Horn, Trumpet, Trombone, Tuba
+- factory bank: Spectrachord Init, Subula, Spectrello, Nebular, Nexdrum, Violin, Viola, Cello, Contrabass, Flute, Clarinet, Oboe, Bassoon, French Horn, Trumpet, Trombone, Tuba, Timpani
 - four solo symphonic bowed-string voices with distinct 16-partial body spectra and responsive bow noise; the M curve controls bow pressure/harshness while V independently controls dynamics
 - four solo woodwind presets: Flute (M = focused air jet to audible breath), Clarinet (M = single-reed embouchure pressure), Oboe (M = double-reed compression / nasal brightness), and Bassoon (M = woody resonance to double-reed grain). Each combines instrument-specific harmonic/bore profiles with attack turbulence; V remains independent dynamics. French horn is classified with brass, although it often blends with woodwinds.
 
 - four solo brass presets: French Horn (M = open bell through shading to stopped, nasal tone), Trumpet (M = lip drive / brilliant upper harmonics), Trombone (M = broad overblown bark), and Tuba (M = low, resonant lip growl). Each has custom 16-partial harmonic profiles, bore resonance, transient breath/lip noise, and M-directed spectral changes. V remains independent dynamics; no automatic pitch jumps, slides, vibrato, or note-end falls.
+
+- solo tuned Timpani: deliberately non-harmonic membrane modes and brief felt-mallet transient. M shapes impact hardness during the first 65 ms, then irreversibly damps the membrane ring-out. V stays independent dynamics and Bend can emulate pedal tuning. The timpani sound model survives patch/song export and import.
 
 ### Nexdrum
 

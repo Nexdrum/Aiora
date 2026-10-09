@@ -383,6 +383,7 @@ void writePatch(Writer& w,const Patch& p){
     w.raw("]}");
     w.raw(",\"fx\":{\"dist\":");w.number(p.fx.distortion);w.raw(",\"delay\":");w.number(p.fx.delay);w.raw(",\"delayTime\":");w.number(p.fx.delayTime);w.raw(",\"delayFb\":");w.number(p.fx.delayFeedback);w.raw(",\"reverb\":");w.number(p.fx.reverb);w.raw("}");
     w.raw(",\"unison\":");w.number(p.unison);w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
+    if(p.timpaniMembrane)w.raw(",\"timpaniMembrane\":true");
     if(p.fundamentalMidi>=0){w.raw(",\"fundamental\":{\"pitch\":");w.number(p.fundamentalMidi);w.raw("}");}
     if(p.nexdrumLow>=0&&p.nexdrumHigh>=0){w.raw(",\"nexdrum\":{\"lo\":");w.number(p.nexdrumLow);w.raw(",\"hi\":");w.number(p.nexdrumHigh);w.raw("}");}
     w.raw("}");
@@ -471,6 +472,7 @@ bool readPatch(const Json& src,Patch& p){
     }
     if(const Json* x=src.get("fx");x&&x->type==Json::Type::Object){p.fx.distortion=clampf(num(x->get("dist"),0),0,1,0);p.fx.delay=clampf(num(x->get("delay"),0),0,1,0);p.fx.delayTime=clampf(num(x->get("delayTime"),.32),.03f,1,.32f);p.fx.delayFeedback=clampf(num(x->get("delayFb"),.3),0,1,.3f);p.fx.reverb=clampf(num(x->get("reverb"),0),0,1,0);}
     p.unison=clampf(num(src.get("unison"),0),0,1,0);p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
+    p.timpaniMembrane=boolean(src.get("timpaniMembrane"),false);
     if(const Json* f=src.get("fundamental");f&&f->type==Json::Type::Object)p.fundamentalMidi=clampi(num(f->get("pitch"),-1),0,127,-1);
     if(const Json* n=src.get("nexdrum");n&&n->type==Json::Type::Object){p.nexdrumLow=clampi(num(n->get("lo"),-1),0,127,-1);p.nexdrumHigh=clampi(num(n->get("hi"),-1),0,127,-1);}
     return true;

@@ -385,6 +385,55 @@ void configureBrass(Patch& p,FactoryPreset preset) {
     p.fx.reverb=t.reverb;
 }
 
+
+// Timpani: dominant resonating membrane modes (not a generic kick).
+// Ratios approximate the kettle-drum's tuned partial family (not exact integer
+// harmonics). A very short upper layer and noise build the felt-mallet onset.
+// M at onset brightens/hardens the impact; after the attack, M progressively
+// damps the membrane in SpectrachordVoice, leaving V and Bend independent.
+void configureTimpani(Patch& p){
+    p.timpaniMembrane=true;
+    // Central drumhead modes: principal pitch, upper fifth, octave and
+    // moderately inharmonic residual membrane modes.
+    setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.83f,
+        .0015f,.92f,0.0f,.24f);
+    setHarm(p.ops[0],{1.0f,.055f,.016f,.008f,.003f,.002f,.001f,0,0,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[0],{1.0f,.12f,.037f,.015f,.008f,.003f,.002f,.001f,0,0,0,0,0,0,0,0});
+
+    setOp(p.ops[1],Wave::Sine,1.50f,0.0f,.32f,
+        .001f,.57f,0.0f,.19f);
+    setOp(p.ops[2],Wave::Sine,2.00f,0.0f,.22f,
+        .001f,.43f,0.0f,.16f);
+    setOp(p.ops[3],Wave::Custom,2.44f,0.0f,.13f,
+        .001f,.093f,0.0f,.080f);
+    setHarm(p.ops[3],{1.0f,.22f,.10f,.035f,.012f,.004f,.002f,0,0,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[3],{1.0f,.62f,.40f,.24f,.13f,.075f,.041f,.023f,.013f,.007f,.004f,.002f,0,0,0,0});
+
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,.045f,
+        .001f,.037f,0.0f,.042f);
+    setOp(p.ops[5],Wave::Sine,3.79f,0.0f,.065f,
+        .001f,.11f,0.0f,.06f);
+
+    p.filter={FilterType::Lowpass,5500.0f,.78f,0.0f,
+        {.005f,.20f,0.0f,.15f}};
+    // The instrument rings out naturally even if the note is held. Per-note
+    // V can fade/release it sooner, and M can damp its residual membrane.
+    p.amp={.001f,.90f,0.0f,.19f};
+    p.velocityAmp=.86f;
+    p.velocityFilter=.31f;
+    p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
+    slots(p,{
+        {ModTarget::Morph1,0.0f,1.0f},
+        {ModTarget::Morph4,0.0f,1.0f},
+        {ModTarget::Op4,.052f,.24f},
+        {ModTarget::Op5,.017f,.17f},
+        {ModTarget::Op6,.024f,.15f}
+    });
+    p.unison=0.0f;p.glide=0.0f;p.volume=.89f;
+    p.fx.distortion=0.0f;p.fx.delay=0.0f;
+    p.fx.delayFeedback=0.0f;p.fx.reverb=.11f;
+}
+
 } // namespace
 
 Patch makeDefaultPatch(const char* name) {
@@ -432,6 +481,7 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::Trumpet: name="Trumpet"; break;
         case FactoryPreset::Trombone: name="Trombone"; break;
         case FactoryPreset::Tuba: name="Tuba"; break;
+        case FactoryPreset::Timpani: name="Timpani"; break;
         default: break;
     }
     Patch p = makeDefaultPatch(name);
@@ -457,6 +507,11 @@ Patch makeFactoryPatch(FactoryPreset preset) {
        preset==FactoryPreset::Trombone ||
        preset==FactoryPreset::Tuba){
         configureBrass(p,preset);
+        return p;
+    }
+
+    if(preset==FactoryPreset::Timpani){
+        configureTimpani(p);
         return p;
     }
 
@@ -582,7 +637,8 @@ const std::array<Patch, static_cast<size_t>(FactoryPreset::Count)>& factoryBank(
         makeFactoryPatch(FactoryPreset::FrenchHorn),
         makeFactoryPatch(FactoryPreset::Trumpet),
         makeFactoryPatch(FactoryPreset::Trombone),
-        makeFactoryPatch(FactoryPreset::Tuba)
+        makeFactoryPatch(FactoryPreset::Tuba),
+        makeFactoryPatch(FactoryPreset::Timpani)
     };
     return bank;
 }
