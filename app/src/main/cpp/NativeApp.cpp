@@ -1926,6 +1926,11 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
     }
 
+    if(state.ui.hitRollZoom(x,y)){
+        state.ui.cycleRollZoom();
+        return true;
+    }
+
     if(state.ui.hitRollRangeScopeToggle(x,y)){
         state.ui.setRollRangeAllTracks(!state.ui.rollRangeAllTracks());
         return true;

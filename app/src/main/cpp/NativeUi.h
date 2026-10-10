@@ -208,6 +208,8 @@ public:
     }
 
     void scrollRoll(int pitchDelta, int stepDelta) noexcept;
+    void cycleRollZoom() noexcept;
+    [[nodiscard]] int rollVisiblePitchCells() const noexcept;
     void setRollStartStep(int step) noexcept;
     [[nodiscard]] int rollStartStep() const noexcept { return rollStartStep_; }
     void setRollSelection(bool active,int anchorStep,int endStep) noexcept;
@@ -242,6 +244,7 @@ public:
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
+    [[nodiscard]] bool hitRollZoom(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollSelectionTool(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollRangeScopeToggle(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollDelete(float x,float y) const noexcept;
@@ -297,10 +300,12 @@ private:
     [[nodiscard]] Rect drumSliderRect(int index) const noexcept;
     [[nodiscard]] Rect drumIconRect(int index) const noexcept;
 
+    [[nodiscard]] Rect rollZoomRect() const noexcept;
     [[nodiscard]] Rect rollSelectionToolRect() const noexcept;
     [[nodiscard]] Rect rollModeRect(int index) const noexcept;
     [[nodiscard]] Rect rollGroupAutomationRect() const noexcept;
     [[nodiscard]] Rect rollViewportRect() const noexcept;
+    [[nodiscard]] float rollBaseCellPixels() const noexcept;
     [[nodiscard]] float rollGutterPixels() const noexcept;
     [[nodiscard]] float rollHeaderPixels() const noexcept;
     [[nodiscard]] std::vector<int> rollColumns() const;
@@ -357,6 +362,7 @@ private:
     float rollGroupAutomationEnd_{0.0f};
     std::vector<RollGroupPoint> rollGroupAutomationPoints_{};
     bool rollRangeAllTracks_{false};
+    int rollZoomIndex_{0}; // Default: 13 cells. Close: 8. Overview: 25.
     int rollPitchOffset_{0};
     int rollStepOffset_{0};
     int rollStartStep_{0};

@@ -24,8 +24,8 @@ constexpr NativeUi::Rgb kTop{0.0784f, 0.0902f, 0.1137f};
 constexpr NativeUi::Rgb kPanel{0.0863f, 0.1020f, 0.1294f};
 constexpr NativeUi::Rgb kRollBg{0.0471f, 0.0549f, 0.0706f};
 constexpr NativeUi::Rgb kCell{0.1020f, 0.1216f, 0.1608f};
-constexpr NativeUi::Rgb kBeat{0.1255f, 0.1490f, 0.2039f};
-constexpr NativeUi::Rgb kBar{0.1412f, 0.1725f, 0.2275f};
+constexpr NativeUi::Rgb kBeat{0.265f, 0.283f, 0.315f};
+constexpr NativeUi::Rgb kBar{0.430f, 0.448f, 0.475f};
 constexpr NativeUi::Rgb kButton{0.1373f, 0.1569f, 0.2000f};
 constexpr NativeUi::Rgb kCyan{0.0f, 0.80f, 0.80f};
 constexpr NativeUi::Rgb kBlue{0.0f, 0.5608f, 1.0f};
@@ -634,17 +634,20 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
 
     if(page_==NativePage::Roll){
         const float modeW=h*0.82f;
+        // Split the extra zoom button width across both track arrows.
+        // The track name field remains as wide as before.
+        const float arrowW=h-(modeW+gap)*0.5f;
         const float mainW=std::max(
             90.0f,
-            content.w-prevW-nextW-modeW*4.0f-gap*6.0f);
+            content.w-arrowW*2.0f-modeW*5.0f-gap*7.0f);
         float x=content.x;
-        if(part==0)return {x,content.y,prevW,h};
-        x+=prevW+gap;
+        if(part==0)return {x,content.y,arrowW,h};
+        x+=arrowW+gap;
         if(part==1)return {x,content.y,mainW,h};
         x+=mainW+gap;
-        if(part==2)return {x,content.y,nextW,h};
-        x+=nextW+gap;
-        if(part>=3&&part<=6)
+        if(part==2)return {x,content.y,arrowW,h};
+        x+=arrowW+gap;
+        if(part>=3&&part<=7)
             return {x+(part-3)*(modeW+gap),content.y,modeW,h};
         return {};
     }
@@ -1007,13 +1010,17 @@ NativeUi::Rect NativeUi::drumIconRect(int index) const noexcept {
     };
 }
 
-NativeUi::Rect NativeUi::rollSelectionToolRect() const noexcept {
+NativeUi::Rect NativeUi::rollZoomRect() const noexcept {
     return trackSwitchRect(3);
+}
+
+NativeUi::Rect NativeUi::rollSelectionToolRect() const noexcept {
+    return trackSwitchRect(4);
 }
 
 NativeUi::Rect NativeUi::rollModeRect(int index) const noexcept {
     if(index<0||index>2)return {};
-    return trackSwitchRect(index+4);
+    return trackSwitchRect(index+5);
 }
 
 NativeUi::Rect NativeUi::rollGroupAutomationRect() const noexcept {
@@ -1043,33 +1050,71 @@ NativeUi::Rect NativeUi::rollViewportRect() const noexcept {
     return bodyContentRect();
 }
 
-float NativeUi::rollCellPixels() const noexcept {
+float NativeUi::rollBaseCellPixels() const noexcept {
     const float shortSide=static_cast<float>(std::min(
         std::max(1,width_-safeLeft_-safeRight_),
         std::max(1,height_-safeTop_-safeBottom_)));
     return std::clamp(shortSide*0.076f,54.0f,68.0f);
 }
 
+int NativeUi::rollVisiblePitchCells() const noexcept {
+    static constexpr int counts[3]{13,8,25};
+    return counts[std::clamp(rollZoomIndex_,0,2)];
+}
+
 float NativeUi::rollColumnPixels() const noexcept {
     const auto viewport=rollViewportRect();
     const float available=std::max(1.0f,viewport.w-rollGutterPixels());
-    const float preferred=rollCellPixels();
-    const int visibleCols=std::max(
-        1,static_cast<int>(std::floor(available/preferred)));
-    return available/static_cast<float>(visibleCols);
+    return available/static_cast<float>(rollVisiblePitchCells());
+}
+
+float NativeUi::rollCellPixels() const noexcept {
+    // Equal pitch and time dimensions, regardless of screen orientation.
+    return rollColumnPixels();
 }
 
 float NativeUi::rollGutterPixels() const noexcept {
-    return std::clamp(rollCellPixels()*1.55f,78.0f,108.0f);
+    return std::clamp(rollBaseCellPixels()*1.55f,78.0f,108.0f);
 }
 
 float NativeUi::rollHeaderPixels() const noexcept {
     auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
     if(track>=0&&project.trackIsDrums(track)){
-        return std::clamp(rollCellPixels()*1.95f,104.0f,132.0f);
+        return std::clamp(rollBaseCellPixels()*1.95f,104.0f,132.0f);
     }
-    return std::clamp(rollCellPixels()*1.32f,72.0f,96.0f);
+    return std::clamp(rollBaseCellPixels()*1.32f,72.0f,96.0f);
+}
+
+void NativeUi::cycleRollZoom() noexcept {
+    const auto viewport=rollViewportRect();
+    const float timeHeight=std::max(1.0f,viewport.h-rollHeaderPixels());
+    const auto columns=rollColumns();
+    const int oldPitchCells=rollVisiblePitchCells();
+    const int oldTimeCells=std::max(
+        1,static_cast<int>(std::ceil(timeHeight/rollCellPixels())));
+    const float pitchCenter=static_cast<float>(rollPitchOffset_)+
+        static_cast<float>(oldPitchCells)*0.5f;
+    const float timeCenter=static_cast<float>(rollStepOffset_)+
+        static_cast<float>(oldTimeCells)*0.5f;
+
+    // 13 (default) -> 8 (close) -> 25 (overview) -> 13.
+    rollZoomIndex_=(rollZoomIndex_+1)%3;
+    const int newPitchCells=rollVisiblePitchCells();
+    const int newTimeCells=std::max(
+        1,static_cast<int>(std::ceil(timeHeight/rollCellPixels())));
+    rollPitchOffset_=std::clamp(
+        static_cast<int>(std::lround(
+            pitchCenter-static_cast<float>(newPitchCells)*0.5f)),
+        0,std::max(0,static_cast<int>(columns.size())-newPitchCells));
+
+    // Preserve the opening beat when zooming at the start of a song.
+    if(rollStepOffset_!=0){
+        rollStepOffset_=std::clamp(
+            static_cast<int>(std::lround(
+                timeCenter-static_cast<float>(newTimeCells)*0.5f)),
+            0,std::max(0,rollTotalRows()-newTimeCells));
+    }
 }
 
 std::vector<int> NativeUi::rollColumns() const {
@@ -1156,7 +1201,7 @@ void NativeUi::scrollRoll(int pitchDelta, int stepDelta) noexcept {
         1,static_cast<int>(std::lround(
             (viewport.w-rollGutterPixels())/colW)));
     const int visibleRows=std::max(
-        1,static_cast<int>(std::floor(
+        1,static_cast<int>(std::ceil(
             (viewport.h-rollHeaderPixels())/rowH)));
 
     const int maxPitch=std::max(
@@ -1650,6 +1695,20 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
     }
 
     if(page_==NativePage::Roll){
+        const auto zoom=rollZoomRect();
+        fillRect(zoom,kButton);
+        // Changing-density grid icon: 2x2 near, 3x3 default, 4x4 far.
+        const int cells=rollZoomIndex_==1?2:(rollZoomIndex_==2?4:3);
+        const float size=std::min(zoom.w,zoom.h)*0.54f;
+        const float zx=zoom.x+(zoom.w-size)*0.5f;
+        const float zy=zoom.y+(zoom.h-size)*0.5f;
+        const float stroke=std::max(1.7f,size*0.045f);
+        for(int i=0;i<=cells;++i){
+            const float f=static_cast<float>(i)/static_cast<float>(cells);
+            ov.addLine(zx+size*f,zy,zx+size*f,zy+size,stroke,overlayColor(kWhite));
+            ov.addLine(zx,zy+size*f,zx+size,zy+size*f,stroke,overlayColor(kWhite));
+        }
+
         const bool rangeSelected=
             rollSelectionActive_&&
             rollSelectionAnchorStep_!=rollSelectionEndStep_;
@@ -2687,7 +2746,7 @@ void NativeUi::drawRoll() const noexcept {
     const int visibleCols=std::max(
         1,static_cast<int>(std::lround((viewport.w-gutter)/colW)));
     const int visibleRows=std::max(
-        1,static_cast<int>(std::floor((viewport.h-header)/rowH)));
+        1,static_cast<int>(std::ceil((viewport.h-header)/rowH)));
 
     const int pitchOffset=std::clamp(
         rollPitchOffset_,0,
@@ -2841,7 +2900,7 @@ void NativeUi::drawRoll() const noexcept {
         // This leaves harmonic shadows as the only source of grid darkening.
         if(step%beatLen==0){
             const bool barBoundary=step%barLen==0;
-            const float lineWeight=barBoundary?3.0f:2.0f;
+            const float lineWeight=barBoundary?4.0f:2.5f;
             const auto lineColor=barBoundary?kBar:kBeat;
             const float gridX=viewport.x+gutter;
             const float gridW=std::max(0.0f,viewport.w-gutter);
@@ -2994,7 +3053,7 @@ void NativeUi::drawRoll() const noexcept {
         if(step%beatLen!=0)continue;
         const float y=viewport.y+header+rr*rowH;
         const bool barBoundary=step%barLen==0;
-        const float lineWeight=barBoundary?3.0f:2.0f;
+        const float lineWeight=barBoundary?4.0f:2.5f;
         const auto lineColor=barBoundary?kBar:kBeat;
         rollOverlay.addRect(
             {gridLeft,y,std::max(0.0f,gridRight-gridLeft),lineWeight},
@@ -3894,6 +3953,10 @@ std::optional<RollMode> NativeUi::hitRollMode(float x, float y) const noexcept {
         if(rollModeRect(i).contains(x,y))return modes[i];
     }
     return std::nullopt;
+}
+
+bool NativeUi::hitRollZoom(float x,float y) const noexcept {
+    return page_==NativePage::Roll&&rollZoomRect().contains(x,y);
 }
 
 bool NativeUi::hitRollSelectionTool(float x,float y) const noexcept {
