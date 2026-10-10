@@ -174,6 +174,8 @@ public:
     void setRollMultiLasso(bool enabled) noexcept { rollMultiLasso_=enabled; }
     [[nodiscard]] bool rollMultiLasso() const noexcept { return rollMultiLasso_; }
     void toggleRollMultiLasso() noexcept { rollMultiLasso_=!rollMultiLasso_; }
+    [[nodiscard]] bool rollFreeTiming() const noexcept { return rollFreeTiming_; }
+    void toggleRollFreeTiming() noexcept { rollFreeTiming_=!rollFreeTiming_; }
 
     void setRollNoteSelection(int track,std::vector<int> indices);
     void clearRollNoteSelection() noexcept;
@@ -355,6 +357,7 @@ private:
     RollMode rollMode_{RollMode::Notes};
     RollSelectionTool rollSelectionTool_{RollSelectionTool::Pencil};
     bool rollMultiLasso_{false};
+    bool rollFreeTiming_{false};
     int rollSelectedTrack_{-1};
     std::vector<int> rollSelectedNotes_{};
     std::vector<RollLassoPoint> rollLassoPath_{};

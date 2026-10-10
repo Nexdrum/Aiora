@@ -129,9 +129,13 @@ AudioEngine::VoiceSlot& AudioEngine::allocateVoice() noexcept {
 void AudioEngine::configureFx(const Fx&fx) noexcept {previewFx_.set(fx);}
 void AudioEngine::configureFxForPreset(int preset) noexcept {configureFx(factoryBank()[static_cast<size_t>(clampPreset(preset))].fx);}
 
-void AudioEngine::triggerStep(int step) noexcept {
+void AudioEngine::triggerStep(int step,double phase) noexcept {
     if(!playback_||step<0||step>=static_cast<int>(playback_->steps.size()))return;
-    for(const auto&e:playback_->steps[static_cast<size_t>(step)].events){
+    const auto& events=playback_->steps[static_cast<size_t>(step)].events;
+    // Per-step events are sorted by fractional note offset.
+    while(stepEventCursor_<events.size()&&
+          static_cast<double>(events[stepEventCursor_].offsetSteps)<=phase+1.0e-9){
+        const auto& e=events[stepEventCursor_++];
         auto&slot=allocateVoice();const float pressure=e.automation.velocity.count?std::clamp(e.automation.velocity.points[0].value,0.0f,1.0f):0.8f;
         const uint32_t gate=static_cast<uint32_t>(std::max<double>(sampleRate_.load(std::memory_order_relaxed)*0.09,e.lengthSteps*transportSamplesPerStep_));
         const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
@@ -144,8 +148,14 @@ void AudioEngine::advanceTransport() noexcept {
     if(!transportPlaying_.load(std::memory_order_relaxed)||!playback_)return;
     samplesIntoStep_+=1.0;
     while(samplesIntoStep_>=transportSamplesPerStep_){
-        samplesIntoStep_-=transportSamplesPerStep_;transportStep_=(transportStep_+1)%std::max(1,playback_->lengthSteps);playheadStep_.store(transportStep_,std::memory_order_relaxed);triggerStep(transportStep_);
+        samplesIntoStep_-=transportSamplesPerStep_;
+        transportStep_=(transportStep_+1)%std::max(1,playback_->lengthSteps);
+        playheadStep_.store(transportStep_,std::memory_order_relaxed);
+        stepEventCursor_=0;
+        triggerStep(transportStep_,0.0);
     }
+    // Called after rendering: a fractional attack begins on the next sample.
+    triggerStep(transportStep_,samplesIntoStep_/transportSamplesPerStep_);
 }
 
 void AudioEngine::applyEvent(const Event&e) noexcept {
@@ -180,10 +190,16 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);
             masterFx_.reset();masterFx_.set(masterFxCfg);
             transportSamplesPerStep_=static_cast<double>(std::max(1,sampleRate_.load(std::memory_order_relaxed)))*60.0/(std::max(12.0f,playback_->bpm)*std::max(1,playback_->divisions));
+            stepEventCursor_=0;
             if(wasPlaying){
                 transportStep_=std::clamp(
                     previousStep,0,std::max(0,playback_->lengthSteps-1));
                 samplesIntoStep_=previousPhase*transportSamplesPerStep_;
+                // Do not replay past events when a new snapshot is applied mid-step.
+                const auto& current=playback_->steps[static_cast<size_t>(transportStep_)].events;
+                while(stepEventCursor_<current.size()&&
+                      current[stepEventCursor_].offsetSteps<=previousPhase)
+                    ++stepEventCursor_;
                 playheadStep_.store(transportStep_,std::memory_order_relaxed);
                 playheadPosition_.store(
                     static_cast<float>(transportStep_)+static_cast<float>(previousPhase),
@@ -205,17 +221,18 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             {Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);masterFx_.set(masterFxCfg);}
             transportStep_=std::clamp(e.source,0,std::max(0,playback_->lengthSteps-1));
             samplesIntoStep_=0;
+            stepEventCursor_=0;
             playheadStep_.store(transportStep_,std::memory_order_relaxed);
             playheadPosition_.store(
                 static_cast<float>(transportStep_),
                 std::memory_order_relaxed);
             transportPlaying_.store(true,std::memory_order_relaxed);
-            triggerStep(transportStep_);
+            triggerStep(transportStep_,0.0);
             return;
         case EventType::StopTransport:
             transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
             for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();masterFx_.reset();
-            transportStep_=0;samplesIntoStep_=0;
+            transportStep_=0;samplesIntoStep_=0;stepEventCursor_=0;
             playheadStep_.store(0,std::memory_order_relaxed);
             playheadPosition_.store(0.0f,std::memory_order_relaxed);
             return;

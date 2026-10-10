@@ -1804,6 +1804,14 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
                 drawLasso(
                     tool.x+tool.w*0.50f,tool.y+tool.h*0.76f,
                     tool.w*0.13f,tool.h*0.10f);
+                if(rollFreeTiming_){
+                    // Same corner indicator as multi-lasso: F = free note timing.
+                    ov.addText(
+                        "F",
+                        tool.x+tool.w*0.72f,
+                        tool.y+tool.h*0.10f,
+                        0.72f,col);
+                }
             }
         }
 

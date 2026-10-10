@@ -101,10 +101,15 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
         std::vector<int> padBuses(track.pads.size(),-2);
 
         for(const auto& note:track.notes){
-            const int step=std::clamp(static_cast<int>(std::lround(note.startStep)),0,snap->lengthSteps-1);
+            // Keep the fractional time offset instead of rounding to the grid.
+            const float start=std::clamp(note.startStep,0.0f,
+                static_cast<float>(snap->lengthSteps)-0.0001f);
+            const int step=std::clamp(static_cast<int>(std::floor(start)),
+                0,snap->lengthSteps-1);
             PlaybackEvent event;
             event.midi=note.midi;
             event.lengthSteps=std::max(1.0f,note.lengthSteps);
+            event.offsetSteps=std::clamp(start-static_cast<float>(step),0.0f,0.999999f);
 
             const int padIndex=track.drums?padIndexFor(track,note.midi):-1;
             if(track.drums && padIndex<0)continue;
@@ -127,6 +132,12 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
             event.automation.mod=levelCurve(note.mod,note.lengthSteps);
             snap->steps[static_cast<size_t>(step)].events.push_back(std::move(event));
         }
+    }
+    for(auto& step:snap->steps){
+        std::stable_sort(step.events.begin(),step.events.end(),
+            [](const PlaybackEvent& a,const PlaybackEvent& b){
+                return a.offsetSteps<b.offsetSteps;
+            });
     }
     return snap;
 }

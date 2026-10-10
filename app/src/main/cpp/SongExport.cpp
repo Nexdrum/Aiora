@@ -214,11 +214,15 @@ bool exportProjectWav(
 
     uint64_t age=0;
     int32_t nextId=1;
-    int nextStep=0;
+    int currentStep=-1;
+    size_t stepEventCursor=0;
 
-    const auto triggerStep=[&](int step){
+    const auto triggerDue=[&](int step,double phase){
         if(step<0||step>=static_cast<int>(snapshot->steps.size()))return;
-        for(const auto& event:snapshot->steps[static_cast<size_t>(step)].events){
+        const auto& events=snapshot->steps[static_cast<size_t>(step)].events;
+        while(stepEventCursor<events.size()&&
+              static_cast<double>(events[stepEventCursor].offsetSteps)<=phase){
+            const auto& event=events[stepEventCursor++];
             auto& slot=allocateVoice(voices);
             const float pressure=event.automation.velocity.count
                 ?std::clamp(event.automation.velocity.points[0].value,0.0f,1.0f)
@@ -236,20 +240,19 @@ bool exportProjectWav(
         }
     };
 
-    if(!snapshot->steps.empty()){
-        triggerStep(0);
-        nextStep=1;
-    }
-
     std::array<int16_t,4096> pcm{};
     size_t pcmCount=0;
 
     for(uint64_t frame=0;frame<totalFrames64;++frame){
-        while(nextStep<static_cast<int>(snapshot->steps.size()) &&
-              static_cast<double>(frame)>=
-                  std::llround(static_cast<double>(nextStep)*samplesPerStep)){
-            triggerStep(nextStep++);
+        const int step=static_cast<int>(static_cast<double>(frame)/samplesPerStep);
+        if(step!=currentStep){
+            currentStep=step;
+            stepEventCursor=0;
         }
+        // Trigger fractional notes at the nearest WAV sample.
+        const double phase=(static_cast<double>(frame)-
+            static_cast<double>(step)*samplesPerStep+0.5)/samplesPerStep;
+        triggerDue(step,phase);
 
         std::array<float,kMaxPlaybackFxBuses> busLeft{};
         std::array<float,kMaxPlaybackFxBuses> busRight{};

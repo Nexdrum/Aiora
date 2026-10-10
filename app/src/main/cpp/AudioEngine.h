@@ -74,7 +74,7 @@ private:
     void applyEvent(const Event&) noexcept;
     std::array<float,2> renderFrame() noexcept;
     VoiceSlot& allocateVoice() noexcept;
-    void triggerStep(int step) noexcept;
+    void triggerStep(int step,double phase) noexcept;
     void advanceTransport() noexcept;
     void configureFx(const Fx& fx) noexcept;
     void configureFxForPreset(int preset) noexcept;
@@ -96,6 +96,7 @@ private:
     std::atomic<int32_t> playheadStep_{0};
     std::atomic<float> playheadPosition_{0.0f};
     int32_t transportStep_{0};
+    size_t stepEventCursor_{0};
     double samplesIntoStep_{0.0};
     double transportSamplesPerStep_{1.0};
     uint64_t ageCounter_{0};

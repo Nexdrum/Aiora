@@ -9,6 +9,7 @@ inline constexpr size_t kMaxPlaybackFxBuses = 48;
 struct PlaybackEvent {
     int32_t midi{62};
     float lengthSteps{1.0f};
+    float offsetSteps{0.0f}; // fractional note onset within its time-grid step
     DspPatch patch{};
     VoiceAutomation automation{};
     float gainLeft{1.0f};

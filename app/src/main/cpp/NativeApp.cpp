@@ -111,7 +111,7 @@ struct RollGesture {
     int dragCellMidi{-1};
     int dragCellStep{-1};
     int groupAppliedMidiDelta{0};
-    int groupAppliedStepDelta{0};
+    float groupAppliedStepDelta{0.0f};
 
     void clear() noexcept { *this = {}; pointerId = -1; }
 };
@@ -1108,8 +1108,11 @@ void serviceRollLongPress(NativeState& state){
     if(g.kind==RollGestureKind::SelectTool){
         if(state.ui.rollSelectionTool()==aiora::RollSelectionTool::Lasso){
             state.ui.toggleRollMultiLasso();
-            g.longPressTriggered=true;
+        }else{
+            // Pencil long-press toggles free note movement (not creation/resize).
+            state.ui.toggleRollFreeTiming();
         }
+        g.longPressTriggered=true;
         return;
     }
 
@@ -2309,7 +2312,11 @@ void moveRollGesture(NativeState& state, float x, float y) {
 
     const float totalDx = x - g.downX;
     const float totalDy = y - g.downY;
-    if (!g.moved && std::hypot(totalDx,totalDy)>8.0f) g.moved=true;
+    const float dragThreshold=
+        g.kind==RollGestureKind::NoteEdit&&state.ui.rollFreeTiming()&&
+        (g.noteEdit==RollNoteEdit::Move||
+         g.noteEdit==RollNoteEdit::GroupMove)?3.0f:8.0f;
+    if (!g.moved && std::hypot(totalDx,totalDy)>dragThreshold) g.moved=true;
 
     const float threshold = std::max(16.0f, state.ui.rollCellPixels() * 0.72f);
 
@@ -2392,13 +2399,14 @@ void moveRollGesture(NativeState& state, float x, float y) {
     auto& project=aiora::ProjectCore::instance();
     if(g.noteEdit==RollNoteEdit::GroupMove){
         const int totalMidi=hit->midi-g.dragCellMidi;
-        const int totalStep=hit->step-g.dragCellStep;
+        const float totalStep=state.ui.rollFreeTiming()
+            ?(y-g.downY)/std::max(1.0f,state.ui.rollCellPixels())
+            :static_cast<float>(hit->step-g.dragCellStep);
         const int midiDelta=totalMidi-g.groupAppliedMidiDelta;
-        const int stepDelta=totalStep-g.groupAppliedStepDelta;
-        if((midiDelta!=0||stepDelta!=0)&&
+        const float stepDelta=totalStep-g.groupAppliedStepDelta;
+        if((midiDelta!=0||std::fabs(stepDelta)>1.0e-6f)&&
            project.moveNotes(
-               g.track,g.groupIndices,midiDelta,
-               static_cast<float>(stepDelta))){
+               g.track,g.groupIndices,midiDelta,stepDelta)){
             g.groupAppliedMidiDelta=totalMidi;
             g.groupAppliedStepDelta=totalStep;
             refreshRollGroupAutomationBounds(state);
@@ -2415,10 +2423,16 @@ void moveRollGesture(NativeState& state, float x, float y) {
             g.noteLength=length;
         }
     }else if(g.noteEdit==RollNoteEdit::Move){
+        const bool freeTiming=state.ui.rollFreeTiming();
+        const float targetStart=freeTiming
+            ?std::max(0.0f,g.noteStart+
+                (y-g.downY)/std::max(1.0f,state.ui.rollCellPixels()))
+            :static_cast<float>(hit->step);
         if(project.updateNote(
-            g.track,g.noteIndex,hit->midi,static_cast<float>(hit->step),g.noteLength)){
+            g.track,g.noteIndex,hit->midi,targetStart,g.noteLength)){
             g.noteMidi=hit->midi;
-            g.noteStart=static_cast<float>(hit->step);
+            // In free timing the original start remains the drag anchor.
+            if(!freeTiming)g.noteStart=targetStart;
         }
     }else if(g.noteEdit==RollNoteEdit::Resize){
         const float length=std::clamp(
