@@ -973,11 +973,12 @@ bool rollSelectedBounds(
     for(int index:state.ui.rollSelectedNotes()){
         if(index<0||index>=static_cast<int>(notes.size()))continue;
         const auto& note=notes[static_cast<size_t>(index)];
-        start=std::min(start,note.startStep);
-        end=std::max(
-            end,
-            note.startStep+
-                std::max(0.0f,std::max(1.0f,note.lengthSteps)-1.0f));
+        // The note's integer startStep is its first cell center.
+        // Match the individual V/M control points at the physical edges:
+        // startStep-0.5 and startStep+lengthSteps-0.5.
+        const float noteLength=std::max(1.0f,note.lengthSteps);
+        start=std::min(start,note.startStep-0.5f);
+        end=std::max(end,note.startStep+noteLength-0.5f);
         any=true;
     }
     if(!any)return false;

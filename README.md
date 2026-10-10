@@ -75,6 +75,7 @@ There is no WebView, JavaScript runtime, Jetpack Compose UI, or Kotlin applicati
 - selecting a factory preset on a melodic track automatically renames the track to the preset name; new melodic tracks still start as blank Spectrachord, and drum-pad preset edits do not rename the kit
 - piano roll zoom cycles 13 default / 8 close / 25 overview pitch cells using a changing grid-density icon before the lasso/pencil switch; time grid cells remain square, fill the visible height and retain note automation; beat and bar lines use higher-contrast grays
 - multi-note V/M automation gutter has an invisible, screen-clipped touch buffer above, below, left, and right (with a small right inset), preventing near-edge taps from deselecting notes. Taps at the temporal bounds edit existing start/end anchors rather than creating duplicate points.
+- grouped V/M envelopes align exactly to the selected notes' physical start/end edges, including one-cell notes, with correct group-to-note curve projection; the per-note Bend/V/M coordinate convention remains unchanged.
 
 ### Project interchange
 

@@ -1345,7 +1345,9 @@ std::vector<int> NativeUi::finishRollLasso(){
 void NativeUi::setRollGroupAutomation(
     int kind,float start,float end,std::vector<RollGroupPoint> points){
     rollGroupAutomationKind_=kind;
-    rollGroupAutomationStart_=std::max(0.0f,start);
+    // Absolute group range uses the same half-cell edge convention as
+    // per-note curves. The first note can legitimately start at -0.5.
+    rollGroupAutomationStart_=std::max(-0.5f,start);
     rollGroupAutomationEnd_=std::max(rollGroupAutomationStart_,end);
     for(auto& p:points){
         p.step=std::clamp(

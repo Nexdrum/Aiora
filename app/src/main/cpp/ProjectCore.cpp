@@ -566,30 +566,34 @@ bool ProjectCore::applyGroupAutomation(
         auto* curve=curveFor(note,kind);
         if(!curve)continue;
 
-        const float localEnd=
-            std::max(0.0f,std::max(1.0f,note.lengthSteps)-1.0f);
-        const float groupA=note.startStep-groupStart;
-        const float groupB=groupA+localEnd;
+        // A group point is measured from the selected notes' first
+        // PHYSICAL edge. Individual note curve coordinates instead use the
+        // first CELL CENTER as zero (-0.5 = first edge, L-0.5 = last).
+        // Reproject through absolute edge time so a group envelope meets
+        // every selected note at its real start and end, even for 1-cell
+        // notes and for overlapping notes with different lengths.
+        const float length=std::max(1.0f,note.lengthSteps);
+        const float groupA=note.startStep-0.5f-groupStart;
+        const float groupB=groupA+length;
 
         std::vector<CurvePoint> projected;
         projected.reserve(std::min<size_t>(points.size()+2,kMaxCurvePoints));
         projected.push_back({
-            0.0f,
+            -0.5f,
             std::clamp(groupCurveValue(points,groupA,fallback),0.0f,1.0f),
             true});
 
-        if(localEnd>1.0e-5f){
-            for(const auto& p:points){
-                if(p.step<=groupA+1.0e-5f||p.step>=groupB-1.0e-5f)continue;
-                if(projected.size()>=static_cast<size_t>(kMaxCurvePoints-1))break;
-                projected.push_back({
-                    p.step-groupA,std::clamp(p.value,0.0f,1.0f),true});
-            }
+        for(const auto& p:points){
+            if(p.step<=groupA+1.0e-5f||p.step>=groupB-1.0e-5f)continue;
+            if(projected.size()>=static_cast<size_t>(kMaxCurvePoints-1))break;
             projected.push_back({
-                localEnd,
-                std::clamp(groupCurveValue(points,groupB,fallback),0.0f,1.0f),
-                true});
+                p.step-groupA-0.5f,
+                std::clamp(p.value,0.0f,1.0f),true});
         }
+        projected.push_back({
+            length-0.5f,
+            std::clamp(groupCurveValue(points,groupB,fallback),0.0f,1.0f),
+            true});
 
         *curve=std::move(projected);
         normalizeNoteCurves(note);
