@@ -246,6 +246,8 @@ bool exportProjectWav(
     for(uint64_t frame=0;frame<totalFrames64;++frame){
         const int step=static_cast<int>(static_cast<double>(frame)/samplesPerStep);
         if(step!=currentStep){
+            // A near-boundary event rounds to the next sample, not silence.
+            if(currentStep>=0)triggerDue(currentStep,1.0);
             currentStep=step;
             stepEventCursor=0;
         }

@@ -148,6 +148,8 @@ void AudioEngine::advanceTransport() noexcept {
     if(!transportPlaying_.load(std::memory_order_relaxed)||!playback_)return;
     samplesIntoStep_+=1.0;
     while(samplesIntoStep_>=transportSamplesPerStep_){
+        // Flush sub-sample-late events at the step boundary before advancing.
+        triggerStep(transportStep_,1.0);
         samplesIntoStep_-=transportSamplesPerStep_;
         transportStep_=(transportStep_+1)%std::max(1,playback_->lengthSteps);
         playheadStep_.store(transportStep_,std::memory_order_relaxed);
