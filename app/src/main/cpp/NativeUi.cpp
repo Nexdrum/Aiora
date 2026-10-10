@@ -1379,6 +1379,7 @@ void NativeUi::endRollStackCycle(bool confirm,int noteIndex){
 
 void NativeUi::clearRollStacks() noexcept {
     rollStackOrders_.clear();
+    rollStackMode_=false;
     rollStackCycling_=false;
     rollStackCycleTrack_=-1;
     rollStackCycleMembers_.clear();
@@ -2928,13 +2929,14 @@ void NativeUi::drawRoll() const noexcept {
         rollSelectionActive_&&
         rollSelectionAnchorStep_!=rollSelectionEndStep_;
     const bool showPaste=!rollSelectionActive_&&rollClipboardAvailable_;
+    const bool stackButton=!hasSelectionRange&&!showPaste;
     const auto cornerColor=
         hasSelectionRange?mix(kPanel,kOrange,0.42f):
         showPaste?mix(kPanel,kGreen,0.38f):
-        kPanel;
+        rollStackMode_?mix(kPanel,kCyan,0.48f):kPanel;
     fillRect({viewport.x,viewport.y,gutter-1.0f,header-1.0f},cornerColor);
+    auto& cornerOv=NativeOverlay::instance();
     if(hasSelectionRange||showPaste){
-        auto& cornerOv=NativeOverlay::instance();
         const std::string label=hasSelectionRange?"C":"P";
         cornerOv.addText(
             label,
@@ -2942,6 +2944,23 @@ void NativeUi::drawRoll() const noexcept {
             viewport.y+header*0.30f,
             1.55f,
             overlayColor(kWhite));
+    }else if(stackButton){
+        // Compact stacked-sheets glyph in the previously empty corner.
+        const auto ink=overlayColor(rollStackMode_?kBg:kWhite,0.94f);
+        const float left=viewport.x+gutter*0.28f;
+        const float top=viewport.y+header*0.28f;
+        const float w=gutter*0.38f;
+        const float h=header*0.32f;
+        const float delta=std::min(gutter,header)*0.10f;
+        for(int layer=2;layer>=0;--layer){
+            const float ox=left-static_cast<float>(layer)*delta*0.55f;
+            const float oy=top+static_cast<float>(layer)*delta;
+            const float thick=std::max(1.6f,header*0.035f);
+            cornerOv.addLine(ox,oy,ox+w,oy,thick,ink);
+            cornerOv.addLine(ox+w,oy,ox+w,oy+h,thick,ink);
+            cornerOv.addLine(ox+w,oy+h,ox,oy+h,thick,ink);
+            cornerOv.addLine(ox,oy+h,ox,oy,thick,ink);
+        }
     }
 
     for(int cc=0;
@@ -4251,7 +4270,7 @@ std::optional<RollCornerAction> NativeUi::hitRollCornerAction(
         return RollCornerAction::Copy;
     if(!rollSelectionActive_&&rollClipboardAvailable_)
         return RollCornerAction::Paste;
-    return std::nullopt;
+    return RollCornerAction::Stack;
 }
 
 bool NativeUi::hitRollNoteArea(float x,float y) const noexcept {

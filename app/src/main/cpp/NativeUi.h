@@ -46,7 +46,8 @@ struct RollGroupPoint {
 
 enum class RollCornerAction : int {
     Copy,
-    Paste
+    Paste,
+    Stack
 };
 
 enum class HeaderAction : int {
@@ -188,6 +189,12 @@ public:
     [[nodiscard]] bool rollStackCycleIncludes(int track,int noteIndex) const noexcept;
     void endRollStackCycle(bool confirm,int noteIndex=-1);
     void clearRollStacks() noexcept;
+    [[nodiscard]] bool rollStackMode() const noexcept { return rollStackMode_; }
+    void setRollStackMode(bool enabled) noexcept {
+        rollStackMode_=enabled;
+        if(!enabled&&rollStackCycling_)endRollStackCycle(true);
+    }
+    void toggleRollStackMode() noexcept { setRollStackMode(!rollStackMode_); }
 
     void setRollNoteSelection(int track,std::vector<int> indices);
     void clearRollNoteSelection() noexcept;
@@ -376,6 +383,7 @@ private:
         std::vector<int> frontToBack{};
     };
     std::vector<StackOrder> rollStackOrders_{};
+    bool rollStackMode_{false};
     bool rollStackCycling_{false};
     int rollStackCycleTrack_{-1};
     std::vector<int> rollStackCycleMembers_{};
