@@ -3149,7 +3149,8 @@ void NativeUi::drawRoll() const noexcept {
         const int depth=layered?stackDepth[static_cast<size_t>(noteIndex)]:0;
         const float inset=std::min(0.38f,depth*0.105f);
         const float shiftX=-std::min(colW*0.18f,depth*colW*0.035f);
-        const float shiftY=-std::min(rowH*0.22f,depth*3.0f);
+        const float shiftY=-std::min(rowH*0.30f,
+            depth*std::max(4.0f,rowH*0.12f));
         const float top=
             viewport.y+header+
             (note.startStep-static_cast<float>(stepOffset))*rowH+1.0f+shiftY;
@@ -3371,57 +3372,6 @@ void NativeUi::drawRoll() const noexcept {
             }
 
             const int depth=stackDepth[static_cast<size_t>(n)];
-            const float visualScale=isStacked[static_cast<size_t>(n)]
-                ?1.0f-std::min(0.38f,depth*0.105f):1.0f;
-            const float visualShiftX=isStacked[static_cast<size_t>(n)]
-                ?-std::min(colW*0.18f,depth*colW*0.035f):0.0f;
-            const float visualShiftY=isStacked[static_cast<size_t>(n)]
-                ?-std::min(rowH*0.22f,depth*3.0f):0.0f;
-            const float startY=
-                viewport.y+header+
-                (start-static_cast<float>(stepOffset))*rowH+1.0f+visualShiftY;
-            if(startY>=gridTop&&startY<=gridBottom){
-                const float step=rollVisualCurveStep(note,0.0f);
-                const float center=rollPitchX(
-                    columns,
-                    static_cast<float>(midi)+
-                        rollBendAt(selectedTrack,note,step),
-                    pitchOffset,gridLeft,colW);
-                const float half=ribbonHalfWidth(note,step)*visualScale;
-                const float visualCenter=center+visualShiftX;
-                if(visualCenter+half>gridLeft&&visualCenter-half<gridRight){
-                    rollOverlay.addLine(
-                        std::clamp(visualCenter-half,gridLeft+1.0f,gridRight-1.0f),
-                        startY,
-                        std::clamp(visualCenter+half,gridLeft+1.0f,gridRight-1.0f),
-                        startY,
-                        3.0f,
-                        overlayColor(noteSelectedNow?kGold:kTop));
-                }
-            }
-
-            const float tailY=
-                viewport.y+header+
-                (start+length-static_cast<float>(stepOffset))*rowH-2.0f+
-                visualShiftY;
-            if(tailY>=gridTop&&tailY<=gridBottom){
-                const float step=rollVisualCurveStep(note,1.0f);
-                const float center=rollPitchX(
-                    columns,
-                    static_cast<float>(midi)+rollBendAt(selectedTrack,note,step),
-                    pitchOffset,gridLeft,colW);
-                const float half=ribbonHalfWidth(note,step)*visualScale;
-                const float visualCenter=center+visualShiftX;
-                if(visualCenter+half>gridLeft&&visualCenter-half<gridRight){
-                    rollOverlay.addLine(
-                        std::clamp(visualCenter-half,gridLeft+1.0f,gridRight-1.0f),
-                        tailY,
-                        std::clamp(visualCenter+half,gridLeft+1.0f,gridRight-1.0f),
-                        tailY,
-                        3.0f,
-                        overlayColor(noteSelectedNow?kGold:kTop));
-                }
-            }
 
             // Only the full-sized front note exposes editable automation.
             if(rollMode_==RollMode::Notes||groupEditing||
@@ -3541,6 +3491,54 @@ void NativeUi::drawRoll() const noexcept {
                     if(half>0.5f)drawHandle(center+half);
                 }
             }
+        }
+
+        // Draw ALL heads after ALL ribbon bodies and automation. Otherwise
+        // the foreground fill completely covers a rear note's move handle.
+        // Rear caps are drawn last, exposing their perspective-offset heads.
+        for(auto it=displayOrder.rbegin();it!=displayOrder.rend();++it){
+            const int n=*it;
+            const auto& note=selectedTrack.notes[static_cast<size_t>(n)];
+            const float start=note.startStep;
+            const float length=std::max(1.0f,note.lengthSteps);
+            if(start+length<=stepOffset||start>=stepOffset+visibleRows)continue;
+
+            const int depth=stackDepth[static_cast<size_t>(n)];
+            const bool layered=isStacked[static_cast<size_t>(n)];
+            const float visualScale=layered
+                ?1.0f-std::min(0.38f,depth*0.105f):1.0f;
+            const float visualShiftX=layered
+                ?-std::min(colW*0.18f,depth*colW*0.035f):0.0f;
+            const float visualShiftY=layered
+                ?-std::min(rowH*0.30f,
+                    depth*std::max(4.0f,rowH*0.12f)):0.0f;
+            const auto headColor=overlayColor(
+                rollSelectedTrack_==track&&rollNoteSelected(n)
+                    ?kGold:(layered?kWhite:kTop),
+                layered?0.92f:1.0f);
+
+            const auto cap=[&](float fraction,float py){
+                if(py<gridTop||py>gridBottom)return;
+                const float rel=rollVisualCurveStep(note,fraction);
+                const float center=rollPitchX(
+                    columns,
+                    static_cast<float>(note.midi)+
+                        rollBendAt(selectedTrack,note,rel),
+                    pitchOffset,gridLeft,colW)+visualShiftX;
+                const float half=ribbonHalfWidth(note,rel)*visualScale;
+                if(center+half<=gridLeft||center-half>=gridRight)return;
+                rollOverlay.addLine(
+                    std::clamp(center-half,gridLeft+1.0f,gridRight-1.0f),
+                    py,
+                    std::clamp(center+half,gridLeft+1.0f,gridRight-1.0f),
+                    py,layered?3.5f:3.0f,headColor);
+            };
+            cap(0.0f,gridTop+
+                (start-static_cast<float>(stepOffset))*rowH+
+                1.0f+visualShiftY);
+            cap(1.0f,gridTop+
+                (start+length-static_cast<float>(stepOffset))*rowH-
+                2.0f+visualShiftY);
         }
     }
 
@@ -4291,7 +4289,6 @@ std::optional<RollNoteHit> NativeUi::hitRollNote(
     auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
     if(track<0)return std::nullopt;
-
     const auto snapshot=project.projectCopy();
     if(track>=static_cast<int>(snapshot.tracks.size()))
         return std::nullopt;
@@ -4307,50 +4304,85 @@ std::optional<RollNoteHit> NativeUi::hitRollNote(
 
     const float gridLeft=viewport.x+gutter;
     const float gridTop=viewport.y+header;
+    const float gridBottom=viewport.y+viewport.h;
     const float bodyMargin=std::max(5.0f,std::min(colW,rowH)*0.10f);
     const float tailYRadius=std::max(18.0f,rowH*0.34f);
     const float tailXMargin=std::max(8.0f,colW*0.12f);
 
-    // Note heads are move handles, including heads nested in longer notes.
+    // Prioritize the actual visible head caps, not the foreground note's
+    // body. All same-fundamental stack members have their own cap positions.
     std::vector<int> hitOrder;
+    std::vector<int> depths(sourceTrack.notes.size(),0);
     std::vector<bool> grouped(sourceTrack.notes.size(),false);
     for(const auto& members:rollOverlapGroups(sourceTrack)){
         const auto order=rollStackFrontToBack(track,members);
         for(int n:members)grouped[static_cast<size_t>(n)]=true;
-        for(int n:order)hitOrder.push_back(n);
+        for(int depth=0;depth<static_cast<int>(order.size());++depth){
+            const int n=order[static_cast<size_t>(depth)];
+            depths[static_cast<size_t>(n)]=depth;
+            hitOrder.push_back(n);
+        }
     }
     for(int n=static_cast<int>(sourceTrack.notes.size())-1;n>=0;--n)
         if(!grouped[static_cast<size_t>(n)])hitOrder.push_back(n);
 
-    int closestHead=-1;
-    float closestDistance=std::max(8.0f,rowH*0.22f);
-    for(int n:hitOrder){
-        const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
-        const float headY=gridTop+
-            (note.startStep-static_cast<float>(rollStepOffset_))*rowH+1.0f;
-        const float delta=std::fabs(y-headY);
-        if(delta>closestDistance)continue;
-        const float headX=rollPitchX(columns,
-            static_cast<float>(note.midi)+
-                rollBendAt(sourceTrack,note,rollVisualCurveStep(note,0.0f)),
-            rollPitchOffset_,gridLeft,colW);
+    const auto visualShiftY=[&](int depth){
+        return -std::min(rowH*0.30f,
+            depth*std::max(4.0f,rowH*0.12f));
+    };
+    const auto visualShiftX=[&](int depth){
+        return -std::min(colW*0.18f,depth*colW*0.035f);
+    };
+    const auto visualScale=[&](int depth){
+        return 1.0f-std::min(0.38f,depth*0.105f);
+    };
+    const auto capHalf=[&](const Note& note,float step,int depth){
         const float minHalf=std::max(1.5f,colW*0.055f);
         const float maxHalf=std::max(minHalf,colW*0.5f-2.0f);
-        const float half=minHalf+(maxHalf-minHalf)*
-            rollLevelAt(note.velocity,note,rollVisualCurveStep(note,0.0f),1.0f);
-        if(std::fabs(x-headX)>half+bodyMargin)continue;
-        closestHead=n;
-        closestDistance=delta;
+        return (minHalf+(maxHalf-minHalf)*
+            rollLevelAt(note.velocity,note,step,1.0f))*visualScale(depth);
+    };
+
+    const float headTolerance=std::max(
+        6.0f,std::min(rowH*0.20f,11.0f));
+    const float headMargin=std::max(
+        5.0f,std::min(colW*0.10f,11.0f));
+    float closestScore=headTolerance*headTolerance;
+    int closestHead=-1;
+    for(const int n:hitOrder){
+        const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
+        const int depth=depths[static_cast<size_t>(n)];
+        const float headY=gridTop+
+            (note.startStep-static_cast<float>(rollStepOffset_))*rowH+
+            1.0f+visualShiftY(depth);
+        if(headY<gridTop||headY>gridBottom)continue;
+        const float dy=std::fabs(y-headY);
+        if(dy>headTolerance)continue;
+        const float step=rollVisualCurveStep(note,0.0f);
+        const float center=rollPitchX(columns,
+            static_cast<float>(note.midi)+rollBendAt(sourceTrack,note,step),
+            rollPitchOffset_,gridLeft,colW)+visualShiftX(depth);
+        const float dx=std::max(
+            0.0f,std::fabs(x-center)-capHalf(note,step,depth));
+        if(dx>headMargin)continue;
+        const float score=dy*dy+dx*dx;
+        // Exact ties follow foreground order, not vector-storage order.
+        if(score<closestScore-1.0e-4f){
+            closestScore=score;
+            closestHead=n;
+        }
     }
     if(closestHead>=0)return RollNoteHit{closestHead,false};
 
-    // Otherwise choose the foreground note before its background layers.
+    // If no note head was touched, use body/tail in foreground order.
+    // Perspective offsets match drawRoll, while note data stays unmodified.
     for(const int n:hitOrder){
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
+        const int depth=depths[static_cast<size_t>(n)];
         const float length=std::max(1.0f,note.lengthSteps);
-        const float top=
-            gridTop+
-            (note.startStep-static_cast<float>(rollStepOffset_))*rowH+1.0f;
+        const float top=gridTop+
+            (note.startStep-static_cast<float>(rollStepOffset_))*rowH+
+            1.0f+visualShiftY(depth);
         const float height=std::max(rowH,length*rowH)-2.0f;
         const float bottom=top+height;
         if(y<top-bodyMargin||y>bottom+bodyMargin)continue;
@@ -4360,18 +4392,12 @@ std::optional<RollNoteHit> NativeUi::hitRollNote(
         const float step=rollVisualCurveStep(note,fraction);
         const float center=rollPitchX(
             columns,
-            static_cast<float>(note.midi)+
-                rollBendAt(sourceTrack,note,step),
-            rollPitchOffset_,gridLeft,colW);
+            static_cast<float>(note.midi)+rollBendAt(sourceTrack,note,step),
+            rollPitchOffset_,gridLeft,colW)+visualShiftX(depth);
 
-        const float minHalf=std::max(1.5f,colW*0.055f);
-        const float maxHalf=std::max(minHalf,colW*0.5f-2.0f);
-        const float velocity=rollLevelAt(
-            note.velocity,note,step,1.0f);
-        const float half=
-            minHalf+(maxHalf-minHalf)*velocity;
-        const float rough=
-            rollLevelAt(note.mod,note,step,0.0f)*colW*0.11f;
+        const float half=capHalf(note,step,depth);
+        const float rough=rollLevelAt(
+            note.mod,note,step,0.0f)*colW*0.11f*visualScale(depth);
         if(std::fabs(x-center)>half+rough+bodyMargin)continue;
 
         const float tailStep=rollVisualCurveStep(note,1.0f);
@@ -4379,21 +4405,16 @@ std::optional<RollNoteHit> NativeUi::hitRollNote(
             columns,
             static_cast<float>(note.midi)+
                 rollBendAt(sourceTrack,note,tailStep),
-            rollPitchOffset_,gridLeft,colW);
-        const float tailVelocity=rollLevelAt(
-            note.velocity,note,tailStep,1.0f);
-        const float tailHalf=
-            minHalf+(maxHalf-minHalf)*tailVelocity;
-        const float tailRough=
-            rollLevelAt(note.mod,note,tailStep,0.0f)*colW*0.11f;
-        const bool tail=
-            std::fabs(y-bottom)<=tailYRadius&&
+            rollPitchOffset_,gridLeft,colW)+visualShiftX(depth);
+        const float tailHalf=capHalf(note,tailStep,depth);
+        const float tailRough=rollLevelAt(
+            note.mod,note,tailStep,0.0f)*colW*0.11f*visualScale(depth);
+        const bool tail=std::fabs(y-bottom)<=tailYRadius&&
             std::fabs(x-tailCenter)<=
                 tailHalf+tailRough+tailXMargin;
 
         return RollNoteHit{n,tail};
     }
-
     return std::nullopt;
 }
 

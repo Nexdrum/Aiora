@@ -99,6 +99,7 @@ struct RollGesture {
     bool moved{false};
     bool longPressTriggered{false};
     bool stackPromoted{false};
+    bool stackCycleAdvanced{false};
 
     int track{-1};
     int noteIndex{-1};
@@ -1245,9 +1246,6 @@ void refreshSurfaceGeometry(NativeState& state) {
 void drawFrame(NativeState& state) {
     serviceDocumentResult(state);
     if (!state.drawable) return;
-    if(state.ui.page()!=aiora::NativePage::Roll&&
-       state.ui.rollStackMode())
-        state.ui.setRollStackMode(false);
     refreshSurfaceGeometry(state);
     serviceEditorPreview(state);
     serviceAutosave(state);
@@ -2378,17 +2376,16 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }
 
     if(g.kind==RollGestureKind::StackCycle){
-        // Horizontal dragging rotates layers without moving any note.
-        g.accumX+=dx;
-        const float swipeUnit=std::max(
-            22.0f,state.ui.rollColumnPixels()*0.38f);
-        while(g.accumX>=swipeUnit){
-            state.ui.rotateRollStack(1); // right: top to bottom
-            g.accumX-=swipeUnit;
-        }
-        while(g.accumX<=-swipeUnit){
-            state.ui.rotateRollStack(-1); // left: bottom to top
-            g.accumX+=swipeUnit;
+        // Exactly ONE stack rotation per complete finger swipe.
+        // Lifting the finger arms the next swipe, regardless of distance.
+        if(!g.stackCycleAdvanced){
+            const float swipeUnit=std::max(
+                22.0f,state.ui.rollColumnPixels()*0.38f);
+            if(std::fabs(totalDx)>=swipeUnit &&
+               std::fabs(totalDx)>std::fabs(totalDy)){
+                state.ui.rotateRollStack(totalDx>0.0f?1:-1);
+                g.stackCycleAdvanced=true;
+            }
         }
         return;
     }
@@ -2593,25 +2590,29 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     if(state.ui.rollStackMode()){
                         const auto hit=state.ui.hitRollNote(x,y);
                         const int track=aiora::ProjectCore::instance().selectedTrack();
-                        if(state.ui.rollStackCycling()){
-                            const bool confirm=hit&&
-                                state.ui.rollStackCycleIncludes(
-                                    track,hit->noteIndex);
-                            state.ui.endRollStackCycle(confirm);
-                            state.ui.setRollStackMode(false);
-                            return 1; // confirmation cannot delete the note
+                        // Stack mode is a persistent toggle. Touching empty
+                        // space never turns it off or edits/creates a note.
+                        if(!hit)return 1;
+
+                        if(state.ui.rollStackCycling()&&
+                           !state.ui.rollStackCycleIncludes(
+                               track,hit->noteIndex)){
+                            // Moving to another stack keeps the existing
+                            // foreground selection and starts a new stack.
+                            state.ui.endRollStackCycle(true);
                         }
-                        if(hit&&state.ui.beginRollStackCycle(
-                                track,hit->noteIndex)){
-                            beginRollGesture(
-                                state,pointerId,x,y,timeMs,
-                                RollGestureKind::StackCycle);
-                            state.rollGesture.track=track;
-                            state.rollGesture.noteIndex=hit->noteIndex;
-                        }else{
-                            // Outside a stack, leave the mode without editing.
-                            state.ui.setRollStackMode(false);
-                        }
+                        if(!state.ui.rollStackCycling()&&
+                           !state.ui.beginRollStackCycle(
+                               track,hit->noteIndex))
+                            return 1;
+
+                        // Use the same gesture for subsequent swipes. A tap
+                        // (not a swipe) confirms the selected foreground.
+                        beginRollGesture(
+                            state,pointerId,x,y,timeMs,
+                            RollGestureKind::StackCycle);
+                        state.rollGesture.track=track;
+                        state.rollGesture.noteIndex=hit->noteIndex;
                         return 1;
                     }
                     if(!state.ui.rollSelectionActive()&&
@@ -2809,7 +2810,11 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     if(!g.moved&&!g.longPressTriggered)
                         handleUiTap(state,g.downX,g.downY);
                 }else if(g.kind==RollGestureKind::StackCycle){
-                    // Swipe previews the foreground. A later tap confirms it.
+                    // Releasing a swipe leaves browsing active for further
+                    // one-at-a-time swipes. A tap confirms without exiting
+                    // the stack-mode toggle or deleting a note.
+                    if(!g.moved)
+                        state.ui.endRollStackCycle(true);
                 }else if(g.kind==RollGestureKind::SelectTool){
                     if(!g.moved&&!g.longPressTriggered){
                         state.ui.toggleRollSelectionTool();
