@@ -177,6 +177,18 @@ public:
     [[nodiscard]] bool rollFreeTiming() const noexcept { return rollFreeTiming_; }
     void toggleRollFreeTiming() noexcept { rollFreeTiming_=!rollFreeTiming_; }
 
+    // Fundamental-pitch/time stacks; pitch-bend intersections are excluded.
+    [[nodiscard]] std::vector<int> rollStackMembers(int track,int noteIndex) const;
+    [[nodiscard]] std::vector<int> rollStackFrontToBack(
+        int track,const std::vector<int>& members) const;
+    void promoteRollStackNote(int track,int noteIndex);
+    bool beginRollStackCycle(int track,int noteIndex);
+    void rotateRollStack(int direction);
+    [[nodiscard]] bool rollStackCycling() const noexcept { return rollStackCycling_; }
+    [[nodiscard]] bool rollStackCycleIncludes(int track,int noteIndex) const noexcept;
+    void endRollStackCycle(bool confirm,int noteIndex=-1);
+    void clearRollStacks() noexcept;
+
     void setRollNoteSelection(int track,std::vector<int> indices);
     void clearRollNoteSelection() noexcept;
     [[nodiscard]] bool rollNoteSelectionActive() const noexcept {
@@ -358,6 +370,16 @@ private:
     RollSelectionTool rollSelectionTool_{RollSelectionTool::Pencil};
     bool rollMultiLasso_{false};
     bool rollFreeTiming_{false};
+    struct StackOrder {
+        int track{-1};
+        std::vector<int> members{};
+        std::vector<int> frontToBack{};
+    };
+    std::vector<StackOrder> rollStackOrders_{};
+    bool rollStackCycling_{false};
+    int rollStackCycleTrack_{-1};
+    std::vector<int> rollStackCycleMembers_{};
+    std::vector<int> rollStackCycleOriginal_{};
     int rollSelectedTrack_{-1};
     std::vector<int> rollSelectedNotes_{};
     std::vector<RollLassoPoint> rollLassoPath_{};

@@ -96,6 +96,7 @@ struct RollGesture {
     int64_t downTimeMs{0};
     bool moved{false};
     bool longPressTriggered{false};
+    bool stackPromoted{false};
 
     int track{-1};
     int noteIndex{-1};
@@ -116,6 +117,22 @@ struct RollGesture {
     void clear() noexcept { *this = {}; pointerId = -1; }
 };
 
+struct RollStackTouch {
+    int32_t first{-1};
+    int32_t second{-1};
+    float firstX{0.0f},firstY{0.0f};
+    float secondX{0.0f},secondY{0.0f};
+    float initialDistance{0.0f};
+    float swipeCenterX{0.0f};
+    int track{-1};
+    int noteIndex{-1};
+    bool opened{false};
+    [[nodiscard]] bool active() const noexcept {
+        return first>=0&&second>=0;
+    }
+    void clear() noexcept { *this={}; }
+};
+
 struct NativeState {
     android_app* app{};
     EGLDisplay display{EGL_NO_DISPLAY};
@@ -127,6 +144,8 @@ struct NativeState {
     aiora::NativeUi ui{};
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
+    RollStackTouch rollStackTouch{};
+    int32_t rollStackSuppressedPointer{-1};
     std::vector<RollClipboardTrack> rollClipboard{};
     bool rollClipboardAllTracks{false};
     std::array<GroupAutomationCurve,2> rollGroupAutomation{};
@@ -495,6 +514,9 @@ void serviceDocumentResult(NativeState& state){
 
         auto& project=aiora::ProjectCore::instance();
         project.reset();
+        state.ui.clearRollStacks();
+        state.rollStackTouch.clear();
+        state.rollStackSuppressedPointer=-1;
 
         state.rollClipboard.clear();
         state.rollClipboardAllTracks=false;
@@ -586,6 +608,7 @@ void serviceDocumentResult(NativeState& state){
             auto& audio=aiora::AudioEngine::instance();
             audio.stopTransport();
             aiora::ProjectCore::instance().replaceProject(std::move(loaded),0);
+            state.ui.clearRollStacks();
             audio.syncProject();
             state.ui.resetDrumRangeArm();
             scheduleAutosave(state,0);
@@ -1227,6 +1250,8 @@ void refreshSurfaceGeometry(NativeState& state) {
 void drawFrame(NativeState& state) {
     serviceDocumentResult(state);
     if (!state.drawable) return;
+    if(state.ui.rollStackCycling()&&state.ui.page()!=aiora::NativePage::Roll)
+        state.ui.endRollStackCycle(false);
     refreshSurfaceGeometry(state);
     serviceEditorPreview(state);
     serviceAutosave(state);
@@ -1358,7 +1383,10 @@ void handleRollTap(NativeState& state, float x, float y, bool longPress) {
     const auto mode = state.ui.rollMode();
 
     if (mode == aiora::RollMode::Notes) {
-        if (note >= 0) project.deleteNote(track, note);
+        if (note >= 0) {
+            project.deleteNote(track, note);
+            state.ui.clearRollStacks();
+        }
         else project.addNote(track, hit->midi, static_cast<float>(hit->step), 1.0f);
         aiora::AudioEngine::instance().syncProject();
         scheduleAutosave(state);
@@ -1685,6 +1713,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
                     const int track=project.selectedTrack();
                     if(track>=0){
                         project.clearTrackNotes(track);
+                        state.ui.clearRollStacks();
                         audio.syncProject();
                         scheduleAutosave(state,0);
                     }
@@ -1967,6 +1996,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
             resetRollGroupAutomation(state);
         }
         if(removed>0){
+            state.ui.clearRollStacks();
             audio.syncProject();
             scheduleAutosave(state,0);
         }
@@ -2393,6 +2423,10 @@ void moveRollGesture(NativeState& state, float x, float y) {
 
     if(g.kind!=RollGestureKind::NoteEdit||!g.moved||g.track<0||g.noteIndex<0)return;
 
+    if(!g.stackPromoted&&g.noteEdit==RollNoteEdit::Move){
+        state.ui.promoteRollStackNote(g.track,g.noteIndex);
+        g.stackPromoted=true;
+    }
     const auto hit=state.ui.hitRollCell(x,y);
     if(!hit)return;
 
@@ -2461,6 +2495,72 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const int32_t pointerId = AMotionEvent_getPointerId(event, index);
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
+
+            // In priority browsing a tap ON the stack confirms the front
+            // card. Outside taps cancel and restore the preceding order.
+            if(action==AMOTION_EVENT_ACTION_DOWN&&
+               state.ui.page()==aiora::NativePage::Roll&&
+               state.ui.rollStackCycling()){
+                const auto hit=state.ui.hitRollNote(x,y);
+                const int track=aiora::ProjectCore::instance().selectedTrack();
+                const bool onStack=hit&&
+                    state.ui.rollStackCycleIncludes(track,hit->noteIndex);
+                state.ui.endRollStackCycle(onStack);
+                return 1; // never leak confirmation into delete/edit
+            }
+
+            // Second finger may convert a pending note/automation action
+            // into a stack spread; discard any provisional automation point.
+            if(action==AMOTION_EVENT_ACTION_POINTER_DOWN&&
+               state.ui.page()==aiora::NativePage::Roll&&
+               !state.rollStackTouch.active()){
+                auto& g=state.rollGesture;
+                if(g.pointerId>=0&&!g.moved&&g.kind==RollGestureKind::Lasso){
+                    if(const auto note=state.ui.hitRollNote(g.downX,g.downY)){
+                        g.track=aiora::ProjectCore::instance().selectedTrack();
+                        g.noteIndex=note->noteIndex;
+                    }
+                }
+                if(g.pointerId>=0&&!g.moved&&g.track>=0&&g.noteIndex>=0&&
+                   (g.kind==RollGestureKind::NoteEdit||
+                    g.kind==RollGestureKind::AutomationEdit||
+                    g.kind==RollGestureKind::Lasso)){
+                    const auto members=state.ui.rollStackMembers(g.track,g.noteIndex);
+                    const auto secondHit=state.ui.hitRollNote(x,y);
+                    const bool sameStack=secondHit&&std::binary_search(
+                        members.begin(),members.end(),secondHit->noteIndex);
+                    const bool nearby=state.ui.hitRollNoteArea(x,y)&&
+                        std::fabs(x-g.downX)<
+                            std::max(38.0f,state.ui.rollColumnPixels()*1.0f)&&
+                        std::fabs(y-g.downY)<
+                            std::max(55.0f,state.ui.rollCellPixels()*1.5f);
+                    if(members.size()>1&&(sameStack||nearby)){
+                        if(g.kind==RollGestureKind::AutomationEdit&&g.curveIsNew&&
+                           g.curvePoint>=0){
+                            aiora::ProjectCore::instance().deleteCurvePoint(
+                                g.track,g.noteIndex,g.curveKind,g.curvePoint);
+                            aiora::AudioEngine::instance().syncProject();
+                            scheduleAutosave(state);
+                        }
+                        if(g.kind==RollGestureKind::Lasso)
+                            state.ui.cancelRollLasso();
+                        auto& stack=state.rollStackTouch;
+                        stack.first=g.pointerId;
+                        stack.second=pointerId;
+                        stack.firstX=g.lastX;
+                        stack.firstY=g.lastY;
+                        stack.secondX=x;
+                        stack.secondY=y;
+                        stack.initialDistance=std::hypot(
+                            stack.secondX-stack.firstX,stack.secondY-stack.firstY);
+                        stack.swipeCenterX=(stack.firstX+stack.secondX)*0.5f;
+                        stack.track=g.track;
+                        stack.noteIndex=g.noteIndex;
+                        g.clear(); // prevents incidental move, delete or duplicate
+                        return 1;
+                    }
+                }
+            }
 
             // Dropdowns are modal: never let a menu tap leak through to
             // sliders, scrolling, notes, or other controls beneath it.
@@ -2576,6 +2676,44 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_MOVE: {
+            if(state.rollStackTouch.active()){
+                auto& stack=state.rollStackTouch;
+                const size_t count=AMotionEvent_getPointerCount(event);
+                for(size_t i=0;i<count;++i){
+                    const int32_t id=AMotionEvent_getPointerId(event,i);
+                    if(id==stack.first){
+                        stack.firstX=AMotionEvent_getX(event,i);
+                        stack.firstY=AMotionEvent_getY(event,i);
+                    }else if(id==stack.second){
+                        stack.secondX=AMotionEvent_getX(event,i);
+                        stack.secondY=AMotionEvent_getY(event,i);
+                    }
+                }
+                const float spread=std::hypot(
+                    stack.secondX-stack.firstX,stack.secondY-stack.firstY);
+                const float center=(stack.firstX+stack.secondX)*0.5f;
+                if(!stack.opened&&spread-stack.initialDistance>=
+                        std::max(14.0f,state.ui.rollCellPixels()*0.23f)){
+                    stack.opened=state.ui.beginRollStackCycle(
+                        stack.track,stack.noteIndex);
+                    stack.swipeCenterX=center;
+                }
+                if(stack.opened){
+                    const float swipeUnit=std::max(
+                        22.0f,state.ui.rollColumnPixels()*0.38f);
+                    while(center-stack.swipeCenterX>=swipeUnit){
+                        state.ui.rotateRollStack(1); // right: front -> back
+                        stack.swipeCenterX+=swipeUnit;
+                    }
+                    while(center-stack.swipeCenterX<=-swipeUnit){
+                        state.ui.rotateRollStack(-1); // left: back -> front
+                        stack.swipeCenterX-=swipeUnit;
+                    }
+                }
+                return 1;
+            }
+            if(state.rollStackSuppressedPointer>=0&&
+               state.ui.page()==aiora::NativePage::Roll)return 1;
             if(state.trackControlPointerId>=0){
                 const size_t count=AMotionEvent_getPointerCount(event);
                 for(size_t i=0;i<count;++i){
@@ -2662,6 +2800,21 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
 
+            if(state.rollStackTouch.active()&&
+               (pointerId==state.rollStackTouch.first||
+                pointerId==state.rollStackTouch.second)){
+                state.rollStackSuppressedPointer=
+                    pointerId==state.rollStackTouch.first
+                    ?state.rollStackTouch.second:state.rollStackTouch.first;
+                state.rollStackTouch.clear();
+                // Once opened, priority browsing remains until a note tap.
+                return 1;
+            }
+
+            if(pointerId==state.rollStackSuppressedPointer){
+                state.rollStackSuppressedPointer=-1;
+                return 1;
+            }
             if(state.trackControlPointerId==pointerId){
                 const bool changed=state.ui.trackPointerUp();
                 state.trackControlPointerId=-1;
@@ -2772,6 +2925,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         g.noteEdit==RollNoteEdit::Resize) &&
                        g.track>=0&&g.noteIndex>=0){
                         project.deleteNote(g.track,g.noteIndex);
+                        state.ui.clearRollStacks();
                     }
                     aiora::AudioEngine::instance().syncProject();
                     scheduleAutosave(state);
@@ -2834,6 +2988,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             state.pageScrollPointerId=-1;
             state.pageScrollMoved=false;
             state.ui.cancelRollLasso();
+            state.rollStackTouch.clear();
+            state.rollStackSuppressedPointer=-1;
+            state.ui.endRollStackCycle(false);
             state.rollGesture.clear();
             aiora::NativeEditor::instance().cancel();
             state.editorPointerId=-1;

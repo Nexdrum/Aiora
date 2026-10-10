@@ -12,12 +12,47 @@
 #include <utility>
 #include <cmath>
 #include <cstdint>
+#include <map>
 
 #include "ProjectCore.h"
 #include "AudioEngine.h"
 
 namespace aiora {
 namespace {
+
+// Only notes on the same fundamental MIDI pitch with truly overlapping
+// durations participate. Bend-induced visual crossings never merge notes.
+std::vector<std::vector<int>> rollOverlapGroups(const Track& track){
+    std::map<int,std::vector<int>> byMidi;
+    for(int n=0;n<static_cast<int>(track.notes.size());++n)
+        byMidi[track.notes[static_cast<size_t>(n)].midi].push_back(n);
+    std::vector<std::vector<int>> groups;
+    for(auto& entry:byMidi){
+        auto& ids=entry.second;
+        std::stable_sort(ids.begin(),ids.end(),[&](int a,int b){
+            return track.notes[static_cast<size_t>(a)].startStep<
+                track.notes[static_cast<size_t>(b)].startStep;
+        });
+        std::vector<int> members;
+        float end=0.0f;
+        auto flush=[&](){
+            if(members.size()>1){
+                std::sort(members.begin(),members.end());
+                groups.push_back(members);
+            }
+            members.clear();
+        };
+        for(int n:ids){
+            const auto& note=track.notes[static_cast<size_t>(n)];
+            const float noteEnd=note.startStep+std::max(1.0f,note.lengthSteps);
+            if(!members.empty()&&note.startStep>=end-1.0e-5f)flush();
+            members.push_back(n);
+            end=members.size()==1?noteEnd:std::max(end,noteEnd);
+        }
+        flush();
+    }
+    return groups;
+}
 
 constexpr NativeUi::Rgb kBg{0.0627f, 0.0706f, 0.0863f};
 constexpr NativeUi::Rgb kTop{0.0784f, 0.0902f, 0.1137f};
@@ -1247,6 +1282,107 @@ void NativeUi::setRollSelection(bool active,int anchorStep,int endStep) noexcept
     rollSelectionActive_=active;
     rollSelectionAnchorStep_=std::max(0,anchorStep);
     rollSelectionEndStep_=std::max(0,endStep);
+}
+
+
+std::vector<int> NativeUi::rollStackMembers(int track,int noteIndex) const {
+    const auto snapshot=ProjectCore::instance().projectCopy();
+    if(track<0||track>=static_cast<int>(snapshot.tracks.size()))return {};
+    const auto& source=snapshot.tracks[static_cast<size_t>(track)];
+    if(noteIndex<0||noteIndex>=static_cast<int>(source.notes.size()))return {};
+    for(const auto& members:rollOverlapGroups(source))
+        if(std::binary_search(members.begin(),members.end(),noteIndex))
+            return members;
+    return {};
+}
+
+std::vector<int> NativeUi::rollStackFrontToBack(
+    int track,const std::vector<int>& members) const {
+    for(const auto& entry:rollStackOrders_)
+        if(entry.track==track&&entry.members==members)
+            return entry.frontToBack;
+    return std::vector<int>(members.rbegin(),members.rend());
+}
+
+void NativeUi::promoteRollStackNote(int track,int noteIndex){
+    const auto members=rollStackMembers(track,noteIndex);
+    if(members.size()<2)return;
+    auto order=rollStackFrontToBack(track,members);
+    const auto at=std::find(order.begin(),order.end(),noteIndex);
+    if(at==order.end())return;
+    order.erase(at);
+    order.insert(order.begin(),noteIndex);
+    for(auto& entry:rollStackOrders_){
+        if(entry.track==track&&entry.members==members){
+            entry.frontToBack=std::move(order);
+            return;
+        }
+    }
+    if(rollStackOrders_.size()>=48)rollStackOrders_.erase(rollStackOrders_.begin());
+    rollStackOrders_.push_back({track,members,std::move(order)});
+}
+
+bool NativeUi::beginRollStackCycle(int track,int noteIndex){
+    const auto members=rollStackMembers(track,noteIndex);
+    if(members.size()<2)return false;
+    rollStackCycling_=true;
+    rollStackCycleTrack_=track;
+    rollStackCycleMembers_=members;
+    rollStackCycleOriginal_=rollStackFrontToBack(track,members);
+    return true;
+}
+
+bool NativeUi::rollStackCycleIncludes(int track,int noteIndex) const noexcept {
+    return rollStackCycling_&&rollStackCycleTrack_==track&&
+        std::binary_search(
+            rollStackCycleMembers_.begin(),rollStackCycleMembers_.end(),noteIndex);
+}
+
+void NativeUi::rotateRollStack(int direction){
+    if(!rollStackCycling_||direction==0)return;
+    auto order=rollStackFrontToBack(rollStackCycleTrack_,rollStackCycleMembers_);
+    if(order.size()<2)return;
+    if(direction>0)
+        std::rotate(order.begin(),order.begin()+1,order.end());
+    else
+        std::rotate(order.begin(),order.end()-1,order.end());
+    for(auto& entry:rollStackOrders_){
+        if(entry.track==rollStackCycleTrack_&&
+           entry.members==rollStackCycleMembers_){
+            entry.frontToBack=std::move(order);
+            return;
+        }
+    }
+    if(rollStackOrders_.size()>=48)rollStackOrders_.erase(rollStackOrders_.begin());
+    rollStackOrders_.push_back(
+        {rollStackCycleTrack_,rollStackCycleMembers_,std::move(order)});
+}
+
+void NativeUi::endRollStackCycle(bool confirm,int noteIndex){
+    if(!rollStackCycling_)return;
+    const int track=rollStackCycleTrack_;
+    const auto members=rollStackCycleMembers_;
+    if(!confirm){
+        for(auto& entry:rollStackOrders_){
+            if(entry.track==track&&entry.members==members){
+                entry.frontToBack=rollStackCycleOriginal_;
+                break;
+            }
+        }
+    }
+    rollStackCycling_=false;
+    rollStackCycleTrack_=-1;
+    rollStackCycleMembers_.clear();
+    rollStackCycleOriginal_.clear();
+    if(confirm&&noteIndex>=0)promoteRollStackNote(track,noteIndex);
+}
+
+void NativeUi::clearRollStacks() noexcept {
+    rollStackOrders_.clear();
+    rollStackCycling_=false;
+    rollStackCycleTrack_=-1;
+    rollStackCycleMembers_.clear();
+    rollStackCycleOriginal_.clear();
 }
 
 void NativeUi::setRollNoteSelection(int track,std::vector<int> indices){
@@ -2961,14 +3097,43 @@ void NativeUi::drawRoll() const noexcept {
         return minHalf+(maxHalf-minHalf)*velocity;
     };
 
+    const auto& activeTrack=projectSnapshot.tracks[static_cast<size_t>(track)];
+    const int stackNoteCount=static_cast<int>(activeTrack.notes.size());
+    std::vector<int> stackDepth(static_cast<size_t>(stackNoteCount),0);
+    std::vector<bool> isStacked(static_cast<size_t>(stackNoteCount),false);
+    std::vector<int> displayOrder;
+    const auto overlapGroups=rollOverlapGroups(activeTrack);
+    for(const auto& members:overlapGroups){
+        const auto order=rollStackFrontToBack(track,members);
+        for(int i=0;i<static_cast<int>(order.size());++i){
+            const int n=order[static_cast<size_t>(i)];
+            isStacked[static_cast<size_t>(n)]=true;
+            stackDepth[static_cast<size_t>(n)]=i;
+        }
+    }
+    for(int n=0;n<stackNoteCount;++n)
+        if(!isStacked[static_cast<size_t>(n)])displayOrder.push_back(n);
+    for(const auto& members:overlapGroups){
+        const auto order=rollStackFrontToBack(track,members);
+        for(auto it=order.rbegin();it!=order.rend();++it)
+            displayOrder.push_back(*it);
+    }
+
     const auto addRibbon=[&](
         const Track& sourceTrack,const Note& note,
         int sourceTrackIndex,int noteIndex,int targetMidi,
         NativeOverlay::Color color,bool spectrum){
         const float length=std::max(1.0f,note.lengthSteps);
+        const bool layered=spectrum&&sourceTrackIndex==track&&
+            noteIndex>=0&&noteIndex<stackNoteCount&&
+            isStacked[static_cast<size_t>(noteIndex)];
+        const int depth=layered?stackDepth[static_cast<size_t>(noteIndex)]:0;
+        const float inset=std::min(0.38f,depth*0.105f);
+        const float shiftX=-std::min(colW*0.18f,depth*colW*0.035f);
+        const float shiftY=-std::min(rowH*0.22f,depth*3.0f);
         const float top=
             viewport.y+header+
-            (note.startStep-static_cast<float>(stepOffset))*rowH+1.0f;
+            (note.startStep-static_cast<float>(stepOffset))*rowH+1.0f+shiftY;
         const float height=std::max(rowH,length*rowH)-2.0f;
         const int segments=std::clamp(
             static_cast<int>(std::ceil(length*12.0f)),6,480);
@@ -2993,9 +3158,9 @@ void NativeUi::drawRoll() const noexcept {
                 static_cast<float>(targetMidi)+
                 rollBendAt(sourceTrack,note,s1);
             const float c0=rollPitchX(
-                columns,pitch0,pitchOffset,gridLeft,colW);
+                columns,pitch0,pitchOffset,gridLeft,colW)+shiftX;
             const float c1=rollPitchX(
-                columns,pitch1,pitchOffset,gridLeft,colW);
+                columns,pitch1,pitchOffset,gridLeft,colW)+shiftX;
 
             const float half0=ribbonHalfWidth(note,s0);
             const float half1=ribbonHalfWidth(note,s1);
@@ -3006,8 +3171,8 @@ void NativeUi::drawRoll() const noexcept {
 
             const float jag0=rollJaggedWave(f0*length);
             const float jag1=rollJaggedWave(f1*length);
-            const float edge0=std::max(1.2f,half0+jag0*rough0);
-            const float edge1=std::max(1.2f,half1+jag1*rough1);
+            const float edge0=std::max(1.2f,(half0+jag0*rough0)*(1.0f-inset));
+            const float edge1=std::max(1.2f,(half1+jag1*rough1)*(1.0f-inset));
             const float lh0=edge0;
             const float rh0=edge0;
             const float lh1=edge1;
@@ -3030,12 +3195,17 @@ void NativeUi::drawRoll() const noexcept {
             if(y1<=y0||x1<=x0||x2<=x3)continue;
 
             const auto topColor=
-                spectrum?overlayColor(rollSpectrumColor(pitch0)):color;
+                spectrum?overlayColor(rollSpectrumColor(pitch0),0.72f):color;
             const auto bottomColor=
-                spectrum?overlayColor(rollSpectrumColor(pitch1)):color;
+                spectrum?overlayColor(rollSpectrumColor(pitch1),0.72f):color;
             rollOverlay.addGradientQuad(
                 x0,y0,x1,y0,x2,y1,x3,y1,
                 topColor,bottomColor);
+            if(layered){
+                const auto contour=overlayColor(kWhite,0.64f);
+                rollOverlay.addLine(x0,y0,x3,y1,1.4f,contour);
+                rollOverlay.addLine(x1,y0,x2,y1,1.4f,contour);
+            }
         }
     };
 
@@ -3105,7 +3275,7 @@ void NativeUi::drawRoll() const noexcept {
             rollSelectedTrack_==track&&rollNoteSelectionActive()&&
             rollSelectionTool_==RollSelectionTool::Pencil&&
             (rollMode_==RollMode::Velocity||rollMode_==RollMode::Mod);
-        for(int n=0;n<static_cast<int>(selectedTrack.notes.size());++n){
+        for(const int n:displayOrder){
             const auto& note=selectedTrack.notes[static_cast<size_t>(n)];
             const int midi=note.midi;
 
@@ -3181,9 +3351,16 @@ void NativeUi::drawRoll() const noexcept {
                 }
             }
 
+            const int depth=stackDepth[static_cast<size_t>(n)];
+            const float visualScale=isStacked[static_cast<size_t>(n)]
+                ?1.0f-std::min(0.38f,depth*0.105f):1.0f;
+            const float visualShiftX=isStacked[static_cast<size_t>(n)]
+                ?-std::min(colW*0.18f,depth*colW*0.035f):0.0f;
+            const float visualShiftY=isStacked[static_cast<size_t>(n)]
+                ?-std::min(rowH*0.22f,depth*3.0f):0.0f;
             const float startY=
                 viewport.y+header+
-                (start-static_cast<float>(stepOffset))*rowH+1.0f;
+                (start-static_cast<float>(stepOffset))*rowH+1.0f+visualShiftY;
             if(startY>=gridTop&&startY<=gridBottom){
                 const float step=rollVisualCurveStep(note,0.0f);
                 const float center=rollPitchX(
@@ -3191,12 +3368,13 @@ void NativeUi::drawRoll() const noexcept {
                     static_cast<float>(midi)+
                         rollBendAt(selectedTrack,note,step),
                     pitchOffset,gridLeft,colW);
-                const float half=ribbonHalfWidth(note,step);
-                if(center+half>gridLeft&&center-half<gridRight){
+                const float half=ribbonHalfWidth(note,step)*visualScale;
+                const float visualCenter=center+visualShiftX;
+                if(visualCenter+half>gridLeft&&visualCenter-half<gridRight){
                     rollOverlay.addLine(
-                        std::clamp(center-half,gridLeft+1.0f,gridRight-1.0f),
+                        std::clamp(visualCenter-half,gridLeft+1.0f,gridRight-1.0f),
                         startY,
-                        std::clamp(center+half,gridLeft+1.0f,gridRight-1.0f),
+                        std::clamp(visualCenter+half,gridLeft+1.0f,gridRight-1.0f),
                         startY,
                         3.0f,
                         overlayColor(noteSelectedNow?kGold:kTop));
@@ -3205,26 +3383,30 @@ void NativeUi::drawRoll() const noexcept {
 
             const float tailY=
                 viewport.y+header+
-                (start+length-static_cast<float>(stepOffset))*rowH-2.0f;
+                (start+length-static_cast<float>(stepOffset))*rowH-2.0f+
+                visualShiftY;
             if(tailY>=gridTop&&tailY<=gridBottom){
                 const float step=rollVisualCurveStep(note,1.0f);
                 const float center=rollPitchX(
                     columns,
                     static_cast<float>(midi)+rollBendAt(selectedTrack,note,step),
                     pitchOffset,gridLeft,colW);
-                const float half=ribbonHalfWidth(note,step);
-                if(center+half>gridLeft&&center-half<gridRight){
+                const float half=ribbonHalfWidth(note,step)*visualScale;
+                const float visualCenter=center+visualShiftX;
+                if(visualCenter+half>gridLeft&&visualCenter-half<gridRight){
                     rollOverlay.addLine(
-                        std::clamp(center-half,gridLeft+1.0f,gridRight-1.0f),
+                        std::clamp(visualCenter-half,gridLeft+1.0f,gridRight-1.0f),
                         tailY,
-                        std::clamp(center+half,gridLeft+1.0f,gridRight-1.0f),
+                        std::clamp(visualCenter+half,gridLeft+1.0f,gridRight-1.0f),
                         tailY,
                         3.0f,
                         overlayColor(noteSelectedNow?kGold:kTop));
                 }
             }
 
-            if(rollMode_==RollMode::Notes||groupEditing)continue;
+            // Only the full-sized front note exposes editable automation.
+            if(rollMode_==RollMode::Notes||groupEditing||
+               (isStacked[static_cast<size_t>(n)]&&depth>0))continue;
             const int kind=static_cast<int>(rollMode_)-1;
             const Rgb pointColor=
                 rollMode_==RollMode::Bend?kCyan:
@@ -4110,9 +4292,41 @@ std::optional<RollNoteHit> NativeUi::hitRollNote(
     const float tailYRadius=std::max(18.0f,rowH*0.34f);
     const float tailXMargin=std::max(8.0f,colW*0.12f);
 
-    // Iterate in reverse draw order so the visually top-most selected-track
-    // ribbon wins when shaped notes overlap.
-    for(int n=static_cast<int>(sourceTrack.notes.size())-1;n>=0;--n){
+    // Note heads are move handles, including heads nested in longer notes.
+    std::vector<int> hitOrder;
+    std::vector<bool> grouped(sourceTrack.notes.size(),false);
+    for(const auto& members:rollOverlapGroups(sourceTrack)){
+        const auto order=rollStackFrontToBack(track,members);
+        for(int n:members)grouped[static_cast<size_t>(n)]=true;
+        for(int n:order)hitOrder.push_back(n);
+    }
+    for(int n=static_cast<int>(sourceTrack.notes.size())-1;n>=0;--n)
+        if(!grouped[static_cast<size_t>(n)])hitOrder.push_back(n);
+
+    int closestHead=-1;
+    float closestDistance=std::max(8.0f,rowH*0.22f);
+    for(int n:hitOrder){
+        const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
+        const float headY=gridTop+
+            (note.startStep-static_cast<float>(rollStepOffset_))*rowH+1.0f;
+        const float delta=std::fabs(y-headY);
+        if(delta>closestDistance)continue;
+        const float headX=rollPitchX(columns,
+            static_cast<float>(note.midi)+
+                rollBendAt(sourceTrack,note,rollVisualCurveStep(note,0.0f)),
+            rollPitchOffset_,gridLeft,colW);
+        const float minHalf=std::max(1.5f,colW*0.055f);
+        const float maxHalf=std::max(minHalf,colW*0.5f-2.0f);
+        const float half=minHalf+(maxHalf-minHalf)*
+            rollLevelAt(note.velocity,note,rollVisualCurveStep(note,0.0f),1.0f);
+        if(std::fabs(x-headX)>half+bodyMargin)continue;
+        closestHead=n;
+        closestDistance=delta;
+    }
+    if(closestHead>=0)return RollNoteHit{closestHead,false};
+
+    // Otherwise choose the foreground note before its background layers.
+    for(const int n:hitOrder){
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
         const float length=std::max(1.0f,note.lengthSteps);
         const float top=
@@ -4283,6 +4497,12 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
     const auto snapshot=project.projectCopy();
     if(track>=static_cast<int>(snapshot.tracks.size()))return std::nullopt;
     const auto& sourceTrack=snapshot.tracks[static_cast<size_t>(track)];
+    std::vector<bool> canEdit(sourceTrack.notes.size(),true);
+    for(const auto& members:rollOverlapGroups(sourceTrack)){
+        const auto order=rollStackFrontToBack(track,members);
+        for(size_t i=1;i<order.size();++i)
+            canEdit[static_cast<size_t>(order[i])]=false;
+    }
 
     int bestNote=-1,bestPoint=-1;
     float bestDist=radius2;
@@ -4291,6 +4511,7 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
 
     const int noteCount=static_cast<int>(sourceTrack.notes.size());
     for(int n=0;n<noteCount;++n){
+        if(!canEdit[static_cast<size_t>(n)])continue;
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
         const int midi=note.midi;
         const float start=note.startStep;
@@ -4346,6 +4567,7 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
     int noteIndex=-1;
     float noteDistance=1.0e9f;
     for(int n=0;n<noteCount;++n){
+        if(!canEdit[static_cast<size_t>(n)])continue;
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
         const float start=note.startStep;
         const float length=std::max(1.0f,note.lengthSteps);
