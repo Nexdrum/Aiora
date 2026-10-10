@@ -1043,7 +1043,29 @@ NativeUi::Rect NativeUi::rollGroupAutomationRect() const noexcept {
     top=std::max(gridTop,top);
     bottom=std::min(gridBottom,bottom);
     if(bottom<=top)return {};
-    return {viewport.x+viewport.w-width,top,width,bottom-top};
+    // Leave a narrow on-screen strip to the right so both lateral sides
+    // of the visible gutter can have an invisible touch buffer.
+    const float rightInset=std::clamp(
+        rollBaseCellPixels()*0.25f,12.0f,20.0f);
+    return {viewport.x+viewport.w-width-rightInset,top,width,bottom-top};
+}
+
+NativeUi::Rect NativeUi::rollGroupAutomationTouchRect() const noexcept {
+    const auto visual=rollGroupAutomationRect();
+    if(visual.w<=0.0f||visual.h<=0.0f)return {};
+
+    const auto viewport=rollViewportRect();
+    const float slop=std::clamp(rollCellPixels()*0.35f,18.0f,30.0f);
+    const float left=std::max(
+        viewport.x+rollGutterPixels(),visual.x-slop);
+    const float right=std::min(
+        viewport.x+viewport.w,visual.x+visual.w+slop);
+    const float top=std::max(
+        viewport.y+rollHeaderPixels(),visual.y-slop);
+    const float bottom=std::min(
+        viewport.y+viewport.h,visual.y+visual.h+slop);
+    return {left,top,std::max(0.0f,right-left),
+            std::max(0.0f,bottom-top)};
 }
 
 NativeUi::Rect NativeUi::rollViewportRect() const noexcept {
@@ -1347,7 +1369,9 @@ void NativeUi::clearRollGroupAutomation() noexcept {
 }
 
 bool NativeUi::hitRollGroupAutomationGutter(float x,float y) const noexcept {
-    const auto r=rollGroupAutomationRect();
+    // Only hit testing uses the enlarged rectangle. Point positions and the
+    // curve itself still use the original visible gutter dimensions.
+    const auto r=rollGroupAutomationTouchRect();
     return r.w>0.0f&&r.h>0.0f&&r.contains(x,y);
 }
 

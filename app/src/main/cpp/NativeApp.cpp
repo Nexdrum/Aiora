@@ -2265,6 +2265,21 @@ bool beginRollGroupAutomationGesture(
         g.clear();
         return false;
     }
+    // The group already has start/end anchors. A tap in the extra touch
+    // buffer at either time edge edits that anchor rather than creating
+    // two different points at precisely the same start/end time.
+    const float duration=std::max(0.0f,curve->end-curve->start);
+    if(!curve->points.empty() &&
+       (step<=1.0e-4f||step>=duration-1.0e-4f)){
+        const int endpoint=step<=1.0e-4f
+            ?0:static_cast<int>(curve->points.size())-1;
+        curve->points[static_cast<size_t>(endpoint)].value=value;
+        g.curvePoint=endpoint;
+        g.curveIsNew=true; // endpoint changed on the initial tap
+        syncRollGroupAutomationUi(state);
+        applyRollGroupAutomation(state,kind);
+        return true;
+    }
     if(curve->points.size()>=24){
         g.clear();
         return false;

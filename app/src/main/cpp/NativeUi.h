@@ -304,6 +304,7 @@ private:
     [[nodiscard]] Rect rollSelectionToolRect() const noexcept;
     [[nodiscard]] Rect rollModeRect(int index) const noexcept;
     [[nodiscard]] Rect rollGroupAutomationRect() const noexcept;
+    [[nodiscard]] Rect rollGroupAutomationTouchRect() const noexcept;
     [[nodiscard]] Rect rollViewportRect() const noexcept;
     [[nodiscard]] float rollBaseCellPixels() const noexcept;
     [[nodiscard]] float rollGutterPixels() const noexcept;
