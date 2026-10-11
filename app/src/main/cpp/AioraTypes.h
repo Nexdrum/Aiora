@@ -75,7 +75,23 @@ inline float curveWarp(float fraction,float q) noexcept {
     const float denominator=t+(1.0f-t)*ratio;
     return denominator>0.0f?t/denominator:t;
 }
-struct DspCurvePoint { float step{0},value{0},midpoint{0.5f}; };
+// New two-dimensional X control passes through its handle. Legacy segments
+// (including saved q-only curves) preserve the original interpolation.
+inline float curveSegment(float fraction,float a,float b,float q,
+                         bool shaped,float handleValue) noexcept {
+    const float t=std::clamp(fraction,0.0f,1.0f);
+    if(!shaped)return a+(b-a)*curveWarp(t,q);
+    const float middle=std::clamp(q,0.05f,0.95f);
+    const float u=t<=middle?t/middle:(t-middle)/(1.0f-middle);
+    const float smooth=u*u*(3.0f-2.0f*u);
+    return t<=middle?a+(handleValue-a)*smooth:
+        handleValue+(b-handleValue)*smooth;
+}
+struct DspCurvePoint {
+    float step{0},value{0},midpoint{0.5f};
+    float handleValue{0.0f};
+    bool handleActive{false};
+};
 struct DspCurve { std::array<DspCurvePoint,kDspCurvePoints> points{}; uint8_t count{0}; };
 struct VoiceAutomation { DspCurve bend{},velocity{},mod{}; };
 static_assert(std::is_trivially_copyable_v<VoiceAutomation>);
@@ -83,7 +99,9 @@ static_assert(std::is_trivially_copyable_v<VoiceAutomation>);
 struct CurvePoint {
     float step{0.0f}, value{0.0f};
     bool free{false};
-    float midpoint{0.5f}; // Incoming segment's draggable X, normalized time
+    float midpoint{0.5f}; // Incoming segment X timing (0..1)
+    float handleValue{0.0f}; // Actual V/Bend/M value at the X
+    bool handleActive{false}; // False keeps legacy linear/warped sound
 };
 struct Note {
     int32_t midi{62}; float startStep{0},lengthSteps{1};

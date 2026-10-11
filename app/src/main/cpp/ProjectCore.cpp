@@ -641,7 +641,11 @@ bool ProjectCore::updateCurvePoint(int t,int n,int kind,int p,float step,float v
     if(!c||p<0||p>=static_cast<int>(c->size()))return false;
     step=std::clamp(step,kCurveMinStep,curveMaxStep(note));
     if(occupiedStep(*c,step,p))return false; // Keep prior valid location.
-    (*c)[p]={step,clampCurveValue(kind,value),free,(*c)[p].midpoint};
+    auto previous=(*c)[p];
+    previous.step=step;
+    previous.value=clampCurveValue(kind,value);
+    previous.free=free;
+    (*c)[p]=previous;
     std::sort(c->begin(),c->end(),
         [](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     return true;
@@ -655,6 +659,19 @@ bool ProjectCore::updateCurveMidpoint(
        (kind!=0&&point==0))return false;
     (*curve)[static_cast<size_t>(point)].midpoint=
         std::clamp(midpoint,0.05f,0.95f);
+    return true;
+}
+bool ProjectCore::updateCurveHandle(
+    int track,int note,int kind,int point,float midpoint,float value){
+    std::scoped_lock lock(mutex_);
+    if(!validNote(track,note))return false;
+    auto* c=curveFor(project_.tracks[track].notes[note],kind);
+    if(!c||point<0||point>=static_cast<int>(c->size())||
+       (kind!=0&&point==0))return false;
+    auto& p=(*c)[static_cast<size_t>(point)];
+    p.midpoint=std::clamp(midpoint,0.05f,0.95f);
+    p.handleValue=clampCurveValue(kind,value);
+    p.handleActive=true;
     return true;
 }
 bool ProjectCore::replaceNoteCurves(int track,int note,

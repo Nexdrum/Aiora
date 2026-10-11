@@ -99,6 +99,8 @@ public:
     int addCurvePoint(int trackIndex, int noteIndex, int curveKind, float step, float value, bool free);
     bool updateCurvePoint(int trackIndex, int noteIndex, int curveKind, int pointIndex, float step, float value, bool free);
     bool updateCurveMidpoint(int trackIndex,int noteIndex,int curveKind,int pointIndex,float midpoint);
+    bool updateCurveHandle(int trackIndex,int noteIndex,int curveKind,
+        int pointIndex,float midpoint,float value);
     bool replaceNoteCurves(int trackIndex,int noteIndex,
         const std::vector<CurvePoint>& bend,
         const std::vector<CurvePoint>& velocity,

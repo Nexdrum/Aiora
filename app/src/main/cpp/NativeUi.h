@@ -320,8 +320,9 @@ public:
     [[nodiscard]] bool rollAutomationPosition(
         float x,float y,int noteIndex,int curveKind,bool free,
         float& step,float& value) const noexcept;
-    [[nodiscard]] float rollSegmentMidpoint(
-        int noteIndex,int curveKind,int pointIndex,float y) const noexcept;
+    [[nodiscard]] bool rollSegmentHandlePosition(
+        float x,float y,int noteIndex,int curveKind,int pointIndex,
+        float& timing,float& value) const noexcept;
 
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 

@@ -1290,6 +1290,13 @@ void serviceRollLongPress(NativeState& state){
         return;
     }
 
+    if(g.kind==RollGestureKind::CurveMidpoint){
+        // Holding prepares curve manipulation. Merely tapping an X still
+        // creates a normal point on finger-up.
+        g.longPressTriggered=true;
+        return;
+    }
+
     if(g.kind==RollGestureKind::DrawModeButton){
         state.ui.toggleRollDrawMode(g.curveKind);
         g.longPressTriggered=true;
@@ -2603,10 +2610,12 @@ void moveRollGesture(NativeState& state, float x, float y) {
 
     if(g.kind==RollGestureKind::CurveMidpoint){
         if(!g.moved||g.track<0||g.noteIndex<0||g.curvePoint<0)return;
-        const float q=state.ui.rollSegmentMidpoint(
-            g.noteIndex,g.curveKind,g.curvePoint,y);
-        aiora::ProjectCore::instance().updateCurveMidpoint(
-            g.track,g.noteIndex,g.curveKind,g.curvePoint,q);
+        float q=0.5f,value=0.0f;
+        if(state.ui.rollSegmentHandlePosition(
+                x,y,g.noteIndex,g.curveKind,g.curvePoint,q,value)){
+            aiora::ProjectCore::instance().updateCurveHandle(
+                g.track,g.noteIndex,g.curveKind,g.curvePoint,q,value);
+        }
         return;
     }
 
@@ -3096,7 +3105,41 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     if(!g.moved&&!g.longPressTriggered)
                         handleUiTap(state,g.downX,g.downY);
                 }else if(g.kind==RollGestureKind::CurveMidpoint){
-                    if(g.moved){
+                    auto& project=aiora::ProjectCore::instance();
+                    bool changed=g.moved;
+                    if(!g.moved&&!g.longPressTriggered&&
+                       g.track>=0&&g.noteIndex>=0){
+                        // TAP on or near an X inserts a new ordinary point.
+                        // Nothing was inserted at touch-down, so a drag never
+                        // creates an accidental point.
+                        float step=0.0f,value=0.0f;
+                        if(state.ui.rollAutomationPosition(
+                                g.downX,g.downY,g.noteIndex,g.curveKind,
+                                false,step,value)){
+                            const int before=project.curvePointCount(
+                                g.track,g.noteIndex,g.curveKind);
+                            project.addCurvePoint(
+                                g.track,g.noteIndex,g.curveKind,step,value,false);
+                            changed=project.curvePointCount(
+                                g.track,g.noteIndex,g.curveKind)>before;
+                            if(!changed){
+                                // For sub-grid segments, try exact timing so
+                                // the X can be split without endpoint collision.
+                                if(state.ui.rollAutomationPosition(
+                                    g.downX,g.downY,g.noteIndex,g.curveKind,
+                                    true,step,value)){
+                                    const int exactBefore=project.curvePointCount(
+                                        g.track,g.noteIndex,g.curveKind);
+                                    project.addCurvePoint(
+                                        g.track,g.noteIndex,g.curveKind,
+                                        step,value,true);
+                                    changed=project.curvePointCount(
+                                        g.track,g.noteIndex,g.curveKind)>exactBefore;
+                                }
+                            }
+                        }
+                    }
+                    if(changed){
                         aiora::AudioEngine::instance().syncProject();
                         scheduleAutosave(state);
                     }

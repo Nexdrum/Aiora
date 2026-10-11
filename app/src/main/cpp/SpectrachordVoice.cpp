@@ -61,7 +61,8 @@ float SpectrachordVoice::curveValue(const DspCurve& c,float step,float fallback)
     if(c.count==0)return fallback;
     if(c.count==1||step<=c.points[0].step)return c.points[0].value;
     for(uint8_t i=1;i<c.count;++i){
-        if(step<=c.points[i].step){const auto&a=c.points[i-1];const auto&b=c.points[i];const float k=(step-a.step)/std::max(1.0e-6f,b.step-a.step);return a.value+(b.value-a.value)*curveWarp(k,b.midpoint);}
+        if(step<=c.points[i].step){const auto&a=c.points[i-1];const auto&b=c.points[i];const float k=(step-a.step)/std::max(1.0e-6f,b.step-a.step);return curveSegment(k,a.value,b.value,
+                    b.midpoint,b.handleActive,b.handleValue);}
     }
     return c.points[c.count-1].value;
 }

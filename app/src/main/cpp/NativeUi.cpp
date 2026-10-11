@@ -237,11 +237,10 @@ float rollBendAt(
             if(x<=ps+1.0e-5f)return pv;
             continue;
         }
-        if(x<=ps)return rollLerp(
-            prevStep+curveWarp(
-                (x-prevStep)/std::max(1.0e-5f,ps-prevStep),
-                point.midpoint)*(ps-prevStep),
-            prevStep,prevValue,ps,pv);
+        if(x<=ps)return curveSegment(
+            (x-prevStep)/std::max(1.0e-5f,ps-prevStep),
+            prevValue,pv,point.midpoint,point.handleActive,
+            point.handleValue);
         prevStep=ps;
         prevValue=pv;
     }
@@ -268,11 +267,10 @@ float rollLevelAt(
             if(x<=ps+1.0e-5f)return pv;
             continue;
         }
-        if(x<=ps)return rollLerp(
-            prevStep+curveWarp(
-                (x-prevStep)/std::max(1.0e-5f,ps-prevStep),
-                point.midpoint)*(ps-prevStep),
-            prevStep,prevValue,ps,pv);
+        if(x<=ps)return curveSegment(
+            (x-prevStep)/std::max(1.0e-5f,ps-prevStep),
+            prevValue,pv,point.midpoint,point.handleActive,
+            point.handleValue);
         prevStep=ps;
         prevValue=pv;
     }
@@ -3245,6 +3243,13 @@ void NativeUi::drawRoll() const noexcept {
             {button.x+2.0f,button.y+2.0f,
              button.w-4.0f,button.h-4.0f},
             overlayColor(kCyan,0.95f));
+        // Visible armed state on each Bend / V / M button.
+        // Position this small D at the top-right, away from the icon.
+        const float bx=button.x+button.w-19.0f;
+        const float by=button.y+5.0f;
+        rollOverlay.addFilledCircle(
+            bx+6.0f,by+8.0f,11.0f,overlayColor(kCyan,0.96f));
+        rollOverlay.addText("D",bx,by,0.93f,overlayColor(kRollBg));
     }
     // Only active draw controller boxes cover the pitch header or time gutter.
     for(int kind=1;kind<=2;++kind){
@@ -3598,7 +3603,8 @@ void NativeUi::drawRoll() const noexcept {
                 if(next.step-prevStep<0.12f)continue;
                 const float rel=prevStep+
                     (next.step-prevStep)*std::clamp(next.midpoint,0.05f,0.95f);
-                const float value=(prevValue+next.value)*0.5f;
+                const float value=next.handleActive?
+                    next.handleValue:(prevValue+next.value)*0.5f;
                 const float py=viewport.y+header+
                     (start+rel+0.5f-stepOffset)*rowH;
                 if(py<gridTop||py>gridBottom)continue;
@@ -4787,7 +4793,8 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
             if(point.step-ps<0.12f)continue;
             const float rel=ps+(point.step-ps)*
                 std::clamp(point.midpoint,0.05f,0.95f);
-            const float val=(pv+point.value)*0.5f;
+            const float val=point.handleActive?
+                point.handleValue:(pv+point.value)*0.5f;
             const float py=viewport.y+header+
                 (note.startStep+rel+0.5f-rollStepOffset_)*rowH;
             const float center=rollPitchX(
@@ -4900,30 +4907,52 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
     float step=0.0f,value=0.0f;
     if(!rollAutomationPosition(
         x,y,noteIndex,curveKind,false,step,value))return std::nullopt;
+    const auto& note=sourceTrack.notes[static_cast<size_t>(noteIndex)];
+    const auto& pts=curveKind==0?note.bend:
+        curveKind==1?note.velocity:note.mod;
+    // Treat a stroke begun between existing anchors as a curve-shaping
+    // gesture. A single tap at precisely the same location still adds a point.
+    for(int p=0;p<static_cast<int>(pts.size());++p){
+        if(p==0&&curveKind!=0)continue;
+        const float begin=p>0?pts[static_cast<size_t>(p-1)].step:-0.5f;
+        const float end=pts[static_cast<size_t>(p)].step;
+        if(end-begin<0.12f)continue;
+        if(step>=begin+0.03f&&step<=end-0.03f)
+            return RollAutomationHit{noteIndex,p,step,value,false,true};
+    }
     return RollAutomationHit{noteIndex,-1,step,value,false};
 }
 
 
-float NativeUi::rollSegmentMidpoint(
-    int noteIndex,int curveKind,int pointIndex,float y) const noexcept {
+
+bool NativeUi::rollSegmentHandlePosition(
+    float x,float y,int noteIndex,int curveKind,int pointIndex,
+    float& timing,float& value) const noexcept {
     const auto snapshot=ProjectCore::instance().projectCopy();
     const int track=ProjectCore::instance().selectedTrack();
-    if(track<0||track>=static_cast<int>(snapshot.tracks.size()))return 0.5f;
-    const auto& notes=snapshot.tracks[static_cast<size_t>(track)].notes;
-    if(noteIndex<0||noteIndex>=static_cast<int>(notes.size()))return 0.5f;
-    const auto& note=notes[static_cast<size_t>(noteIndex)];
-    const auto* points=curveKind==0?&note.bend:
-                       curveKind==1?&note.velocity:&note.mod;
-    if(pointIndex<0||pointIndex>=static_cast<int>(points->size()))return 0.5f;
-    const float start=pointIndex>0?
-        (*points)[static_cast<size_t>(pointIndex-1)].step:-0.5f;
-    const float end=(*points)[static_cast<size_t>(pointIndex)].step;
-    if(end<=start+0.01f)return 0.5f;
+    if(track<0||track>=static_cast<int>(snapshot.tracks.size()))return false;
+    const auto& source=snapshot.tracks[static_cast<size_t>(track)];
+    if(noteIndex<0||noteIndex>=static_cast<int>(source.notes.size()))return false;
+    const auto& note=source.notes[static_cast<size_t>(noteIndex)];
+    const auto& pts=curveKind==0?note.bend:
+        curveKind==1?note.velocity:note.mod;
+    if(pointIndex<0||pointIndex>=static_cast<int>(pts.size())||
+       (curveKind!=0&&pointIndex==0))return false;
+    const float begin=pointIndex>0?pts[static_cast<size_t>(pointIndex-1)].step:-0.5f;
+    const float end=pts[static_cast<size_t>(pointIndex)].step;
+    if(end-begin<0.12f)return false;
     const auto vp=rollViewportRect();
+    const float rowH=std::max(1.0f,rollCellPixels());
     const float raw=rollStepOffset_+
-        (y-vp.y-rollHeaderPixels())/std::max(1.0f,rollCellPixels())-
-        note.startStep-0.5f;
-    return std::clamp((raw-start)/(end-start),0.05f,0.95f);
+        (y-vp.y-rollHeaderPixels())/rowH-note.startStep-0.5f;
+    timing=std::clamp((raw-begin)/(end-begin),0.05f,0.95f);
+
+    float localStep=0.0f;
+    if(!rollAutomationPosition(x,y,noteIndex,curveKind,true,
+            localStep,value))return false;
+    if(curveKind==0)value=rollClampBend(source,note,value);
+    else value=std::clamp(value,0.0f,1.0f);
+    return true;
 }
 int NativeUi::padIndexForMidi(int midi) noexcept {
     const int clamped = std::clamp(midi, kGridLow, kGridHigh);
