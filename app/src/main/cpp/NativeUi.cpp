@@ -2998,8 +2998,10 @@ void NativeUi::centerRollDraw(float pitch,float absoluteStep) noexcept {
     }
     rollPitchOffset_=std::clamp(best-cols/2,0,
         std::max(0,static_cast<int>(columns.size())-cols));
+    // Align the preserved endpoint to the resume marker at 0.8 rows
+    // below the piano-roll top, rather than shifting it below the marker.
     rollStepOffset_=std::clamp(
-        static_cast<int>(std::floor(absoluteStep))-2,0,
+        static_cast<int>(std::lround(absoluteStep-0.80f)),0,
         std::max(0,rollTotalRows()-rows));
 }
 
