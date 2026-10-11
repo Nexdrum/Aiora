@@ -84,12 +84,30 @@ inline float curveSegment(float fraction,float a,float b,float q,
     // The X controls curvature *between* its anchors, never overshoot.
     // An equal-value pair has no change to shape or peak timing.
     if(std::fabs(b-a)<=1.0e-5f)return a;
-    const float middle=std::clamp(q,0.05f,0.95f);
-    const float peak=std::clamp(handleValue,std::min(a,b),std::max(a,b));
-    const float u=t<=middle?t/middle:(t-middle)/(1.0f-middle);
-    const float smooth=u*u*(3.0f-2.0f*u);
-    return t<=middle?a+(peak-a)*smooth:
-        peak+(b-peak)*smooth;
+    const float location=std::clamp(q,0.05f,0.95f);
+    const float value=std::clamp(handleValue,std::min(a,b),std::max(a,b));
+    // Normalize the X into the endpoints' unit square. One rational arc
+    // interpolates A -> X -> B with constant-sign curvature; unlike two
+    // smoothstep halves, there is no artificial easing/counter-bend at X.
+    const float h=std::clamp((value-a)/(b-a),0.0f,1.0f);
+    float f=0.0f;
+    if(h<=0.0f){
+        // X lies on the starting value: hold level until X, then rise.
+        const float u=std::clamp((t-location)/(1.0f-location),0.0f,1.0f);
+        f=u*u;
+    }else if(h>=1.0f){
+        // X lies on the ending value: rise to X, then hold level.
+        const float u=std::clamp(t/location,0.0f,1.0f);
+        f=1.0f-(1.0f-u)*(1.0f-u);
+    }else{
+        // f(location)==h; derivative is positive and curvature never
+        // changes sign across this entire segment.
+        const float ratio=location*(1.0f-h)/
+            (h*(1.0f-location));
+        const float divisor=t+(1.0f-t)*ratio;
+        f=divisor>0.0f?t/divisor:t;
+    }
+    return a+(b-a)*std::clamp(f,0.0f,1.0f);
 }
 struct DspCurvePoint {
     float step{0},value{0},midpoint{0.5f};
