@@ -3249,7 +3249,7 @@ void NativeUi::drawRoll() const noexcept {
         if(!rollDrawMode(kind))continue;
         const auto box=rollDrawController(kind);
         fillRect({box.x,box.y,box.w,box.h},mix(kPanel,kCyan,0.23f));
-        rollOverlay.addRect(box,overlayColor(kCyan));
+        rollOverlay.addRect({box.x,box.y,box.w,box.h},overlayColor(kCyan));
         if(kind==1){
             rollOverlay.addText("0",box.x+4.0f,box.y+6.0f,0.8f,
                 overlayColor(kWhite));
