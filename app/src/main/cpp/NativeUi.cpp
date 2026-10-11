@@ -3601,10 +3601,16 @@ void NativeUi::drawRoll() const noexcept {
                 const float prevStep=pi>0?points[pi-1].step:-0.5f;
                 const float prevValue=pi>0?points[pi-1].value:0.0f;
                 if(next.step-prevStep<0.12f)continue;
+                const bool level=std::fabs(next.value-prevValue)<=1.0e-5f;
+                const float position=level?0.5f:
+                    std::clamp(next.midpoint,0.05f,0.95f);
                 const float rel=prevStep+
-                    (next.step-prevStep)*std::clamp(next.midpoint,0.05f,0.95f);
-                const float value=next.handleActive?
-                    next.handleValue:(prevValue+next.value)*0.5f;
+                    (next.step-prevStep)*position;
+                const float value=next.handleActive&&!level?
+                    std::clamp(next.handleValue,
+                        std::min(prevValue,next.value),
+                        std::max(prevValue,next.value)):
+                    (prevValue+next.value)*0.5f;
                 const float py=viewport.y+header+
                     (start+rel+0.5f-stepOffset)*rowH;
                 if(py<gridTop||py>gridBottom)continue;
@@ -4791,10 +4797,14 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
             const float ps=p>0?points[static_cast<size_t>(p-1)].step:-0.5f;
             const float pv=p>0?points[static_cast<size_t>(p-1)].value:0.0f;
             if(point.step-ps<0.12f)continue;
-            const float rel=ps+(point.step-ps)*
+            const bool level=std::fabs(point.value-pv)<=1.0e-5f;
+            const float position=level?0.5f:
                 std::clamp(point.midpoint,0.05f,0.95f);
-            const float val=point.handleActive?
-                point.handleValue:(pv+point.value)*0.5f;
+            const float rel=ps+(point.step-ps)*position;
+            const float val=point.handleActive&&!level?
+                std::clamp(point.handleValue,
+                    std::min(pv,point.value),std::max(pv,point.value)):
+                (pv+point.value)*0.5f;
             const float py=viewport.y+header+
                 (note.startStep+rel+0.5f-rollStepOffset_)*rowH;
             const float center=rollPitchX(
@@ -4938,9 +4948,16 @@ bool NativeUi::rollSegmentHandlePosition(
         curveKind==1?note.velocity:note.mod;
     if(pointIndex<0||pointIndex>=static_cast<int>(pts.size())||
        (curveKind!=0&&pointIndex==0))return false;
-    const float begin=pointIndex>0?pts[static_cast<size_t>(pointIndex-1)].step:-0.5f;
-    const float end=pts[static_cast<size_t>(pointIndex)].step;
+    const float begin=pointIndex>0?
+        pts[static_cast<size_t>(pointIndex-1)].step:-0.5f;
+    const auto& endpoint=pts[static_cast<size_t>(pointIndex)];
+    const float end=endpoint.step;
     if(end-begin<0.12f)return false;
+    const float firstValue=pointIndex>0?
+        pts[static_cast<size_t>(pointIndex-1)].value:0.0f;
+    const float lastValue=endpoint.value;
+    // Equal endpoint values mean there is no curve peak to position.
+    if(std::fabs(lastValue-firstValue)<=1.0e-5f)return false;
     const auto vp=rollViewportRect();
     const float rowH=std::max(1.0f,rollCellPixels());
     const float raw=rollStepOffset_+
@@ -4952,6 +4969,9 @@ bool NativeUi::rollSegmentHandlePosition(
             localStep,value))return false;
     if(curveKind==0)value=rollClampBend(source,note,value);
     else value=std::clamp(value,0.0f,1.0f);
+    value=std::clamp(value,
+        std::min(firstValue,lastValue),
+        std::max(firstValue,lastValue));
     return true;
 }
 int NativeUi::padIndexForMidi(int midi) noexcept {

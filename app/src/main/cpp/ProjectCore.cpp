@@ -669,8 +669,21 @@ bool ProjectCore::updateCurveHandle(
     if(!c||point<0||point>=static_cast<int>(c->size())||
        (kind!=0&&point==0))return false;
     auto& p=(*c)[static_cast<size_t>(point)];
+    const float before=point>0?
+        (*c)[static_cast<size_t>(point-1)].value:0.0f;
+    const float after=p.value;
+    if(std::fabs(after-before)<=1.0e-5f){
+        // A level section has no meaningful apex. Lock the X in its
+        // neutral position rather than saving inert handle movement.
+        p.midpoint=0.5f;
+        p.handleValue=before;
+        p.handleActive=false;
+        return false;
+    }
     p.midpoint=std::clamp(midpoint,0.05f,0.95f);
-    p.handleValue=clampCurveValue(kind,value);
+    p.handleValue=std::clamp(
+        clampCurveValue(kind,value),
+        std::min(before,after),std::max(before,after));
     p.handleActive=true;
     return true;
 }

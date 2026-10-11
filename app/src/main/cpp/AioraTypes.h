@@ -81,11 +81,15 @@ inline float curveSegment(float fraction,float a,float b,float q,
                          bool shaped,float handleValue) noexcept {
     const float t=std::clamp(fraction,0.0f,1.0f);
     if(!shaped)return a+(b-a)*curveWarp(t,q);
+    // The X controls curvature *between* its anchors, never overshoot.
+    // An equal-value pair has no change to shape or peak timing.
+    if(std::fabs(b-a)<=1.0e-5f)return a;
     const float middle=std::clamp(q,0.05f,0.95f);
+    const float peak=std::clamp(handleValue,std::min(a,b),std::max(a,b));
     const float u=t<=middle?t/middle:(t-middle)/(1.0f-middle);
     const float smooth=u*u*(3.0f-2.0f*u);
-    return t<=middle?a+(handleValue-a)*smooth:
-        handleValue+(b-handleValue)*smooth;
+    return t<=middle?a+(peak-a)*smooth:
+        peak+(b-peak)*smooth;
 }
 struct DspCurvePoint {
     float step{0},value{0},midpoint{0.5f};
