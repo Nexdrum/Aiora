@@ -237,7 +237,11 @@ float rollBendAt(
             if(x<=ps+1.0e-5f)return pv;
             continue;
         }
-        if(x<=ps)return rollLerp(x,prevStep,prevValue,ps,pv);
+        if(x<=ps)return rollLerp(
+            prevStep+curveWarp(
+                (x-prevStep)/std::max(1.0e-5f,ps-prevStep),
+                point.midpoint)*(ps-prevStep),
+            prevStep,prevValue,ps,pv);
         prevStep=ps;
         prevValue=pv;
     }
@@ -264,7 +268,11 @@ float rollLevelAt(
             if(x<=ps+1.0e-5f)return pv;
             continue;
         }
-        if(x<=ps)return rollLerp(x,prevStep,prevValue,ps,pv);
+        if(x<=ps)return rollLerp(
+            prevStep+curveWarp(
+                (x-prevStep)/std::max(1.0e-5f,ps-prevStep),
+                point.midpoint)*(ps-prevStep),
+            prevStep,prevValue,ps,pv);
         prevStep=ps;
         prevValue=pv;
     }
@@ -2910,6 +2918,119 @@ bool NativeUi::drumPitchTap(int midi){
     return project.setPadCenter(track,pad,midi);
 }
 
+
+NativeUi::Rect NativeUi::rollDrawController(int kind) const noexcept {
+    const auto vp=rollViewportRect();
+    const float gutter=rollGutterPixels();
+    const float header=rollHeaderPixels();
+    if(kind==1){
+        // Horizontal V controller across the unused upper pitch header.
+        const float x=vp.x+gutter+rollColumnPixels()*0.75f;
+        return {x,vp.y+header*0.13f,
+            std::max(25.0f,std::min(vp.w-gutter-rollColumnPixels(),rollColumnPixels()*5.0f)),
+            header*0.67f};
+    }
+    if(kind==2){
+        // Vertical M controller inside the left time gutter.
+        return {vp.x+gutter*0.11f,vp.y+header+rollCellPixels()*0.3f,
+            gutter*0.72f,std::min(vp.h-header-rollCellPixels()*0.5f,
+                 rollCellPixels()*8.0f)};
+    }
+    return {};
+}
+
+bool NativeUi::hitRollDrawController(int kind,float x,float y) const noexcept {
+    return page_==NativePage::Roll&&rollDrawMode(kind)&&
+        rollDrawController(kind).contains(x,y);
+}
+
+float NativeUi::rollDrawControllerValue(int kind,float x,float y) const noexcept {
+    const auto rect=rollDrawController(kind);
+    if(kind==1)return std::clamp((x-rect.x)/std::max(1.0f,rect.w),0.0f,1.0f);
+    if(kind==2)return std::clamp((y-rect.y)/std::max(1.0f,rect.h),0.0f,1.0f);
+    return 0.0f;
+}
+
+float NativeUi::rollDrawBendAtX(float x,int midi) const noexcept {
+    const auto columns=rollColumns();
+    const auto vp=rollViewportRect();
+    const float pitch=rollPitchFromX(
+        columns,x,rollPitchOffset_,vp.x+rollGutterPixels(),
+        rollColumnPixels());
+    float bend=std::clamp(pitch-static_cast<float>(midi),-12.0f,12.0f);
+    const auto snapshot=ProjectCore::instance().projectCopy();
+    const int track=ProjectCore::instance().selectedTrack();
+    if(track>=0&&track<static_cast<int>(snapshot.tracks.size())){
+        const auto& source=snapshot.tracks[static_cast<size_t>(track)];
+        if(const DrumPad* pad=rollPadForMidi(source,midi)){
+            bend=std::clamp(bend,
+                static_cast<float>(std::min(pad->lowMidi,pad->highMidi))-
+                    0.5f-static_cast<float>(midi),
+                static_cast<float>(std::max(pad->lowMidi,pad->highMidi))+
+                    0.5f-static_cast<float>(midi));
+        }
+    }
+    return bend;
+}
+
+float NativeUi::rollDrawRelativeStep(float y,float start) const noexcept {
+    const auto vp=rollViewportRect();
+    return std::max(-0.5f,
+        static_cast<float>(rollStepOffset_)+
+        (y-vp.y-rollHeaderPixels())/std::max(1.0f,rollCellPixels())-
+        start-0.5f);
+}
+
+void NativeUi::centerRollDraw(float pitch,float absoluteStep) noexcept {
+    const auto columns=rollColumns();
+    const auto vp=rollViewportRect();
+    const float colW=rollColumnPixels();
+    const float rowH=rollCellPixels();
+    const int cols=std::max(1,static_cast<int>(
+        std::lround((vp.w-rollGutterPixels())/colW)));
+    const int rows=std::max(1,static_cast<int>(
+        std::ceil((vp.h-rollHeaderPixels())/rowH)));
+    int best=0;
+    float diff=1.0e9f;
+    for(size_t i=0;i<columns.size();++i){
+        const float d=std::fabs(static_cast<float>(columns[i])-pitch);
+        if(d<diff){diff=d;best=static_cast<int>(i);}
+    }
+    rollPitchOffset_=std::clamp(best-cols/2,0,
+        std::max(0,static_cast<int>(columns.size())-cols));
+    rollStepOffset_=std::clamp(
+        static_cast<int>(std::floor(absoluteStep))-2,0,
+        std::max(0,rollTotalRows()-rows));
+}
+
+NativeUi::Rect NativeUi::rollDrawResumeRect() const noexcept {
+    const auto vp=rollViewportRect();
+    const float x=vp.x+rollGutterPixels()+
+        (vp.w-rollGutterPixels())*0.5f;
+    const float y=vp.y+rollHeaderPixels()+rollCellPixels()*0.80f;
+    const float diameter=std::clamp(rollCellPixels()*0.65f,32.0f,54.0f);
+    return {x-diameter*0.5f,y-diameter*0.5f,diameter,diameter};
+}
+
+void NativeUi::setRollDrawPreview(
+    int midi,float start,bool paused,
+    std::vector<RollDrawSample> bend,
+    std::vector<RollDrawSample> velocity,
+    std::vector<RollDrawSample> mod){
+    rollDrawPreviewActive_=true;
+    rollDrawPreviewPaused_=paused;
+    rollDrawPreviewMidi_=midi;
+    rollDrawPreviewStart_=start;
+    rollDrawPreview_[0]=std::move(bend);
+    rollDrawPreview_[1]=std::move(velocity);
+    rollDrawPreview_[2]=std::move(mod);
+}
+void NativeUi::clearRollDrawPreview() noexcept {
+    rollDrawPreviewActive_=false;
+    rollDrawPreviewPaused_=false;
+    for(auto& curve:rollDrawPreview_)curve.clear();
+}
+
 void NativeUi::drawRoll() const noexcept {
     auto& project=ProjectCore::instance();
     const auto content=bodyContentRect();
@@ -3115,6 +3236,32 @@ void NativeUi::drawRoll() const noexcept {
     }
 
     auto& rollOverlay=NativeOverlay::instance();
+    for(int kind=0;kind<3;++kind){
+        if(!rollDrawMode(kind))continue;
+        const auto button=rollModeRect(kind);
+        rollOverlay.addRect(
+            {button.x+2.0f,button.y+2.0f,
+             button.w-4.0f,button.h-4.0f},
+            overlayColor(kCyan,0.95f));
+    }
+    // Only active draw controller boxes cover the pitch header or time gutter.
+    for(int kind=1;kind<=2;++kind){
+        if(!rollDrawMode(kind))continue;
+        const auto box=rollDrawController(kind);
+        fillRect(box,mix(kPanel,kCyan,0.23f));
+        rollOverlay.addRect(box,overlayColor(kCyan));
+        if(kind==1){
+            rollOverlay.addText("0",box.x+4.0f,box.y+6.0f,0.8f,
+                overlayColor(kWhite));
+            rollOverlay.addText("100",box.x+box.w-36.0f,box.y+6.0f,0.8f,
+                overlayColor(kWhite));
+        }else{
+            rollOverlay.addText("0",box.x+5.0f,box.y+5.0f,0.8f,
+                overlayColor(kWhite));
+            rollOverlay.addText("100",box.x+5.0f,box.y+box.h-18.0f,0.8f,
+                overlayColor(kWhite));
+        }
+    }
     const float gridLeft=viewport.x+gutter;
     const float gridRight=viewport.x+viewport.w;
     const float gridTop=viewport.y+header;
@@ -3439,6 +3586,38 @@ void NativeUi::drawRoll() const noexcept {
             const auto& points=
                 kind==0?note.bend:
                 kind==1?note.velocity:note.mod;
+            // Incoming-segment X controls mark when the value reaches
+            // its halfway point; dragging changes timing, not endpoints.
+            for(size_t pi=0;pi<points.size();++pi){
+                if(pi==0&&kind!=0)continue;
+                const auto& next=points[pi];
+                const float prevStep=pi>0?points[pi-1].step:-0.5f;
+                const float prevValue=pi>0?points[pi-1].value:0.0f;
+                if(next.step-prevStep<0.12f)continue;
+                const float rel=prevStep+
+                    (next.step-prevStep)*std::clamp(next.midpoint,0.05f,0.95f);
+                const float value=(prevValue+next.value)*0.5f;
+                const float py=viewport.y+header+
+                    (start+rel+0.5f-stepOffset)*rowH;
+                if(py<gridTop||py>gridBottom)continue;
+                const float center=rollPitchX(
+                    columns,static_cast<float>(midi)+
+                    rollBendAt(selectedTrack,note,rel),
+                    pitchOffset,gridLeft,colW);
+                const auto xHandle=[&](float px){
+                    const float r=std::clamp(basis*0.105f,5.0f,11.0f);
+                    rollOverlay.addLine(px-r,py-r,px+r,py+r,thick,color);
+                    rollOverlay.addLine(px+r,py-r,px-r,py+r,thick,color);
+                };
+                if(kind==0)xHandle(rollPitchX(
+                    columns,static_cast<float>(midi)+
+                    rollClampBend(selectedTrack,note,value),
+                    pitchOffset,gridLeft,colW));
+                else{
+                    const float half=std::clamp(value,0.0f,1.0f)*colW*0.48f;
+                    xHandle(center-half);xHandle(center+half);
+                }
+            }
             for(const auto& point:points){
                 const float rel=
                     std::clamp(point.step,kAutomationStartEdge,rollCurveLength(note));
@@ -3547,6 +3726,41 @@ void NativeUi::drawRoll() const noexcept {
             cap(1.0f,gridTop+
                 (start+length-static_cast<float>(stepOffset))*rowH-
                 2.0f-insetPx);
+        }
+    }
+
+
+    // During recording the raw gesture traces are rendered directly.
+    // They are not simplified or written to the project until completion.
+    if(rollDrawPreviewActive_){
+        for(int kind=0;kind<3;++kind){
+            const auto& samples=rollDrawPreview_[static_cast<size_t>(kind)];
+            if(samples.empty())continue;
+            const auto color=overlayColor(
+                kind==0?kCyan:kind==1?kWhite:kPurple,0.96f);
+            float prevX=0,prevY=0;bool have=false;
+            for(const auto& sample:samples){
+                const float y=gridTop+
+                    (rollDrawPreviewStart_+sample.step+0.5f-stepOffset)*rowH;
+                if(y<gridTop||y>gridBottom){have=false;continue;}
+                const float center=rollPitchX(
+                    columns,static_cast<float>(rollDrawPreviewMidi_)+
+                    (kind==0?sample.value:0.0f),
+                    pitchOffset,gridLeft,colW);
+                const float x=kind==0?center:
+                    center+(kind==1?-1.0f:1.0f)*sample.value*(colW*0.48f);
+                if(have)rollOverlay.addLine(prevX,prevY,x,y,
+                    std::max(2.0f,colW*0.055f),color);
+                prevX=x;prevY=y;have=true;
+            }
+        }
+        if(rollDrawPreviewPaused_){
+            const auto resume=rollDrawResumeRect();
+            const float cx=resume.x+resume.w*0.5f;
+            const float cy=resume.y+resume.h*0.5f;
+            rollOverlay.addCircle(cx,cy,resume.w*0.5f,3.0f,
+                overlayColor(kCyan));
+            rollOverlay.addFilledCircle(cx,cy,5.0f,overlayColor(kCyan));
         }
     }
 
@@ -4546,6 +4760,7 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
     }
 
     int bestNote=-1,bestPoint=-1;
+    bool bestMidpoint=false;
     float bestDist=radius2;
     float bestStep=0.0f,bestValue=0.0f;
     bool bestFree=false;
@@ -4560,6 +4775,44 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
             curveKind==0?note.bend:
             curveKind==1?note.velocity:note.mod;
 
+        // Prioritize X handles only within a narrow neighborhood; ordinary
+        // endpoint handles remain reachable even on short segments.
+        for(int p=0;p<static_cast<int>(points.size());++p){
+            if(p==0&&curveKind!=0)continue;
+            const auto& point=points[static_cast<size_t>(p)];
+            const float ps=p>0?points[static_cast<size_t>(p-1)].step:-0.5f;
+            const float pv=p>0?points[static_cast<size_t>(p-1)].value:0.0f;
+            if(point.step-ps<0.12f)continue;
+            const float rel=ps+(point.step-ps)*
+                std::clamp(point.midpoint,0.05f,0.95f);
+            const float val=(pv+point.value)*0.5f;
+            const float py=viewport.y+header+
+                (note.startStep+rel+0.5f-rollStepOffset_)*rowH;
+            const float center=rollPitchX(
+                columns,static_cast<float>(note.midi)+
+                rollBendAt(sourceTrack,note,rel),
+                rollPitchOffset_,gridLeft,colW);
+            const auto check=[&](float px){
+                const float dx=px-x,dy=py-y;
+                const float dd=dx*dx+dy*dy;
+                const float narrow=std::min(radius,13.0f);
+                if(dd<narrow*narrow&&dd<bestDist){
+                    bestDist=dd;bestNote=n;bestPoint=p;
+                    bestStep=rel;bestValue=val;bestFree=point.free;
+                    bestMidpoint=true;
+                }
+            };
+            if(curveKind==0)check(rollPitchX(
+                columns,static_cast<float>(note.midi)+
+                    rollClampBend(sourceTrack,note,val),
+                rollPitchOffset_,gridLeft,colW));
+            else{
+                const float half=std::clamp(val,0.0f,1.0f)*colW*0.48f;
+                check(center-half);check(center+half);
+            }
+        }
+        // The X has a dedicated hitbox; a regular point is only preferred
+        // if its handle is closer than the X.
         for(int p=0;p<static_cast<int>(points.size());++p){
             const auto& point=points[static_cast<size_t>(p)];
             const float rel=point.step;
@@ -4578,6 +4831,7 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
                 if(dd<=bestDist){
                     bestDist=dd;bestNote=n;bestPoint=p;
                     bestStep=rel;bestValue=v;bestFree=point.free;
+                    bestMidpoint=false;
                 }
             }else{
                 const float center=rollPitchX(
@@ -4591,6 +4845,8 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
                     if(dd<=bestDist){
                         bestDist=dd;bestNote=n;bestPoint=p;
                         bestStep=rel;bestValue=v;bestFree=point.free;
+                        bestMidpoint=false;
+                    bestMidpoint=false;
                     }
                 }
             }
@@ -4599,7 +4855,7 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
 
     if(bestPoint>=0){
         return RollAutomationHit{
-            bestNote,bestPoint,bestStep,bestValue,bestFree};
+            bestNote,bestPoint,bestStep,bestValue,bestFree,bestMidpoint};
     }
 
     const auto cellHit=hitRollCell(x,y);
@@ -4645,6 +4901,28 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
     return RollAutomationHit{noteIndex,-1,step,value,false};
 }
 
+
+float NativeUi::rollSegmentMidpoint(
+    int noteIndex,int curveKind,int pointIndex,float y) const noexcept {
+    const auto snapshot=ProjectCore::instance().projectCopy();
+    const int track=ProjectCore::instance().selectedTrack();
+    if(track<0||track>=static_cast<int>(snapshot.tracks.size()))return 0.5f;
+    const auto& notes=snapshot.tracks[static_cast<size_t>(track)].notes;
+    if(noteIndex<0||noteIndex>=static_cast<int>(notes.size()))return 0.5f;
+    const auto& note=notes[static_cast<size_t>(noteIndex)];
+    const auto* points=curveKind==0?&note.bend:
+                       curveKind==1?&note.velocity:&note.mod;
+    if(pointIndex<0||pointIndex>=static_cast<int>(points->size()))return 0.5f;
+    const float start=pointIndex>0?
+        (*points)[static_cast<size_t>(pointIndex-1)].step:-0.5f;
+    const float end=(*points)[static_cast<size_t>(pointIndex)].step;
+    if(end<=start+0.01f)return 0.5f;
+    const auto vp=rollViewportRect();
+    const float raw=rollStepOffset_+
+        (y-vp.y-rollHeaderPixels())/std::max(1.0f,rollCellPixels())-
+        note.startStep-0.5f;
+    return std::clamp((raw-start)/(end-start),0.05f,0.95f);
+}
 int NativeUi::padIndexForMidi(int midi) noexcept {
     const int clamped = std::clamp(midi, kGridLow, kGridHigh);
     const int lowToHighBlock = (clamped - kGridLow) / 7;

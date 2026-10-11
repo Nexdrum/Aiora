@@ -58,6 +58,8 @@ enum class RollGestureKind : uint8_t {
     TimeScroll,
     SelectTool,
     CornerButton,
+    DrawModeButton,
+    CurveMidpoint,
     StackCycle,
     Lasso,
     NoteEdit,
@@ -120,6 +122,21 @@ struct RollGesture {
     void clear() noexcept { *this = {}; pointerId = -1; }
 };
 
+// Recording buffers stay raw until the entire note is finished, even across
+// an edge-pause/resume. Independent extra fingers edit V and M.
+struct RollDrawSession {
+    bool active{false},paused{false};
+    int track{-1},note{-1},midi{-1};
+    int32_t valuePointer{-1},modPointer{-1};
+    float start{0.0f},length{1.0f},cursor{-0.5f};
+    float bend{0.0f},velocity{1.0f},mod{0.0f};
+    float timeOffset{0.0f},pitchOffset{0.0f};
+    int64_t edgeSince{0};
+    bool vTouched{false},mTouched{false};
+    std::array<std::vector<aiora::RollDrawSample>,3> raw{};
+    void clear() noexcept { *this={}; }
+};
+
 struct NativeState {
     android_app* app{};
     EGLDisplay display{EGL_NO_DISPLAY};
@@ -131,6 +148,7 @@ struct NativeState {
     aiora::NativeUi ui{};
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
+    RollDrawSession rollDraw{};
     std::vector<RollClipboardTrack> rollClipboard{};
     bool rollClipboardAllTracks{false};
     std::array<GroupAutomationCurve,2> rollGroupAutomation{};
@@ -1106,6 +1124,154 @@ int findGroupPointIndex(
     return best;
 }
 
+
+void captureRollDraw(
+    std::vector<aiora::RollDrawSample>& points,float step,float value){
+    step=std::max(-0.5f,step);
+    if(points.empty()){points.push_back({step,value});return;}
+    auto& last=points.back();
+    if(step<=last.step+0.0001f){
+        last.value=value;
+        return;
+    }
+    if(points.size()>1&&
+       std::fabs(last.value-value)<0.0001f&&
+       std::fabs(points[points.size()-2].value-value)<0.0001f){
+        last.step=step;
+        return;
+    }
+    if(points.size()<12000)points.push_back({step,value});
+    else last={step,value};
+}
+
+void showRollDraw(NativeState& state){
+    const auto& d=state.rollDraw;
+    if(!d.active){state.ui.clearRollDrawPreview();return;}
+    state.ui.setRollDrawPreview(
+        d.midi,d.start,d.paused,d.raw[0],d.raw[1],d.raw[2]);
+}
+
+std::vector<aiora::CurvePoint> simplifyRollDraw(
+    std::vector<aiora::RollDrawSample> samples,
+    float end,float tolerance,float defaultValue){
+    std::vector<aiora::CurvePoint> output;
+    if(samples.empty())return output;
+    for(auto& sample:samples)sample.step=std::clamp(sample.step,-0.5f,end);
+    std::stable_sort(samples.begin(),samples.end(),
+        [](const auto&a,const auto&b){return a.step<b.step;});
+    std::vector<aiora::RollDrawSample> unique;
+    for(const auto& sample:samples){
+        if(!unique.empty()&&
+            std::fabs(unique.back().step-sample.step)<0.0001f)
+            unique.back().value=sample.value;
+        else unique.push_back(sample);
+    }
+    if(unique.empty())return output;
+    if(unique.front().step>-0.5f)unique.insert(
+        unique.begin(),{-0.5f,defaultValue});
+    if(unique.back().step<end-0.0001f)
+        unique.push_back({end,unique.back().value});
+    if(unique.size()<2)return output;
+
+    // Error-bounded greedy polyline simplification: split the segment with
+    // the largest vertical deviation until accurate or 24-point budget.
+    std::vector<size_t> keep{0,unique.size()-1};
+    while(keep.size()<24){
+        float worst=tolerance;
+        size_t choice=unique.size();
+        for(size_t i=1;i<keep.size();++i){
+            const auto& a=unique[keep[i-1]];
+            const auto& b=unique[keep[i]];
+            const float dt=std::max(0.0001f,b.step-a.step);
+            for(size_t j=keep[i-1]+1;j<keep[i];++j){
+                const auto& sample=unique[j];
+                const float t=std::clamp((sample.step-a.step)/dt,0.0f,1.0f);
+                const float predicted=a.value+(b.value-a.value)*t;
+                const float error=std::fabs(predicted-sample.value);
+                if(error>worst){worst=error;choice=j;}
+            }
+        }
+        if(choice>=unique.size())break;
+        keep.insert(std::lower_bound(keep.begin(),keep.end(),choice),choice);
+    }
+    bool changed=false;
+    for(const auto& sample:unique)
+        if(std::fabs(sample.value-defaultValue)>0.0005f)
+            {changed=true;break;}
+    if(!changed)return output;
+    for(size_t index:keep)
+        output.push_back({unique[index].step,unique[index].value,true,0.5f});
+    return output;
+}
+
+void finishRollDraw(NativeState& state){
+    auto& d=state.rollDraw;
+    if(!d.active)return;
+    const float end=std::max(0.5f,d.length-0.5f);
+    const auto b=state.ui.rollDrawMode(0)
+        ?simplifyRollDraw(d.raw[0],end,0.075f,0.0f)
+        :std::vector<aiora::CurvePoint>{};
+    const auto v=d.vTouched
+        ?simplifyRollDraw(d.raw[1],end,0.014f,1.0f)
+        :std::vector<aiora::CurvePoint>{};
+    const auto m=d.mTouched
+        ?simplifyRollDraw(d.raw[2],end,0.014f,0.0f)
+        :std::vector<aiora::CurvePoint>{};
+    aiora::ProjectCore::instance().replaceNoteCurves(d.track,d.note,b,v,m);
+    d.clear();
+    state.rollGesture.clear();
+    state.ui.clearRollDrawPreview();
+    aiora::AudioEngine::instance().syncProject();
+    scheduleAutosave(state,0);
+}
+
+void beginRollDraw(NativeState& state){
+    const auto& g=state.rollGesture;
+    if(g.kind!=RollGestureKind::NoteEdit||
+       g.noteEdit!=RollNoteEdit::Create||g.noteIndex<0)return;
+    auto& d=state.rollDraw;
+    d.clear();
+    d.active=true;
+    d.track=g.track;d.note=g.noteIndex;d.midi=g.noteMidi;
+    d.start=g.noteStart;
+    d.length=1.0f;
+    d.cursor=-0.5f;
+    d.bend=0.0f;
+    captureRollDraw(d.raw[0],-0.5f,0.0f);
+    captureRollDraw(d.raw[1],-0.5f,1.0f);
+    captureRollDraw(d.raw[2],-0.5f,0.0f);
+    showRollDraw(state);
+}
+
+void moveRollDraw(NativeState& state,float x,float y){
+    auto& d=state.rollDraw;
+    if(!d.active||d.paused)return;
+    const auto viewport=state.ui.rollDrawResumeRect();
+    (void)viewport;
+    const float t=std::max(d.cursor,
+        state.ui.rollDrawRelativeStep(y,d.start)+d.timeOffset);
+    d.cursor=std::min(t,kMaxRollNoteLengthSteps-0.5f);
+    d.length=std::clamp(std::ceil(d.cursor+0.5f),
+        1.0f,kMaxRollNoteLengthSteps);
+    if(state.ui.rollDrawMode(0))
+        d.bend=std::clamp(state.ui.rollDrawBendAtX(x,d.midi)+
+            d.pitchOffset,-12.0f,12.0f);
+    captureRollDraw(d.raw[0],d.cursor,d.bend);
+    captureRollDraw(d.raw[1],d.cursor,d.velocity);
+    captureRollDraw(d.raw[2],d.cursor,d.mod);
+    aiora::ProjectCore::instance().updateNote(
+        d.track,d.note,d.midi,d.start,d.length);
+    const auto vp=state.ui.rollDrawViewport(); // visible gesture boundary
+    const float margin=std::max(16.0f,state.ui.rollCellPixels()*0.20f);
+    const bool edge=
+        x<=vp.x+margin||x>=vp.x+vp.w-margin||
+        y<=vp.y+margin||y>=vp.y+vp.h-margin;
+    if(edge){
+        if(d.edgeSince==0)d.edgeSince=nowMs();
+    }else d.edgeSince=0;
+    showRollDraw(state);
+}
+
 void serviceRollLongPress(NativeState& state){
     auto& g=state.rollGesture;
     if(g.pointerId<0||g.moved||g.longPressTriggered)return;
@@ -1121,6 +1287,12 @@ void serviceRollLongPress(NativeState& state){
             state.ui.setRollStackMode(false);
             g.longPressTriggered=true;
         }
+        return;
+    }
+
+    if(g.kind==RollGestureKind::DrawModeButton){
+        state.ui.toggleRollDrawMode(g.curveKind);
+        g.longPressTriggered=true;
         return;
     }
 
@@ -2239,12 +2411,18 @@ bool beginRollAutomationGesture(
     if(track<0)return false;
 
     beginRollGesture(
-        state,pointerId,x,y,timeMs,RollGestureKind::AutomationEdit);
+        state,pointerId,x,y,timeMs,
+        hit->midpointHandle?RollGestureKind::CurveMidpoint:
+            RollGestureKind::AutomationEdit);
     auto& g=state.rollGesture;
     g.track=track;
     g.noteIndex=hit->noteIndex;
     g.curveKind=kind;
     g.curveFree=hit->free;
+    if(hit->midpointHandle){
+        g.curvePoint=hit->pointIndex;
+        return true;
+    }
 
     if(hit->pointIndex>=0){
         g.curvePoint=hit->pointIndex;
@@ -2371,6 +2549,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }
 
     if(g.kind==RollGestureKind::SelectTool||
+       g.kind==RollGestureKind::DrawModeButton||
        g.kind==RollGestureKind::CornerButton){
         return;
     }
@@ -2422,6 +2601,15 @@ void moveRollGesture(NativeState& state, float x, float y) {
         return;
     }
 
+    if(g.kind==RollGestureKind::CurveMidpoint){
+        if(!g.moved||g.track<0||g.noteIndex<0||g.curvePoint<0)return;
+        const float q=state.ui.rollSegmentMidpoint(
+            g.noteIndex,g.curveKind,g.curvePoint,y);
+        aiora::ProjectCore::instance().updateCurveMidpoint(
+            g.track,g.noteIndex,g.curveKind,g.curvePoint,q);
+        return;
+    }
+
     if(g.kind==RollGestureKind::AutomationEdit){
         if(!g.moved||g.track<0||g.noteIndex<0||g.curvePoint<0)return;
         float step=0.0f,value=0.0f;
@@ -2438,6 +2626,10 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }
 
     if(g.kind!=RollGestureKind::NoteEdit||!g.moved||g.track<0||g.noteIndex<0)return;
+    if(g.noteEdit==RollNoteEdit::Create&&state.rollDraw.active){
+        moveRollDraw(state,x,y);
+        return;
+    }
 
     if(!g.stackPromoted&&g.noteEdit==RollNoteEdit::Move){
         state.ui.promoteRollStackNote(g.track,g.noteIndex);
@@ -2538,6 +2730,56 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
+            // While recording, auxiliary fingers can hold V and M together.
+            // Their zones are reserved before pitch-header/gutter navigation.
+            if(state.ui.page()==aiora::NativePage::Roll&&
+               state.rollDraw.active&&!state.rollDraw.paused){
+                auto& draw=state.rollDraw;
+                if(state.ui.hitRollDrawController(1,x,y)&&
+                   draw.valuePointer<0){
+                    draw.valuePointer=pointerId;
+                    draw.vTouched=true;
+                    draw.velocity=state.ui.rollDrawControllerValue(1,x,y);
+                    captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
+                    showRollDraw(state);
+                    return 1;
+                }
+                if(state.ui.hitRollDrawController(2,x,y)&&
+                   draw.modPointer<0){
+                    draw.modPointer=pointerId;
+                    draw.mTouched=true;
+                    draw.mod=state.ui.rollDrawControllerValue(2,x,y);
+                    captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
+                    showRollDraw(state);
+                    return 1;
+                }
+                if(action==AMOTION_EVENT_ACTION_POINTER_DOWN)return 1;
+            }
+            if(state.rollDraw.active&&state.rollDraw.paused&&
+               action==AMOTION_EVENT_ACTION_DOWN){
+                const auto resume=state.ui.rollDrawResumeRect();
+                if(resume.contains(x,y)){
+                    auto& draw=state.rollDraw;
+                    draw.paused=false;
+                    beginRollGesture(state,pointerId,x,y,nowMs(),
+                        RollGestureKind::NoteEdit);
+                    auto& g=state.rollGesture;
+                    g.noteEdit=RollNoteEdit::Create;
+                    g.track=draw.track;g.noteIndex=draw.note;
+                    g.noteMidi=draw.midi;g.noteStart=draw.start;
+                    g.noteLength=draw.length;
+                    draw.timeOffset=draw.cursor-
+                        state.ui.rollDrawRelativeStep(y,draw.start);
+                    draw.pitchOffset=draw.bend-
+                        state.ui.rollDrawBendAtX(x,draw.midi);
+                    draw.edgeSince=0;
+                    showRollDraw(state);
+                }else{
+                    finishRollDraw(state);
+                }
+                return 1;
+            }
+
             // The empty C/P square is now the stack-mode switch.
             // All corner actions execute on release so holding P can cancel.
             if(action==AMOTION_EVENT_ACTION_DOWN&&
@@ -2546,6 +2788,16 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 beginRollGesture(
                     state,pointerId,x,y,nowMs(),RollGestureKind::CornerButton);
                 return 1;
+            }
+
+            if(state.ui.page()==aiora::NativePage::Roll&&
+               action==AMOTION_EVENT_ACTION_DOWN){
+                if(const auto mode=state.ui.hitRollMode(x,y)){
+                    beginRollGesture(state,pointerId,x,y,nowMs(),
+                        RollGestureKind::DrawModeButton);
+                    state.rollGesture.curveKind=static_cast<int>(*mode)-1;
+                    return 1;
+                }
             }
 
             if(state.ui.page()==aiora::NativePage::Roll&&
@@ -2648,7 +2900,10 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     }
 
                     if(state.ui.rollMode()==aiora::RollMode::Notes){
-                        beginRollNoteGesture(state,pointerId,x,y,timeMs);
+                        if(beginRollNoteGesture(state,pointerId,x,y,timeMs)&&
+                           state.ui.anyRollDrawMode()&&
+                           state.rollGesture.noteEdit==RollNoteEdit::Create)
+                            beginRollDraw(state);
                     }else{
                         beginRollAutomationGesture(
                             state,pointerId,x,y,timeMs);
@@ -2729,6 +2984,27 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         break;
                     }
                 }
+                if(state.rollDraw.active&&!state.rollDraw.paused){
+                    auto& draw=state.rollDraw;
+                    bool changed=false;
+                    for(size_t i=0;i<count;++i){
+                        const int32_t id=AMotionEvent_getPointerId(event,i);
+                        if(id==draw.valuePointer){
+                            draw.velocity=state.ui.rollDrawControllerValue(
+                                1,AMotionEvent_getX(event,i),
+                                AMotionEvent_getY(event,i));
+                            captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
+                            changed=true;
+                        }else if(id==draw.modPointer){
+                            draw.mod=state.ui.rollDrawControllerValue(
+                                2,AMotionEvent_getX(event,i),
+                                AMotionEvent_getY(event,i));
+                            captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
+                            changed=true;
+                        }
+                    }
+                    if(changed)showRollDraw(state);
+                }
                 return 1;
             }
 
@@ -2790,6 +3066,15 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
+            if(state.rollDraw.active&&
+               (pointerId==state.rollDraw.valuePointer||
+                pointerId==state.rollDraw.modPointer)){
+                if(pointerId==state.rollDraw.valuePointer)
+                    state.rollDraw.valuePointer=-1;
+                else state.rollDraw.modPointer=-1;
+                return 1;
+            }
+
             if (state.rollGesture.pointerId == pointerId) {
                 auto& g=state.rollGesture;
                 if(g.kind==RollGestureKind::PitchScroll){
@@ -2806,9 +3091,15 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         state.rollLastBeatTapMs=0;
                         state.rollLastBeatTapStep=-1;
                     }
-                }else if(g.kind==RollGestureKind::CornerButton){
+                }else if(g.kind==RollGestureKind::CornerButton||
+                         g.kind==RollGestureKind::DrawModeButton){
                     if(!g.moved&&!g.longPressTriggered)
                         handleUiTap(state,g.downX,g.downY);
+                }else if(g.kind==RollGestureKind::CurveMidpoint){
+                    if(g.moved){
+                        aiora::AudioEngine::instance().syncProject();
+                        scheduleAutosave(state);
+                    }
                 }else if(g.kind==RollGestureKind::StackCycle){
                     // Releasing a swipe leaves browsing active for further
                     // one-at-a-time swipes. A tap confirms without exiting
@@ -2863,6 +3154,23 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         }
                     }
                 }else if(g.kind==RollGestureKind::NoteEdit){
+                    if(state.rollDraw.active&&g.noteEdit==RollNoteEdit::Create){
+                        // A long boundary dwell followed by release pauses
+                        // drawing; no simplification until final completion.
+                        auto& draw=state.rollDraw;
+                        const bool pause=draw.edgeSince>0&&
+                            nowMs()-draw.edgeSince>=450;
+                        if(pause){
+                            draw.paused=true;
+                            state.ui.centerRollDraw(
+                                static_cast<float>(draw.midi)+draw.bend,
+                                draw.start+draw.cursor+0.5f);
+                            draw.edgeSince=0;
+                            showRollDraw(state);
+                        }else finishRollDraw(state);
+                        g.clear();
+                        return 1;
+                    }
                     auto& project=aiora::ProjectCore::instance();
                     if(!g.moved&&!g.longPressTriggered&&
                        (g.noteEdit==RollNoteEdit::Move||
@@ -2913,6 +3221,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
         }
 
         case AMOTION_EVENT_ACTION_CANCEL:
+            if(state.rollDraw.active)finishRollDraw(state);
             if(state.trackControlPointerId>=0){
                 const bool changed=state.ui.trackPointerUp();
                 state.trackControlPointerId=-1;

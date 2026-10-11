@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -65,12 +66,25 @@ inline DspPatch toDspPatch(const Patch& p) noexcept {
 }
 
 constexpr size_t kDspCurvePoints = 26;
-struct DspCurvePoint { float step{0},value{0}; };
+// q=0.5 preserves linear interpolation; q<0.5 puts the half-value
+// earlier and q>0.5 later. Rational interpolation is audio-thread safe.
+inline float curveWarp(float fraction,float q) noexcept {
+    const float t=std::clamp(fraction,0.0f,1.0f);
+    const float center=std::clamp(q,0.05f,0.95f);
+    const float ratio=center/(1.0f-center);
+    const float denominator=t+(1.0f-t)*ratio;
+    return denominator>0.0f?t/denominator:t;
+}
+struct DspCurvePoint { float step{0},value{0},midpoint{0.5f}; };
 struct DspCurve { std::array<DspCurvePoint,kDspCurvePoints> points{}; uint8_t count{0}; };
 struct VoiceAutomation { DspCurve bend{},velocity{},mod{}; };
 static_assert(std::is_trivially_copyable_v<VoiceAutomation>);
 
-struct CurvePoint { float step{0.0f}, value{0.0f}; bool free{false}; };
+struct CurvePoint {
+    float step{0.0f}, value{0.0f};
+    bool free{false};
+    float midpoint{0.5f}; // Incoming segment's draggable X, normalized time
+};
 struct Note {
     int32_t midi{62}; float startStep{0},lengthSteps{1};
     std::vector<CurvePoint> bend; std::vector<CurvePoint> velocity; std::vector<CurvePoint> mod;

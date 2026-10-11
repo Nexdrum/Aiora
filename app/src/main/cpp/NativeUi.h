@@ -117,6 +117,12 @@ struct RollAutomationHit {
     float step{0.0f};
     float value{0.0f};
     bool free{false};
+    bool midpointHandle{false};
+};
+
+struct RollDrawSample {
+    float step{0.0f};
+    float value{0.0f};
 };
 
 class NativeUi {
@@ -165,6 +171,38 @@ public:
 
     void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
     [[nodiscard]] RollMode rollMode() const noexcept { return rollMode_; }
+    [[nodiscard]] bool rollDrawMode(int kind) const noexcept {
+        return kind>=0&&kind<3&&rollDrawModes_[static_cast<size_t>(kind)];
+    }
+    void toggleRollDrawMode(int kind) noexcept {
+        if(kind>=0&&kind<3)rollDrawModes_[static_cast<size_t>(kind)]=
+            !rollDrawModes_[static_cast<size_t>(kind)];
+        // All three modes are independent and can run concurrently.
+        if(rollDrawModes_[0]||rollDrawModes_[1]||rollDrawModes_[2])
+            rollMode_=RollMode::Notes;
+    }
+    [[nodiscard]] bool anyRollDrawMode() const noexcept {
+        return rollDrawModes_[0]||rollDrawModes_[1]||rollDrawModes_[2];
+    }
+    [[nodiscard]] Rect rollDrawController(int kind) const noexcept;
+    [[nodiscard]] bool hitRollDrawController(int kind,float x,float y) const noexcept;
+    [[nodiscard]] float rollDrawControllerValue(int kind,float x,float y) const noexcept;
+    [[nodiscard]] float rollDrawBendAtX(float x,int noteMidi) const noexcept;
+    [[nodiscard]] float rollDrawRelativeStep(float y,float start) const noexcept;
+    void centerRollDraw(float pitch,float absoluteStep) noexcept;
+    [[nodiscard]] Rect rollDrawResumeRect() const noexcept;
+    [[nodiscard]] Rect rollDrawViewport() const noexcept {
+        const auto vp=rollViewportRect();
+        const float gutter=rollGutterPixels(),header=rollHeaderPixels();
+        return {vp.x+gutter,vp.y+header,vp.w-gutter,vp.h-header};
+    }
+    void setRollDrawPreview(
+        int midi,float start,bool paused,
+        std::vector<RollDrawSample> bend,
+        std::vector<RollDrawSample> velocity,
+        std::vector<RollDrawSample> mod);
+    void clearRollDrawPreview() noexcept;
+
 
     void setRollSelectionTool(RollSelectionTool tool) noexcept { rollSelectionTool_=tool; }
     [[nodiscard]] RollSelectionTool rollSelectionTool() const noexcept { return rollSelectionTool_; }
@@ -282,6 +320,8 @@ public:
     [[nodiscard]] bool rollAutomationPosition(
         float x,float y,int noteIndex,int curveKind,bool free,
         float& step,float& value) const noexcept;
+    [[nodiscard]] float rollSegmentMidpoint(
+        int noteIndex,int curveKind,int pointIndex,float y) const noexcept;
 
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
@@ -374,6 +414,13 @@ private:
     bool drumControlChanged_{false};
 
     RollMode rollMode_{RollMode::Notes};
+    std::array<bool,3> rollDrawModes_{};
+    bool rollDrawPreviewActive_{false};
+    bool rollDrawPreviewPaused_{false};
+    int rollDrawPreviewMidi_{-1};
+    float rollDrawPreviewStart_{0.0f};
+    std::array<std::vector<RollDrawSample>,3> rollDrawPreview_{};
+
     RollSelectionTool rollSelectionTool_{RollSelectionTool::Pencil};
     bool rollMultiLasso_{false};
     bool rollFreeTiming_{false};

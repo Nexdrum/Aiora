@@ -98,6 +98,11 @@ public:
     bool curvePointFree(int trackIndex, int noteIndex, int curveKind, int pointIndex) const;
     int addCurvePoint(int trackIndex, int noteIndex, int curveKind, float step, float value, bool free);
     bool updateCurvePoint(int trackIndex, int noteIndex, int curveKind, int pointIndex, float step, float value, bool free);
+    bool updateCurveMidpoint(int trackIndex,int noteIndex,int curveKind,int pointIndex,float midpoint);
+    bool replaceNoteCurves(int trackIndex,int noteIndex,
+        const std::vector<CurvePoint>& bend,
+        const std::vector<CurvePoint>& velocity,
+        const std::vector<CurvePoint>& mod);
     bool deleteCurvePoint(int trackIndex, int noteIndex, int curveKind, int pointIndex);
     float lastStep() const;
     int playLengthSteps() const;

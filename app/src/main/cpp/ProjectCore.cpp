@@ -641,9 +641,32 @@ bool ProjectCore::updateCurvePoint(int t,int n,int kind,int p,float step,float v
     if(!c||p<0||p>=static_cast<int>(c->size()))return false;
     step=std::clamp(step,kCurveMinStep,curveMaxStep(note));
     if(occupiedStep(*c,step,p))return false; // Keep prior valid location.
-    (*c)[p]={step,clampCurveValue(kind,value),free};
+    (*c)[p]={step,clampCurveValue(kind,value),free,(*c)[p].midpoint};
     std::sort(c->begin(),c->end(),
         [](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
+    return true;
+}
+bool ProjectCore::updateCurveMidpoint(
+    int track,int note,int kind,int point,float midpoint){
+    std::scoped_lock lock(mutex_);
+    if(!validNote(track,note))return false;
+    auto* curve=curveFor(project_.tracks[track].notes[note],kind);
+    if(!curve||point<0||point>=static_cast<int>(curve->size())||
+       (kind!=0&&point==0))return false;
+    (*curve)[static_cast<size_t>(point)].midpoint=
+        std::clamp(midpoint,0.05f,0.95f);
+    return true;
+}
+bool ProjectCore::replaceNoteCurves(int track,int note,
+    const std::vector<CurvePoint>& bend,
+    const std::vector<CurvePoint>& velocity,
+    const std::vector<CurvePoint>& mod){
+    std::scoped_lock lock(mutex_);
+    if(!validNote(track,note))return false;
+    if(bend.size()>kMaxCurvePoints||
+       velocity.size()>kMaxCurvePoints||mod.size()>kMaxCurvePoints)return false;
+    auto& n=project_.tracks[track].notes[note];
+    n.bend=bend;n.velocity=velocity;n.mod=mod;
     return true;
 }
 bool ProjectCore::deleteCurvePoint(int t,int n,int kind,int p){std::scoped_lock lock(mutex_);if(!validNote(t,n))return false;auto*c=curveFor(project_.tracks[t].notes[n],kind);if(!c||p<0||p>=static_cast<int>(c->size()))return false;c->erase(c->begin()+p);return true;}

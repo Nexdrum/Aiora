@@ -480,12 +480,12 @@ bool readPatch(const Json& src,Patch& p){
 
 void writeCurve(Writer& w,const std::vector<CurvePoint>& points,bool bend){
     w.raw("[");
-    for(size_t i=0;i<points.size();++i){if(i)w.raw(",");const auto&p=points[i];w.raw("{\"d\":");w.number(p.step);w.raw(bend?",\"o\":":",\"v\":");w.number(p.value);if(p.free)w.raw(",\"f\":true");w.raw("}");}
+    for(size_t i=0;i<points.size();++i){if(i)w.raw(",");const auto&p=points[i];w.raw("{\"d\":");w.number(p.step);w.raw(bend?",\"o\":":",\"v\":");w.number(p.value);if(p.free)w.raw(",\"f\":true");if(std::fabs(p.midpoint-0.5f)>0.0001f){w.raw(",\"q\":");w.number(p.midpoint);}w.raw("}");}
     w.raw("]");
 }
 void readCurve(const Json* j,std::vector<CurvePoint>& out,bool bend){
     out.clear();if(!j||j->type!=Json::Type::Array)return;
-    for(size_t i=0;i<std::min<size_t>(24,j->array.size());++i){const auto& p=j->array[i];if(p.type!=Json::Type::Object)continue;CurvePoint cp;cp.step=clampf(num(p.get("d"),0),-0.5,1024,0);cp.value=bend?clampf(num(p.get("o"),0),-12,12,0):clampf(num(p.get("v"),1),0,1,1);cp.free=boolean(p.get("f"),false);out.push_back(cp);}
+    for(size_t i=0;i<std::min<size_t>(24,j->array.size());++i){const auto& p=j->array[i];if(p.type!=Json::Type::Object)continue;CurvePoint cp;cp.step=clampf(num(p.get("d"),0),-0.5,1024,0);cp.value=bend?clampf(num(p.get("o"),0),-12,12,0):clampf(num(p.get("v"),1),0,1,1);cp.free=boolean(p.get("f"),false);cp.midpoint=clampf(num(p.get("q"),0.5),0.05,0.95,0.5);out.push_back(cp);}
     std::stable_sort(out.begin(),out.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     // Malformed and historical project files may contain stacked points.
     // Retain the last value at each time, matching the prior DSP overwrite.

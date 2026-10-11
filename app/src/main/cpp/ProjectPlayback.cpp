@@ -7,10 +7,10 @@ namespace aiora {
 namespace {
 constexpr float kPi = 3.14159265358979323846f;
 
-void pushPoint(DspCurve& out,float step,float value) noexcept {
+void pushPoint(DspCurve& out,float step,float value,float midpoint=0.5f) noexcept {
     if(out.count>=out.points.size())return;
-    if(out.count>0 && std::fabs(out.points[out.count-1].step-step)<1.0e-5f){out.points[out.count-1]={step,value};return;}
-    out.points[out.count++]={step,value};
+    if(out.count>0 && std::fabs(out.points[out.count-1].step-step)<1.0e-5f){out.points[out.count-1]={step,value,midpoint};return;}
+    out.points[out.count++]={step,value,midpoint};
 }
 
 DspCurve bendCurve(const Note& note,const DrumPad* pad) {
@@ -26,7 +26,7 @@ DspCurve bendCurve(const Note& note,const DrumPad* pad) {
             const float hi=static_cast<float>(std::max(pad->lowMidi,pad->highMidi))+0.5f-static_cast<float>(note.midi);
             value=std::clamp(value,lo,hi);
         }
-        pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),value);
+        pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),value,p.midpoint);
     }
     const float last=out.count?out.points[out.count-1].value:0.0f;
     if(out.count==0 || std::fabs(out.points[out.count-1].step-L)>1.0e-5f)
@@ -42,7 +42,7 @@ DspCurve levelCurve(const std::vector<CurvePoint>& source,float length) {
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     const float first=std::clamp(pts.front().value,0.0f,1.0f);
     pushPoint(out,0.0f,first);
-    for(const auto& p:pts)pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),std::clamp(p.value,0.0f,1.0f));
+    for(const auto& p:pts)pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),std::clamp(p.value,0.0f,1.0f),p.midpoint);
     const float last=out.count?out.points[out.count-1].value:first;
     if(out.count==0 || std::fabs(out.points[out.count-1].step-L)>1.0e-5f)pushPoint(out,L,last);
     return out;
