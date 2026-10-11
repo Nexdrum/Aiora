@@ -77,37 +77,48 @@ inline float curveWarp(float fraction,float q) noexcept {
 }
 // New two-dimensional X control passes through its handle. Legacy segments
 // (including saved q-only curves) preserve the original interpolation.
+// Shape-preserving cubic Hermite interpolation for the X control.
+// It is C1 at the handle, monotone, and continuous even when the X reaches
+// either endpoint value. The control passes through (q,handleValue).
 inline float curveSegment(float fraction,float a,float b,float q,
                          bool shaped,float handleValue) noexcept {
     const float t=std::clamp(fraction,0.0f,1.0f);
+    // Untouched and legacy q-only curves retain exactly their old behavior.
     if(!shaped)return a+(b-a)*curveWarp(t,q);
-    // The X controls curvature *between* its anchors, never overshoot.
-    // An equal-value pair has no change to shape or peak timing.
     if(std::fabs(b-a)<=1.0e-5f)return a;
-    const float location=std::clamp(q,0.05f,0.95f);
-    const float value=std::clamp(handleValue,std::min(a,b),std::max(a,b));
-    // Normalize the X into the endpoints' unit square. One rational arc
-    // interpolates A -> X -> B with constant-sign curvature; unlike two
-    // smoothstep halves, there is no artificial easing/counter-bend at X.
-    const float h=std::clamp((value-a)/(b-a),0.0f,1.0f);
-    float f=0.0f;
-    if(h<=0.0f){
-        // X lies on the starting value: hold level until X, then rise.
-        const float u=std::clamp((t-location)/(1.0f-location),0.0f,1.0f);
-        f=u*u;
-    }else if(h>=1.0f){
-        // X lies on the ending value: rise to X, then hold level.
-        const float u=std::clamp(t/location,0.0f,1.0f);
-        f=1.0f-(1.0f-u)*(1.0f-u);
+    const float position=std::clamp(q,0.05f,0.95f);
+    const float target=std::clamp(handleValue,std::min(a,b),std::max(a,b));
+    const float h=std::clamp((target-a)/(b-a),0.0f,1.0f);
+    const float left=(h/position);
+    const float right=(1.0f-h)/(1.0f-position);
+    const float sum=left+right;
+    // Non-negative shared tangent, bounded by the secants: no overshoot
+    // and no forced flattening at an interior X.
+    const float slopeA=2.0f*left*left/sum;
+    const float slopeX=2.0f*left*right/sum;
+    const float slopeB=2.0f*right*right/sum;
+
+    const auto hermite=[](float u,float v0,float v1,
+                          float tangent0,float tangent1) noexcept {
+        const float u2=u*u;
+        const float u3=u2*u;
+        return (2.0f*u3-3.0f*u2+1.0f)*v0+
+               (u3-2.0f*u2+u)*tangent0+
+               (-2.0f*u3+3.0f*u2)*v1+
+               (u3-u2)*tangent1;
+    };
+    float normalized=0.0f;
+    if(t<=position){
+        const float u=t/position;
+        normalized=hermite(u,0.0f,h,
+            slopeA*position,slopeX*position);
     }else{
-        // f(location)==h; derivative is positive and curvature never
-        // changes sign across this entire segment.
-        const float ratio=location*(1.0f-h)/
-            (h*(1.0f-location));
-        const float divisor=t+(1.0f-t)*ratio;
-        f=divisor>0.0f?t/divisor:t;
+        const float remaining=1.0f-position;
+        const float u=(t-position)/remaining;
+        normalized=hermite(u,h,1.0f,
+            slopeX*remaining,slopeB*remaining);
     }
-    return a+(b-a)*std::clamp(f,0.0f,1.0f);
+    return a+(b-a)*std::clamp(normalized,0.0f,1.0f);
 }
 struct DspCurvePoint {
     float step{0},value{0},midpoint{0.5f};
