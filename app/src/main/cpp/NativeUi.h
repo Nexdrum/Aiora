@@ -401,7 +401,7 @@ private:
     int safeTop_{0};
     int safeRight_{0};
     int safeBottom_{0};
-    NativePage page_{NativePage::Play};
+    NativePage page_{NativePage::Tracks};
     std::array<bool, kGridNotes> active_{};
 
     int trackActiveSlider_{-1};
