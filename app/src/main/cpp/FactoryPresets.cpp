@@ -665,6 +665,50 @@ void configureTriangle(Patch& p){
     preservePercussionFundamental(p);
 }
 
+// Tuned resonant rosewood bars and resonator tubes, playable across the
+// standard five-octave C2-C7 range. The principal bar mode is the played
+// note itself. A nearly 4x transverse bar mode, ~10x higher mode,
+// low wood thump and very brief mallet noise add its distinctive texture.
+// M softens/hardens mallet brightness and can damp the ringing bar.
+void configureMarimba(Patch& p){
+    // Main bar pitch: strictly unmodified ratio 1.
+    setOp(p.ops[0],Wave::Sine,1.0f,0.0f,.94f,
+        .001f,1.40f,0.0f,1.04f);
+    // Tuned bar modes are approximately 4:1 and 10:1 but deliberately
+    // not integer exact; each upper mode decays faster than the fundamental.
+    setOp(p.ops[1],Wave::Sine,3.98f,0.0f,.32f,
+        .001f,.58f,0.0f,.49f);
+    setOp(p.ops[2],Wave::Sine,9.18f,0.0f,.12f,
+        .001f,.19f,0.0f,.17f);
+    setOp(p.ops[3],Wave::Sine,10.12f,0.0f,.049f,
+        .001f,.087f,0.0f,.10f);
+    // Felt/yarn mallet contact and muted wooden knock.
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,.11f,
+        .001f,.014f,0.0f,.024f);
+    setOp(p.ops[5],Wave::Sine,2.01f,0.0f,.069f,
+        .001f,.40f,0.0f,.32f);
+
+    p.filter={FilterType::Lowpass,8800.0f,.72f,0.0f,
+        {.002f,.13f,0.0f,.16f}};
+    p.amp={.001f,1.42f,0.0f,1.05f};
+    p.velocityAmp=.77f;
+    p.velocityFilter=.49f;
+    // M=0: soft mallet and free sustain, M=1: firm mallet and
+    // physical damping. Existing cumulative percussion ring attenuation
+    // is only applied after the ~65ms onset.
+    p.timpaniMembrane=true;
+    slots(p,{
+        {ModTarget::Op2,.15f,.40f},
+        {ModTarget::Op3,.035f,.18f},
+        {ModTarget::Op4,.012f,.078f},
+        {ModTarget::Op5,.045f,.15f},
+        {ModTarget::Cutoff,4200.0f,11000.0f}
+    });
+    p.volume=.84f;
+    p.fx={0.0f,0.0f,.32f,0.0f,.07f};
+    preservePercussionFundamental(p);
+}
+
 } // namespace
 
 Patch makeDefaultPatch(const char* name) {
@@ -718,6 +762,7 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::OrchestralCymbals: name="Cymbals"; break;
         case FactoryPreset::TamTamGong: name="Gong"; break;
         case FactoryPreset::Triangle: name="Triangle"; break;
+        case FactoryPreset::Marimba: name="Marimba"; break;
         default: break;
     }
     Patch p = makeDefaultPatch(name);
@@ -768,6 +813,10 @@ Patch makeFactoryPatch(FactoryPreset preset) {
     }
     if(preset==FactoryPreset::Triangle){
         configureTriangle(p);
+        return p;
+    }
+    if(preset==FactoryPreset::Marimba){
+        configureMarimba(p);
         return p;
     }
 
@@ -899,7 +948,8 @@ const std::array<Patch, static_cast<size_t>(FactoryPreset::Count)>& factoryBank(
         makeFactoryPatch(FactoryPreset::ConcertSnareDrum),
         makeFactoryPatch(FactoryPreset::OrchestralCymbals),
         makeFactoryPatch(FactoryPreset::TamTamGong),
-        makeFactoryPatch(FactoryPreset::Triangle)
+        makeFactoryPatch(FactoryPreset::Triangle),
+        makeFactoryPatch(FactoryPreset::Marimba)
     };
     return bank;
 }
