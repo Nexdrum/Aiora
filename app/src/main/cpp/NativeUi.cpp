@@ -189,28 +189,9 @@ float snapAutomationHalfCell(float position) noexcept {
     return std::round(position*2.0f)*0.5f;
 }
 
-const DrumPad* rollPadForMidi(const Track& track,int midi) noexcept {
-    if(!track.drums)return nullptr;
-    for(const auto& pad:track.pads){
-        const int lo=std::min(pad.lowMidi,pad.highMidi);
-        const int hi=std::max(pad.lowMidi,pad.highMidi);
-        if(midi>=lo&&midi<=hi)return &pad;
-    }
-    return nullptr;
-}
-
-float rollClampBend(const Track& track,const Note& note,float value) noexcept {
-    float out=value;
-    if(const auto* pad=rollPadForMidi(track,note.midi)){
-        const float lo=
-            static_cast<float>(std::min(pad->lowMidi,pad->highMidi))-
-            0.5f-static_cast<float>(note.midi);
-        const float hi=
-            static_cast<float>(std::max(pad->lowMidi,pad->highMidi))+
-            0.5f-static_cast<float>(note.midi);
-        out=std::clamp(out,lo,hi);
-    }
-    return out;
+// Bend values are independent of pad assignment ranges.
+float rollClampBend(const Track&,const Note&,float value) noexcept {
+    return value;
 }
 
 float rollLerp(
@@ -2955,19 +2936,7 @@ float NativeUi::rollDrawBendAtX(float x,int midi) const noexcept {
     const float pitch=rollPitchFromX(
         columns,x,rollPitchOffset_,vp.x+rollGutterPixels(),
         rollColumnPixels());
-    float bend=pitch-static_cast<float>(midi);
-    const auto snapshot=ProjectCore::instance().projectCopy();
-    const int track=ProjectCore::instance().selectedTrack();
-    if(track>=0&&track<static_cast<int>(snapshot.tracks.size())){
-        const auto& source=snapshot.tracks[static_cast<size_t>(track)];
-        if(const DrumPad* pad=rollPadForMidi(source,midi)){
-            bend=std::clamp(bend,
-                static_cast<float>(std::min(pad->lowMidi,pad->highMidi))-
-                    0.5f-static_cast<float>(midi),
-                static_cast<float>(std::max(pad->lowMidi,pad->highMidi))+
-                    0.5f-static_cast<float>(midi));
-        }
-    }
+    const float bend=pitch-static_cast<float>(midi);
     return bend;
 }
 

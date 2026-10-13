@@ -66,12 +66,21 @@ int main(){
         p.patch=makeFactoryPatch(FactoryPreset::Triangle);
         drums.pads.push_back(std::move(p));
     }
+    Note drumNote;
+    drumNote.midi=38;
+    drumNote.lengthSteps=1.0f;
+    drumNote.bend.push_back({0.0f,24.0f,true});
+    drums.notes.push_back(std::move(drumNote));
     pads.tracks.push_back(std::move(drums));
     Project padsLoaded;
     assert(deserializeProjectJson(serializeProjectJson(pads),padsLoaded,&error));
     assert(padsLoaded.tracks[0].pads.size()==49);
     assert(padsLoaded.tracks[0].pads.back().centerMidi==86);
     assert(padsLoaded.tracks[0].pads.back().name==pads.tracks[0].pads.back().name);
+    assert(core.replaceProject(padsLoaded));
+    const auto padSnapshot=core.makePlaybackSnapshot();
+    assert(padSnapshot->steps[0].events[0].automation.bend.count>=2);
+    assert(std::fabs(padSnapshot->steps[0].events[0].automation.bend.points[1].value-24.0f)<0.001f);
 
     core.reset();
     const int track=core.addTrack(false);

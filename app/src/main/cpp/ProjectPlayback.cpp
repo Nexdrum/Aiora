@@ -20,20 +20,14 @@ void pushPoint(DspCurve& out,float step,float value,float midpoint=0.5f,
     out.points=out.storage->data();
 }
 
-DspCurve bendCurve(const Note& note,const DrumPad* pad) {
+DspCurve bendCurve(const Note& note,const DrumPad* /*pad*/) {
     DspCurve out;
     const float L=std::max(1.0f,note.lengthSteps);
     pushPoint(out,0.0f,0.0f);
     auto pts=note.bend;
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     for(const auto& p:pts){
-        float value=p.value;
-        if(pad){
-            const float lo=static_cast<float>(std::min(pad->lowMidi,pad->highMidi))-0.5f-static_cast<float>(note.midi);
-            const float hi=static_cast<float>(std::max(pad->lowMidi,pad->highMidi))+0.5f-static_cast<float>(note.midi);
-            value=std::clamp(value,lo,hi);
-        }
-        pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),value,
+        pushPoint(out,std::clamp(p.step+0.5f,0.0f,L),p.value,
                   p.midpoint,p.handleActive,p.handleValue);
     }
     const float last=out.count?out.points[out.count-1].value:0.0f;
