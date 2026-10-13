@@ -19,7 +19,7 @@ Patch pad0() {
     p.amp={0.001f,1.55f,0.0f,1.7f};
     p.velocityAmp=0.5f; p.velocityFilter=0.22f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=4;
+    p.modSlotCount=4;p.modSlots.resize(4);
     p.modSlots[0]={ModTarget::Volume,1.0f,0.0f};
     p.modSlots[1]={ModTarget::Op1,0.5f,0.025f};
     p.modSlots[2]={ModTarget::Op2,0.28f,0.035f};
@@ -44,7 +44,7 @@ Patch pad1() {
     p.amp={0.001f,1.25f,0.0f,1.55f};
     p.velocityAmp=0.52f; p.velocityFilter=0.18f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=4;
+    p.modSlotCount=4;p.modSlots.resize(4);
     p.modSlots[0]={ModTarget::Morph3,0.0f,1.0f};
     p.modSlots[1]={ModTarget::Op1,0.08f,0.62f};
     p.modSlots[2]={ModTarget::Op2,0.56f,0.08f};
@@ -67,7 +67,7 @@ Patch pad2() {
     p.amp={0.001f,0.18f,0.0f,0.15f};
     p.velocityAmp=0.55f; p.velocityFilter=0.35f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=3;
+    p.modSlotCount=3;p.modSlots.resize(3);
     p.modSlots[0]={ModTarget::Cutoff,900.0f,380.0f};
     p.modSlots[1]={ModTarget::AmpRelease,0.15f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
@@ -90,7 +90,7 @@ Patch pad3() {
     p.amp={0.001f,0.18f,0.0f,0.14f};
     p.velocityAmp=0.5f; p.velocityFilter=0.3f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=3;
+    p.modSlotCount=3;p.modSlots.resize(3);
     p.modSlots[0]={ModTarget::Cutoff,1800.0f,720.0f};
     p.modSlots[1]={ModTarget::AmpRelease,0.14f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
@@ -112,7 +112,7 @@ Patch pad4() {
     p.amp={0.002f,0.32f,0.0f,0.22f};
     p.velocityAmp=0.5f; p.velocityFilter=0.3f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=3;
+    p.modSlotCount=3;p.modSlots.resize(3);
     p.modSlots[0]={ModTarget::Cutoff,1400.0f,560.0f};
     p.modSlots[1]={ModTarget::AmpRelease,0.22f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
@@ -134,7 +134,7 @@ Patch pad5() {
     p.amp={0.001f,0.9f,0.0f,1.0f};
     p.velocityAmp=0.5f; p.velocityFilter=0.3f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=3;
+    p.modSlotCount=3;p.modSlots.resize(3);
     p.modSlots[0]={ModTarget::Cutoff,5000.0f,2000.0f};
     p.modSlots[1]={ModTarget::AmpRelease,1.0f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
@@ -156,7 +156,7 @@ Patch pad6() {
     p.amp={0.001f,0.29f,0.0f,0.23f};
     p.velocityAmp=0.67f; p.velocityFilter=0.24f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=3;
+    p.modSlotCount=3;p.modSlots.resize(3);
     p.modSlots[0]={ModTarget::Cutoff,4500.0f,1800.0f};
     p.modSlots[1]={ModTarget::AmpRelease,1.3f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};

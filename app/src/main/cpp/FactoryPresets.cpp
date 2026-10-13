@@ -19,14 +19,8 @@ void setHarm(Operator& o, const std::array<float,16>& h) { o.harm = h; o.hasHarm
 void setHarmMute(Operator& o, const std::array<float,16>& h) { o.harmMute = h; o.hasHarmMute = true; }
 
 void slots(Patch& p, std::initializer_list<ModSlot> list) {
-    p.modSlots.fill({});
-    const size_t count=std::min(p.modSlots.size(),list.size());
-    p.modSlotCount=static_cast<uint8_t>(count);
-    size_t i=0;
-    for(const auto& s:list){
-        if(i>=count)break;
-        p.modSlots[i++]=s;
-    }
+    p.modSlots.assign(list.begin(),list.end());
+    p.modSlotCount=p.modSlots.size();
 }
 
 
@@ -850,7 +844,7 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
         p.velocityAmp=0.0f;
         p.velocityFilter=0.0f;
-        p.modSlots.fill({});
+        p.modSlots.clear();
         p.modSlotCount=0;
         p.fx={
             0.0f, // distortion

@@ -820,8 +820,9 @@ ModSlot ProjectCore::selectedModSlot(int slotIndex) const {
 bool ProjectCore::addSelectedModSlot(ModTarget target){
     std::scoped_lock lock(mutex_);
     auto* p=selectedPatchUnsafe();
-    if(!p||p->modSlotCount>=p->modSlots.size())return false;
-    const int index=p->modSlotCount++;
+    if(!p)return false;
+    p->modSlots.emplace_back();
+    const int index=static_cast<int>(p->modSlotCount++);
     float v=0.0f;
     switch(target){
         case ModTarget::Cutoff:v=p->filter.cutoff;break;
@@ -854,7 +855,7 @@ bool ProjectCore::removeSelectedModSlot(int slotIndex){
     if(!p||slotIndex<0||slotIndex>=static_cast<int>(p->modSlotCount))return false;
     for(int i=slotIndex;i+1<static_cast<int>(p->modSlotCount);++i)p->modSlots[i]=p->modSlots[i+1];
     if(p->modSlotCount>0)--p->modSlotCount;
-    p->modSlots[p->modSlotCount]={};return true;
+    p->modSlots.pop_back();return true;
 }
 bool ProjectCore::setSelectedModSlot(int slotIndex,ModTarget target,float minValue,float maxValue){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();

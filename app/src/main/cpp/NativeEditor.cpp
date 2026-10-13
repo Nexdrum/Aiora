@@ -1031,7 +1031,7 @@ void NativeEditor::renderFx() const noexcept {
     }
 
     const auto add=modAddRect();
-    const bool canAdd=count<kMaxModSlots;
+    const bool canAdd=true;
     drawButton(add,canAdd,kGreen);
     ov.addTextCentered(
         "+ Add link",

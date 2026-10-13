@@ -447,13 +447,12 @@ bool readPatch(const Json& src,Patch& p){
         p.lfo.rate=clampf(num(l->get("rate"),5),.1f,20,5);p.lfo.amount=clampf(num(l->get("amount"),0),0,2,0);p.lfo.target=parseLfo(str(l->get("target"),"none"));p.lfo.attack=clampf(num(l->get("attack"),0),0,2,0);p.lfo.velocitySensitivity=clampf(num(l->get("velSens"),0),0,1,0);
     }
     if(const Json* v=src.get("vel");v&&v->type==Json::Type::Object){p.velocityAmp=clampf(num(v->get("amp"),0),0,1,0);p.velocityFilter=clampf(num(v->get("filter"),0),0,1,0);}
-    p.modSlotCount=0;
+    p.modSlots.clear();p.modSlotCount=0;
     if(const Json* mod=src.get("mod");
        mod&&mod->type==Json::Type::Object){
         if(const Json* slots=mod->get("slots");
            slots&&slots->type==Json::Type::Array){
-            const size_t limit=std::min(
-                p.modSlots.size(),slots->array.size());
+            const size_t limit=slots->array.size();
             for(size_t i=0;i<limit;++i){
                 const auto& js=slots->array[i];
                 if(js.type!=Json::Type::Object)continue;
@@ -461,7 +460,9 @@ bool readPatch(const Json& src,Patch& p){
                     str(js.get("t"),"none"));
                 if(target==ModTarget::None)continue;
                 const auto [lo,hi]=modBounds(target);
-                auto& s=p.modSlots[p.modSlotCount++];
+                p.modSlots.emplace_back();
+                auto& s=p.modSlots.back();
+                ++p.modSlotCount;
                 s.target=target;
                 s.min=clampf(
                     num(js.get("min"),lo),lo,hi,lo);

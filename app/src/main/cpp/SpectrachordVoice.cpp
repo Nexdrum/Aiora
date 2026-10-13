@@ -74,7 +74,7 @@ float SpectrachordVoice::curveMean(const DspCurve& c,float fallback) noexcept {
 void SpectrachordVoice::prepare(float sr) noexcept {sampleRate_=std::max(8000.0f,sr);}
 
 float SpectrachordVoice::mappedValue(ModTarget target,float m,float fallback) const noexcept {
-    for(size_t i=0;i<patch_.modSlotCount&&i<patch_.modSlots.size();++i){const auto&s=patch_.modSlots[i];if(s.target==target)return s.min+(s.max-s.min)*clamp01(m);}return fallback;
+    for(size_t i=0;patch_.modSlots&&i<patch_.modSlotCount&&i<patch_.modSlots->size();++i){const auto&s=(*patch_.modSlots)[i];if(s.target==target)return s.min+(s.max-s.min)*clamp01(m);}return fallback;
 }
 float SpectrachordVoice::slotValue(ModTarget target,float m,float fallback) const noexcept {return modActive_?mappedValue(target,m,fallback):fallback;}
 
