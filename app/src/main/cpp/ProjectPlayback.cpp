@@ -99,7 +99,6 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
     snap->steps.resize(static_cast<size_t>(snap->lengthSteps));
 
     auto addFxBus=[&](const Fx& fx)->int {
-        if(snap->fxBuses.size()>=kMaxPlaybackFxBuses)return -1;
         snap->fxBuses.push_back(fx);
         return static_cast<int>(snap->fxBuses.size())-1;
     };
@@ -126,13 +125,13 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
             if(padIndex>=0){
                 const auto& pad=track.pads[static_cast<size_t>(padIndex)];
                 if(padBuses[static_cast<size_t>(padIndex)]==-2)padBuses[static_cast<size_t>(padIndex)]=addFxBus(pad.patch.fx);
-                event.fxBus=static_cast<int16_t>(padBuses[static_cast<size_t>(padIndex)]);
+                event.fxBus=static_cast<int32_t>(padBuses[static_cast<size_t>(padIndex)]);
                 event.patch=toDspPatch(pad.patch);
                 event.automation.bend=bendCurve(note,&pad);
                 const auto [l,r]=panGain(track.volume*pad.volume,std::clamp(track.pan+pad.pan,-1.0f,1.0f));
                 event.gainLeft=l;event.gainRight=r;
             }else{
-                event.fxBus=static_cast<int16_t>(melodicBus);
+                event.fxBus=static_cast<int32_t>(melodicBus);
                 event.patch=toDspPatch(track.patch);
                 event.automation.bend=bendCurve(note,nullptr);
                 const auto [l,r]=panGain(track.volume,track.pan);

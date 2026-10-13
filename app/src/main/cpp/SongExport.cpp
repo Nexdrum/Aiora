@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -38,6 +39,12 @@ void putLe32(std::ostream& out,uint32_t v){
     out.write(b,4);
 }
 
+void putLe64(std::ostream& out,uint64_t v){
+    for(int i=0;i<8;++i){
+        out.put(static_cast<char>((v>>(8*i))&0xffu));
+    }
+}
+
 void putBe16(std::vector<uint8_t>& out,uint16_t v){
     out.push_back(static_cast<uint8_t>((v>>8)&0xffu));
     out.push_back(static_cast<uint8_t>(v&0xffu));
@@ -64,17 +71,15 @@ struct RenderVoice {
     SpectrachordVoice voice{};
     float gainLeft{1.0f};
     float gainRight{1.0f};
-    int16_t fxBus{-1};
+    int32_t fxBus{-1};
 };
 
 RenderVoice& allocateVoice(
-    std::array<RenderVoice,48>& voices) noexcept {
+    std::deque<RenderVoice>& voices,float sampleRate) {
     for(auto& slot:voices)if(!slot.voice.active())return slot;
-    return *std::min_element(
-        voices.begin(),voices.end(),
-        [](const RenderVoice& a,const RenderVoice& b){
-            return a.voice.age()<b.voice.age();
-        });
+    voices.emplace_back();
+    voices.back().voice.prepare(sampleRate);
+    return voices.back();
 }
 
 float projectEndSteps(const Project& project){
@@ -157,45 +162,48 @@ bool exportProjectWav(
     const float endSteps=std::max(
         static_cast<float>(snapshot->lengthSteps),
         projectEndSteps(project));
-    constexpr double tailSeconds=4.0;
-    const uint64_t totalFrames64=
-        static_cast<uint64_t>(std::ceil(endSteps*samplesPerStep))+
-        static_cast<uint64_t>(std::ceil(tailSeconds*sampleRate));
-
-    const uint64_t dataBytes64=totalFrames64*4ull;
-    if(dataBytes64>std::numeric_limits<uint32_t>::max()-44u){
-        setError(error,"Song is too long for a standard WAV file");
+    // Write an extensible WAV header. If output crosses 4 GB, the
+    // reserved JUNK chunk becomes RF64's ds64 chunk without shifting PCM.
+    const uint64_t minimumFrames=
+        static_cast<uint64_t>(std::ceil(endSteps*samplesPerStep));
+    // End after voices and reverberation die out; keep a defensive safety
+    // window in case a future effect self-oscillates indefinitely.
+    constexpr double maxTailSeconds=120.0;
+    const uint64_t maxTailFrames=
+        static_cast<uint64_t>(sampleRate*maxTailSeconds);
+    if(minimumFrames>std::numeric_limits<uint64_t>::max()-maxTailFrames){
+        setError(error,"Song duration exceeds addressable frame range");
         return false;
     }
-    const uint32_t dataBytes=static_cast<uint32_t>(dataBytes64);
-
+    const uint64_t maximumFrames=minimumFrames+maxTailFrames;
     std::ofstream out(path,std::ios::binary|std::ios::trunc);
     if(!out){
         setError(error,"Could not create WAV file");
         return false;
     }
-
     out.write("RIFF",4);
-    putLe32(out,36u+dataBytes);
+    putLe32(out,0u);  // final size patched after rendering
     out.write("WAVE",4);
+    out.write("JUNK",4);
+    putLe32(out,28u);
+    for(int i=0;i<28;++i)out.put(0);
     out.write("fmt ",4);
     putLe32(out,16u);
-    putLe16(out,1u);
-    putLe16(out,2u);
+    putLe16(out,1u);  // PCM
+    putLe16(out,2u);  // stereo
     putLe32(out,static_cast<uint32_t>(sampleRate));
     putLe32(out,static_cast<uint32_t>(sampleRate*4));
     putLe16(out,4u);
     putLe16(out,16u);
     out.write("data",4);
-    putLe32(out,dataBytes);
+    putLe32(out,0u);  // final size patched after rendering
 
-    std::array<RenderVoice,48> voices{};
+    std::deque<RenderVoice> voices(96);
     for(auto& slot:voices)slot.voice.prepare(static_cast<float>(sampleRate));
 
-    std::array<FxProcessor,kMaxPlaybackFxBuses> buses{};
-    const int busCount=std::min<int>(
-        static_cast<int>(snapshot->fxBuses.size()),
-        static_cast<int>(buses.size()));
+    std::vector<FxProcessor> buses(snapshot->fxBuses.size());
+    const int busCount=static_cast<int>(buses.size());
+    std::vector<float> busLeft(buses.size()),busRight(buses.size());
     for(int i=0;i<busCount;++i){
         buses[static_cast<size_t>(i)].prepare(static_cast<float>(sampleRate));
         buses[static_cast<size_t>(i)].reset();
@@ -223,7 +231,7 @@ bool exportProjectWav(
         while(stepEventCursor<events.size()&&
               static_cast<double>(events[stepEventCursor].offsetSteps)<=phase){
             const auto& event=events[stepEventCursor++];
-            auto& slot=allocateVoice(voices);
+            auto& slot=allocateVoice(voices,static_cast<float>(sampleRate));
             const float pressure=event.automation.velocity.count
                 ?std::clamp(event.automation.velocity.points[0].value,0.0f,1.0f)
                 :0.8f;
@@ -243,7 +251,10 @@ bool exportProjectWav(
     std::array<int16_t,4096> pcm{};
     size_t pcmCount=0;
 
-    for(uint64_t frame=0;frame<totalFrames64;++frame){
+    uint64_t renderedFrames=0;
+    uint64_t quietFrames=0;
+    constexpr float tailSilence=0.000075f; // ~-82.5 dBFS
+    for(uint64_t frame=0;frame<maximumFrames;++frame){
         const int step=static_cast<int>(static_cast<double>(frame)/samplesPerStep);
         if(step!=currentStep){
             // A near-boundary event rounds to the next sample, not silence.
@@ -256,8 +267,8 @@ bool exportProjectWav(
             static_cast<double>(step)*samplesPerStep+0.5)/samplesPerStep;
         triggerDue(step,phase);
 
-        std::array<float,kMaxPlaybackFxBuses> busLeft{};
-        std::array<float,kMaxPlaybackFxBuses> busRight{};
+        std::fill(busLeft.begin(),busLeft.end(),0.0f);
+        std::fill(busRight.begin(),busRight.end(),0.0f);
         float left=0.0f,right=0.0f;
 
         for(auto& slot:voices){
@@ -294,6 +305,7 @@ bool exportProjectWav(
 
         pcm[pcmCount++]=toPcm(left);
         pcm[pcmCount++]=toPcm(right);
+        ++renderedFrames;
 
         if(pcmCount==pcm.size()){
             out.write(
@@ -305,6 +317,16 @@ bool exportProjectWav(
                 return false;
             }
         }
+        if(renderedFrames>=minimumFrames){
+            bool voiceActive=false;
+            for(const auto& voice:voices)
+                if(voice.voice.active()){voiceActive=true;break;}
+            if(!voiceActive&&
+               std::max(std::fabs(left),std::fabs(right))<tailSilence)
+                ++quietFrames;
+            else quietFrames=0;
+            if(quietFrames>=static_cast<uint64_t>(sampleRate))break;
+        }
     }
 
     if(pcmCount>0){
@@ -312,6 +334,25 @@ bool exportProjectWav(
             reinterpret_cast<const char*>(pcm.data()),
             static_cast<std::streamsize>(pcmCount*sizeof(int16_t)));
     }
+    // Complete RIFF/RF64 sizes after the natural tail is measured.
+    const uint64_t dataBytes=renderedFrames*4ull;
+    const uint64_t riffBytes=72ull+dataBytes;
+    const bool large=riffBytes>std::numeric_limits<uint32_t>::max();
+    out.seekp(0,std::ios::beg);
+    out.write(large?"RF64":"RIFF",4);
+    putLe32(out,large?0xffffffffu:static_cast<uint32_t>(riffBytes));
+    if(large){
+        out.seekp(12,std::ios::beg);
+        out.write("ds64",4);
+        putLe32(out,28u);
+        putLe64(out,riffBytes);
+        putLe64(out,dataBytes);
+        putLe64(out,renderedFrames);
+        putLe32(out,0u); // no additional ds64 entries
+    }
+    out.seekp(76,std::ios::beg);
+    putLe32(out,large?0xffffffffu:static_cast<uint32_t>(dataBytes));
+    out.seekp(0,std::ios::end);
     out.flush();
     if(!out){
         setError(error,"Could not finish WAV file");

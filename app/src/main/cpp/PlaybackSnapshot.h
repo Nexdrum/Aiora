@@ -1,10 +1,10 @@
 #pragma once
 #include <vector>
 #include "AioraTypes.h"
+#include "FxProcessor.h"
 
 namespace aiora {
 
-inline constexpr size_t kMaxPlaybackFxBuses = 48;
 
 struct PlaybackEvent {
     int32_t midi{62};
@@ -14,7 +14,7 @@ struct PlaybackEvent {
     VoiceAutomation automation{};
     float gainLeft{1.0f};
     float gainRight{1.0f};
-    int16_t fxBus{-1};
+    int32_t fxBus{-1};
 };
 
 struct PlaybackStep {
@@ -28,6 +28,8 @@ struct PlaybackSnapshot {
     float masterVolume{0.9f};
     float masterReverb{0.0f};
     std::vector<Fx> fxBuses;
+    std::vector<FxProcessor> preparedFx;
+    std::vector<float> scratchLeft,scratchRight;
     std::vector<PlaybackStep> steps;
 };
 

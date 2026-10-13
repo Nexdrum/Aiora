@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include "SpscQueue.h"
@@ -64,16 +65,13 @@ private:
         SpectrachordVoice voice{};
         float gainLeft{1.0f};
         float gainRight{1.0f};
-        int16_t fxBus{-1};
+        int32_t fxBus{-1};
         bool transport{false};
-    };
-    struct PlaybackFxBus {
-        FxProcessor processor{};
     };
 
     void applyEvent(const Event&) noexcept;
     std::array<float,2> renderFrame() noexcept;
-    VoiceSlot& allocateVoice() noexcept;
+    VoiceSlot& allocateVoice();
     void triggerStep(int step,double phase) noexcept;
     void advanceTransport() noexcept;
     void configureFx(const Fx& fx) noexcept;
@@ -83,10 +81,9 @@ private:
     std::mutex streamMutex_;
     SpscQueue<Event, 512> events_;
     SpscQueue<PlaybackSnapshot*, 256> retiredSnapshots_;
-    std::array<VoiceSlot, 48> voices_{};
+    std::deque<VoiceSlot> voices_{};
     FxProcessor previewFx_{};
     FxProcessor masterFx_{};
-    std::array<PlaybackFxBus, kMaxPlaybackFxBuses> playbackFx_{};
     int32_t playbackFxCount_{0};
     PlaybackSnapshot* playback_{nullptr};
     std::atomic<int32_t> nextVoiceId_{1};

@@ -31,10 +31,10 @@ bool AudioEngine::start(){
     auto result=builder.openStream(stream_);
     if(result!=oboe::Result::OK||!stream_){__android_log_print(ANDROID_LOG_ERROR,kTag,"openStream failed: %s",oboe::convertToText(result));stream_.reset();return false;}
     const int sr=stream_->getSampleRate();sampleRate_.store(sr,std::memory_order_relaxed);
+    while(voices_.size()<96)voices_.emplace_back();
     for(auto&slot:voices_)slot.voice.prepare(static_cast<float>(sr));
     previewFx_.prepare(static_cast<float>(sr));
     masterFx_.prepare(static_cast<float>(sr));
-    for(auto& bus:playbackFx_)bus.processor.prepare(static_cast<float>(sr));
     configureFxForPreset(selectedPreset_.load(std::memory_order_relaxed));
     const auto burst=stream_->getFramesPerBurst();if(burst>0)stream_->setBufferSizeInFrames(burst*3);
     result=stream_->requestStart();
@@ -45,7 +45,7 @@ bool AudioEngine::start(){
 void AudioEngine::stop(){
     std::shared_ptr<oboe::AudioStream> old;{std::scoped_lock lock(streamMutex_);old=std::move(stream_);}if(old){old->requestStop();old->close();}
     transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)slot.voice.kill();
-    previewFx_.reset();masterFx_.reset();for(auto&bus:playbackFx_)bus.processor.reset();playbackFxCount_=0;
+    previewFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();playbackFxCount_=0;
     Event pending;while(events_.pop(pending))if(pending.type==EventType::Snapshot&&pending.pointer)delete reinterpret_cast<PlaybackSnapshot*>(pending.pointer);
     if(playback_){delete playback_;playback_=nullptr;}collectRetiredSnapshots();
 }
@@ -102,6 +102,15 @@ void AudioEngine::setFactoryPreset(int index) noexcept {const int p=clampPreset(
 bool AudioEngine::syncProject(){
     collectRetiredSnapshots();
     auto snapshot=ProjectCore::instance().makePlaybackSnapshot();if(!snapshot)return false;
+    const float sr=static_cast<float>(std::max(1,sampleRate_.load(std::memory_order_relaxed)));
+    snapshot->preparedFx.reserve(snapshot->fxBuses.size());
+    for(const auto& fx:snapshot->fxBuses){
+        snapshot->preparedFx.emplace_back();
+        snapshot->preparedFx.back().prepare(sr);
+        snapshot->preparedFx.back().set(fx);
+    }
+    snapshot->scratchLeft.resize(snapshot->fxBuses.size());
+    snapshot->scratchRight.resize(snapshot->fxBuses.size());
     PlaybackSnapshot* raw=snapshot.release();
     if(!events_.push({EventType::Snapshot,-1,0,0,0,reinterpret_cast<uintptr_t>(raw)})){delete raw;return false;}
     return true;
@@ -122,9 +131,11 @@ void AudioEngine::copyScope(std::array<float,kScopeReadSamples>& out) const noex
     }
 }
 
-AudioEngine::VoiceSlot& AudioEngine::allocateVoice() noexcept {
+AudioEngine::VoiceSlot& AudioEngine::allocateVoice(){
     for(auto&slot:voices_)if(!slot.voice.active())return slot;
-    return *std::min_element(voices_.begin(),voices_.end(),[](const VoiceSlot&a,const VoiceSlot&b){return a.voice.age()<b.voice.age();});
+    voices_.emplace_back();
+    voices_.back().voice.prepare(static_cast<float>(sampleRate_.load(std::memory_order_relaxed)));
+    return voices_.back();
 }
 void AudioEngine::configureFx(const Fx&fx) noexcept {previewFx_.set(fx);}
 void AudioEngine::configureFxForPreset(int preset) noexcept {configureFx(factoryBank()[static_cast<size_t>(clampPreset(preset))].fx);}
@@ -164,7 +175,7 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
     switch(e.type){
         case EventType::Panic:
             for(auto&slot:voices_)slot.voice.kill();
-            previewFx_.reset();masterFx_.reset();for(auto&bus:playbackFx_)bus.processor.reset();
+            previewFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();
             return;
         case EventType::Preset:configureFxForPreset(e.source);return;
         case EventType::NoteOff:
@@ -186,9 +197,7 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
                 ?std::clamp(samplesIntoStep_/previousStepSamples,0.0,1.0)
                 :0.0;
             auto*old=playback_;playback_=incoming;
-            playbackFxCount_=std::min<int32_t>(static_cast<int32_t>(playback_->fxBuses.size()),static_cast<int32_t>(playbackFx_.size()));
-            for(int i=0;i<playbackFxCount_;++i){playbackFx_[static_cast<size_t>(i)].processor.reset();playbackFx_[static_cast<size_t>(i)].processor.set(playback_->fxBuses[static_cast<size_t>(i)]);}
-            for(int i=playbackFxCount_;i<static_cast<int>(playbackFx_.size());++i)playbackFx_[static_cast<size_t>(i)].processor.reset();
+            playbackFxCount_=static_cast<int32_t>(playback_->preparedFx.size());
             Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);
             masterFx_.reset();masterFx_.set(masterFxCfg);
             transportSamplesPerStep_=static_cast<double>(std::max(1,sampleRate_.load(std::memory_order_relaxed)))*60.0/(std::max(12.0f,playback_->bpm)*std::max(1,playback_->divisions));
@@ -218,7 +227,7 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
         case EventType::Play:
             if(!playback_)return;
             for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
-            for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();
+            for(int i=0;i<playbackFxCount_;++i)playback_->preparedFx[static_cast<size_t>(i)].reset();
             masterFx_.reset();
             {Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);masterFx_.set(masterFxCfg);}
             transportStep_=std::clamp(e.source,0,std::max(0,playback_->lengthSteps-1));
@@ -233,7 +242,7 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             return;
         case EventType::StopTransport:
             transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
-            for(int i=0;i<playbackFxCount_;++i)playbackFx_[static_cast<size_t>(i)].processor.reset();masterFx_.reset();
+            for(int i=0;i<playbackFxCount_;++i)playback_->preparedFx[static_cast<size_t>(i)].reset();masterFx_.reset();
             transportStep_=0;samplesIntoStep_=0;stepEventCursor_=0;
             playheadStep_.store(0,std::memory_order_relaxed);
             playheadPosition_.store(0.0f,std::memory_order_relaxed);
@@ -242,8 +251,14 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
 }
 
 std::array<float,2> AudioEngine::renderFrame() noexcept {
-    std::array<float,kMaxPlaybackFxBuses> busLeft{};
-    std::array<float,kMaxPlaybackFxBuses> busRight{};
+    std::vector<float>* busLeft=nullptr;
+    std::vector<float>* busRight=nullptr;
+    if(playback_){
+        busLeft=&playback_->scratchLeft;
+        busRight=&playback_->scratchRight;
+        std::fill(busLeft->begin(),busLeft->end(),0.0f);
+        std::fill(busRight->begin(),busRight->end(),0.0f);
+    }
     float transportLeft=0.0f,transportRight=0.0f;
     float previewLeft=0.0f,previewRight=0.0f;
 
@@ -254,8 +269,8 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
         const float r=sample*slot.gainRight;
         if(slot.transport&&transportPlaying_.load(std::memory_order_relaxed)){
             if(slot.fxBus>=0&&slot.fxBus<playbackFxCount_){
-                busLeft[static_cast<size_t>(slot.fxBus)]+=l;
-                busRight[static_cast<size_t>(slot.fxBus)]+=r;
+                (*busLeft)[static_cast<size_t>(slot.fxBus)]+=l;
+                (*busRight)[static_cast<size_t>(slot.fxBus)]+=r;
             }else{
                 transportLeft+=l;transportRight+=r;
             }
@@ -266,8 +281,8 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
 
     if(transportPlaying_.load(std::memory_order_relaxed)&&playback_){
         for(int i=0;i<playbackFxCount_;++i){
-            const auto wet=playbackFx_[static_cast<size_t>(i)].processor.processStereo(
-                busLeft[static_cast<size_t>(i)],busRight[static_cast<size_t>(i)]);
+            const auto wet=playback_->preparedFx[static_cast<size_t>(i)].processStereo(
+                (*busLeft)[static_cast<size_t>(i)],(*busRight)[static_cast<size_t>(i)]);
             transportLeft+=wet[0];transportRight+=wet[1];
         }
         const auto masterWet=masterFx_.processStereo(transportLeft,transportRight);
