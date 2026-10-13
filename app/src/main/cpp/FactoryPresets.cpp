@@ -632,7 +632,7 @@ void configureTamTamGong(Patch& p){
  // Intended range C5-C7, centered near C6. Even though a physical triangle
  // has indefinite pitch, OP1 remains an exact but quiet ratio-one reference.
 void configureTriangle(Patch& p){
-    setOp(p.ops[0],Wave::Sine,1.0f,0.0f,.075f,
+    setOp(p.ops[0],Wave::Sine,1.0f,0.0f,.15f,
         .001f,1.40f,0.0f,1.6f);
     setOp(p.ops[1],Wave::Sine,2.64f,0.0f,.25f,
         .001f,1.60f,0.0f,1.7f);
@@ -646,7 +646,7 @@ void configureTriangle(Patch& p){
         .002f,.56f,0.0f,.7f);
     setHarm(p.ops[5],{1.0f,.24f,.1f,.035f,.014f,
         .006f,0,0,0,0,0,0,0,0,0,0});
-    p.filter={FilterType::Highpass,750.0f,.65f,0.0f,
+    p.filter={FilterType::Highpass,280.0f,.65f,0.0f,
         {.002f,.1f,0.0f,.2f}};
     p.amp={.001f,1.75f,0.0f,1.8f};
     p.velocityAmp=.65f;p.velocityFilter=.30f;
@@ -662,42 +662,6 @@ void configureTriangle(Patch& p){
     });
     p.volume=.64f;
     p.fx={0.0f,0.0f,.32f,0.0f,.08f};
-    preservePercussionFundamental(p);
-}
-
-// Concert rosewood marimba, suggested five-octave range C2-C7 (center C4).
-// Pitched wood fundamentals with characteristic tuned bar partials and a
-// restrained high mallet strike. Higher modes die sooner than the principal,
-// unlike the slowly blooming metallic plate and cymbal models.
-void configureMarimba(Patch& p){
-    setOp(p.ops[0],Wave::Sine,1.0f,0.0f,.90f,
-        .001f,1.24f,0.0f,.85f);
-    setOp(p.ops[1],Wave::Sine,3.98f,0.0f,.30f,
-        .001f,.54f,0.0f,.48f);
-    setOp(p.ops[2],Wave::Sine,9.15f,0.0f,.12f,
-        .001f,.18f,0.0f,.17f);
-    setOp(p.ops[3],Wave::Sine,10.18f,0.0f,.047f,
-        .001f,.08f,0.0f,.09f);
-    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,.10f,
-        .001f,.014f,0.0f,.024f);
-    setOp(p.ops[5],Wave::Sine,2.01f,0.0f,.075f,
-        .001f,.39f,0.0f,.30f);
-    p.filter={FilterType::Lowpass,8400.0f,.70f,0.0f,
-        {.002f,.13f,0.0f,.15f}};
-    p.amp={.001f,1.22f,0.0f,.88f};
-    p.velocityAmp=.76f;p.velocityFilter=.50f;
-    // As the M curve increases, the strike becomes harder and brighter;
-    // sustained M also damps bar/ring resonance after the mallet impact.
-    p.timpaniMembrane=true;
-    slots(p,{
-        {ModTarget::Op2,.13f,.38f},
-        {ModTarget::Op3,.035f,.18f},
-        {ModTarget::Op4,.012f,.075f},
-        {ModTarget::Op5,.04f,.15f},
-        {ModTarget::Cutoff,4300.0f,10000.0f}
-    });
-    p.volume=.84f;
-    p.fx={0.0f,0.0f,.32f,0.0f,.06f};
     preservePercussionFundamental(p);
 }
 
@@ -754,7 +718,6 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::OrchestralCymbals: name="Cymbals"; break;
         case FactoryPreset::TamTamGong: name="Gong"; break;
         case FactoryPreset::Triangle: name="Triangle"; break;
-        case FactoryPreset::Marimba: name="Marimba"; break;
         default: break;
     }
     Patch p = makeDefaultPatch(name);
@@ -805,10 +768,6 @@ Patch makeFactoryPatch(FactoryPreset preset) {
     }
     if(preset==FactoryPreset::Triangle){
         configureTriangle(p);
-        return p;
-    }
-    if(preset==FactoryPreset::Marimba){
-        configureMarimba(p);
         return p;
     }
 
@@ -940,8 +899,7 @@ const std::array<Patch, static_cast<size_t>(FactoryPreset::Count)>& factoryBank(
         makeFactoryPatch(FactoryPreset::ConcertSnareDrum),
         makeFactoryPatch(FactoryPreset::OrchestralCymbals),
         makeFactoryPatch(FactoryPreset::TamTamGong),
-        makeFactoryPatch(FactoryPreset::Triangle),
-        makeFactoryPatch(FactoryPreset::Marimba)
+        makeFactoryPatch(FactoryPreset::Triangle)
     };
     return bank;
 }
