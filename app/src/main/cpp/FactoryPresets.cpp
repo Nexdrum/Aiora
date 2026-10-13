@@ -434,6 +434,200 @@ void configureTimpani(Patch& p){
     p.fx.delayFeedback=0.0f;p.fx.reverb=.11f;
 }
 
+
+    
+// The played MIDI note is the unmodified physical reference for each
+// orchestral percussion voice. Never modulate, transpose, detune, double,
+// or FM-drive OP1; the other operators may be intentionally inharmonic.
+void preservePercussionFundamental(Patch& p){
+    p.ops[0].enabled=true;
+    p.ops[0].ratio=1.0f;
+    p.ops[0].semitoneOffset=0.0f;
+    p.ops[0].detuneCents=0.0f;
+    for(auto& sender:p.matrix)sender[0]=0.0f;
+    p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
+    p.octave=0.0f;
+    p.unison=0.0f;
+    p.glide=0.0f;
+    // Nothing is pinned to a single MIDI key; the voice follows each note.
+    p.fundamentalMidi=-1;
+}
+
+// Recommended range C1-C3, natural center C2.
+// Large, lightly struck orchestral double-headed bass drum: membrane bloom,
+// inharmonic upper modes and a small soft-mallet transient rather than
+// the tight pitched attack of a drum-kit kick.
+void configureConcertBassDrum(Patch& p){
+    setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.90f,
+        .003f,1.95f,0.0f,2.2f);
+    setHarm(p.ops[0],{1.0f,.19f,.073f,.032f,.015f,.006f,.003f,
+        .001f,0,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[0],{1.0f,.09f,.025f,.009f,.003f,.001f,
+        0,0,0,0,0,0,0,0,0,0});
+
+    setOp(p.ops[1],Wave::Sine,1.47f,0.0f,.30f,
+        .002f,1.25f,0.0f,1.3f);
+    setOp(p.ops[2],Wave::Sine,2.18f,0.0f,.17f,
+        .001f,.72f,0.0f,.80f);
+    setOp(p.ops[3],Wave::Custom,3.39f,0.0f,.072f,
+        .002f,.41f,0.0f,.47f);
+    setHarm(p.ops[3],{1.0f,.31f,.10f,.037f,.012f,.004f,
+        0,0,0,0,0,0,0,0,0,0});
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,.11f,
+        .001f,.046f,0.0f,.065f);
+    setOp(p.ops[5],Wave::Sine,1.78f,0.0f,.13f,
+        .005f,1.55f,0.0f,1.65f);
+
+    p.filter={FilterType::Lowpass,3250.0f,.82f,0.0f,
+        {.003f,.19f,0.0f,.15f}};
+    p.amp={.002f,2.15f,0.0f,2.25f};
+    p.velocityAmp=.78f;p.velocityFilter=.43f;
+    // M: free ringing at 0, increasingly felt-damped at 1.
+    // The existing membrane-ring engine applies cumulative damping after
+    // attack, rather than reversible volume control.
+    p.timpaniMembrane=true;
+    slots(p,{
+        {ModTarget::Morph1,0.0f,1.0f},
+        {ModTarget::Op2,.30f,.12f},
+        {ModTarget::Op3,.17f,.06f},
+        {ModTarget::Op4,.072f,.02f},
+        {ModTarget::Cutoff,3250.0f,950.0f}
+    });
+    p.volume=.86f;
+    p.fx={0.0f,0.0f,.32f,0.0f,.12f};
+    preservePercussionFundamental(p);
+}
+
+// Recommended range G2-D4, natural center G3.
+// Two independent noises distinguish the brittle stick strike from the
+// metallic snare-wire buzz, each with its own transient/decay.
+void configureConcertSnareDrum(Patch& p){
+    setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.46f,
+        .001f,.30f,0.0f,.28f);
+    setHarm(p.ops[0],{1.0f,.38f,.22f,.13f,.065f,.029f,.013f,
+        .006f,.003f,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[0],{1.0f,.21f,.095f,.034f,.012f,.004f,
+        0,0,0,0,0,0,0,0,0,0});
+    setOp(p.ops[1],Wave::Sine,1.64f,0.0f,.15f,
+        .002f,.30f,0.0f,.23f);
+    setOp(p.ops[2],Wave::Sine,2.39f,0.0f,.11f,
+        .001f,.20f,0.0f,.18f);
+    setOp(p.ops[3],Wave::Noise,1.0f,0.0f,.68f,
+        .001f,.025f,0.0f,.035f);
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,.52f,
+        .003f,.35f,0.0f,.39f);
+    setOp(p.ops[5],Wave::Sine,3.21f,0.0f,.075f,
+        .002f,.14f,0.0f,.13f);
+
+    p.filter={FilterType::Lowpass,7900.0f,.68f,0.0f,
+        {.002f,.09f,0.0f,.11f}};
+    p.amp={.001f,.43f,0.0f,.29f};
+    p.velocityAmp=.76f;p.velocityFilter=.54f;
+    p.timpaniMembrane=true;
+    slots(p,{
+        {ModTarget::Morph1,0.0f,1.0f},
+        {ModTarget::Op2,.15f,.065f},
+        {ModTarget::Op3,.11f,.045f},
+        {ModTarget::Op5,.52f,.23f},
+        {ModTarget::Cutoff,7900.0f,3100.0f}
+    });
+    p.volume=.77f;
+    p.fx={0.0f,0.0f,.32f,0.0f,.09f};
+    preservePercussionFundamental(p);
+}
+
+// Recommended range C4-C6, natural center C5.
+// Large paired orchestral crash cymbals: collision, complex metallic
+// plate modes, bright wash, then a diffuse slow shimmer. Fundamental
+// OP1 is a *quiet but exact* note anchor, not an acoustic claim about
+// the definite pitch of a real concert cymbal.
+void configureOrchestralCymbals(Patch& p){
+    setOp(p.ops[0],Wave::Sine,1.0f,0.0f,.085f,
+        .002f,1.85f,0.0f,2.45f);
+    setOp(p.ops[1],Wave::Custom,1.63f,0.0f,.25f,
+        .001f,1.26f,0.0f,2.15f);
+    setHarm(p.ops[1],{.25f,.85f,.37f,.96f,.25f,.60f,.13f,.35f,
+        0,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[1],{.21f,.25f,.15f,.28f,.07f,.10f,
+        .03f,.04f,0,0,0,0,0,0,0,0});
+    setOp(p.ops[2],Wave::Custom,2.71f,0.0f,.20f,
+        .003f,2.10f,0.0f,2.30f);
+    setHarm(p.ops[2],{.16f,.74f,.95f,.19f,.57f,.07f,.33f,
+        0,0,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[2],{.14f,.33f,.22f,.05f,.09f,
+        .02f,.035f,0,0,0,0,0,0,0,0,0});
+    setOp(p.ops[3],Wave::Sine,4.33f,0.0f,.13f,
+        .001f,1.52f,0.0f,1.86f);
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,.77f,
+        .001f,1.10f,0.0f,1.82f);
+    setOp(p.ops[5],Wave::Noise,1.0f,0.0f,.30f,
+        .065f,2.70f,0.0f,3.10f);
+
+    p.filter={FilterType::Highpass,170.0f,.76f,0.0f,
+        {.003f,.24f,0.0f,.32f}};
+    p.amp={.001f,2.55f,0.0f,3.20f};
+    p.velocityAmp=.62f;p.velocityFilter=.25f;
+    // Shared ring damping works for struck plates as well as membranes.
+    // A high M chokes the residual plate vibration after the contact hit.
+    p.timpaniMembrane=true;
+    slots(p,{
+        {ModTarget::Morph2,0.0f,1.0f},
+        {ModTarget::Morph3,0.0f,1.0f},
+        {ModTarget::Op2,.25f,.075f},
+        {ModTarget::Op3,.20f,.060f},
+        {ModTarget::Op5,.77f,.20f},
+        {ModTarget::Op6,.30f,.045f}
+    });
+    p.volume=.66f;
+    p.fx={0.0f,0.0f,.32f,0.0f,.14f};
+    preservePercussionFundamental(p);
+}
+
+// Recommended range C2-C4, natural center C3.
+// Untuned orchestral tam-tam: mallet strike, dark fundamental anchor,
+// unequal plate modes, slow spectral bloom and a very long metallic tail.
+void configureTamTamGong(Patch& p){
+    setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.36f,
+        .009f,5.10f,0.0f,5.45f);
+    setHarm(p.ops[0],{1.0f,.28f,.10f,.046f,.02f,.009f,
+        .004f,.002f,0,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[0],{1.0f,.13f,.035f,.012f,.004f,.001f,
+        0,0,0,0,0,0,0,0,0,0});
+    setOp(p.ops[1],Wave::Custom,1.38f,0.0f,.34f,
+        .11f,4.55f,0.0f,5.0f);
+    setHarm(p.ops[1],{1.0f,.22f,.74f,.12f,.38f,.08f,.23f,
+        .035f,0,0,0,0,0,0,0,0});
+    setHarmMute(p.ops[1],{1.0f,.08f,.24f,.035f,.09f,.017f,
+        .045f,0,0,0,0,0,0,0,0,0});
+    setOp(p.ops[2],Wave::Sine,2.31f,0.0f,.26f,
+        .24f,4.05f,0.0f,4.85f);
+    setOp(p.ops[3],Wave::Custom,3.57f,0.0f,.16f,
+        .48f,3.75f,0.0f,4.35f);
+    setHarm(p.ops[3],{.77f,.13f,.82f,.052f,.35f,.027f,
+        .10f,0,0,0,0,0,0,0,0,0});
+    setOp(p.ops[4],Wave::Noise,1.0f,0.0f,.29f,
+        .24f,3.10f,0.0f,4.25f);
+    setOp(p.ops[5],Wave::Noise,1.0f,0.0f,.17f,
+        .002f,.082f,0.0f,.13f);
+
+    p.filter={FilterType::Lowpass,5700.0f,.84f,0.0f,
+        {.12f,.58f,0.0f,.40f}};
+    p.amp={.022f,5.40f,0.0f,5.55f};
+    p.velocityAmp=.77f;p.velocityFilter=.48f;
+    p.timpaniMembrane=true;
+    slots(p,{
+        {ModTarget::Morph1,0.0f,1.0f},
+        {ModTarget::Morph2,0.0f,1.0f},
+        {ModTarget::Op3,.26f,.075f},
+        {ModTarget::Op4,.16f,.038f},
+        {ModTarget::Op5,.29f,.075f},
+        {ModTarget::Cutoff,5700.0f,1800.0f}
+    });
+    p.volume=.76f;
+    p.fx={0.0f,0.0f,.32f,0.0f,.19f};
+    preservePercussionFundamental(p);
+}
+
 } // namespace
 
 Patch makeDefaultPatch(const char* name) {
@@ -482,6 +676,10 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::Trombone: name="Trombone"; break;
         case FactoryPreset::Tuba: name="Tuba"; break;
         case FactoryPreset::Timpani: name="Timpani"; break;
+        case FactoryPreset::ConcertBassDrum: name="Concert Bass Drum"; break;
+        case FactoryPreset::ConcertSnareDrum: name="Concert Snare Drum"; break;
+        case FactoryPreset::OrchestralCymbals: name="Orchestral Cymbals"; break;
+        case FactoryPreset::TamTamGong: name="Tam-tam Gong"; break;
         default: break;
     }
     Patch p = makeDefaultPatch(name);
@@ -512,6 +710,22 @@ Patch makeFactoryPatch(FactoryPreset preset) {
 
     if(preset==FactoryPreset::Timpani){
         configureTimpani(p);
+        return p;
+    }
+    if(preset==FactoryPreset::ConcertBassDrum){
+        configureConcertBassDrum(p);
+        return p;
+    }
+    if(preset==FactoryPreset::ConcertSnareDrum){
+        configureConcertSnareDrum(p);
+        return p;
+    }
+    if(preset==FactoryPreset::OrchestralCymbals){
+        configureOrchestralCymbals(p);
+        return p;
+    }
+    if(preset==FactoryPreset::TamTamGong){
+        configureTamTamGong(p);
         return p;
     }
 
@@ -638,7 +852,11 @@ const std::array<Patch, static_cast<size_t>(FactoryPreset::Count)>& factoryBank(
         makeFactoryPatch(FactoryPreset::Trumpet),
         makeFactoryPatch(FactoryPreset::Trombone),
         makeFactoryPatch(FactoryPreset::Tuba),
-        makeFactoryPatch(FactoryPreset::Timpani)
+        makeFactoryPatch(FactoryPreset::Timpani),
+        makeFactoryPatch(FactoryPreset::ConcertBassDrum),
+        makeFactoryPatch(FactoryPreset::ConcertSnareDrum),
+        makeFactoryPatch(FactoryPreset::OrchestralCymbals),
+        makeFactoryPatch(FactoryPreset::TamTamGong)
     };
     return bank;
 }
