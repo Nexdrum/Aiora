@@ -152,9 +152,12 @@ float SpectrachordVoice::render() noexcept {
         const float env=opEnv_[i].next(sampleRate_),level=opLevel(i,m)*env;
         const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
         float fmHz=0;
-        const float baseF=std::max(
-            0.001f,
-            midiHz(baseMidi)*op.ratio*semitoneScale);
+        // Bend has no artificial semitone ceiling. The physical output
+        // oscillator must still remain finite and below Nyquist.
+        const float unboundedBase=midiHz(baseMidi)*op.ratio*semitoneScale;
+        const float maxHz=sampleRate_*0.49f;
+        const float baseF=std::isfinite(unboundedBase)
+            ?std::clamp(unboundedBase,0.001f,maxHz):maxHz;
         const float fmScale=std::max(0.0f,slotValue(ModTarget::Fm,m,1));
         for(size_t mod=0;mod<6;++mod)
             fmHz+=lastOp_[mod]*P.matrix[mod][i]*baseF*2.5f*fmScale;
@@ -162,14 +165,13 @@ float SpectrachordVoice::render() noexcept {
         for(int u=0;u<uniCount;++u){
             const float uniCents=u?unison*12:0;
             const float cents=op.detuneCents+uniCents+pitchLfoCents;
-            const float f=std::max(
-                0.001f,
-                (baseF+fmHz)*std::pow(2.0f,cents/1200.0f));
+            const float unboundedHz=(baseF+fmHz)*std::pow(2.0f,cents/1200.0f);
+            const float f=std::isfinite(unboundedHz)
+                ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
             opSum+=waveSample(op,ph,morphValue(i,m));
             ph+=kTwoPi*f/sampleRate_;
-            while(ph>=kTwoPi)ph-=kTwoPi;
-            while(ph<0)ph+=kTwoPi;
+            if(ph>=kTwoPi)ph-=kTwoPi;
         }
         now[i]=opSum/static_cast<float>(uniCount)*level;
     }
