@@ -1172,7 +1172,7 @@ std::vector<aiora::CurvePoint> simplifyRollDraw(
     if(unique.size()<2)return output;
 
     // Error-bounded greedy polyline simplification: split the segment with
-    // the largest vertical deviation until accurate or 24-point budget.
+    // the largest vertical deviation (legacy explanation). All drawn points are retained.
     bool changed=false;
     for(const auto& sample:unique)
         if(std::fabs(sample.value-defaultValue)>0.0005f)

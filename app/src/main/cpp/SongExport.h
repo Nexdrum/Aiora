@@ -12,7 +12,8 @@ bool exportProjectWav(
     const std::string& path,
     const Project& project,
     int sampleRate,
-    std::string* error = nullptr);
+    std::string* error = nullptr,
+    float maxTailSeconds = 120.0f);
 
 // Write a standard MIDI file containing the project's note data and tempo.
 // One SMF track is emitted for each AIORA track.

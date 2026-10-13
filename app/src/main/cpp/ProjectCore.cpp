@@ -261,7 +261,7 @@ std::string ProjectCore::trackPatchName(int index) const {
     if(t.drums)return t.patch.name.empty()?std::string("Nexdrum"):t.patch.name;
     return t.patch.name;
 }
-void ProjectCore::setTrackName(int index,const std::string& name) {std::scoped_lock lock(mutex_);if(!validTrack(index))return;std::string n=name.substr(0,24);project_.tracks[index].name=n.empty()?autoName(index):n;}
+void ProjectCore::setTrackName(int index,const std::string& name) {std::scoped_lock lock(mutex_);if(!validTrack(index))return;std::string n=name;project_.tracks[index].name=n.empty()?autoName(index):n;}
 void ProjectCore::clearTrackNotes(int index){std::scoped_lock lock(mutex_);if(validTrack(index))project_.tracks[index].notes.clear();}
 bool ProjectCore::trackIsDrums(int index) const { std::scoped_lock lock(mutex_);return validTrack(index)&&project_.tracks[index].drums; }
 bool ProjectCore::trackMute(int index) const { std::scoped_lock lock(mutex_);return validTrack(index)&&project_.tracks[index].mute; }
@@ -411,7 +411,7 @@ int ProjectCore::selectedPad(int trackIndex) const {std::scoped_lock lock(mutex_
 bool ProjectCore::selectPad(int trackIndex,int padIndex){std::scoped_lock lock(mutex_);if(!validPad(trackIndex,padIndex))return false;project_.tracks[trackIndex].selectedPad=padIndex;return true;}
 std::string ProjectCore::padIcon(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?project_.tracks[t].pads[p].icon:std::string{};}
 std::string ProjectCore::padName(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?project_.tracks[t].pads[p].name:std::string{};}
-void ProjectCore::setPadName(int t,int p,const std::string& name){std::scoped_lock lock(mutex_);if(!validPad(t,p))return;project_.tracks[t].pads[p].name=name.substr(0,24);}
+void ProjectCore::setPadName(int t,int p,const std::string& name){std::scoped_lock lock(mutex_);if(!validPad(t,p))return;project_.tracks[t].pads[p].name=name;}
 std::string ProjectCore::padPatchName(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?project_.tracks[t].pads[p].patch.name:std::string{};}
 int ProjectCore::padCenter(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?project_.tracks[t].pads[p].centerMidi:-1;}
 int ProjectCore::padLow(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?project_.tracks[t].pads[p].lowMidi:-1;}

@@ -411,7 +411,7 @@ NativeEditor::Rect NativeEditor::modAddRect() const noexcept {
 
 NativeEditor::Range NativeEditor::operatorRange(OperatorParam p) noexcept {
     switch(p){
-        case OperatorParam::Ratio:return {0.125f,8.0f};
+        case OperatorParam::Ratio:return {0.125f,16.0f};
         case OperatorParam::Semitone:return {-12.0f,12.0f};
         case OperatorParam::Detune:return {-50.0f,50.0f};
         case OperatorParam::Level:return {0.0f,1.0f};

@@ -141,7 +141,8 @@ bool exportProjectWav(
     const std::string& path,
     const Project& project,
     int sampleRate,
-    std::string* error){
+    std::string* error,
+    float maxTailSeconds){
 
     if(path.empty()){
         setError(error,"Empty WAV export path");
@@ -168,9 +169,9 @@ bool exportProjectWav(
         static_cast<uint64_t>(std::ceil(endSteps*samplesPerStep));
     // End after voices and reverberation die out; keep a defensive safety
     // window in case a future effect self-oscillates indefinitely.
-    constexpr double maxTailSeconds=120.0;
+    const double tailLimit=std::clamp(static_cast<double>(maxTailSeconds),0.1,3600.0);
     const uint64_t maxTailFrames=
-        static_cast<uint64_t>(sampleRate*maxTailSeconds);
+        static_cast<uint64_t>(sampleRate*tailLimit);
     if(minimumFrames>std::numeric_limits<uint64_t>::max()-maxTailFrames){
         setError(error,"Song duration exceeds addressable frame range");
         return false;
