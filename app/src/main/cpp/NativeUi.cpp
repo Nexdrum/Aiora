@@ -200,7 +200,7 @@ const DrumPad* rollPadForMidi(const Track& track,int midi) noexcept {
 }
 
 float rollClampBend(const Track& track,const Note& note,float value) noexcept {
-    float out=std::clamp(value,-12.0f,12.0f);
+    float out=value;
     if(const auto* pad=rollPadForMidi(track,note.midi)){
         const float lo=
             static_cast<float>(std::min(pad->lowMidi,pad->highMidi))-
@@ -1211,8 +1211,8 @@ std::vector<int> NativeUi::rollColumns() const {
     }
 
     if (columns.empty()) {
-        columns.reserve(97);
-        for (int midi = 14; midi <= 110; ++midi) columns.push_back(midi);
+        columns.reserve(121);
+        for (int midi = 2; midi <= 122; ++midi) columns.push_back(midi);
     }
     return columns;
 }
@@ -2955,7 +2955,7 @@ float NativeUi::rollDrawBendAtX(float x,int midi) const noexcept {
     const float pitch=rollPitchFromX(
         columns,x,rollPitchOffset_,vp.x+rollGutterPixels(),
         rollColumnPixels());
-    float bend=std::clamp(pitch-static_cast<float>(midi),-12.0f,12.0f);
+    float bend=pitch-static_cast<float>(midi);
     const auto snapshot=ProjectCore::instance().projectCopy();
     const int track=ProjectCore::instance().selectedTrack();
     if(track>=0&&track<static_cast<int>(snapshot.tracks.size())){
@@ -3931,8 +3931,8 @@ void NativeUi::drawPerformance() const noexcept {
     const float startStep=performanceStartStep();
 
     std::vector<int> columns;
-    columns.reserve(97);
-    for(int midi=14;midi<=110;++midi)columns.push_back(midi);
+    columns.reserve(121);
+    for(int midi=2;midi<=122;++midi)columns.push_back(midi);
     const float colW=gridW/static_cast<float>(columns.size());
 
     fillRect(view,kRollBg);
@@ -3956,7 +3956,7 @@ void NativeUi::drawPerformance() const noexcept {
         view.x+7.0f,view.y+header*0.28f,
         0.66f,overlayColor(kWhite));
 
-    for(int midi=14;midi<=110;midi+=12){
+    for(int midi=2;midi<=122;midi+=12){
         const float x=rollPitchX(
             columns,static_cast<float>(midi),0,gridLeft,colW);
         ov.addLine(

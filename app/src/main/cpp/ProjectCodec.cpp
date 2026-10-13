@@ -400,12 +400,12 @@ bool readPatch(const Json& src,Patch& p){
     const Json* ops=src.get("ops");
     if(!ops||ops->type!=Json::Type::Array||ops->array.size()!=6)return false;
     p=makeFactoryPatch(FactoryPreset::SpectrachordInit);
-    p.name=str(src.get("name"),"Imported").substr(0,40);
+    p.name=str(src.get("name"),"Imported");
     for(size_t i=0;i<6;++i){
         const auto& jo=ops->array[i];if(jo.type!=Json::Type::Object)continue;auto& o=p.ops[i];
         o.enabled=boolean(jo.get("enabled"),o.enabled);
         o.wave=parseWave(str(jo.get("wave"),"sine"));
-        o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,8.0f,o.ratio);
+        o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,16.0f,o.ratio);
 
         float semi=clampf(
             num(jo.get("semi"),o.semitoneOffset),
@@ -487,9 +487,9 @@ void writeCurve(Writer& w,const std::vector<CurvePoint>& points,bool bend){
 }
 void readCurve(const Json* j,std::vector<CurvePoint>& out,bool bend){
     out.clear();if(!j||j->type!=Json::Type::Array)return;
-    for(size_t i=0;i<std::min<size_t>(24,j->array.size());++i){const auto& p=j->array[i];if(p.type!=Json::Type::Object)continue;CurvePoint cp;cp.step=clampf(num(p.get("d"),0),-0.5,1024,0);cp.value=bend?clampf(num(p.get("o"),0),-12,12,0):clampf(num(p.get("v"),1),0,1,1);cp.free=boolean(p.get("f"),false);cp.midpoint=clampf(num(p.get("q"),0.5),0.05,0.95,0.5);
+    for(size_t i=0;i<j->array.size();++i){const auto& p=j->array[i];if(p.type!=Json::Type::Object)continue;CurvePoint cp;cp.step=std::max(-0.5f,static_cast<float>(num(p.get("d"),0)));cp.value=bend?static_cast<float>(num(p.get("o"),0)):clampf(num(p.get("v"),1),0,1,1);cp.free=boolean(p.get("f"),false);cp.midpoint=clampf(num(p.get("q"),0.5),0.05,0.95,0.5);
         cp.handleActive=p.get("h")!=nullptr;
-        cp.handleValue=bend?clampf(num(p.get("h"),0),-12,12,0):
+        cp.handleValue=bend?static_cast<float>(num(p.get("h"),0)):
             clampf(num(p.get("h"),0),0,1,0);
         out.push_back(cp);}
     std::stable_sort(out.begin(),out.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
@@ -554,15 +554,15 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
         if(!tracks||tracks->type!=Json::Type::Array){setError(error,"Missing AIORA tracks array");return false;}
         Project out;
         out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);out.masterReverb=clampf(num(root.get("mrev"),0),0,1,0);
-        for(size_t ti=0;ti<std::min<size_t>(10,tracks->array.size());++ti){
+        for(size_t ti=0;ti<tracks->array.size();++ti){
             const auto& jt=tracks->array[ti];if(jt.type!=Json::Type::Object)continue;
-            Track t;t.name=str(jt.get("name"),"Track "+std::to_string(ti+1)).substr(0,40);t.drums=str(jt.get("kind"),"melodic")=="drums";t.volume=clampf(num(jt.get("vol"),.8),0,1,.8f);t.pan=clampf(num(jt.get("panV"),0),-1,1,0);t.mute=boolean(jt.get("mute"),false);t.solo=boolean(jt.get("solo"),false);
+            Track t;t.name=str(jt.get("name"),"Track "+std::to_string(ti+1));t.drums=str(jt.get("kind"),"melodic")=="drums";t.volume=clampf(num(jt.get("vol"),.8),0,1,.8f);t.pan=clampf(num(jt.get("panV"),0),-1,1,0);t.mute=boolean(jt.get("mute"),false);t.solo=boolean(jt.get("solo"),false);
             t.patch=makeFactoryPatch(t.drums?FactoryPreset::Nexdrum:FactoryPreset::SpectrachordInit);
             if(const Json* p=jt.get("patch")){Patch decoded;if(readPatch(*p,decoded))t.patch=std::move(decoded);}
             if(const Json* z=jt.get("drumZone");z&&z->type==Json::Type::Array&&z->array.size()>=2){t.drumZoneLow=clampi(num(&z->array[0],-1),14,110,-1);t.drumZoneHigh=clampi(num(&z->array[1],-1),14,110,-1);if(t.drumZoneLow>t.drumZoneHigh)std::swap(t.drumZoneLow,t.drumZoneHigh);}
             if(t.drums)if(const Json* pads=jt.get("pads");pads&&pads->type==Json::Type::Array){
-                for(size_t pi=0;pi<std::min<size_t>(24,pads->array.size());++pi){
-                    const auto& jp=pads->array[pi];if(jp.type!=Json::Type::Object)continue;const int center=clampi(num(jp.get("m"),62),38,86,62);DrumPad p;p.centerMidi=center;p.lowMidi=center;p.highMidi=center;p.icon=str(jp.get("icon"),"kick");p.name=str(jp.get("name"),"").substr(0,24);p.volume=clampf(num(jp.get("vol"),1),0,1,1);p.pan=clampf(num(jp.get("pan"),0),-1,1,0);p.id=str(jp.get("id"),"pad"+std::to_string(pi));
+                for(size_t pi=0;pi<std::min<size_t>(49,pads->array.size());++pi){
+                    const auto& jp=pads->array[pi];if(jp.type!=Json::Type::Object)continue;const int center=clampi(num(jp.get("m"),62),38,86,62);DrumPad p;p.centerMidi=center;p.lowMidi=center;p.highMidi=center;p.icon=str(jp.get("icon"),"kick");p.name=str(jp.get("name"),"");p.volume=clampf(num(jp.get("vol"),1),0,1,1);p.pan=clampf(num(jp.get("pan"),0),-1,1,0);p.id=str(jp.get("id"),"pad"+std::to_string(pi));
                     p.patch=makeFactoryPatch(FactoryPreset::SpectrachordInit);if(const Json* patch=jp.get("patch")){Patch decoded;if(readPatch(*patch,decoded))p.patch=std::move(decoded);}p.patch.fundamentalMidi=center;
                     if(const Json* range=jp.get("range");range&&range->type==Json::Type::Array&&range->array.size()>=2){p.lowMidi=clampi(num(&range->array[0],center),38,86,center);p.highMidi=clampi(num(&range->array[1],center),38,86,center);if(p.lowMidi>p.highMidi)std::swap(p.lowMidi,p.highMidi);p.centerMidi=std::clamp(center,p.lowMidi,p.highMidi);p.patch.fundamentalMidi=p.centerMidi;}
                     t.pads.push_back(std::move(p));
@@ -571,7 +571,7 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
             if(t.drums&&t.pads.empty()){const auto& kit=nexdrumKit();t.pads.assign(kit.begin(),kit.end());for(size_t i=0;i<t.pads.size();++i)if(t.pads[i].id.empty())t.pads[i].id="pad"+std::to_string(i);}
             t.selectedPad=t.pads.empty()?0:std::clamp(clampi(num(jt.get("selPad"),0),0,static_cast<int>(t.pads.size())-1,0),0,static_cast<int>(t.pads.size())-1);
             if(const Json* notes=jt.get("notes");notes&&notes->type==Json::Type::Array){
-                for(const auto& jn:notes->array){if(jn.type!=Json::Type::Object)continue;Note n;n.midi=clampi(num(jn.get("m"),62),14,110,62);n.startStep=std::max(0.0f,static_cast<float>(num(jn.get("s"),0)));n.lengthSteps=std::clamp(static_cast<float>(num(jn.get("len"),1)),1.0f,1024.0f);readCurve(jn.get("bend"),n.bend,true);readCurve(jn.get("vel"),n.velocity,false);readCurve(jn.get("mod"),n.mod,false);t.notes.push_back(std::move(n));}
+                for(const auto& jn:notes->array){if(jn.type!=Json::Type::Object)continue;Note n;n.midi=clampi(num(jn.get("m"),62),2,122,62);n.startStep=std::max(0.0f,static_cast<float>(num(jn.get("s"),0)));n.lengthSteps=std::max(1.0f,static_cast<float>(num(jn.get("len"),1)));readCurve(jn.get("bend"),n.bend,true);readCurve(jn.get("vel"),n.velocity,false);readCurve(jn.get("mod"),n.mod,false);t.notes.push_back(std::move(n));}
             }
             out.tracks.push_back(std::move(t));
         }

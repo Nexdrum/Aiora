@@ -33,7 +33,6 @@ constexpr char kTag[] = "AIORA";
 constexpr size_t kMaxPointers = 16;
 constexpr int64_t kLongPressMs = 450;
 constexpr int64_t kRollDoubleTapMs = 360;
-constexpr float kMaxRollNoteLengthSteps = 4096.0f;
 constexpr int kRequestSaveJson = 4101;
 constexpr int kRequestLoadJson = 4102;
 constexpr int kRequestExportWav = 4103;
@@ -1140,8 +1139,7 @@ void captureRollDraw(
         last.step=step;
         return;
     }
-    if(points.size()<12000)points.push_back({step,value});
-    else last={step,value};
+    points.push_back({step,value});
 }
 
 void showRollDraw(NativeState& state){
@@ -1175,32 +1173,13 @@ std::vector<aiora::CurvePoint> simplifyRollDraw(
 
     // Error-bounded greedy polyline simplification: split the segment with
     // the largest vertical deviation until accurate or 24-point budget.
-    std::vector<size_t> keep{0,unique.size()-1};
-    while(keep.size()<24){
-        float worst=tolerance;
-        size_t choice=unique.size();
-        for(size_t i=1;i<keep.size();++i){
-            const auto& a=unique[keep[i-1]];
-            const auto& b=unique[keep[i]];
-            const float dt=std::max(0.0001f,b.step-a.step);
-            for(size_t j=keep[i-1]+1;j<keep[i];++j){
-                const auto& sample=unique[j];
-                const float t=std::clamp((sample.step-a.step)/dt,0.0f,1.0f);
-                const float predicted=a.value+(b.value-a.value)*t;
-                const float error=std::fabs(predicted-sample.value);
-                if(error>worst){worst=error;choice=j;}
-            }
-        }
-        if(choice>=unique.size())break;
-        keep.insert(std::lower_bound(keep.begin(),keep.end(),choice),choice);
-    }
     bool changed=false;
     for(const auto& sample:unique)
         if(std::fabs(sample.value-defaultValue)>0.0005f)
             {changed=true;break;}
     if(!changed)return output;
-    for(size_t index:keep)
-        output.push_back({unique[index].step,unique[index].value,true,0.5f});
+    output.reserve(unique.size());
+    for(const auto& sample:unique)output.push_back({sample.step,sample.value,true,0.5f});
     return output;
 }
 
@@ -1250,12 +1229,10 @@ void moveRollDraw(NativeState& state,float x,float y){
     (void)viewport;
     const float t=std::max(d.cursor,
         state.ui.rollDrawRelativeStep(y,d.start)+d.timeOffset);
-    d.cursor=std::min(t,kMaxRollNoteLengthSteps-0.5f);
-    d.length=std::clamp(std::ceil(d.cursor+0.5f),
-        1.0f,kMaxRollNoteLengthSteps);
+    d.cursor=t;
+    d.length=std::max(1.0f,std::ceil(d.cursor+0.5f));
     if(state.ui.rollDrawMode(0))
-        d.bend=std::clamp(state.ui.rollDrawBendAtX(x,d.midi)+
-            d.pitchOffset,-12.0f,12.0f);
+        d.bend=state.ui.rollDrawBendAtX(x,d.midi)+d.pitchOffset;
     captureRollDraw(d.raw[0],d.cursor,d.bend);
     captureRollDraw(d.raw[1],d.cursor,d.velocity);
     captureRollDraw(d.raw[2],d.cursor,d.mod);
@@ -2499,10 +2476,7 @@ bool beginRollGroupAutomationGesture(
         applyRollGroupAutomation(state,kind);
         return true;
     }
-    if(curve->points.size()>=24){
-        g.clear();
-        return false;
-    }
+    
     curve->points.push_back({step,value});
     std::sort(
         curve->points.begin(),curve->points.end(),
@@ -2666,9 +2640,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }
 
     if(g.noteEdit==RollNoteEdit::Create){
-        const float length=std::clamp(
-            static_cast<float>(hit->step)-g.noteStart+1.0f,
-            1.0f,kMaxRollNoteLengthSteps);
+        const float length=std::max(static_cast<float>(hit->step)-g.noteStart+1.0f,1.0f);
         if(project.updateNote(g.track,g.noteIndex,hit->midi,g.noteStart,length)){
             g.noteMidi=hit->midi;
             g.noteLength=length;
@@ -2686,9 +2658,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
             if(!freeTiming)g.noteStart=targetStart;
         }
     }else if(g.noteEdit==RollNoteEdit::Resize){
-        const float length=std::clamp(
-            static_cast<float>(hit->step)-g.noteStart+1.0f,
-            1.0f,kMaxRollNoteLengthSteps);
+        const float length=std::max(static_cast<float>(hit->step)-g.noteStart+1.0f,1.0f);
         if(project.updateNote(g.track,g.noteIndex,g.noteMidi,g.noteStart,length)){
             g.noteLength=length;
         }

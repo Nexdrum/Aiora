@@ -8,12 +8,10 @@
 
 namespace aiora {
 namespace {
-constexpr int kMaxTracks = 10;
 constexpr int kGridLow = 38;
 constexpr int kGridHigh = 86;
-constexpr int kRollLow = 14;
-constexpr int kRollHigh = 110;
-constexpr int kMaxCurvePoints = 24;
+constexpr int kRollLow = 2;
+constexpr int kRollHigh = 122;
 
 std::vector<CurvePoint>* curveFor(Note& n,int kind){
     if(kind==0)return &n.bend;
@@ -27,7 +25,7 @@ const std::vector<CurvePoint>* curveFor(const Note& n,int kind){
     if(kind==2)return &n.mod;
     return nullptr;
 }
-float clampCurveValue(int kind,float v){return kind==0?std::clamp(v,-12.0f,12.0f):std::clamp(v,0.0f,1.0f);}
+float clampCurveValue(int kind,float v){return kind==0?v:std::clamp(v,0.0f,1.0f);}
 
 // A point's coordinate zero is the center of its first time cell.
 // -0.5 is the physical start edge; length-0.5 is the end edge.
@@ -54,13 +52,12 @@ void normalizeNoteCurves(Note& n) {
         std::stable_sort(curve->begin(),curve->end(),
             [](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
         std::vector<CurvePoint> unique;
-        unique.reserve(std::min(curve->size(),static_cast<size_t>(kMaxCurvePoints)));
+        unique.reserve(curve->size());
         for(const auto& point:*curve){
             if(!unique.empty() &&
                std::fabs(unique.back().step-point.step)<kCurveCollisionEpsilon)
                 unique.back()=point;
-            else if(unique.size()<static_cast<size_t>(kMaxCurvePoints))
-                unique.push_back(point);
+            else unique.push_back(point);
         }
         *curve=std::move(unique);
     }
@@ -83,7 +80,7 @@ float groupCurveValue(
 
 float clampOperatorParam(OperatorParam param,float v){
     switch(param){
-        case OperatorParam::Ratio:return std::clamp(v,0.125f,8.0f);
+        case OperatorParam::Ratio:return std::clamp(v,0.125f,16.0f);
         case OperatorParam::Semitone:return std::clamp(v,-12.0f,12.0f);
         case OperatorParam::Detune:return std::clamp(v,-50.0f,50.0f);
         case OperatorParam::Level:return std::clamp(v,0.0f,1.0f);
@@ -197,7 +194,7 @@ void ProjectCore::reset() {std::scoped_lock lock(mutex_);project_ = {};selectedT
 Project ProjectCore::projectCopy() const {std::scoped_lock lock(mutex_);return project_;}
 bool ProjectCore::replaceProject(Project project,int selectedTrack){
     std::scoped_lock lock(mutex_);
-    if(project.tracks.size()>static_cast<size_t>(kMaxTracks))project.tracks.resize(kMaxTracks);
+    
     for(auto& track:project.tracks)
         for(auto& note:track.notes)normalizeNoteCurves(note);
     project_=std::move(project);
@@ -216,7 +213,7 @@ bool ProjectCore::replaceSelectedPatch(Patch patch){
 
 int ProjectCore::addTrack(bool drums) {
     std::scoped_lock lock(mutex_);
-    if(static_cast<int>(project_.tracks.size()) >= kMaxTracks) return -1;
+    
     const int index = static_cast<int>(project_.tracks.size());
     Track t;
     t.name="Spectrachord";
@@ -308,7 +305,7 @@ int ProjectCore::addDrumPad(int trackIndex){
     std::scoped_lock lock(mutex_);
     if(!validTrack(trackIndex))return -1;
     auto& t=project_.tracks[trackIndex];
-    if(!t.drums||t.pads.size()>=24)return -1;
+    if(!t.drums||t.pads.size()>=49)return -1;
 
     std::array<bool,kGridHigh-kGridLow+1> taken{};
     for(const auto& p:t.pads){
@@ -577,7 +574,7 @@ bool ProjectCore::applyGroupAutomation(
         const float groupB=groupA+length;
 
         std::vector<CurvePoint> projected;
-        projected.reserve(std::min<size_t>(points.size()+2,kMaxCurvePoints));
+        projected.reserve(points.size()+2);
         projected.push_back({
             -0.5f,
             std::clamp(groupCurveValue(points,groupA,fallback),0.0f,1.0f),
@@ -585,7 +582,7 @@ bool ProjectCore::applyGroupAutomation(
 
         for(const auto& p:points){
             if(p.step<=groupA+1.0e-5f||p.step>=groupB-1.0e-5f)continue;
-            if(projected.size()>=static_cast<size_t>(kMaxCurvePoints-1))break;
+            
             projected.push_back({
                 p.step-groupA-0.5f,
                 std::clamp(p.value,0.0f,1.0f),true});
@@ -625,7 +622,7 @@ int ProjectCore::addCurvePoint(int t,int n,int kind,float step,float value,bool 
     // On creation an occupied position selects the existing point.
     for(int i=0;i<static_cast<int>(c->size());++i)
         if(std::fabs((*c)[i].step-step)<kCurveCollisionEpsilon)return i;
-    if(static_cast<int>(c->size())>=kMaxCurvePoints)return -1;
+    
     c->push_back({step,value,free});
     std::sort(c->begin(),c->end(),
         [](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
@@ -693,8 +690,7 @@ bool ProjectCore::replaceNoteCurves(int track,int note,
     const std::vector<CurvePoint>& mod){
     std::scoped_lock lock(mutex_);
     if(!validNote(track,note))return false;
-    if(bend.size()>kMaxCurvePoints||
-       velocity.size()>kMaxCurvePoints||mod.size()>kMaxCurvePoints)return false;
+    
     auto& n=project_.tracks[track].notes[note];
     n.bend=bend;n.velocity=velocity;n.mod=mod;
     return true;
