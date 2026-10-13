@@ -227,7 +227,7 @@ bool exportProjectWav(
             const float pressure=event.automation.velocity.count
                 ?std::clamp(event.automation.velocity.points[0].value,0.0f,1.0f)
                 :0.8f;
-            const uint32_t gate=static_cast<uint32_t>(std::max<double>(
+            const uint64_t gate=static_cast<uint64_t>(std::max<double>(
                 sampleRate*0.09,
                 std::max(1.0f,event.lengthSteps)*samplesPerStep));
             slot.voice.start(

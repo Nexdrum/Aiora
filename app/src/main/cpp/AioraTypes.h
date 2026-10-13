@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -65,7 +66,6 @@ inline DspPatch toDspPatch(const Patch& p) noexcept {
     d.timpaniMembrane=p.timpaniMembrane;return d;
 }
 
-constexpr size_t kDspCurvePoints = 26;
 // q=0.5 preserves linear interpolation; q<0.5 puts the half-value
 // earlier and q>0.5 later. Rational interpolation is audio-thread safe.
 inline float curveWarp(float fraction,float q) noexcept {
@@ -125,9 +125,15 @@ struct DspCurvePoint {
     float handleValue{0.0f};
     bool handleActive{false};
 };
-struct DspCurve { std::array<DspCurvePoint,kDspCurvePoints> points{}; uint8_t count{0}; };
+// Shared, immutable-after-construction storage lets voices use any number of points
+// without allocating/copying the curve on the real-time callback.
+struct DspCurve {
+    std::shared_ptr<std::vector<DspCurvePoint>> storage{};
+    const DspCurvePoint* points{nullptr};
+    size_t count{0};
+};
 struct VoiceAutomation { DspCurve bend{},velocity{},mod{}; };
-static_assert(std::is_trivially_copyable_v<VoiceAutomation>);
+
 
 struct CurvePoint {
     float step{0.0f}, value{0.0f};

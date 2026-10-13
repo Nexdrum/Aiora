@@ -13,7 +13,7 @@ public:
         const DspPatch& patch,
         int midi,
         float pressure,
-        uint32_t gateSamples = 0,
+        uint64_t gateSamples = 0,
         float samplesPerStep = 1.0f,
         const VoiceAutomation& automation = VoiceAutomation{}
     ) noexcept;
@@ -81,8 +81,8 @@ private:
     float samplesPerStep_{1.0f};
     float fixedUnison_{0.0f};
     float fixedFilterEnvAmount_{0.0f};
-    uint32_t gateSamples_{0};
-    uint32_t elapsedSamples_{0};
+    uint64_t gateSamples_{0};
+    uint64_t elapsedSamples_{0};
     bool modActive_{false};
     bool velocityCurveActive_{false};
     bool autoRelease_{false};

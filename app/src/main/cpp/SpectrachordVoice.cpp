@@ -60,14 +60,16 @@ float SpectrachordVoice::clamp01(float v) noexcept {return std::clamp(v,0.0f,1.0
 float SpectrachordVoice::curveValue(const DspCurve& c,float step,float fallback) noexcept {
     if(c.count==0)return fallback;
     if(c.count==1||step<=c.points[0].step)return c.points[0].value;
-    for(uint8_t i=1;i<c.count;++i){
-        if(step<=c.points[i].step){const auto&a=c.points[i-1];const auto&b=c.points[i];const float k=(step-a.step)/std::max(1.0e-6f,b.step-a.step);return curveSegment(k,a.value,b.value,
-                    b.midpoint,b.handleActive,b.handleValue);}
-    }
-    return c.points[c.count-1].value;
+    const auto* end=c.points+c.count;
+    const auto* b=std::lower_bound(c.points+1,end,step,
+        [](const DspCurvePoint& p,float t){return p.step<t;});
+    if(b==end)return c.points[c.count-1].value;
+    const auto& a=*(b-1);
+    const float k=(step-a.step)/std::max(1.0e-6f,b->step-a.step);
+    return curveSegment(k,a.value,b->value,b->midpoint,b->handleActive,b->handleValue);
 }
 float SpectrachordVoice::curveMean(const DspCurve& c,float fallback) noexcept {
-    if(c.count==0)return fallback;float sum=0;for(uint8_t i=0;i<c.count;++i)sum+=c.points[i].value;return sum/static_cast<float>(c.count);
+    if(c.count==0)return fallback;float sum=0;for(size_t i=0;i<c.count;++i)sum+=c.points[i].value;return sum/static_cast<float>(c.count);
 }
 void SpectrachordVoice::prepare(float sr) noexcept {sampleRate_=std::max(8000.0f,sr);}
 
@@ -76,7 +78,7 @@ float SpectrachordVoice::mappedValue(ModTarget target,float m,float fallback) co
 }
 float SpectrachordVoice::slotValue(ModTarget target,float m,float fallback) const noexcept {return modActive_?mappedValue(target,m,fallback):fallback;}
 
-void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint32_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
+void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
     id_=id;patch_=patch;midi_=midi;velocity_=clamp01(pressure);active_=true;automation_=automation;
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
     modActive_=automation_.mod.count>0;velocityCurveActive_=automation_.velocity.count>0;
@@ -151,7 +153,7 @@ float SpectrachordVoice::render() noexcept {
         const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
         float fmHz=0;
         const float baseF=std::max(
-            20.0f,
+            0.001f,
             midiHz(baseMidi)*op.ratio*semitoneScale);
         const float fmScale=std::max(0.0f,slotValue(ModTarget::Fm,m,1));
         for(size_t mod=0;mod<6;++mod)
@@ -161,7 +163,7 @@ float SpectrachordVoice::render() noexcept {
             const float uniCents=u?unison*12:0;
             const float cents=op.detuneCents+uniCents+pitchLfoCents;
             const float f=std::max(
-                20.0f,
+                0.001f,
                 (baseF+fmHz)*std::pow(2.0f,cents/1200.0f));
             float&ph=phase_[i][u];
             opSum+=waveSample(op,ph,morphValue(i,m));

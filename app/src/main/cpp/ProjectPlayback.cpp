@@ -8,10 +8,16 @@ namespace {
 constexpr float kPi = 3.14159265358979323846f;
 
 void pushPoint(DspCurve& out,float step,float value,float midpoint=0.5f,
-               bool handleActive=false,float handleValue=0.0f) noexcept {
-    if(out.count>=out.points.size())return;
-    if(out.count>0 && std::fabs(out.points[out.count-1].step-step)<1.0e-5f){out.points[out.count-1]={step,value,midpoint,handleValue,handleActive};return;}
-    out.points[out.count++]={step,value,midpoint,handleValue,handleActive};
+               bool handleActive=false,float handleValue=0.0f) {
+    if(!out.storage)out.storage=std::make_shared<std::vector<DspCurvePoint>>();
+    if(out.count>0 && std::fabs(out.points[out.count-1].step-step)<1.0e-5f){
+        (*out.storage)[out.count-1]={step,value,midpoint,handleValue,handleActive};
+        out.points=out.storage->data();
+        return;
+    }
+    out.storage->push_back({step,value,midpoint,handleValue,handleActive});
+    out.count=out.storage->size();
+    out.points=out.storage->data();
 }
 
 DspCurve bendCurve(const Note& note,const DrumPad* pad) {
@@ -21,7 +27,7 @@ DspCurve bendCurve(const Note& note,const DrumPad* pad) {
     auto pts=note.bend;
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     for(const auto& p:pts){
-        float value=std::clamp(p.value,-12.0f,12.0f);
+        float value=p.value;
         if(pad){
             const float lo=static_cast<float>(std::min(pad->lowMidi,pad->highMidi))-0.5f-static_cast<float>(note.midi);
             const float hi=static_cast<float>(std::max(pad->lowMidi,pad->highMidi))+0.5f-static_cast<float>(note.midi);
