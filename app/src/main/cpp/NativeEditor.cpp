@@ -998,11 +998,11 @@ void NativeEditor::renderFx() const noexcept {
             }
         }
     }
-    const auto pick=fxRackAddRect(false),add=fxRackAddRect(true);
-    drawButton(pick,false,kCyan);drawButton(add,true,kGreen);
+    const auto pick=fxRackAddRect(false),rackAdd=fxRackAddRect(true);
+    drawButton(pick,false,kCyan);drawButton(rackAdd,true,kGreen);
     ov.addTextCentered(std::string(fxTypeName(fxRackNewType_))+"  >",
         {pick.x,pick.y,pick.w,pick.h},.82f,overlayColor(kWhite));
-    ov.addTextCentered("+ Add FX",{add.x,add.y,add.w,add.h},.90f,overlayColor(kWhite));
+    ov.addTextCentered("+ Add FX",{rackAdd.x,rackAdd.y,rackAdd.w,rackAdd.h},.90f,overlayColor(kWhite));
 
     // Filter
     drawSection(0);
