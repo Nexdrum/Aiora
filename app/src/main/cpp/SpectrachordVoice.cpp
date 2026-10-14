@@ -86,6 +86,19 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     modValue_=m0;timpaniRingGain_=1.0f;fixedUnison_=modActive_?clamp01(mappedValue(ModTarget::Unison,mMean,patch_.unison)):patch_.unison;
     fixedFilterEnvAmount_=modActive_?clamp01(mappedValue(ModTarget::FilterEnv,mMean,patch_.filter.envAmount)):patch_.filter.envAmount;
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
+    platePhase_.fill(0);plateGain_.fill(0);plateDecay_.fill(1);
+    if(patch_.cymbalModel){
+        // Flexing metal plates produce unrelated modal frequencies and decay times.
+        constexpr std::array<float,12> strength{{.115f,.094f,.120f,.091f,.113f,.077f,.102f,.080f,.065f,.060f,.047f,.039f}};
+        for(size_t i=0;i<plateGain_.size();++i){
+            rng_^=rng_<<13;rng_^=rng_>>17;rng_^=rng_<<5;
+            platePhase_[i]=static_cast<float>(rng_&65535u)*(kTwoPi/65536.0f);
+            const float j=static_cast<float>((rng_>>16)&255u)/255.0f;
+            plateGain_[i]=strength[i]*(0.82f+0.36f*j)*(patch_.cymbalModel==2?0.82f:1.0f);
+            const float seconds=(patch_.cymbalModel==2?2.5f:3.8f)/(1.0f+0.16f*static_cast<float>(i));
+            plateDecay_[i]=std::exp(-1.0f/(sampleRate_*seconds));
+        }
+    }
     for(size_t i=0;i<6;++i)opEnv_[i].reset(patch_.ops[i].env,sampleRate_);
     Envelope a=patch_.amp,f=patch_.filter.env;
     if(modActive_){
@@ -146,6 +159,9 @@ float SpectrachordVoice::render() noexcept {
     const float lfoAmount=std::max(0.0f,slotValue(ModTarget::LfoAmount,m,P.lfo.amount))*lfoFade*lfoVel;const float pitchLfoCents=P.lfo.target==LfoTarget::Pitch?lfo*lfoAmount*60:0;
 
     const float baseMidi=static_cast<float>(midi_)+P.octave*12+bend;const float unison=clamp01(fixedUnison_);const int uniCount=unison>0.0001f?2:1;
+    // A brief beater-driven membrane sweep settles at the unchanged note fundamental.
+    const float pitchDrop=(P.drumPitchDrop>0.0f&&P.drumPitchDropSeconds>0.0f)
+        ?P.drumPitchDrop*std::exp(-static_cast<float>(elapsedSamples_)/(sampleRate_*P.drumPitchDropSeconds)):0.0f;
     std::array<float,6>now{};
     for(size_t i=0;i<6;++i){
         const auto&op=P.ops[i];if(!op.enabled||op.level<=0.001f){opEnv_[i].next(sampleRate_);continue;}
@@ -154,7 +170,7 @@ float SpectrachordVoice::render() noexcept {
         float fmHz=0;
         // Bend has no artificial semitone ceiling. The physical output
         // oscillator must still remain finite and below Nyquist.
-        const float unboundedBase=midiHz(baseMidi)*op.ratio*semitoneScale;
+        const float unboundedBase=midiHz(baseMidi+(i<2?pitchDrop:0.0f))*op.ratio*semitoneScale;
         const float maxHz=sampleRate_*0.49f;
         const float baseF=std::isfinite(unboundedBase)
             ?std::clamp(unboundedBase,0.001f,maxHz):maxHz;
@@ -176,6 +192,24 @@ float SpectrachordVoice::render() noexcept {
         now[i]=opSum/static_cast<float>(uniCount)*level;
     }
     lastOp_=now;float sum=0;for(float v:now)sum+=v;
+    if(P.cymbalModel){
+        // Independent inharmonic modes add the evolving ring missing from
+        // filtered white-noise cymbal approximations.
+        constexpr std::array<float,12> ratios{{.41f,.67f,1.03f,1.48f,2.09f,2.91f,3.79f,4.67f,5.83f,7.21f,8.64f,10.2f}};
+        const float fundamental=midiHz(baseMidi);
+        const float nyquist=sampleRate_*0.48f;
+        float plate=0.0f;
+        for(size_t i=0;i<ratios.size();++i){
+            const float frequency=fundamental*ratios[i];
+            if(frequency<nyquist){
+                plate+=std::sin(platePhase_[i])*plateGain_[i];
+                platePhase_[i]+=kTwoPi*frequency/sampleRate_;
+                if(platePhase_[i]>=kTwoPi)platePhase_[i]-=kTwoPi;
+            }
+            plateGain_[i]*=plateDecay_[i];
+        }
+        sum+=plate*(P.cymbalModel==2?0.78f:1.0f);
+    }
     const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
     if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
     const float amp=ampEnv_.next(sampleRate_)*lvlScale;if(ampEnv_.done()){active_=false;return 0;}float gain=std::max(0.0f,slotValue(ModTarget::Volume,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);

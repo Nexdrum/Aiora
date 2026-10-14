@@ -72,6 +72,9 @@ private:
     EnvState filterEnv_{};
     std::array<std::array<float,2>,6> phase_{};
     std::array<float,6> lastOp_{};
+    std::array<float,12> platePhase_{};
+    std::array<float,12> plateGain_{};
+    std::array<float,12> plateDecay_{};
     Biquad filter_{};
     uint32_t rng_{0x91e10da5u};
     float lfoPhase_{0.0f};

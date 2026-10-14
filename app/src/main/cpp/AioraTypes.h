@@ -47,6 +47,8 @@ struct Patch {
     float unison{0},glide{0},octave{0},volume{0.8f};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
     bool timpaniMembrane{false};
+    float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
+    uint8_t cymbalModel{0}; // 0=normal, 1=crash, 2=ride
 };
 
 /** Audio-thread copy of Patch: fixed-size and trivially copyable, with no std::string. */
@@ -56,6 +58,8 @@ struct DspPatch {
     std::shared_ptr<const std::vector<ModSlot>> modSlots{}; size_t modSlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
     bool timpaniMembrane{false};
+    float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
+    uint8_t cymbalModel{0}; // 0=normal, 1=crash, 2=ride
 };
 
 
@@ -65,7 +69,9 @@ inline DspPatch toDspPatch(const Patch& p) {
     if(!p.modSlots.empty())d.modSlots=std::make_shared<const std::vector<ModSlot>>(p.modSlots);
     d.modSlotCount=p.modSlotCount;
     d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
-    d.timpaniMembrane=p.timpaniMembrane;return d;
+    d.timpaniMembrane=p.timpaniMembrane;
+    d.drumPitchDrop=p.drumPitchDrop;d.drumPitchDropSeconds=p.drumPitchDropSeconds;
+    d.cymbalModel=p.cymbalModel;return d;
 }
 
 // q=0.5 preserves linear interpolation; q<0.5 puts the half-value

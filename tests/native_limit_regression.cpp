@@ -1,6 +1,8 @@
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
 #include "FactoryPresets.h"
+#include "NexdrumKit.h"
+#include "SpectrachordVoice.h"
 #include "PlaybackSnapshot.h"
 #include "SongExport.h"
 #include <cassert>
@@ -98,5 +100,44 @@ int main(){
     wave.read(hdr,sizeof(hdr));
     assert(std::string(hdr,4)=="RIFF");
     assert(std::string(hdr+8,4)=="WAVE");
+    // Nexdrum factory instruments must survive JSON and play finite signals.
+    const auto& kit=nexdrumKit();
+    assert(kit.size()==7);
+    const auto& kick=kit[6].patch;
+    assert(kick.ops[0].enabled && kick.ops[0].ratio==1.0f);
+    assert(kick.ops[0].detuneCents==0.0f && kick.unison==0.0f);
+    assert(kick.amp.attack<0.005f && kick.drumPitchDrop>0.0f);
+    assert(kick.drumPitchDropSeconds>0.0f);
+    assert(kick.fx.reverb<0.05f);
+    assert(kit[0].patch.cymbalModel==1);
+    assert(kit[1].patch.cymbalModel==2);
+    assert(kit[0].patch.filter.cutoff<2500.0f);
+    assert(kit[0].patch.timpaniMembrane);
+    Project kitProject;
+    Track kitTrack;kitTrack.name="Nexdrum";kitTrack.drums=true;
+    kitTrack.pads.assign(kit.begin(),kit.end());
+    kitProject.tracks.push_back(std::move(kitTrack));
+    Project kitRestored;
+    assert(deserializeProjectJson(serializeProjectJson(kitProject),kitRestored,&error));
+    assert(kitRestored.tracks[0].pads[6].patch.drumPitchDrop==kick.drumPitchDrop);
+    assert(kitRestored.tracks[0].pads[0].patch.cymbalModel==1);
+    assert(kitRestored.tracks[0].pads[1].patch.cymbalModel==2);
+    for(size_t padIndex : {size_t{0},size_t{1},size_t{3},size_t{6}}) {
+        SpectrachordVoice voice;
+        voice.prepare(48000.0f);
+        const auto& pad=kit[padIndex];
+        voice.start(101+static_cast<int>(padIndex),
+                    toDspPatch(pad.patch),pad.centerMidi,.96f,
+                    9600u,9600.0f);
+        float peak=0.0f, energy=0.0f;
+        for(int frame=0;frame<12000;++frame) {
+            const float v=voice.render();
+            assert(std::isfinite(v));
+            peak=std::max(peak,std::fabs(v));
+            energy+=v*v;
+        }
+        assert(peak>0.005f && energy>0.005f);
+        assert(peak<8.0f);
+    }
     return 0;
 }

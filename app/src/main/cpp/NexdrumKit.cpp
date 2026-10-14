@@ -1,57 +1,72 @@
 #include "NexdrumKit.h"
 #include "FactoryPresets.h"
+#include <initializer_list>
 
 namespace aiora {
 namespace {
-Patch pad0() {
-    Patch p = makeDefaultPatch("Cymbal 1.6 - Full Choke");
-    p.ops[0].enabled=true; p.ops[0].wave=Wave::Noise; p.ops[0].ratio=1.0f; p.ops[0].detuneCents=0.0f; p.ops[0].level=0.83f; p.ops[0].env={0.001f,1.35f,0.0f,1.7f};
-    p.ops[1].enabled=true; p.ops[1].wave=Wave::Noise; p.ops[1].ratio=0.125f; p.ops[1].detuneCents=0.0f; p.ops[1].level=0.64f; p.ops[1].env={0.628f,1.05f,0.0f,0.69f};
-    p.ops[1].harm={1.0f,0.5f,0.33f,0.25f,0.2f,0.16f,0.14f,0.12f,0.1f,0.09f,0.08f,0.07f,0.06f,0.05f,0.04f,0.03f}; p.ops[1].hasHarm=true;
-    p.ops[2].enabled=true; p.ops[2].wave=Wave::Sine; p.ops[2].ratio=1.0f; p.ops[2].detuneCents=-3.0f; p.ops[2].level=0.35f; p.ops[2].env={0.001f,1.14f,0.0f,1.25f};
-    p.ops[2].harm={1.0f,1.0f,1.0f,0.25f,1.0f,0.0f,0.14f,0.0f,0.1f,0.09f,0.08f,0.0f,0.0f,0.0f,0.0f,1.0f}; p.ops[2].hasHarm=true;
-    p.ops[2].harmMute={1.0f,0.12f,0.045f,0.018f,0.008f,0.004f,0.002f,0.001f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}; p.ops[2].hasHarmMute=true;
-    p.ops[3].enabled=true; p.ops[3].wave=Wave::Noise; p.ops[3].ratio=2.0f; p.ops[3].detuneCents=0.0f; p.ops[3].level=0.84f; p.ops[3].env={0.001f,0.18f,0.43f,0.02f};
-    p.ops[3].harm={1.0f,0.5f,0.33f,0.25f,0.2f,0.16f,0.14f,0.12f,0.1f,0.09f,0.08f,0.07f,0.06f,0.05f,0.04f,0.03f}; p.ops[3].hasHarm=true;
-    p.ops[4].enabled=false; p.ops[4].wave=Wave::Sine; p.ops[4].ratio=0.5f; p.ops[4].detuneCents=0.0f; p.ops[4].level=0.0f; p.ops[4].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[5].enabled=false; p.ops[5].wave=Wave::Sine; p.ops[5].ratio=4.0f; p.ops[5].semitoneOffset=1.0f; p.ops[5].detuneCents=-20.0f; p.ops[5].level=0.0f; p.ops[5].env={0.005f,0.1f,0.8f,0.15f};
-    p.filter={FilterType::Highpass,5800.0f,0.75f,0.0f,{0.005f,0.1f,0.5f,0.12f}};
-    p.amp={0.001f,1.55f,0.0f,1.7f};
-    p.velocityAmp=0.5f; p.velocityFilter=0.22f;
+void drumOp(Patch& p,size_t i,Wave w,float ratio,float level,
+            float attack,float decay,float release,float sustain=0.0f) {
+    auto& o=p.ops[i];o={};o.enabled=true;o.wave=w;o.ratio=ratio;
+    o.level=level;o.env={attack,decay,sustain,release};
+}
+void drumReset(Patch& p) {
+    for(auto& o:p.ops){o={};o.enabled=false;o.level=0.0f;}
+    for(auto& row:p.matrix)row.fill(0.0f);
+    p.unison=0.0f;p.glide=0.0f;p.octave=0.0f;
     p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=4;p.modSlots.resize(4);
-    p.modSlots[0]={ModTarget::Volume,1.0f,0.0f};
-    p.modSlots[1]={ModTarget::Op1,0.5f,0.025f};
-    p.modSlots[2]={ModTarget::Op2,0.28f,0.035f};
-    p.modSlots[3]={ModTarget::Morph3,0.0f,1.0f};
-    p.fx={0.0f,0.0f,0.32f,0.0f,0.0f};
-    p.unison=0.0f; p.glide=0.0f; p.octave=0.0f; p.volume=0.78f;
-    p.fundamentalMidi=80;
+}
+void drumMods(Patch& p,std::initializer_list<ModSlot> slots) {
+    p.modSlots.assign(slots);p.modSlotCount=p.modSlots.size();
+}
+Patch pad0() {
+    Patch p=makeDefaultPatch("Cymbal - Crash / Choke");
+    drumReset(p);
+    drumOp(p,0,Wave::Noise,1.0f,.56f,.001f,.19f,.22f);
+    drumOp(p,1,Wave::Noise,1.0f,.26f,.001f,1.22f,1.55f);
+    drumOp(p,2,Wave::Custom,1.68f,.23f,.001f,1.05f,1.5f);
+    p.ops[2].hasHarm=true;
+    p.ops[2].harm={.08f,.36f,.07f,.52f,.06f,.36f,.05f,.28f,.04f,.17f,.03f,.12f,.02f,.08f,.01f,.05f};
+    drumOp(p,3,Wave::Noise,1.0f,.37f,.001f,.027f,.026f);
+    drumOp(p,4,Wave::Sine,2.93f,.12f,.001f,1.14f,1.65f);
+    drumOp(p,5,Wave::Sine,4.41f,.085f,.001f,.67f,1.0f);
+    p.cymbalModel=1;p.timpaniMembrane=true;
+    p.filter={FilterType::Highpass,1050.0f,.78f,0.0f,{.005f,.1f,.5f,.1f}};
+    p.amp={.001f,1.65f,0.0f,2.45f};
+    p.velocityAmp=.77f;p.velocityFilter=.15f;
+    // M sweeps an open crash into a faster choke and darker attack.
+    drumMods(p,{{ModTarget::Op1,.62f,.25f},
+                {ModTarget::Op2,.28f,.08f},
+                {ModTarget::Op4,.39f,.12f},
+                {ModTarget::Cutoff,950.0f,1600.0f},
+                {ModTarget::AmpRelease,2.45f,.09f}});
+    p.fx={0.0f,0.0f,.32f,0.0f,.095f};
+    p.volume=.61f;p.fundamentalMidi=80;
     return p;
 }
 
 Patch pad1() {
-    Patch p = makeDefaultPatch("Ride 0.E - Bell to Crash");
-    p.ops[0].enabled=true; p.ops[0].wave=Wave::Noise; p.ops[0].ratio=1.0f; p.ops[0].detuneCents=0.0f; p.ops[0].level=0.19f; p.ops[0].env={0.001f,1.2f,0.0f,1.35f};
-    p.ops[1].enabled=true; p.ops[1].wave=Wave::Sine; p.ops[1].ratio=2.72f; p.ops[1].detuneCents=2.0f; p.ops[1].level=0.09f; p.ops[1].env={0.001f,0.72f,0.0f,0.36f};
-    p.ops[2].enabled=true; p.ops[2].wave=Wave::Custom; p.ops[2].ratio=1.0f; p.ops[2].detuneCents=-3.0f; p.ops[2].level=0.08f; p.ops[2].env={0.001f,1.01f,0.0f,0.74f};
-    p.ops[2].harm={0.1f,0.05f,0.16f,1.0f,0.08f,0.62f,0.05f,0.42f,0.04f,0.3f,0.03f,0.22f,0.025f,0.17f,0.02f,0.13f}; p.ops[2].hasHarm=true;
-    p.ops[2].harmMute={0.28f,0.22f,0.35f,0.31f,0.42f,0.28f,0.36f,0.24f,0.31f,0.22f,0.27f,0.18f,0.23f,0.15f,0.19f,0.13f}; p.ops[2].hasHarmMute=true;
-    p.ops[3].enabled=true; p.ops[3].wave=Wave::Sine; p.ops[3].ratio=4.17f; p.ops[3].detuneCents=-5.0f; p.ops[3].level=0.04f; p.ops[3].env={0.001f,0.58f,0.0f,0.47f};
-    p.ops[4].enabled=false; p.ops[4].wave=Wave::Sine; p.ops[4].ratio=0.5f; p.ops[4].detuneCents=0.0f; p.ops[4].level=0.0f; p.ops[4].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[5].enabled=false; p.ops[5].wave=Wave::Sine; p.ops[5].ratio=4.0f; p.ops[5].detuneCents=80.0f; p.ops[5].level=0.54f; p.ops[5].env={0.005f,0.1f,0.8f,0.15f};
-    p.filter={FilterType::Highpass,1800.0f,1.35f,0.0f,{0.005f,0.1f,0.5f,0.12f}};
-    p.amp={0.001f,1.25f,0.0f,1.55f};
-    p.velocityAmp=0.52f; p.velocityFilter=0.18f;
-    p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=4;p.modSlots.resize(4);
-    p.modSlots[0]={ModTarget::Morph3,0.0f,1.0f};
-    p.modSlots[1]={ModTarget::Op1,0.08f,0.62f};
-    p.modSlots[2]={ModTarget::Op2,0.56f,0.08f};
-    p.modSlots[3]={ModTarget::Cutoff,2300.0f,850.0f};
-    p.fx={0.0f,0.0f,0.32f,0.0f,0.14f};
-    p.unison=0.0f; p.glide=0.0f; p.octave=0.0f; p.volume=0.78f;
-    p.fundamentalMidi=73;
+    Patch p=makeDefaultPatch("Ride - Bow / Bell / Choke");
+    drumReset(p);
+    drumOp(p,0,Wave::Noise,1.0f,.27f,.001f,.37f,.53f);
+    drumOp(p,1,Wave::Sine,2.72f,.30f,.001f,.87f,1.15f);
+    drumOp(p,2,Wave::Custom,1.0f,.21f,.001f,1.2f,1.45f);
+    p.ops[2].hasHarm=true;
+    p.ops[2].harm={.06f,.12f,.09f,.66f,.10f,.58f,.06f,.4f,.04f,.27f,.03f,.2f,.02f,.15f,.01f,.09f};
+    drumOp(p,3,Wave::Noise,1.0f,.10f,.001f,.032f,.034f);
+    drumOp(p,4,Wave::Sine,4.17f,.13f,.001f,1.30f,1.40f);
+    drumOp(p,5,Wave::Sine,5.68f,.075f,.001f,.80f,.80f);
+    p.cymbalModel=2;p.timpaniMembrane=true;
+    p.filter={FilterType::Highpass,840.0f,.78f,0.0f,{.005f,.1f,.5f,.1f}};
+    p.amp={.001f,1.35f,0.0f,2.05f};
+    p.velocityAmp=.74f;p.velocityFilter=.2f;
+    // M controls the bell/wash balance and cymbal choking.
+    drumMods(p,{{ModTarget::Op1,.30f,.10f},
+                {ModTarget::Op2,.34f,.18f},
+                {ModTarget::Op3,.22f,.06f},
+                {ModTarget::Cutoff,820.0f,1600.0f},
+                {ModTarget::AmpRelease,2.05f,.10f}});
+    p.fx={0.0f,0.0f,.32f,0.0f,.08f};
+    p.volume=.64f;p.fundamentalMidi=73;
     return p;
 }
 
@@ -78,25 +93,23 @@ Patch pad2() {
 }
 
 Patch pad3() {
-    Patch p = makeDefaultPatch("Snare -0.3");
-    p.ops[0].enabled=true; p.ops[0].wave=Wave::Sine; p.ops[0].ratio=1.0f; p.ops[0].detuneCents=0.0f; p.ops[0].level=0.59f; p.ops[0].env={0.001f,0.15f,0.0f,0.02f};
-    p.ops[0].harm={1.0f,0.5f,0.33f,0.25f,0.2f,0.16f,0.14f,0.12f,0.1f,0.09f,0.08f,0.07f,0.06f,0.05f,0.04f,0.03f}; p.ops[0].hasHarm=true;
-    p.ops[1].enabled=true; p.ops[1].wave=Wave::Sine; p.ops[1].ratio=1.0f; p.ops[1].detuneCents=0.0f; p.ops[1].level=0.04f; p.ops[1].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[2].enabled=true; p.ops[2].wave=Wave::Noise; p.ops[2].ratio=1.0f; p.ops[2].detuneCents=0.0f; p.ops[2].level=0.6f; p.ops[2].env={0.001f,0.12f,0.0f,0.46f};
-    p.ops[3].enabled=false; p.ops[3].wave=Wave::Sine; p.ops[3].ratio=1.01f; p.ops[3].detuneCents=0.0f; p.ops[3].level=0.0f; p.ops[3].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[4].enabled=false; p.ops[4].wave=Wave::Sine; p.ops[4].ratio=0.5f; p.ops[4].detuneCents=0.0f; p.ops[4].level=0.0f; p.ops[4].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[5].enabled=false; p.ops[5].wave=Wave::Sine; p.ops[5].ratio=4.0f; p.ops[5].detuneCents=0.0f; p.ops[5].level=0.0f; p.ops[5].env={0.005f,0.1f,0.8f,0.15f};
-    p.filter={FilterType::Bandpass,1800.0f,1.0f,0.0f,{0.005f,0.1f,0.5f,0.12f}};
-    p.amp={0.001f,0.18f,0.0f,0.14f};
-    p.velocityAmp=0.5f; p.velocityFilter=0.3f;
-    p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=3;p.modSlots.resize(3);
-    p.modSlots[0]={ModTarget::Cutoff,1800.0f,720.0f};
-    p.modSlots[1]={ModTarget::AmpRelease,0.14f,0.05f};
-    p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
-    p.fx={0.0f,0.0f,0.32f,0.0f,0.25f};
-    p.unison=0.0f; p.glide=0.0f; p.octave=0.0f; p.volume=0.85f;
-    p.fundamentalMidi=59;
+    Patch p=makeDefaultPatch("Snare - Head / Wires");
+    drumReset(p);
+    drumOp(p,0,Wave::Sine,1.0f,.63f,.001f,.18f,.07f);
+    drumOp(p,1,Wave::Sine,1.67f,.18f,.001f,.065f,.04f);
+    drumOp(p,2,Wave::Noise,1.0f,.58f,.001f,.16f,.22f);
+    drumOp(p,3,Wave::Noise,1.0f,.33f,.001f,.052f,.08f);
+    drumOp(p,4,Wave::Sine,2.49f,.11f,.001f,.055f,.06f);
+    p.filter={FilterType::Highpass,145.0f,.74f,0.0f,{.005f,.1f,.5f,.1f}};
+    p.amp={.001f,.20f,0.0f,.115f};
+    p.velocityAmp=.70f;p.velocityFilter=.18f;
+    p.timpaniMembrane=true;
+    drumMods(p,{{ModTarget::Op3,.22f,.69f},
+                {ModTarget::Op4,.10f,.42f},
+                {ModTarget::Op1,.72f,.38f},
+                {ModTarget::AmpRelease,.13f,.045f}});
+    p.fx={0.0f,0.0f,.32f,0.0f,.07f};
+    p.volume=.69f;p.fundamentalMidi=59;
     return p;
 }
 
@@ -145,24 +158,26 @@ Patch pad5() {
 }
 
 Patch pad6() {
-    Patch p = makeDefaultPatch("Kick -2");
-    p.ops[0].enabled=true; p.ops[0].wave=Wave::Sine; p.ops[0].ratio=1.0f; p.ops[0].detuneCents=0.0f; p.ops[0].level=0.85f; p.ops[0].env={0.13f,0.295f,0.4f,1.51f};
-    p.ops[1].enabled=true; p.ops[1].wave=Wave::Sine; p.ops[1].ratio=1.0f; p.ops[1].detuneCents=45.0f; p.ops[1].level=0.75f; p.ops[1].env={0.001f,0.06f,0.0f,0.07f};
-    p.ops[2].enabled=true; p.ops[2].wave=Wave::Noise; p.ops[2].ratio=4.0f; p.ops[2].detuneCents=0.0f; p.ops[2].level=0.23f; p.ops[2].env={0.004f,0.005f,0.03f,0.02f};
-    p.ops[3].enabled=true; p.ops[3].wave=Wave::Saw; p.ops[3].ratio=0.5f; p.ops[3].detuneCents=35.0f; p.ops[3].level=1.0f; p.ops[3].env={0.001f,0.03f,0.0f,0.02f};
-    p.ops[4].enabled=false; p.ops[4].wave=Wave::Sine; p.ops[4].ratio=0.5f; p.ops[4].detuneCents=0.0f; p.ops[4].level=0.0f; p.ops[4].env={0.005f,0.1f,0.8f,0.15f};
-    p.ops[5].enabled=false; p.ops[5].wave=Wave::Sine; p.ops[5].ratio=4.0f; p.ops[5].detuneCents=0.0f; p.ops[5].level=0.0f; p.ops[5].env={0.005f,0.1f,0.8f,0.15f};
-    p.filter={FilterType::Lowpass,689.0f,6.4f,0.0f,{0.005f,0.08f,0.41f,0.12f}};
-    p.amp={0.001f,0.29f,0.0f,0.23f};
-    p.velocityAmp=0.67f; p.velocityFilter=0.24f;
-    p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-    p.modSlotCount=3;p.modSlots.resize(3);
-    p.modSlots[0]={ModTarget::Cutoff,4500.0f,1800.0f};
-    p.modSlots[1]={ModTarget::AmpRelease,1.3f,0.05f};
-    p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
-    p.fx={0.0f,0.0f,0.32f,0.0f,0.3f};
-    p.unison=0.58f; p.glide=0.0f; p.octave=0.0f; p.volume=1.0f;
-    p.fundamentalMidi=38;
+    Patch p=makeDefaultPatch("Kick - Metal Double Pedal");
+    drumReset(p);
+    // Settled D2 membrane fundamental stays ratio one with zero detune.
+    drumOp(p,0,Wave::Sine,1.0f,.91f,.0005f,.148f,.072f);
+    drumOp(p,1,Wave::Sine,2.0f,.28f,.0005f,.042f,.04f);
+    drumOp(p,2,Wave::Noise,1.0f,.45f,.0005f,.013f,.012f);
+    drumOp(p,3,Wave::Triangle,4.0f,.19f,.0005f,.023f,.017f);
+    drumOp(p,4,Wave::Noise,1.0f,.18f,.0005f,.006f,.006f);
+    p.drumPitchDrop=15.0f;p.drumPitchDropSeconds=.018f;
+    p.filter={FilterType::Lowpass,7400.0f,.70f,0.0f,{.005f,.10f,.5f,.1f}};
+    p.amp={.0005f,.165f,0.0f,.075f};
+    p.velocityAmp=.78f;p.velocityFilter=.12f;
+    // M raises hard-plastic beater click and tightens note release.
+    drumMods(p,{{ModTarget::Op3,.14f,.66f},
+                {ModTarget::Op4,.07f,.30f},
+                {ModTarget::Op5,.08f,.28f},
+                {ModTarget::AmpRelease,.095f,.037f},
+                {ModTarget::Cutoff,4900.0f,10200.0f}});
+    p.fx={0.0f,0.0f,.32f,0.0f,.012f};
+    p.volume=.88f;p.fundamentalMidi=38;
     return p;
 }
 
@@ -170,13 +185,13 @@ Patch pad6() {
 
 const std::array<DrumPad,7>& nexdrumKit() {
     static const std::array<DrumPad,7> kit{{
-        DrumPad{80,80,86,"crash",pad0(),1.0f,0.0f},
-        DrumPad{73,73,79,"ride",pad1(),1.0f,0.0f},
-        DrumPad{66,66,72,"bongo",pad2(),1.0f,0.0f},
-        DrumPad{59,59,65,"snare",pad3(),1.0f,0.0f},
-        DrumPad{52,52,58,"tom",pad4(),1.0f,0.0f},
-        DrumPad{45,45,51,"floortom",pad5(),1.0f,0.0f},
-        DrumPad{38,38,44,"kick",pad6(),1.0f,0.0f}
+        DrumPad{80,80,86,"crash",pad0(),0.76f,0.24f},
+        DrumPad{73,73,79,"ride",pad1(),0.78f,-0.20f},
+        DrumPad{66,66,72,"bongo",pad2(),0.72f,0.27f},
+        DrumPad{59,59,65,"snare",pad3(),0.86f,0.0f},
+        DrumPad{52,52,58,"tom",pad4(),0.72f,0.19f},
+        DrumPad{45,45,51,"floortom",pad5(),0.77f,-0.18f},
+        DrumPad{38,38,44,"kick",pad6(),0.92f,0.0f}
     }};
     return kit;
 }
