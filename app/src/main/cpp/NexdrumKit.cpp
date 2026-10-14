@@ -24,9 +24,12 @@ void drumVelocity(Patch& p,std::initializer_list<ModSlot> slots) {
 Patch pad0() {
     Patch p=makeDefaultPatch("Cymbal - Tap / Crash / Choke");
     drumReset(p);
-    drumOp(p,0,Wave::Noise,1.0f,.70f,.0005f,.09f,.12f);
-    drumOp(p,1,Wave::Noise,1.0f,.21f,.001f,.34f,.29f);
+    drumOp(p,0,Wave::Noise,1.0f,.70f,.0005f,.17f,.16f);
+    drumOp(p,1,Wave::Noise,1.0f,.27f,.001f,.33f,.25f);
     drumOp(p,2,Wave::Custom,1.68f,.16f,.001f,.29f,.27f);
+    // Twin noise bands separated by five semitones for fuller, smoother hiss.
+    p.ops[0].semitoneOffset=-2.0f;
+    p.ops[1].semitoneOffset=3.0f;
     p.ops[2].hasHarm=true;
     p.ops[2].harm={.08f,.36f,.07f,.52f,.06f,.36f,.05f,.28f,.04f,.17f,.03f,.12f,.02f,.08f,.01f,.05f};
     drumOp(p,3,Wave::Noise,1.0f,.66f,.0005f,.026f,.022f);
@@ -42,11 +45,11 @@ Patch pad0() {
     drumMods(p,{{ModTarget::Cutoff,950.0f,1600.0f},
                 {ModTarget::AmpRelease,.52f,.065f}});
     drumVelocity(p,{{ModTarget::Op1,.024f,.70f},
-                    {ModTarget::Op2,.010f,.21f},
+                    {ModTarget::Op2,.010f,.27f},
                     {ModTarget::Op3,.07f,.16f},
                     {ModTarget::Op4,.014f,.66f}});
     p.fx={0.0f,0.0f,.32f,0.0f,.045f};
-    p.volume=.34f;p.fundamentalMidi=80;
+    p.volume=.42f;p.fundamentalMidi=80;
     return p;
 }
 
@@ -56,9 +59,12 @@ Patch pad1() {
     drumOp(p,0,Wave::Noise,1.0f,.15f,.0005f,.12f,.14f);
     drumOp(p,1,Wave::Sine,2.72f,.27f,.001f,.75f,.85f);
     drumOp(p,2,Wave::Custom,1.0f,.19f,.001f,.85f,.86f);
+    // Ride tick and its paired noise band differ by four semitones.
+    p.ops[0].semitoneOffset=-2.0f;
+    p.ops[3].semitoneOffset=2.0f;
     p.ops[2].hasHarm=true;
     p.ops[2].harm={.06f,.12f,.09f,.66f,.10f,.58f,.06f,.4f,.04f,.27f,.03f,.2f,.02f,.15f,.01f,.09f};
-    drumOp(p,3,Wave::Noise,1.0f,.23f,.0005f,.018f,.024f);
+    drumOp(p,3,Wave::Noise,1.0f,.23f,.0005f,.075f,.065f);
     drumOp(p,4,Wave::Sine,4.17f,.13f,.001f,.82f,.85f);
     drumOp(p,5,Wave::Sine,5.68f,.065f,.001f,.69f,.65f);
     p.cymbalModel=2;p.timpaniMembrane=true;

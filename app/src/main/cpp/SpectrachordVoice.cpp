@@ -106,9 +106,27 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
+    cymbalNoiseState_.fill(0.0f);
+    cymbalNoiseAlpha_.fill(1.0f);
+    if(patch_.cymbalModel){
+        // For cymbals, pitch/detune colors the noise spectrum rather than
+        // shifting a harmonic oscillator. Each operator has its own filter.
+        for(size_t i=0;i<patch_.ops.size();++i){
+            const auto& op=patch_.ops[i];
+            if(!op.enabled||op.wave!=Wave::Noise)continue;
+            const float note=static_cast<float>(midi_)+patch_.octave*12+
+                op.semitoneOffset+op.detuneCents*.01f;
+            const float spectralHz=midiHz(note)*op.ratio*8.5f;
+            const float cutoff=std::clamp(spectralHz,600.0f,sampleRate_*.42f);
+            cymbalNoiseAlpha_[i]=1.0f-std::exp(-kTwoPi*cutoff/sampleRate_);
+        }
+    }
     cymbalTailGain_=1.0f;
+    // Strong crash hits retain chaotic energy longer than light taps,
+    // but the mixed metallic tail remains short and controlled.
+    const float crashTailSeconds=.19f+.14f*std::pow(v0,1.4f);
     cymbalTailMultiplier_=patch_.cymbalModel
-        ?std::exp(-1.0f/(sampleRate_*(patch_.cymbalModel==2?.34f:.22f)))
+        ?std::exp(-1.0f/(sampleRate_*(patch_.cymbalModel==2?.34f:crashTailSeconds)))
         :1.0f;
     platePhase_.fill(0);plateGain_.fill(0);plateDecay_.fill(1);
     if(patch_.cymbalModel){
@@ -137,7 +155,16 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
             plateDecay_[i]=std::exp(-1.0f/(sampleRate_*seconds));
         }
     }
-    for(size_t i=0;i<6;++i)opEnv_[i].reset(patch_.ops[i].env,sampleRate_);
+    for(size_t i=0;i<6;++i){
+        Envelope shape=patch_.ops[i].env;
+        if(patch_.cymbalModel==1&&patch_.ops[i].wave==Wave::Noise&&(i==0||i==1)){
+            // V determines the wash length at the instant of impact.
+            const float washLength=.32f+1.55f*std::pow(v0,1.3f);
+            shape.decay=std::max(.005f,shape.decay*washLength);
+            shape.release=std::max(.005f,shape.release*washLength);
+        }
+        opEnv_[i].reset(shape,sampleRate_);
+    }
     Envelope a=patch_.amp,f=patch_.filter.env;
     a.attack=std::max(0.0005f,slotValue(ModTarget::AmpAttack,v0,m0,a.attack));
     a.decay=std::max(0.0005f,slotValue(ModTarget::AmpDecay,vMean,mMean,a.decay));
@@ -153,6 +180,13 @@ void SpectrachordVoice::release() noexcept {if(!active_)return;autoRelease_=fals
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
 
 float SpectrachordVoice::noise() noexcept {uint32_t x=rng_;x^=x<<13;x^=x>>17;x^=x<<5;rng_=x;return static_cast<float>(x)/2147483648.0f-1.0f;}
+float SpectrachordVoice::cymbalNoiseSample(size_t index) noexcept {
+    // Independent, differently colored noise bands blend into a smoother
+    // cymbal hiss. The noise path of non-cymbal instruments is unchanged.
+    float& filtered=cymbalNoiseState_[index];
+    filtered+=cymbalNoiseAlpha_[index]*(noise()-filtered);
+    return filtered;
+}
 float SpectrachordVoice::opLevel(size_t i,float v,float m) const noexcept {
     static constexpr std::array<ModTarget,6>T{ModTarget::Op1,ModTarget::Op2,ModTarget::Op3,ModTarget::Op4,ModTarget::Op5,ModTarget::Op6};
     return std::max(0.0f,slotValue(T[i],v,m,patch_.ops[i].level));
@@ -227,7 +261,9 @@ float SpectrachordVoice::render() noexcept {
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
-            opSum+=waveSample(op,ph,morphValue(i,expressionV,m));
+            opSum+=(P.cymbalModel&&op.wave==Wave::Noise)
+                ?cymbalNoiseSample(i)
+                :waveSample(op,ph,morphValue(i,expressionV,m));
             ph+=kTwoPi*f/sampleRate_;
             if(ph>=kTwoPi)ph-=kTwoPi;
         }

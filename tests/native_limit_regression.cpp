@@ -128,6 +128,10 @@ int main(){
     assert(kit[0].patch.volume<.45f&&kit[1].patch.volume<.45f);
     assert(kit[1].patch.filter.cutoff<kit[0].patch.filter.cutoff);
     assert(kit[1].patch.velocitySlotCount>=3);
+    assert(kit[0].patch.ops[0].wave==Wave::Noise&&kit[0].patch.ops[1].wave==Wave::Noise);
+    assert(std::fabs(kit[0].patch.ops[1].semitoneOffset-kit[0].patch.ops[0].semitoneOffset)>=3.0f);
+    assert(kit[1].patch.ops[0].wave==Wave::Noise&&kit[1].patch.ops[3].wave==Wave::Noise);
+    assert(std::fabs(kit[1].patch.ops[3].semitoneOffset-kit[1].patch.ops[0].semitoneOffset)>=3.0f);
     // Natural wash responds to V; expressive M remains free for choking.
     const auto hasTarget=[](const auto& slots,ModTarget t){
         for(const auto& slot:slots)if(slot.target==t)return true;
@@ -188,6 +192,44 @@ int main(){
     assert(crashLate<crashEarly*.0001f);
     assert(rideLate<rideEarly*.0001f);
     assert(!crashTail.active()&&!rideTail.active());
+    // The cymbal noise pitch/detune must change its spectrum; the old
+    // independent white-noise generator ignored pitch completely.
+    Patch colored=kit[0].patch;
+    for(size_t i=1;i<colored.ops.size();++i)colored.ops[i].enabled=false;
+    colored.velocitySlots.clear();colored.velocitySlotCount=0;
+    colored.modSlots.clear();colored.modSlotCount=0;
+    colored.velocityAmp=0.0f;
+    auto aPatch=colored,bPatch=colored;
+    bPatch.ops[0].semitoneOffset+=5.0f;
+    SpectrachordVoice colorA,colorB;
+    colorA.prepare(48000.0f);colorB.prepare(48000.0f);
+    colorA.start(515,toDspPatch(aPatch),80,.85f,9600u,48000.0f);
+    colorB.start(515,toDspPatch(bPatch),80,.85f,9600u,48000.0f);
+    float coloredDifference=0.0f;
+    for(int f=0;f<5000;++f){
+        const float a=colorA.render(),b=colorB.render();
+        assert(std::isfinite(a)&&std::isfinite(b));
+        coloredDifference+=std::fabs(a-b);
+    }
+    assert(coloredDifference>.01f);
+    // Hard crash noise should hold energy longer than a soft tap.
+    // Compare late/early power normalized for inherent loudness changes.
+    Patch wash=colored;
+    wash.amp={.001f,.15f,1.0f,.25f};
+    wash.ops[0].env={.001f,.25f,0.0f,.18f};
+    float ratios[2]{};
+    for(int vi=0;vi<2;++vi){
+        SpectrachordVoice voice;voice.prepare(24000.0f);
+        voice.start(630,toDspPatch(wash),80,vi?1.0f:.2f,16000u,24000.0f);
+        float early=0.0f,late=0.0f;
+        for(int f=0;f<8500;++f){
+            const float y=voice.render();assert(std::isfinite(y));
+            if(f>=1000&&f<2200)early+=y*y;
+            if(f>=5300&&f<7000)late+=y*y;
+        }
+        ratios[vi]=late/std::max(early,1.0e-10f);
+    }
+    assert(ratios[1]>ratios[0]*1.1f);
     // Animated velocity must influence sound beyond the original V volume.
     Patch linked=makeFactoryPatch(FactoryPreset::SpectrachordInit);
     for(auto& op:linked.ops){op.enabled=false;op.level=0.0f;}
