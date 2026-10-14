@@ -25,29 +25,31 @@ Patch pad0() {
     Patch p=makeDefaultPatch("Cymbal - Tap / Crash / Choke");
     drumReset(p);
     drumOp(p,0,Wave::Noise,1.0f,.70f,.0005f,.17f,.16f);
-    drumOp(p,1,Wave::Noise,1.0f,.27f,.001f,.33f,.25f);
+    drumOp(p,1,Wave::Hiss,1.0f,.27f,.001f,.33f,.25f);
     drumOp(p,2,Wave::Custom,1.68f,.16f,.001f,.29f,.27f);
-    // Twin noise bands separated by five semitones for fuller, smoother hiss.
-    p.ops[0].semitoneOffset=-2.0f;
+    // Plain Noise provides uniform texture; pitch-tunable Hiss provides
+    // the smoother resonant wash. Both are ordinary editable operators.
     p.ops[1].semitoneOffset=3.0f;
     p.ops[2].hasHarm=true;
     p.ops[2].harm={.08f,.36f,.07f,.52f,.06f,.36f,.05f,.28f,.04f,.17f,.03f,.12f,.02f,.08f,.01f,.05f};
-    drumOp(p,3,Wave::Noise,1.0f,.66f,.0005f,.026f,.022f);
+    drumOp(p,3,Wave::Triangle,3.56f,.22f,.0005f,.026f,.022f);
     drumOp(p,4,Wave::Sine,2.93f,.09f,.001f,.42f,.32f);
     drumOp(p,5,Wave::Sine,4.41f,.055f,.001f,.27f,.22f);
     p.cymbalModel=1;p.timpaniMembrane=true;
     p.filter={FilterType::Highpass,1050.0f,.78f,0.0f,{.005f,.1f,.5f,.1f}};
     p.amp={.0005f,.54f,0.0f,.52f};
     p.velocityAmp=.77f;p.velocityFilter=.15f;
-    // A close-miked metal crash: V turns a gentle metal tap into a sharp
-    // broadband "kaashh". The wash falls quickly below the mix gate.
+    // V controls attack texture AND the independent Noise/Hiss decays.
+    // Both wash envelopes are now editable via the shared V/M link editor.
     // M remains an independent choke/tone gesture.
     drumMods(p,{{ModTarget::Cutoff,950.0f,1600.0f},
                 {ModTarget::AmpRelease,.52f,.065f}});
     drumVelocity(p,{{ModTarget::Op1,.024f,.70f},
                     {ModTarget::Op2,.010f,.27f},
                     {ModTarget::Op3,.07f,.16f},
-                    {ModTarget::Op4,.014f,.66f}});
+                    {ModTarget::Op4,.014f,.22f},
+                    {ModTarget::Op1Decay,.055f,.30f},
+                    {ModTarget::Op2Decay,.10f,.55f}});
     p.fx={0.0f,0.0f,.32f,0.0f,.045f};
     p.volume=.42f;p.fundamentalMidi=80;
     return p;
@@ -59,11 +61,10 @@ Patch pad1() {
     drumOp(p,0,Wave::Noise,1.0f,.15f,.0005f,.12f,.14f);
     drumOp(p,1,Wave::Sine,2.72f,.27f,.001f,.75f,.85f);
     drumOp(p,2,Wave::Custom,1.0f,.19f,.001f,.85f,.86f);
-    // Ride tick and its paired noise band differ by four semitones.
-    p.ops[0].semitoneOffset=-2.0f;
+    // Ride Noise is the consistent stick texture; tuned Hiss is the wash.
     p.ops[2].hasHarm=true;
     p.ops[2].harm={.06f,.12f,.09f,.66f,.10f,.58f,.06f,.4f,.04f,.27f,.03f,.2f,.02f,.15f,.01f,.09f};
-    drumOp(p,3,Wave::Noise,1.0f,.23f,.0005f,.075f,.065f);
+    drumOp(p,3,Wave::Hiss,1.0f,.23f,.0005f,.075f,.065f);
     p.ops[3].semitoneOffset=2.0f;
     drumOp(p,4,Wave::Sine,4.17f,.13f,.001f,.82f,.85f);
     drumOp(p,5,Wave::Sine,5.68f,.065f,.001f,.69f,.65f);

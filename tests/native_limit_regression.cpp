@@ -128,10 +128,15 @@ int main(){
     assert(kit[0].patch.volume<.45f&&kit[1].patch.volume<.45f);
     assert(kit[1].patch.filter.cutoff<kit[0].patch.filter.cutoff);
     assert(kit[1].patch.velocitySlotCount>=3);
-    assert(kit[0].patch.ops[0].wave==Wave::Noise&&kit[0].patch.ops[1].wave==Wave::Noise);
-    assert(std::fabs(kit[0].patch.ops[1].semitoneOffset-kit[0].patch.ops[0].semitoneOffset)>=3.0f);
-    assert(kit[1].patch.ops[0].wave==Wave::Noise&&kit[1].patch.ops[3].wave==Wave::Noise);
-    assert(std::fabs(kit[1].patch.ops[3].semitoneOffset-kit[1].patch.ops[0].semitoneOffset)>=3.0f);
+    assert(kit[0].patch.ops[0].wave==Wave::Noise&&kit[0].patch.ops[1].wave==Wave::Hiss);
+    assert(kit[1].patch.ops[0].wave==Wave::Noise&&kit[1].patch.ops[3].wave==Wave::Hiss);
+    assert(kit[0].patch.velocitySlotCount>=6);
+    bool hasWashDecay0=false,hasWashDecay1=false;
+    for(const auto& s:kit[0].patch.velocitySlots){
+        hasWashDecay0|=s.target==ModTarget::Op1Decay;
+        hasWashDecay1|=s.target==ModTarget::Op2Decay;
+    }
+    assert(hasWashDecay0&&hasWashDecay1);
     // Natural wash responds to V; expressive M remains free for choking.
     const auto hasTarget=[](const auto& slots,ModTarget t){
         for(const auto& slot:slots)if(slot.target==t)return true;
@@ -150,6 +155,12 @@ int main(){
     assert(kitRestored.tracks[0].pads[6].patch.drumPitchDrop==kick.drumPitchDrop);
     assert(kitRestored.tracks[0].pads[0].patch.cymbalModel==1);
     assert(kitRestored.tracks[0].pads[1].patch.cymbalModel==2);
+    assert(kitRestored.tracks[0].pads[0].patch.ops[1].wave==Wave::Hiss);
+    assert(kitRestored.tracks[0].pads[1].patch.ops[3].wave==Wave::Hiss);
+    bool hasRestoredWashDecay=false;
+    for(const auto& s:kitRestored.tracks[0].pads[0].patch.velocitySlots)
+        hasRestoredWashDecay|=s.target==ModTarget::Op2Decay&&s.max>.4f;
+    assert(hasRestoredWashDecay);
     assert(std::fabs(kitRestored.tracks[0].pads[1].patch.amp.release-.90f)<.001f);
     assert(kitRestored.tracks[0].pads[1].patch.modSlots.back().max<1.0f);
     assert(kitRestored.tracks[0].pads[3].patch.velocitySlotCount>=2);
@@ -192,15 +203,19 @@ int main(){
     assert(crashLate<crashEarly*.0001f);
     assert(rideLate<rideEarly*.0001f);
     assert(!crashTail.active()&&!rideTail.active());
-    // The cymbal noise pitch/detune must change its spectrum; the old
-    // independent white-noise generator ignored pitch completely.
+    // Hiss must be pitch responsive on ANY patch, with no cymbal flag.
+    // Existing Noise must stay pitch independent and identical to legacy.
     Patch colored=kit[0].patch;
-    for(size_t i=1;i<colored.ops.size();++i)colored.ops[i].enabled=false;
+    for(size_t i=0;i<colored.ops.size();++i)colored.ops[i].enabled=(i==1);
+    colored.cymbalModel=0;
+    colored.timpaniMembrane=false;
     colored.velocitySlots.clear();colored.velocitySlotCount=0;
     colored.modSlots.clear();colored.modSlotCount=0;
     colored.velocityAmp=0.0f;
+    colored.amp={.001f,.45f,.8f,.15f};
+    colored.ops[1].env={.001f,.35f,.2f,.15f};
     auto aPatch=colored,bPatch=colored;
-    bPatch.ops[0].semitoneOffset+=5.0f;
+    bPatch.ops[1].semitoneOffset+=5.0f;
     SpectrachordVoice colorA,colorB;
     colorA.prepare(48000.0f);colorB.prepare(48000.0f);
     colorA.start(515,toDspPatch(aPatch),80,.85f,9600u,48000.0f);
@@ -212,11 +227,24 @@ int main(){
         coloredDifference+=std::fabs(a-b);
     }
     assert(coloredDifference>.01f);
-    // Hard crash noise should hold energy longer than a soft tap.
-    // Compare late/early power normalized for inherent loudness changes.
+    Patch plainNoise=colored;
+    plainNoise.ops[1].wave=Wave::Noise;
+    auto detunedNoise=plainNoise;
+    detunedNoise.ops[1].semitoneOffset+=5.0f;
+    SpectrachordVoice noiseA,noiseB;
+    noiseA.prepare(48000.0f);noiseB.prepare(48000.0f);
+    noiseA.start(521,toDspPatch(plainNoise),80,.85f,9600u,48000.0f);
+    noiseB.start(521,toDspPatch(detunedNoise),80,.85f,9600u,48000.0f);
+    for(int f=0;f<2000;++f)
+        assert(noiseA.render()==noiseB.render());
+
+    // A standard V link now controls an individual operator decay;
+    // no hidden patch-specific envelope is required for the long wash.
     Patch wash=colored;
-    wash.amp={.001f,.15f,1.0f,.25f};
-    wash.ops[0].env={.001f,.25f,0.0f,.18f};
+    wash.ops[1].env={.001f,.25f,0.0f,.18f};
+    wash.amp={.001f,.10f,1.0f,.20f};
+    wash.velocitySlots={{ModTarget::Op2Decay,.06f,.50f}};
+    wash.velocitySlotCount=1;
     float ratios[2]{};
     for(int vi=0;vi<2;++vi){
         SpectrachordVoice voice;voice.prepare(24000.0f);

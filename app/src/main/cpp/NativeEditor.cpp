@@ -720,8 +720,8 @@ void NativeEditor::renderSynth() const noexcept {
             }
         }
     }else{
-        static constexpr const char* kWaveNames[6]={
-            "sine","sawtooth","square","triangle","custom","noise"};
+        static constexpr const char* kWaveNames[7]={
+            "sine","sawtooth","square","triangle","custom","noise","hiss"};
         static constexpr const char* kLabels[8]={
             "R","ST","F","L","A","D","S","R"};
 
@@ -751,7 +751,7 @@ void NativeEditor::renderSynth() const noexcept {
 
             const auto wave=operatorWaveFieldRect(op);
             fillRect(wave,mix(kRollBg,kButton,0.25f));
-            const int waveIndex=std::clamp(static_cast<int>(o.wave),0,5);
+            const int waveIndex=std::clamp(static_cast<int>(o.wave),0,6);
             ov.addText(
                 kWaveNames[waveIndex],
                 wave.x+12.0f,wave.y+20.0f,

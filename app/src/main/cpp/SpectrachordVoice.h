@@ -53,7 +53,7 @@ private:
     static float curveValue(const DspCurve& curve, float step, float fallback) noexcept;
     static float curveMean(const DspCurve& curve, float fallback) noexcept;
     float noise() noexcept;
-    float cymbalNoiseSample(size_t index) noexcept;
+    float hissSample(size_t index, int unisonVoice, float pitchHz) noexcept;
     float waveSample(const Operator& op, float phase, float morph) noexcept;
     float mappedValue(ModTarget target, float m, float fallback) const noexcept;
     float slotValue(ModTarget target, float v, float m, float fallback) const noexcept;
@@ -77,8 +77,7 @@ private:
     std::array<float,12> platePhase_{};
     std::array<float,12> plateGain_{};
     std::array<float,12> plateDecay_{};
-    std::array<float,6> cymbalNoiseState_{};
-    std::array<float,6> cymbalNoiseAlpha_{};
+    std::array<std::array<float,2>,6> hissState_{};
     Biquad filter_{};
     uint32_t rng_{0x91e10da5u};
     float lfoPhase_{0.0f};

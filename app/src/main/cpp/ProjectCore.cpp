@@ -147,6 +147,9 @@ float clampModValue(ModTarget target,float v){
         case ModTarget::LfoAmount:return std::clamp(v,0.0f,2.0f);
         case ModTarget::LfoRate:return std::clamp(v,0.1f,20.0f);
         case ModTarget::Volume:return std::clamp(v,0.0f,2.0f);
+        case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
+        case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
+            return std::clamp(v,0.005f,1.5f);
         case ModTarget::None:return 0.0f;
     }
     return v;
@@ -838,6 +841,9 @@ float baseLinkValue(const Patch& p,ModTarget target){
         case ModTarget::LfoRate:return p.lfo.rate;
         case ModTarget::Unison:return p.unison;
         case ModTarget::Volume:return 1.0f;
+        case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
+        case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
+            return p.ops[static_cast<size_t>(static_cast<int>(target)-static_cast<int>(ModTarget::Op1Decay))].env.decay;
         default:return 0.0f;
     }
 }
@@ -859,7 +865,7 @@ bool ProjectCore::addSelectedModSlot(ModTarget target,LinkSource source){
     if(!p)return false;
     if(target==ModTarget::None||linkTargetUsed(*p,target,source)){
         target=ModTarget::None;
-        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::Volume);++value){
+        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::Op6Decay);++value){
             const auto candidate=static_cast<ModTarget>(value);
             if(!linkTargetUsed(*p,candidate,source)){target=candidate;break;}
         }

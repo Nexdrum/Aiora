@@ -10,7 +10,7 @@
 
 namespace aiora {
 
-enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise };
+enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise, Hiss };
 enum class FilterType : uint8_t { Lowpass, Highpass, Bandpass };
 enum class LfoTarget : uint8_t { None, Pitch, Filter, Amp };
 enum class ModTarget : uint8_t {
@@ -19,7 +19,8 @@ enum class ModTarget : uint8_t {
     FilterAttack, FilterDecay, FilterSustain, FilterRelease,
     Op1, Op2, Op3, Op4, Op5, Op6,
     Morph1, Morph2, Morph3, Morph4, Morph5, Morph6,
-    Fm, LfoAmount, LfoRate, Unison, Volume
+    Fm, LfoAmount, LfoRate, Unison, Volume,
+    Op1Decay, Op2Decay, Op3Decay, Op4Decay, Op5Decay, Op6Decay
 };
 
 struct Envelope { float attack{0.008f}, decay{0.12f}, sustain{0.85f}, release{0.25f}; };

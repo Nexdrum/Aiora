@@ -106,21 +106,9 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
-    cymbalNoiseState_.fill(0.0f);
-    cymbalNoiseAlpha_.fill(1.0f);
-    if(patch_.cymbalModel){
-        // For cymbals, pitch/detune colors the noise spectrum rather than
-        // shifting a harmonic oscillator. Each operator has its own filter.
-        for(size_t i=0;i<patch_.ops.size();++i){
-            const auto& op=patch_.ops[i];
-            if(!op.enabled||op.wave!=Wave::Noise)continue;
-            const float note=static_cast<float>(midi_)+patch_.octave*12+
-                op.semitoneOffset+op.detuneCents*.01f;
-            const float spectralHz=midiHz(note)*op.ratio*8.5f;
-            const float cutoff=std::clamp(spectralHz,600.0f,sampleRate_*.42f);
-            cymbalNoiseAlpha_[i]=1.0f-std::exp(-kTwoPi*cutoff/sampleRate_);
-        }
-    }
+    // Every operator can select Hiss. Its pitch-responsive noise filter
+    // has independent state; ordinary Noise always remains raw white noise.
+    for(auto& pair:hissState_)pair.fill(0.0f);
     cymbalTailGain_=1.0f;
     // Strong crash hits retain chaotic energy longer than light taps,
     // but the mixed metallic tail remains short and controlled.
@@ -157,12 +145,10 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     }
     for(size_t i=0;i<6;++i){
         Envelope shape=patch_.ops[i].env;
-        if(patch_.cymbalModel==1&&patch_.ops[i].wave==Wave::Noise&&(i==0||i==1)){
-            // V determines the wash length at the instant of impact.
-            const float washLength=.32f+1.55f*std::pow(v0,1.3f);
-            shape.decay=std::max(.005f,shape.decay*washLength);
-            shape.release=std::max(.005f,shape.release*washLength);
-        }
+        // Per-operator decay links are the editable replacement for the
+        // old crash-only velocity envelope. Sample at note-on as with ADSR.
+        const auto target=static_cast<ModTarget>(static_cast<int>(ModTarget::Op1Decay)+static_cast<int>(i));
+        shape.decay=std::max(.005f,slotValue(target,v0,mMean,shape.decay));
         opEnv_[i].reset(shape,sampleRate_);
     }
     Envelope a=patch_.amp,f=patch_.filter.env;
@@ -180,11 +166,15 @@ void SpectrachordVoice::release() noexcept {if(!active_)return;autoRelease_=fals
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
 
 float SpectrachordVoice::noise() noexcept {uint32_t x=rng_;x^=x<<13;x^=x>>17;x^=x<<5;rng_=x;return static_cast<float>(x)/2147483648.0f-1.0f;}
-float SpectrachordVoice::cymbalNoiseSample(size_t index) noexcept {
-    // Independent, differently colored noise bands blend into a smoother
-    // cymbal hiss. The noise path of non-cymbal instruments is unchanged.
-    float& filtered=cymbalNoiseState_[index];
-    filtered+=cymbalNoiseAlpha_[index]*(noise()-filtered);
+float SpectrachordVoice::hissSample(size_t index,int unisonVoice,float pitchHz) noexcept {
+    // Lowpass-shaped white noise: pitch, ratio, semitone, bend and detune
+    // set the spectral bandwidth. It works on ANY patch, not cymbals only.
+    // The coefficient is algebraic for cheap, continuous pitch response.
+    const float cutoff=std::clamp(pitchHz*8.5f,100.0f,sampleRate_*0.42f);
+    const float omega=kTwoPi*cutoff;
+    const float alpha=omega/(omega+sampleRate_);
+    float& filtered=hissState_[index][static_cast<size_t>(unisonVoice)];
+    filtered+=alpha*(noise()-filtered);
     return filtered;
 }
 float SpectrachordVoice::opLevel(size_t i,float v,float m) const noexcept {
@@ -261,8 +251,8 @@ float SpectrachordVoice::render() noexcept {
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
-            opSum+=(P.cymbalModel&&op.wave==Wave::Noise)
-                ?cymbalNoiseSample(i)
+            opSum+=op.wave==Wave::Hiss
+                ?hissSample(i,u,f)
                 :waveSample(op,ph,morphValue(i,expressionV,m));
             ph+=kTwoPi*f/sampleRate_;
             if(ph>=kTwoPi)ph-=kTwoPi;
