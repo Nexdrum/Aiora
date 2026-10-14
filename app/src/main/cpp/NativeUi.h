@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "AioraTypes.h"
+
 namespace aiora {
 
 enum class NativePage : int {
