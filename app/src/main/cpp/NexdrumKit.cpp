@@ -61,10 +61,10 @@ Patch pad1() {
     drumOp(p,2,Wave::Custom,1.0f,.19f,.001f,.85f,.86f);
     // Ride tick and its paired noise band differ by four semitones.
     p.ops[0].semitoneOffset=-2.0f;
-    p.ops[3].semitoneOffset=2.0f;
     p.ops[2].hasHarm=true;
     p.ops[2].harm={.06f,.12f,.09f,.66f,.10f,.58f,.06f,.4f,.04f,.27f,.03f,.2f,.02f,.15f,.01f,.09f};
     drumOp(p,3,Wave::Noise,1.0f,.23f,.0005f,.075f,.065f);
+    p.ops[3].semitoneOffset=2.0f;
     drumOp(p,4,Wave::Sine,4.17f,.13f,.001f,.82f,.85f);
     drumOp(p,5,Wave::Sine,5.68f,.065f,.001f,.69f,.65f);
     p.cymbalModel=2;p.timpaniMembrane=true;
