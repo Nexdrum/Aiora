@@ -20,7 +20,7 @@ int main(){
     const auto nebular=makeFactoryPatch(FactoryPreset::Nebular);
     const auto spectrello=makeFactoryPatch(FactoryPreset::Spectrello);
     const auto subula=makeFactoryPatch(FactoryPreset::Subula);
-    const auto hasTarget=[](const auto& slots,ModTarget target){
+    const auto hasInstrumentTarget=[](const auto& slots,ModTarget target){
         for(const auto& slot:slots)if(slot.target==target)return true;
         return false;
     };
@@ -37,23 +37,23 @@ int main(){
         assert(restored.modSlotCount==patch->modSlotCount);
         assert(restored.velocitySlotCount==patch->velocitySlotCount);
     }
-    assert(hasTarget(nebular.modSlots,ModTarget::AmpDecay));
-    assert(hasTarget(nebular.modSlots,ModTarget::AmpSustain));
-    assert(hasTarget(nebular.modSlots,ModTarget::AmpRelease));
-    assert(hasTarget(nebular.modSlots,ModTarget::Morph1));
-    assert(hasTarget(nebular.modSlots,ModTarget::Cutoff));
-    assert(hasTarget(nebular.velocitySlots,ModTarget::Op3));
-    assert(hasTarget(nebular.velocitySlots,ModTarget::Op2));
-    assert(hasTarget(subula.modSlots,ModTarget::AmpDecay));
-    assert(hasTarget(subula.modSlots,ModTarget::AmpSustain));
-    assert(hasTarget(subula.modSlots,ModTarget::AmpRelease));
-    assert(hasTarget(subula.modSlots,ModTarget::Cutoff));
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpDecay));
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpSustain));
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpRelease));
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Morph1));
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Cutoff));
+    assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op3));
+    assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op2));
+    assert(hasInstrumentTarget(subula.modSlots,ModTarget::AmpDecay));
+    assert(hasInstrumentTarget(subula.modSlots,ModTarget::AmpSustain));
+    assert(hasInstrumentTarget(subula.modSlots,ModTarget::AmpRelease));
+    assert(hasInstrumentTarget(subula.modSlots,ModTarget::Cutoff));
     assert(subula.ops[0].wave==Wave::Saw);
     assert(subula.ops[1].wave==Wave::Saw);
-    assert(hasTarget(spectrello.modSlots,ModTarget::Morph1));
-    assert(hasTarget(spectrello.modSlots,ModTarget::Op5));
-    assert(hasTarget(spectrello.modSlots,ModTarget::Op6));
-    assert(hasTarget(spectrello.velocitySlots,ModTarget::AmpAttack));
+    assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Morph1));
+    assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Op5));
+    assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Op6));
+    assert(hasInstrumentTarget(spectrello.velocitySlots,ModTarget::AmpAttack));
 
     // M selects a palm-muted *note articulation* at its onset.
     // Short amp decay and zero sustain must make the note percussive
