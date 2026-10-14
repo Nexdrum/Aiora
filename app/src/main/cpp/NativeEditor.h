@@ -50,7 +50,7 @@ private:
         SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
         FxGroup, FilterType, LfoTarget, PatchParam,
-        ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd
+        LinkSourceV, LinkSourceM, ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd
     };
     struct Hit {
         HitKind kind{HitKind::None};
@@ -87,6 +87,7 @@ private:
     [[nodiscard]] Rect filterTypeRect(int index) const noexcept;
     [[nodiscard]] Rect lfoTargetRect(int index) const noexcept;
     [[nodiscard]] Rect fxSliderRect(int row,int rowCount,bool hasChoiceRow) const noexcept;
+    [[nodiscard]] Rect linkSourceRect(LinkSource source) const noexcept;
     [[nodiscard]] Rect modRowRect(int slot) const noexcept;
     [[nodiscard]] Rect modPartRect(int slot,int part) const noexcept;
     [[nodiscard]] Rect modAddRect() const noexcept;
@@ -122,6 +123,7 @@ private:
     int selectedOperator_{0};
     bool matrixMode_{false};
     int fxGroup_{0};
+    LinkSource linkSource_{LinkSource::Mod};
     float synthScrollY_{0.0f};
     float fxScrollY_{0.0f};
     bool scrolling_{false};

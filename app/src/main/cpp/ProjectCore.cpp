@@ -807,62 +807,87 @@ bool ProjectCore::setSelectedPatchParam(PatchParam param,float value){
     return true;
 }
 
-int ProjectCore::selectedModSlotCount() const {
-    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();return p?static_cast<int>(p->modSlotCount):0;
+
+namespace {
+bool linkTargetUsed(const Patch& p,ModTarget t,LinkSource source,int skipIndex=-1) {
+    auto contains=[&](const std::vector<ModSlot>& slots,size_t count,LinkSource group){
+        for(size_t i=0;i<count&&i<slots.size();++i)
+            if(!(group==source&&static_cast<int>(i)==skipIndex)&&slots[i].target==t)return true;
+        return false;
+    };
+    return contains(p.modSlots,p.modSlotCount,LinkSource::Mod)||
+           contains(p.velocitySlots,p.velocitySlotCount,LinkSource::Velocity);
 }
-ModSlot ProjectCore::selectedModSlot(int slotIndex) const {
-    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0||
-       slotIndex>=static_cast<int>(p->modSlotCount)||
-       slotIndex>=static_cast<int>(p->modSlots.size()))return {};
-    return p->modSlots[slotIndex];
-}
-bool ProjectCore::addSelectedModSlot(ModTarget target){
-    std::scoped_lock lock(mutex_);
-    auto* p=selectedPatchUnsafe();
-    if(!p)return false;
-    p->modSlots.emplace_back();
-    const int index=static_cast<int>(p->modSlotCount++);
-    float v=0.0f;
+float baseLinkValue(const Patch& p,ModTarget target){
     switch(target){
-        case ModTarget::Cutoff:v=p->filter.cutoff;break;
-        case ModTarget::Resonance:v=p->filter.resonance;break;
-        case ModTarget::FilterEnv:v=p->filter.envAmount;break;
-        case ModTarget::AmpAttack:v=p->amp.attack;break;
-        case ModTarget::AmpDecay:v=p->amp.decay;break;
-        case ModTarget::AmpSustain:v=p->amp.sustain;break;
-        case ModTarget::AmpRelease:v=p->amp.release;break;
-        case ModTarget::FilterAttack:v=p->filter.env.attack;break;
-        case ModTarget::FilterDecay:v=p->filter.env.decay;break;
-        case ModTarget::FilterSustain:v=p->filter.env.sustain;break;
-        case ModTarget::FilterRelease:v=p->filter.env.release;break;
-        case ModTarget::Op1:v=p->ops[0].level;break;
-        case ModTarget::Op2:v=p->ops[1].level;break;
-        case ModTarget::Op3:v=p->ops[2].level;break;
-        case ModTarget::Op4:v=p->ops[3].level;break;
-        case ModTarget::Op5:v=p->ops[4].level;break;
-        case ModTarget::Op6:v=p->ops[5].level;break;
-        case ModTarget::LfoAmount:v=p->lfo.amount;break;
-        case ModTarget::LfoRate:v=p->lfo.rate;break;
-        case ModTarget::Unison:v=p->unison;break;
-        case ModTarget::Volume:v=p->volume;break;
-        default:v=0.0f;break;
+        case ModTarget::Cutoff:return p.filter.cutoff;
+        case ModTarget::Resonance:return p.filter.resonance;
+        case ModTarget::FilterEnv:return p.filter.envAmount;
+        case ModTarget::AmpAttack:return p.amp.attack;
+        case ModTarget::AmpDecay:return p.amp.decay;
+        case ModTarget::AmpSustain:return p.amp.sustain;
+        case ModTarget::AmpRelease:return p.amp.release;
+        case ModTarget::FilterAttack:return p.filter.env.attack;
+        case ModTarget::FilterDecay:return p.filter.env.decay;
+        case ModTarget::FilterSustain:return p.filter.env.sustain;
+        case ModTarget::FilterRelease:return p.filter.env.release;
+        case ModTarget::Op1:case ModTarget::Op2:case ModTarget::Op3:
+        case ModTarget::Op4:case ModTarget::Op5:case ModTarget::Op6:
+            return p.ops[static_cast<size_t>(static_cast<int>(target)-static_cast<int>(ModTarget::Op1))].level;
+        case ModTarget::LfoAmount:return p.lfo.amount;
+        case ModTarget::LfoRate:return p.lfo.rate;
+        case ModTarget::Unison:return p.unison;
+        case ModTarget::Volume:return 1.0f;
+        default:return 0.0f;
     }
-    p->modSlots[index]={target,v,v};return true;
 }
-bool ProjectCore::removeSelectedModSlot(int slotIndex){
-    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0||slotIndex>=static_cast<int>(p->modSlotCount))return false;
-    for(int i=slotIndex;i+1<static_cast<int>(p->modSlotCount);++i)p->modSlots[i]=p->modSlots[i+1];
-    if(p->modSlotCount>0)--p->modSlotCount;
-    p->modSlots.pop_back();return true;
 }
-bool ProjectCore::setSelectedModSlot(int slotIndex,ModTarget target,float minValue,float maxValue){
+int ProjectCore::selectedModSlotCount(LinkSource source) const {
+    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();
+    return p?static_cast<int>(source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount):0;
+}
+ModSlot ProjectCore::selectedModSlot(int slotIndex,LinkSource source) const {
+    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();
+    if(!p||slotIndex<0)return {};
+    const auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
+    const size_t count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
+    if(static_cast<size_t>(slotIndex)>=count||static_cast<size_t>(slotIndex)>=slots.size())return {};
+    return slots[static_cast<size_t>(slotIndex)];
+}
+bool ProjectCore::addSelectedModSlot(ModTarget target,LinkSource source){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0||
-       slotIndex>=static_cast<int>(p->modSlotCount)||
-       slotIndex>=static_cast<int>(p->modSlots.size()))return false;
-    p->modSlots[slotIndex]={target,clampModValue(target,minValue),clampModValue(target,maxValue)};return true;
+    if(!p)return false;
+    if(target==ModTarget::None||linkTargetUsed(*p,target,source)){
+        target=ModTarget::None;
+        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::Volume);++value){
+            const auto candidate=static_cast<ModTarget>(value);
+            if(!linkTargetUsed(*p,candidate,source)){target=candidate;break;}
+        }
+        if(target==ModTarget::None)return false;
+    }
+    auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
+    auto& count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
+    const float value=baseLinkValue(*p,target);
+    slots.push_back({target,value,value});count=slots.size();
+    return true;
+}
+bool ProjectCore::removeSelectedModSlot(int slotIndex,LinkSource source){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
+    if(!p||slotIndex<0)return false;
+    auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
+    auto& count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
+    if(static_cast<size_t>(slotIndex)>=count||static_cast<size_t>(slotIndex)>=slots.size())return false;
+    slots.erase(slots.begin()+slotIndex);count=slots.size();return true;
+}
+bool ProjectCore::setSelectedModSlot(int slotIndex,ModTarget target,float minValue,float maxValue,LinkSource source){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
+    if(!p||slotIndex<0||target==ModTarget::None)return false;
+    auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
+    const size_t count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
+    if(static_cast<size_t>(slotIndex)>=count||static_cast<size_t>(slotIndex)>=slots.size())return false;
+    if(target!=slots[static_cast<size_t>(slotIndex)].target&&linkTargetUsed(*p,target,source,slotIndex))return false;
+    slots[static_cast<size_t>(slotIndex)]={target,clampModValue(target,minValue),clampModValue(target,maxValue)};
+    return true;
 }
 
 } // namespace aiora

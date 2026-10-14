@@ -322,10 +322,10 @@ NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
 
     float height=heights[clamped];
     if(clamped==3){
-        const int count=ProjectCore::instance().selectedModSlotCount();
+        const int count=ProjectCore::instance().selectedModSlotCount(linkSource_);
         height=std::max(
             650.0f,
-            176.0f+112.0f*static_cast<float>(std::max(0,count)));
+            262.0f+112.0f*static_cast<float>(std::max(0,count)));
     }
 
     return {
@@ -371,11 +371,17 @@ NativeEditor::Rect NativeEditor::fxSliderRect(int row,int,bool) const noexcept {
     return fxSectionParamRect(std::clamp(fxGroup_,0,2),row);
 }
 
+NativeEditor::Rect NativeEditor::linkSourceRect(LinkSource source) const noexcept {
+    const auto card=fxGroupRect(3);
+    const float w=(card.w-50.0f)*0.5f;
+    return {card.x+20.0f+(source==LinkSource::Mod?w+10.0f:0.0f),
+        card.y+70.0f,w,56.0f};
+}
 NativeEditor::Rect NativeEditor::modRowRect(int slot) const noexcept {
     const auto card=fxGroupRect(3);
     return {
         card.x+20.0f,
-        card.y+76.0f+slot*112.0f,
+        card.y+146.0f+slot*112.0f,
         card.w-40.0f,
         96.0f
     };
@@ -863,7 +869,7 @@ void NativeEditor::renderFx() const noexcept {
     auto& ov=NativeOverlay::instance();
 
     static constexpr const char* kTitles[4]={
-        "Filter","Amp envelope","LFO / FX","Mod (M line)"};
+        "Filter","Amp envelope","LFO / FX","Expression links"};
 
     const auto shortValue=[](float v){
         std::string s=std::to_string(v);
@@ -984,18 +990,30 @@ void NativeEditor::renderFx() const noexcept {
             overlayColor(kWhite));
     }
 
-    // Mod M-line
+    // V/M share the target vocabulary; each target has one routing owner.
     drawSection(3);
     auto& project=ProjectCore::instance();
-    const int count=project.selectedModSlotCount();
+    const auto velocityTab=linkSourceRect(LinkSource::Velocity);
+    const auto modTab=linkSourceRect(LinkSource::Mod);
+    drawButton(velocityTab,linkSource_==LinkSource::Velocity,kCyan);
+    drawButton(modTab,linkSource_==LinkSource::Mod,kPurple);
+    ov.addTextCentered(
+        "V - Velocity ("+std::to_string(project.selectedModSlotCount(LinkSource::Velocity))+")",
+        {velocityTab.x,velocityTab.y,velocityTab.w,velocityTab.h},
+        0.85f,overlayColor(kWhite));
+    ov.addTextCentered(
+        "M - Mod ("+std::to_string(project.selectedModSlotCount(LinkSource::Mod))+")",
+        {modTab.x,modTab.y,modTab.w,modTab.h},
+        0.85f,overlayColor(kWhite));
+    const int count=project.selectedModSlotCount(linkSource_);
     for(int slot=0;slot<count;++slot){
-        const auto s=project.selectedModSlot(slot);
+        const auto s=project.selectedModSlot(slot,linkSource_);
         const auto row=modRowRect(slot);
         fillRect(row,mix(kPanel,kButton,0.18f));
 
         const auto label=modPartRect(slot,0);
         ov.addTextCentered(
-            "M"+std::to_string(slot+1),
+            (linkSource_==LinkSource::Velocity?"V":"M")+std::to_string(slot+1),
             {label.x,label.y,label.w,label.h},
             0.82f,overlayColor(kWhite));
 
@@ -1106,21 +1124,36 @@ bool NativeEditor::openDropdownAt(
 
     auto& project=ProjectCore::instance();
     const int count=project.selectedModSlotCount();
-    static const std::vector<std::string> modNames{
-        "CUTOFF","RESO","FENV",
-        "A ATK","A DEC","A SUS","A REL",
-        "F ATK","F DEC","F SUS","F REL",
-        "OP1","OP2","OP3","OP4","OP5","OP6",
-        "MORPH1","MORPH2","MORPH3","MORPH4","MORPH5","MORPH6",
-        "FM","LFO A","LFO R","UNI","VOL"};
+    // Avoid offering a target already owned by any other V or M route.
+    // Current selection remains available for editing older patches.
+    const auto availableTargets=[](const Patch& patch,ModTarget current){
+        std::vector<ModTarget> available;
+        for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::Volume);++i){
+            const auto target=static_cast<ModTarget>(i);
+            bool used=false;
+            if(target!=current){
+                for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)
+                    used|=patch.modSlots[j].target==target;
+                for(size_t j=0;j<patch.velocitySlotCount&&j<patch.velocitySlots.size();++j)
+                    used|=patch.velocitySlots[j].target==target;
+            }
+            if(!used)available.push_back(target);
+        }
+        return available;
+    };
     for(int slot=0;slot<count;++slot){
         const auto rr=modPartRect(slot,1);
         if(!rr.contains(x,y))continue;
-        const auto s=project.selectedModSlot(slot);
-        const int selected=std::clamp(static_cast<int>(s.target)-1,0,
-            static_cast<int>(modNames.size())-1);
+        const auto s=project.selectedModSlot(slot,linkSource_);
+        const auto available=availableTargets(p,s.target);
+        std::vector<std::string> names;
+        int selected=0;
+        for(size_t i=0;i<available.size();++i){
+            names.emplace_back(modTargetName(available[i]));
+            if(available[i]==s.target)selected=static_cast<int>(i);
+        }
         ui.openDropdown(
-            DropdownKind::ModTarget,slot,anchor(rr),selected,modNames);
+            DropdownKind::ModTarget,slot,anchor(rr),selected,names);
         return true;
     }
 
@@ -1147,13 +1180,27 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
                 static_cast<LfoTarget>(choice.option));
 
         case DropdownKind::ModTarget:{
-            if(choice.context<0||choice.context>=project.selectedModSlotCount()||
-               choice.option<0||choice.option>=28)return false;
-            const auto target=static_cast<ModTarget>(choice.option+1);
+            if(choice.context<0||choice.context>=project.selectedModSlotCount(linkSource_)||
+               choice.option<0)return false;
+            const Patch patch=project.selectedPatch();
+            const ModTarget current=project.selectedModSlot(choice.context,linkSource_).target;
+            std::vector<ModTarget> available;
+            for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::Volume);++i){
+                const auto target=static_cast<ModTarget>(i);
+                bool used=false;
+                if(target!=current){
+                    for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)
+                        used|=patch.modSlots[j].target==target;
+                    for(size_t j=0;j<patch.velocitySlotCount&&j<patch.velocitySlots.size();++j)
+                        used|=patch.velocitySlots[j].target==target;
+                }
+                if(!used)available.push_back(target);
+            }
+            if(static_cast<size_t>(choice.option)>=available.size())return false;
+            const auto target=available[static_cast<size_t>(choice.option)];
             const auto rr=modRange(target);
             const float mid=(rr.lo+rr.hi)*0.5f;
-            return project.setSelectedModSlot(
-                choice.context,target,mid,mid);
+            return project.setSelectedModSlot(choice.context,target,mid,mid,linkSource_);
         }
 
         default:
@@ -1263,7 +1310,11 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
     }
 
     auto& project=ProjectCore::instance();
-    const int count=project.selectedModSlotCount();
+    if(linkSourceRect(LinkSource::Velocity).contains(x,y))
+        return Hit{HitKind::LinkSourceV,-1,-1,linkSourceRect(LinkSource::Velocity)};
+    if(linkSourceRect(LinkSource::Mod).contains(x,y))
+        return Hit{HitKind::LinkSourceM,-1,-1,linkSourceRect(LinkSource::Mod)};
+    const int count=project.selectedModSlotCount(linkSource_);
     for(int slot=0;slot<count;++slot){
         const auto targetRect=modPartRect(slot,1);
         if(targetRect.contains(x,y))
@@ -1388,32 +1439,43 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
                 param,denormalized(controlNx,patchRange(param)));
         }
 
+        case HitKind::LinkSourceV:linkSource_=LinkSource::Velocity;return false;
+        case HitKind::LinkSourceM:linkSource_=LinkSource::Mod;return false;
         case HitKind::ModTargetPrev:
         case HitKind::ModTargetNext:{
-            const auto s=project.selectedModSlot(hit.a);
+            const auto s=project.selectedModSlot(hit.a,linkSource_);
             const int dir=hit.kind==HitKind::ModTargetNext?1:-1;
-            const auto target=cycleModTarget(s.target,dir);
+            auto target=s.target;
+            const auto patch=project.selectedPatch();
+            for(int attempt=0;attempt<28;++attempt){
+                target=cycleModTarget(target,dir);
+                bool used=false;
+                for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)
+                    used|=patch.modSlots[j].target==target;
+                for(size_t j=0;j<patch.velocitySlotCount&&j<patch.velocitySlots.size();++j)
+                    used|=patch.velocitySlots[j].target==target;
+                if(!used)break;
+            }
             const auto rr=modRange(target);
             const float mid=(rr.lo+rr.hi)*0.5f;
-            return project.setSelectedModSlot(
-                hit.a,target,mid,mid);
+            return project.setSelectedModSlot(hit.a,target,mid,mid,linkSource_);
         }
 
         case HitKind::ModMin:
         case HitKind::ModMax:{
-            const auto s=project.selectedModSlot(hit.a);
+            const auto s=project.selectedModSlot(hit.a,linkSource_);
             const auto rr=modRange(s.target);
             const float v=denormalized(nx,rr);
             return hit.kind==HitKind::ModMin
-                ?project.setSelectedModSlot(hit.a,s.target,v,s.max)
-                :project.setSelectedModSlot(hit.a,s.target,s.min,v);
+                ?project.setSelectedModSlot(hit.a,s.target,v,s.max,linkSource_)
+                :project.setSelectedModSlot(hit.a,s.target,s.min,v,linkSource_);
         }
 
         case HitKind::ModDelete:
-            return project.removeSelectedModSlot(hit.a);
+            return project.removeSelectedModSlot(hit.a,linkSource_);
 
         case HitKind::ModAdd:
-            return project.addSelectedModSlot(ModTarget::Cutoff);
+            return project.addSelectedModSlot(ModTarget::Cutoff,linkSource_);
 
         case HitKind::None:
             return false;

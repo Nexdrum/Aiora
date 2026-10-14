@@ -18,6 +18,9 @@ void drumReset(Patch& p) {
 void drumMods(Patch& p,std::initializer_list<ModSlot> slots) {
     p.modSlots.assign(slots);p.modSlotCount=p.modSlots.size();
 }
+void drumVelocity(Patch& p,std::initializer_list<ModSlot> slots) {
+    p.velocitySlots.assign(slots);p.velocitySlotCount=p.velocitySlots.size();
+}
 Patch pad0() {
     Patch p=makeDefaultPatch("Cymbal - Crash / Choke");
     drumReset(p);
@@ -36,9 +39,9 @@ Patch pad0() {
     // M sweeps an open crash into a faster choke and darker attack.
     drumMods(p,{{ModTarget::Op1,.62f,.25f},
                 {ModTarget::Op2,.28f,.08f},
-                {ModTarget::Op4,.39f,.12f},
                 {ModTarget::Cutoff,950.0f,1600.0f},
                 {ModTarget::AmpRelease,2.45f,.09f}});
+    drumVelocity(p,{{ModTarget::Op4,.055f,.37f}});
     p.fx={0.0f,0.0f,.32f,0.0f,.095f};
     p.volume=.61f;p.fundamentalMidi=80;
     return p;
@@ -65,6 +68,7 @@ Patch pad1() {
                 {ModTarget::Op3,.22f,.06f},
                 {ModTarget::Cutoff,820.0f,1600.0f},
                 {ModTarget::AmpRelease,2.05f,.10f}});
+    drumVelocity(p,{{ModTarget::Op4,.025f,.10f},{ModTarget::Op5,.018f,.13f}});
     p.fx={0.0f,0.0f,.32f,0.0f,.08f};
     p.volume=.64f;p.fundamentalMidi=73;
     return p;
@@ -86,6 +90,7 @@ Patch pad2() {
     p.modSlots[0]={ModTarget::Cutoff,900.0f,380.0f};
     p.modSlots[1]={ModTarget::AmpRelease,0.15f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
+    drumVelocity(p,{{ModTarget::Op3,.035f,.18f}});
     p.fx={0.0f,0.0f,0.32f,0.0f,0.15f};
     p.unison=0.0f; p.glide=0.0f; p.octave=0.0f; p.volume=0.8f;
     p.fundamentalMidi=66;
@@ -104,10 +109,11 @@ Patch pad3() {
     p.amp={.001f,.20f,0.0f,.115f};
     p.velocityAmp=.70f;p.velocityFilter=.18f;
     p.timpaniMembrane=true;
-    drumMods(p,{{ModTarget::Op3,.22f,.69f},
-                {ModTarget::Op4,.10f,.42f},
-                {ModTarget::Op1,.72f,.38f},
+    drumMods(p,{{ModTarget::Op1,.72f,.38f},
                 {ModTarget::AmpRelease,.13f,.045f}});
+    drumVelocity(p,{{ModTarget::Op3,.08f,.58f},
+                    {ModTarget::Op4,.025f,.33f},
+                    {ModTarget::Op2,.075f,.18f}});
     p.fx={0.0f,0.0f,.32f,0.0f,.07f};
     p.volume=.69f;p.fundamentalMidi=59;
     return p;
@@ -129,6 +135,7 @@ Patch pad4() {
     p.modSlots[0]={ModTarget::Cutoff,1400.0f,560.0f};
     p.modSlots[1]={ModTarget::AmpRelease,0.22f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
+    drumVelocity(p,{{ModTarget::Op3,.045f,.22f}});
     p.fx={0.0f,0.0f,0.32f,0.0f,0.2f};
     p.unison=0.0f; p.glide=0.0f; p.octave=0.0f; p.volume=0.85f;
     p.fundamentalMidi=52;
@@ -151,6 +158,7 @@ Patch pad5() {
     p.modSlots[0]={ModTarget::Cutoff,5000.0f,2000.0f};
     p.modSlots[1]={ModTarget::AmpRelease,1.0f,0.05f};
     p.modSlots[2]={ModTarget::Volume,1.0f,0.7f};
+    drumVelocity(p,{{ModTarget::Op3,.035f,.29f}});
     p.fx={0.0f,0.0f,0.32f,0.0f,0.35f};
     p.unison=0.0f; p.glide=0.0f; p.octave=0.0f; p.volume=0.75f;
     p.fundamentalMidi=45;
@@ -171,11 +179,11 @@ Patch pad6() {
     p.amp={.0005f,.165f,0.0f,.075f};
     p.velocityAmp=.78f;p.velocityFilter=.12f;
     // M raises hard-plastic beater click and tightens note release.
-    drumMods(p,{{ModTarget::Op3,.14f,.66f},
-                {ModTarget::Op4,.07f,.30f},
-                {ModTarget::Op5,.08f,.28f},
-                {ModTarget::AmpRelease,.095f,.037f},
+    drumMods(p,{{ModTarget::AmpRelease,.095f,.037f},
                 {ModTarget::Cutoff,4900.0f,10200.0f}});
+    drumVelocity(p,{{ModTarget::Op3,.05f,.45f},
+                    {ModTarget::Op4,.02f,.19f},
+                    {ModTarget::Op5,.025f,.18f}});
     p.fx={0.0f,0.0f,.32f,0.0f,.012f};
     p.volume=.88f;p.fundamentalMidi=38;
     return p;

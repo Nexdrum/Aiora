@@ -76,15 +76,35 @@ void SpectrachordVoice::prepare(float sr) noexcept {sampleRate_=std::max(8000.0f
 float SpectrachordVoice::mappedValue(ModTarget target,float m,float fallback) const noexcept {
     for(size_t i=0;patch_.modSlots&&i<patch_.modSlotCount&&i<patch_.modSlots->size();++i){const auto&s=(*patch_.modSlots)[i];if(s.target==target)return s.min+(s.max-s.min)*clamp01(m);}return fallback;
 }
-float SpectrachordVoice::slotValue(ModTarget target,float m,float fallback) const noexcept {return modActive_?mappedValue(target,m,fallback):fallback;}
+bool SpectrachordVoice::velocityOwns(ModTarget target) const noexcept {
+    for(size_t i=0;patch_.velocitySlots&&i<patch_.velocitySlotCount&&i<patch_.velocitySlots->size();++i)
+        if((*patch_.velocitySlots)[i].target==target)return true;
+    return false;
+}
+float SpectrachordVoice::slotValue(ModTarget target,float v,float m,float fallback) const noexcept {
+    // Existing M routes retain priority if malformed input assigns both sources.
+    if(modActive_ && patch_.modSlots)
+        for(size_t i=0;i<patch_.modSlotCount&&i<patch_.modSlots->size();++i)
+            if((*patch_.modSlots)[i].target==target)return mappedValue(target,m,fallback);
+    if(patch_.velocitySlots)
+        for(size_t i=0;i<patch_.velocitySlotCount&&i<patch_.velocitySlots->size();++i){
+            const auto& s=(*patch_.velocitySlots)[i];
+            if(s.target==target)return s.min+(s.max-s.min)*clamp01(v);
+        }
+    return fallback;
+}
 
 void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
     id_=id;patch_=patch;midi_=midi;velocity_=clamp01(pressure);active_=true;automation_=automation;
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
     modActive_=automation_.mod.count>0;velocityCurveActive_=automation_.velocity.count>0;
     const float m0=curveValue(automation_.mod,0,0),mEnd=automation_.mod.count?automation_.mod.points[automation_.mod.count-1].value:0,mMean=curveMean(automation_.mod,0);
-    modValue_=m0;timpaniRingGain_=1.0f;fixedUnison_=modActive_?clamp01(mappedValue(ModTarget::Unison,mMean,patch_.unison)):patch_.unison;
-    fixedFilterEnvAmount_=modActive_?clamp01(mappedValue(ModTarget::FilterEnv,mMean,patch_.filter.envAmount)):patch_.filter.envAmount;
+    const float v0=clamp01(curveValue(automation_.velocity,0,velocity_));
+    const float vMean=clamp01(curveMean(automation_.velocity,velocity_));
+    const float vEnd=automation_.velocity.count?clamp01(automation_.velocity.points[automation_.velocity.count-1].value):velocity_;
+    modValue_=m0;timpaniRingGain_=1.0f;
+    fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
+    fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
     platePhase_.fill(0);plateGain_.fill(0);plateDecay_.fill(1);
     if(patch_.cymbalModel){
@@ -101,29 +121,27 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     }
     for(size_t i=0;i<6;++i)opEnv_[i].reset(patch_.ops[i].env,sampleRate_);
     Envelope a=patch_.amp,f=patch_.filter.env;
-    if(modActive_){
-        a.attack=std::max(0.0005f,mappedValue(ModTarget::AmpAttack,m0,a.attack));
-        a.decay=std::max(0.0005f,mappedValue(ModTarget::AmpDecay,mMean,a.decay));
-        a.sustain=clamp01(mappedValue(ModTarget::AmpSustain,mMean,a.sustain));
-        a.release=std::max(0.0005f,mappedValue(ModTarget::AmpRelease,mEnd,a.release));
-        f.attack=std::max(0.0005f,mappedValue(ModTarget::FilterAttack,m0,f.attack));
-        f.decay=std::max(0.0005f,mappedValue(ModTarget::FilterDecay,mMean,f.decay));
-        f.sustain=clamp01(mappedValue(ModTarget::FilterSustain,mMean,f.sustain));
-        f.release=std::max(0.0005f,mappedValue(ModTarget::FilterRelease,mEnd,f.release));
-    }
+    a.attack=std::max(0.0005f,slotValue(ModTarget::AmpAttack,v0,m0,a.attack));
+    a.decay=std::max(0.0005f,slotValue(ModTarget::AmpDecay,vMean,mMean,a.decay));
+    a.sustain=clamp01(slotValue(ModTarget::AmpSustain,vMean,mMean,a.sustain));
+    a.release=std::max(0.0005f,slotValue(ModTarget::AmpRelease,vEnd,mEnd,a.release));
+    f.attack=std::max(0.0005f,slotValue(ModTarget::FilterAttack,v0,m0,f.attack));
+    f.decay=std::max(0.0005f,slotValue(ModTarget::FilterDecay,vMean,mMean,f.decay));
+    f.sustain=clamp01(slotValue(ModTarget::FilterSustain,vMean,mMean,f.sustain));
+    f.release=std::max(0.0005f,slotValue(ModTarget::FilterRelease,vEnd,mEnd,f.release));
     ampEnv_.reset(a,sampleRate_);filterEnv_.reset(f,sampleRate_);
 }
 void SpectrachordVoice::release() noexcept {if(!active_)return;autoRelease_=false;for(auto&e:opEnv_)e.noteOff(sampleRate_);ampEnv_.noteOff(sampleRate_);filterEnv_.noteOff(sampleRate_);}
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
 
 float SpectrachordVoice::noise() noexcept {uint32_t x=rng_;x^=x<<13;x^=x>>17;x^=x<<5;rng_=x;return static_cast<float>(x)/2147483648.0f-1.0f;}
-float SpectrachordVoice::opLevel(size_t i,float m) const noexcept {
+float SpectrachordVoice::opLevel(size_t i,float v,float m) const noexcept {
     static constexpr std::array<ModTarget,6>T{ModTarget::Op1,ModTarget::Op2,ModTarget::Op3,ModTarget::Op4,ModTarget::Op5,ModTarget::Op6};
-    return std::max(0.0f,slotValue(T[i],m,patch_.ops[i].level));
+    return std::max(0.0f,slotValue(T[i],v,m,patch_.ops[i].level));
 }
-float SpectrachordVoice::morphValue(size_t i,float m) const noexcept {
+float SpectrachordVoice::morphValue(size_t i,float v,float m) const noexcept {
     static constexpr std::array<ModTarget,6>T{ModTarget::Morph1,ModTarget::Morph2,ModTarget::Morph3,ModTarget::Morph4,ModTarget::Morph5,ModTarget::Morph6};
-    return clamp01(slotValue(T[i],m,0));
+    return clamp01(slotValue(T[i],v,m,0));
 }
 float SpectrachordVoice::waveSample(const Operator& op,float phase,float morph) noexcept {
     if(op.wave==Wave::Noise)return noise();
@@ -144,8 +162,9 @@ float SpectrachordVoice::render() noexcept {
     const float velocityGain=velocityCurveActive_?velNow*velNow:1.0f;
     const DspPatch&P=patch_;const float pressure=velocity_;
     const float lvlScale=1-P.velocityAmp+P.velocityAmp*(0.15f+0.85f*pressure*pressure);
-    const float cutScale=1-P.velocityFilter+P.velocityFilter*(0.4f+0.6f*pressure);
+    const float cutScale=velocityOwns(ModTarget::Cutoff)?1.0f:1-P.velocityFilter+P.velocityFilter*(0.4f+0.6f*pressure);
     const float m=modValue_;
+    const float expressionV=velocityCurveActive_?velNow:velocity_;
     // First ~65 ms: M sets mallet attack spectral hardness. Thereafter
     // the SAME M line represents player-applied felt/head damping.
     // Damping is cumulative and irreversible, as with a real drumhead.
@@ -154,9 +173,9 @@ float SpectrachordVoice::render() noexcept {
         timpaniRingGain_*=std::exp(-damping*10.0f/sampleRate_);
     }
 
-    const float lfo=std::sin(lfoPhase_);lfoPhase_+=kTwoPi*std::max(0.05f,slotValue(ModTarget::LfoRate,m,P.lfo.rate))/sampleRate_;if(lfoPhase_>=kTwoPi)lfoPhase_-=kTwoPi;
+    const float lfo=std::sin(lfoPhase_);lfoPhase_+=kTwoPi*std::max(0.05f,slotValue(ModTarget::LfoRate,expressionV,m,P.lfo.rate))/sampleRate_;if(lfoPhase_>=kTwoPi)lfoPhase_-=kTwoPi;
     lfoAge_+=1/sampleRate_;const float lfoFade=P.lfo.attack<=0?1:std::min(1.0f,lfoAge_/P.lfo.attack);const float lfoVel=(1-P.lfo.velocitySensitivity)+P.lfo.velocitySensitivity*pressure;
-    const float lfoAmount=std::max(0.0f,slotValue(ModTarget::LfoAmount,m,P.lfo.amount))*lfoFade*lfoVel;const float pitchLfoCents=P.lfo.target==LfoTarget::Pitch?lfo*lfoAmount*60:0;
+    const float lfoAmount=std::max(0.0f,slotValue(ModTarget::LfoAmount,expressionV,m,P.lfo.amount))*lfoFade*lfoVel;const float pitchLfoCents=P.lfo.target==LfoTarget::Pitch?lfo*lfoAmount*60:0;
 
     const float baseMidi=static_cast<float>(midi_)+P.octave*12+bend;const float unison=clamp01(fixedUnison_);const int uniCount=unison>0.0001f?2:1;
     // A brief beater-driven membrane sweep settles at the unchanged note fundamental.
@@ -164,8 +183,9 @@ float SpectrachordVoice::render() noexcept {
         ?P.drumPitchDrop*std::exp(-static_cast<float>(elapsedSamples_)/(sampleRate_*P.drumPitchDropSeconds)):0.0f;
     std::array<float,6>now{};
     for(size_t i=0;i<6;++i){
-        const auto&op=P.ops[i];if(!op.enabled||op.level<=0.001f){opEnv_[i].next(sampleRate_);continue;}
-        const float env=opEnv_[i].next(sampleRate_),level=opLevel(i,m)*env;
+        const auto&op=P.ops[i];if(!op.enabled){opEnv_[i].next(sampleRate_);continue;}
+        const float env=opEnv_[i].next(sampleRate_),level=opLevel(i,expressionV,m)*env;
+        if(level<=0.000001f)continue;
         const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
         float fmHz=0;
         // Bend has no artificial semitone ceiling. The physical output
@@ -174,7 +194,7 @@ float SpectrachordVoice::render() noexcept {
         const float maxHz=sampleRate_*0.49f;
         const float baseF=std::isfinite(unboundedBase)
             ?std::clamp(unboundedBase,0.001f,maxHz):maxHz;
-        const float fmScale=std::max(0.0f,slotValue(ModTarget::Fm,m,1));
+        const float fmScale=std::max(0.0f,slotValue(ModTarget::Fm,expressionV,m,1));
         for(size_t mod=0;mod<6;++mod)
             fmHz+=lastOp_[mod]*P.matrix[mod][i]*baseF*2.5f*fmScale;
         float opSum=0;
@@ -185,7 +205,7 @@ float SpectrachordVoice::render() noexcept {
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
-            opSum+=waveSample(op,ph,morphValue(i,m));
+            opSum+=waveSample(op,ph,morphValue(i,expressionV,m));
             ph+=kTwoPi*f/sampleRate_;
             if(ph>=kTwoPi)ph-=kTwoPi;
         }
@@ -210,9 +230,9 @@ float SpectrachordVoice::render() noexcept {
         }
         sum+=plate*(P.cymbalModel==2?0.78f:1.0f);
     }
-    const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
-    if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
-    const float amp=ampEnv_.next(sampleRate_)*lvlScale;if(ampEnv_.done()){active_=false;return 0;}float gain=std::max(0.0f,slotValue(ModTarget::Volume,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);
+    const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,expressionV,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
+    if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,expressionV,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
+    const float amp=ampEnv_.next(sampleRate_)*lvlScale;if(ampEnv_.done()){active_=false;return 0;}float gain=std::max(0.0f,slotValue(ModTarget::Volume,expressionV,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);
     ++elapsedSamples_;return filtered*amp*gain*P.volume*velocityGain*(P.timpaniMembrane?timpaniRingGain_:1.0f);
 }
 

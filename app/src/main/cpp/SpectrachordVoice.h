@@ -55,9 +55,10 @@ private:
     float noise() noexcept;
     float waveSample(const Operator& op, float phase, float morph) noexcept;
     float mappedValue(ModTarget target, float m, float fallback) const noexcept;
-    float slotValue(ModTarget target, float m, float fallback) const noexcept;
-    float opLevel(size_t index, float m) const noexcept;
-    float morphValue(size_t index, float m) const noexcept;
+    float slotValue(ModTarget target, float v, float m, float fallback) const noexcept;
+    bool velocityOwns(ModTarget target) const noexcept;
+    float opLevel(size_t index, float v, float m) const noexcept;
+    float morphValue(size_t index, float v, float m) const noexcept;
 
     bool active_{false};
     int32_t id_{-1};

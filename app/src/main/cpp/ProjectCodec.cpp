@@ -367,7 +367,17 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"attack\":");w.number(p.filter.env.attack);w.raw(",\"decay\":");w.number(p.filter.env.decay);w.raw(",\"sustain\":");w.number(p.filter.env.sustain);w.raw(",\"release\":");w.number(p.filter.env.release);w.raw("}");
     w.raw(",\"amp\":{\"attack\":");w.number(p.amp.attack);w.raw(",\"decay\":");w.number(p.amp.decay);w.raw(",\"sustain\":");w.number(p.amp.sustain);w.raw(",\"release\":");w.number(p.amp.release);w.raw("}");
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
-    w.raw(",\"vel\":{\"amp\":");w.number(p.velocityAmp);w.raw(",\"filter\":");w.number(p.velocityFilter);w.raw("}");
+    w.raw(",\"vel\":{\"amp\":");w.number(p.velocityAmp);w.raw(",\"filter\":");w.number(p.velocityFilter);
+    w.raw(",\"slots\":[");
+    for(size_t i=0;i<p.velocitySlotCount&&i<p.velocitySlots.size();++i){
+        if(i)w.raw(",");
+        const auto& s=p.velocitySlots[i];
+        w.raw("{\"t\":");w.string(modName(s.target));
+        w.raw(",\"min\":");w.number(s.min);
+        w.raw(",\"max\":");w.number(s.max);
+        w.raw("}");
+    }
+    w.raw("]}");
     w.raw(",\"mod\":{\"slots\":[");
     for(int i=0;
         i<static_cast<int>(p.modSlotCount)&&
@@ -473,6 +483,26 @@ bool readPatch(const Json& src,Patch& p){
             }
         }
     }
+    // Older patches omit V links. Invalid overlaps are discarded in favor
+    // of pre-existing M routes so legacy M expressions stay unchanged.
+    p.velocitySlots.clear();p.velocitySlotCount=0;
+    if(const Json* vel=src.get("vel");vel&&vel->type==Json::Type::Object)
+        if(const Json* slots=vel->get("slots");slots&&slots->type==Json::Type::Array)
+            for(const auto& js:slots->array){
+                if(js.type!=Json::Type::Object)continue;
+                const auto target=parseMod(str(js.get("t"),"none"));
+                if(target==ModTarget::None)continue;
+                const auto occupied=[&](const std::vector<ModSlot>& entries){
+                    for(const auto& s:entries)if(s.target==target)return true;
+                    return false;
+                };
+                if(occupied(p.modSlots)||occupied(p.velocitySlots))continue;
+                const auto [lo,hi]=modBounds(target);
+                p.velocitySlots.push_back({target,
+                    clampf(num(js.get("min"),lo),lo,hi,lo),
+                    clampf(num(js.get("max"),hi),lo,hi,hi)});
+            }
+    p.velocitySlotCount=p.velocitySlots.size();
     if(const Json* x=src.get("fx");x&&x->type==Json::Type::Object){p.fx.distortion=clampf(num(x->get("dist"),0),0,1,0);p.fx.delay=clampf(num(x->get("delay"),0),0,1,0);p.fx.delayTime=clampf(num(x->get("delayTime"),.32),.03f,1,.32f);p.fx.delayFeedback=clampf(num(x->get("delayFb"),.3),0,1,.3f);p.fx.reverb=clampf(num(x->get("reverb"),0),0,1,0);}
     p.unison=clampf(num(src.get("unison"),0),0,1,0);p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
     p.timpaniMembrane=boolean(src.get("timpaniMembrane"),false);

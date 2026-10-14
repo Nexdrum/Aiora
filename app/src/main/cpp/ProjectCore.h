@@ -136,11 +136,11 @@ public:
     bool setSelectedLfoTarget(LfoTarget target);
     bool setSelectedPatchParam(PatchParam param, float value);
 
-    int selectedModSlotCount() const;
-    ModSlot selectedModSlot(int slotIndex) const;
-    bool addSelectedModSlot(ModTarget target = ModTarget::Cutoff);
-    bool removeSelectedModSlot(int slotIndex);
-    bool setSelectedModSlot(int slotIndex, ModTarget target, float minValue, float maxValue);
+    int selectedModSlotCount(LinkSource source = LinkSource::Mod) const;
+    ModSlot selectedModSlot(int slotIndex, LinkSource source = LinkSource::Mod) const;
+    bool addSelectedModSlot(ModTarget target = ModTarget::Cutoff, LinkSource source = LinkSource::Mod);
+    bool removeSelectedModSlot(int slotIndex, LinkSource source = LinkSource::Mod);
+    bool setSelectedModSlot(int slotIndex, ModTarget target, float minValue, float maxValue, LinkSource source = LinkSource::Mod);
 
     std::unique_ptr<PlaybackSnapshot> makePlaybackSnapshot() const;
 

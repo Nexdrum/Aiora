@@ -26,6 +26,8 @@ int main(){
 
     Patch marimba=makeFactoryPatch(FactoryPreset::Marimba);
     assert(marimba.ops[2].ratio>8.0f);
+    marimba.velocitySlots={{ModTarget::Op1,.08f,.5f}};
+    marimba.velocitySlotCount=marimba.velocitySlots.size();
     marimba.modSlots.assign(70,{ModTarget::Cutoff,1000.0f,5000.0f});
     marimba.modSlotCount=marimba.modSlots.size();
     assert(core.replaceSelectedPatch(marimba));
@@ -50,9 +52,16 @@ int main(){
     assert(note.bend.front().value < -12.0f);
     assert(restored.tracks.front().patch.modSlotCount==70);
     assert(restored.tracks.front().patch.modSlots.size()==70);
+    assert(restored.tracks.front().patch.velocitySlotCount==1);
+    assert(restored.tracks.front().patch.velocitySlots.front().target==ModTarget::Op1);
     assert(restored.tracks.front().patch.ops[2].ratio>8.0f);
     assert(core.replaceProject(std::move(restored)));
     assert(core.trackCount()==64);
+    // A target belongs to V or M, not both. Legacy M duplicates still load.
+    assert(!core.setSelectedModSlot(0,ModTarget::Op1,0.0f,1.0f,LinkSource::Mod));
+    assert(core.setSelectedModSlot(0,ModTarget::Cutoff,1300.0f,4700.0f,LinkSource::Mod));
+    assert(core.addSelectedModSlot(ModTarget::Op1,LinkSource::Mod));
+    assert(core.selectedModSlot(core.selectedModSlotCount()-1).target!=ModTarget::Op1);
     const auto snap=core.makePlaybackSnapshot();
     assert(snap && snap->fxBuses.size()==64);
     assert(snap->steps[0].events[0].automation.bend.count>=160);
@@ -122,6 +131,40 @@ int main(){
     assert(kitRestored.tracks[0].pads[6].patch.drumPitchDrop==kick.drumPitchDrop);
     assert(kitRestored.tracks[0].pads[0].patch.cymbalModel==1);
     assert(kitRestored.tracks[0].pads[1].patch.cymbalModel==2);
+    assert(kitRestored.tracks[0].pads[3].patch.velocitySlotCount>=2);
+    assert(kitRestored.tracks[0].pads[6].patch.velocitySlotCount>=2);
+    for(const auto& pad:kit){
+        for(const auto& vel:pad.patch.velocitySlots)
+            for(const auto& mod:pad.patch.modSlots)assert(vel.target!=mod.target);
+    }
+    // Animated velocity must influence sound beyond the original V volume.
+    Patch linked=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    for(auto& op:linked.ops){op.enabled=false;op.level=0.0f;}
+    linked.ops[0].enabled=true;linked.ops[0].level=.5f;
+    linked.ops[0].wave=Wave::Sine;linked.ops[0].env={.001f,.4f,.5f,.1f};
+    linked.ops[1].enabled=true;linked.ops[1].level=0.0f;
+    linked.ops[1].wave=Wave::Sine;linked.ops[1].ratio=2.0f;
+    linked.ops[1].env={.001f,.4f,.5f,.1f};
+    linked.amp={.001f,.4f,.5f,.1f};linked.fx={};
+    linked.velocitySlots={{ModTarget::Op2,0.0f,.8f}};
+    linked.velocitySlotCount=1;
+    VoiceAutomation animation;
+    animation.velocity.storage=std::make_shared<std::vector<DspCurvePoint>>();
+    animation.velocity.storage->push_back({0.0f,0.0f,.5f,0.0f,false});
+    animation.velocity.storage->push_back({1.0f,1.0f,.5f,0.0f,false});
+    animation.velocity.points=animation.velocity.storage->data();animation.velocity.count=2;
+    SpectrachordVoice animated,reference;
+    animated.prepare(48000.0f);reference.prepare(48000.0f);
+    animated.start(700,toDspPatch(linked),62,.8f,0,4800.0f,animation);
+    linked.velocitySlots.clear();linked.velocitySlotCount=0;
+    reference.start(700,toDspPatch(linked),62,.8f,0,4800.0f,animation);
+    float expressionDifference=0.0f;
+    for(int frame=0;frame<6000;++frame){
+        const float a=animated.render(),b=reference.render();
+        assert(std::isfinite(a)&&std::isfinite(b));
+        expressionDifference+=std::fabs(a-b);
+    }
+    assert(expressionDifference>1.0f);
     for(size_t padIndex : {size_t{0},size_t{1},size_t{3},size_t{6}}) {
         SpectrachordVoice voice;
         voice.prepare(48000.0f);
