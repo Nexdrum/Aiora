@@ -992,7 +992,7 @@ void NativeEditor::renderFx() const noexcept {
         "A","D","S","R","Volume",
         "Vel→Amp","Vel→Cut","Unison","Glide",
         "String Decay","Harm Loss","Excitation","Damping"};
-    for(int i=0;i<13;++i
+    for(int i=0;i<13;++i)
         drawParam(1,i,ampLabels[i],
             kAmpParams[static_cast<size_t>(i)],
             i<5?kCyan:kOrange);
