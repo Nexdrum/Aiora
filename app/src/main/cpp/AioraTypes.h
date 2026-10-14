@@ -20,7 +20,8 @@ enum class ModTarget : uint8_t {
     Op1, Op2, Op3, Op4, Op5, Op6,
     Morph1, Morph2, Morph3, Morph4, Morph5, Morph6,
     Fm, LfoAmount, LfoRate, Unison, Volume,
-    Op1Decay, Op2Decay, Op3Decay, Op4Decay, Op5Decay, Op6Decay
+    Op1Decay, Op2Decay, Op3Decay, Op4Decay, Op5Decay, Op6Decay,
+    StringDecay, StringHarmLoss, StringBrightness, StringDamping
 };
 
 struct Envelope { float attack{0.008f}, decay{0.12f}, sustain{0.85f}, release{0.25f}; };
@@ -51,6 +52,8 @@ struct Patch {
     Filter filter{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
     std::vector<ModSlot> modSlots{}; size_t modSlotCount{0};
     std::vector<ModSlot> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
+    // Exposed string response: zero natural decay allows bowed sustain.
+    float stringDecay{0},stringHarmLoss{0},stringBrightness{1},stringDamping{0};
     float unison{0},glide{0},octave{0},volume{0.8f};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
     bool timpaniMembrane{false};
@@ -64,6 +67,8 @@ struct DspPatch {
     Filter filter{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
     std::shared_ptr<const std::vector<ModSlot>> modSlots{}; size_t modSlotCount{0};
     std::shared_ptr<const std::vector<ModSlot>> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
+    // Exposed string response: zero natural decay allows bowed sustain.
+    float stringDecay{0},stringHarmLoss{0},stringBrightness{1},stringDamping{0};
     float unison{0},glide{0},octave{0},volume{0.8f};
     bool timpaniMembrane{false};
     float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
@@ -78,7 +83,10 @@ inline DspPatch toDspPatch(const Patch& p) {
     d.modSlotCount=p.modSlotCount;
     if(!p.velocitySlots.empty())d.velocitySlots=std::make_shared<const std::vector<ModSlot>>(p.velocitySlots);
     d.velocitySlotCount=p.velocitySlotCount;
-    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
+    d.lfo=p.lfo;d.fx=p.fx;
+    d.stringDecay=p.stringDecay;d.stringHarmLoss=p.stringHarmLoss;
+    d.stringBrightness=p.stringBrightness;d.stringDamping=p.stringDamping;
+    d.unison=p.unison;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
     d.timpaniMembrane=p.timpaniMembrane;
     d.drumPitchDrop=p.drumPitchDrop;d.drumPitchDropSeconds=p.drumPitchDropSeconds;
     d.cymbalModel=p.cymbalModel;return d;

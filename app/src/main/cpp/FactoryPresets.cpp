@@ -861,48 +861,82 @@ Patch makeFactoryPatch(FactoryPreset preset) {
     }
 
     if (preset == FactoryPreset::Spectrello) {
-        setOp(p.ops[0],Wave::Custom,1.0f,0.0f,0.85f,0.09f,0.3f,0.9f,0.45f);
-        setHarm(p.ops[0], {1,0.55f,0.38f,0.28f,0.2f,0.15f,0.11f,0.085f,0.06f,0.05f,0.04f,0.03f,0.025f,0.02f,0.015f,0.01f});
-        setHarmMute(p.ops[0], {1,0.28f,0.11f,0.045f,0.018f,0.008f,0.004f,0.002f,0.001f,0,0,0,0,0,0,0});
-        setOp(p.ops[1],Wave::Saw,1.004f,8.0f,0.5f,0.09f,0.3f,0.9f,0.45f);
-        setOp(p.ops[2],Wave::Sine,2.003f,0.0f,0.22f,0.06f,0.3f,0.8f,0.4f);
-        setOp(p.ops[3],Wave::Noise,1.0f,0.0f,0.12f,0.09f,0.3f,0.9f,0.45f);
-        disable(p.ops[4]);disable(p.ops[5]);
-        p.matrix[2][0]=0.18f;
-        p.filter={FilterType::Lowpass,2600.0f,1.4f,0.18f,{0.12f,0.35f,0.7f,0.4f}};
-        p.amp={0.08f,0.3f,0.92f,0.5f};
-        p.velocityAmp=0.7f;p.velocityFilter=0.6f;
-        p.lfo={5.6f,0.3f,0.4f,0.5f,LfoTarget::Pitch};
-        slots(p, {{ModTarget::Op4,0.0f,0.12f},{ModTarget::Morph1,0.0f,1.0f},
-                  {ModTarget::Cutoff,2600.0f,1100.0f},{ModTarget::AmpRelease,0.5f,0.14f}});
-        p.unison=0.55f;p.volume=0.75f;
-        p.fx.distortion=0.0f;p.fx.delay=0.18f;p.fx.delayFeedback=0.32f;p.fx.reverb=0.3f;
+        // Five-string electric cello: driven bow, not a decaying pluck.
+        // Reuses the same editable harmonic and friction operators as Cello.
+        configureBowedString(p,FactoryPreset::Cello);
+        p.amp={.055f,.24f,.97f,.36f};
+        p.stringDecay=0.0f; // Sustain while the bow excites the string.
+        p.stringHarmLoss=.015f;p.stringBrightness=.72f;
+        p.stringDamping=0.0f;
+        p.velocityAmp=.60f;p.velocityFilter=.14f;
+        p.velocitySlots={
+            {ModTarget::StringBrightness,.38f,.96f},
+            {ModTarget::AmpAttack,.11f,.023f},
+            {ModTarget::Op2,.23f,.52f},
+            {ModTarget::Op3,.07f,.23f}
+        };
+        p.velocitySlotCount=p.velocitySlots.size();
+        // M was assigned by configureBowedString: pressure moves the
+        // harmonic morph, bow-hair friction, bridge bite and cutoff.
+        p.unison=0.0f;p.volume=.77f;
+        p.fx.reverb=.20f;p.fx.delay=.0f;
     } else if (preset == FactoryPreset::Nebular) {
-        setOp(p.ops[0],Wave::Custom,1.0f,0.0f,0.9f,0.003f,0.35f,0.15f,0.5f);
-        setHarm(p.ops[0], {1,0.6f,0.35f,0.15f,0.07f,0.03f,0.015f,0.008f,0.004f,0.002f,0,0,0,0,0,0});
-        setHarmMute(p.ops[0], {1,0.22f,0.07f,0.018f,0.005f,0.001f,0,0,0,0,0,0,0,0,0,0});
-        setOp(p.ops[1],Wave::Sine,2.0f,0.0f,0.3f,0.003f,0.25f,0.1f,0.4f);
-        setOp(p.ops[2],Wave::Noise,1.0f,0.0f,0.5f,0.003f,0.05f,0.0f,0.1f);
-        disable(p.ops[3]);disable(p.ops[4]);disable(p.ops[5]);
-        p.matrix[1][0]=0.4f;
-        p.filter={FilterType::Lowpass,1600.0f,1.0f,0.3f,{0.005f,0.2f,0.5f,0.25f}};
-        p.amp={0.003f,0.35f,0.2f,0.4f};
-        p.velocityAmp=0.8f;p.velocityFilter=0.7f;
-        p.lfo={5.0f,0.0f,0.0f,0.0f,LfoTarget::None};
-        slots(p, {{ModTarget::Morph1,0.0f,1.0f},{ModTarget::Cutoff,1600.0f,620.0f},
-                  {ModTarget::AmpRelease,0.4f,0.05f},{ModTarget::Volume,1.0f,0.65f}});
-        p.unison=0.0f;p.volume=0.8f;
-        p.fx.distortion=0.0f;p.fx.delay=0.15f;p.fx.delayFeedback=0.3f;p.fx.reverb=0.2f;
+        // Seven-string guitar: pick impulse plus resonating harmonics.
+        // M is palm position/damping; V is pick force and tonal excitation.
+        setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.82f,.0025f,.15f,1.0f,.75f);
+        setHarm(p.ops[0],{1,.68f,.45f,.31f,.22f,.16f,.11f,.08f,.06f,.04f,.025f,.017f,.012f,.008f,.005f,.003f});
+        setHarmMute(p.ops[0],{1,.23f,.065f,.017f,.005f,.002f,0,0,0,0,0,0,0,0,0,0});
+        setOp(p.ops[1],Wave::Custom,1.0f,2.5f,.32f,.003f,.20f,1.0f,.66f);
+        setHarm(p.ops[1],{1,.54f,.22f,.13f,.07f,.042f,.022f,.013f,.008f,.004f,.002f,0,0,0,0,0});
+        setOp(p.ops[2],Wave::Noise,1.0f,0.0f,.2f,.0006f,.038f,0.0f,.058f);
+        setOp(p.ops[3],Wave::Custom,2.0f,0.0f,.13f,.003f,.10f,.0f,.14f);
+        setHarm(p.ops[3],{.7f,.45f,.29f,.18f,.12f,.08f,.045f,.025f,.012f,.007f,.003f,0,0,0,0,0});
+        disable(p.ops[4]);disable(p.ops[5]);
+        for(auto& row:p.matrix)row.fill(0.0f);
+        p.matrix[1][0]=.13f;
+        p.filter={FilterType::Lowpass,9800.0f,.83f,0.0f,{.004f,.25f,.5f,.17f}};
+        p.amp={.0025f,.14f,1.0f,.82f};
+        p.stringDecay=2.8f;p.stringHarmLoss=.33f;
+        p.stringBrightness=.82f;p.stringDamping=0.0f;
+        p.velocityAmp=.67f;p.velocityFilter=.10f;
+        slots(p,{{ModTarget::StringDamping,0.0f,1.0f},
+                 {ModTarget::Morph1,0.0f,1.0f},
+                 {ModTarget::Cutoff,9800.0f,1100.0f}});
+        p.velocitySlots={
+            {ModTarget::StringBrightness,.43f,1.0f},
+            {ModTarget::StringDecay,.82f,3.3f},
+            {ModTarget::Op3,.012f,.44f},
+            {ModTarget::Op2,.13f,.39f},
+            {ModTarget::Op4,.018f,.25f}
+        };
+        p.velocitySlotCount=p.velocitySlots.size();
+        p.unison=0.0f;p.volume=.79f;
+        p.fx.distortion=.0f;p.fx.delay=.07f;p.fx.reverb=.12f;
     } else if (preset == FactoryPreset::Subula) {
-        setOp(p.ops[0],Wave::Saw,1.0f,0.0f,0.7f,0.004f,0.15f,0.8f,0.2f);
-        setOp(p.ops[1],Wave::Saw,1.007f,6.0f,0.4f,0.004f,0.15f,0.8f,0.2f);
-        setOp(p.ops[2],Wave::Sine,0.5f,0.0f,0.8f,0.004f,0.12f,1.0f,0.18f);
-        disable(p.ops[3]);disable(p.ops[4]);disable(p.ops[5]);
-        p.filter={FilterType::Lowpass,750.0f,3.0f,0.3f,{0.005f,0.15f,0.5f,0.18f}};
-        p.amp={0.004f,0.12f,0.85f,0.2f};
-        p.velocityAmp=0.6f;p.velocityFilter=0.5f;
-        slots(p, {{ModTarget::Cutoff,750.0f,260.0f},{ModTarget::AmpRelease,0.2f,0.06f},{ModTarget::Volume,1.0f,0.7f}});
-        p.unison=0.3f;p.volume=0.8f;
+        // Tribass Kitara: three heavy strings, sawtooth body with physical-
+        // style spectral decay. M continuously damps; V excites the string.
+        setOp(p.ops[0],Wave::Saw,1.0f,0.0f,.65f,.0025f,.14f,1.0f,.82f);
+        setOp(p.ops[1],Wave::Saw,1.004f,3.0f,.33f,.003f,.16f,1.0f,.70f);
+        setOp(p.ops[2],Wave::Sine,.5f,0.0f,.47f,.003f,.20f,1.0f,.76f);
+        setOp(p.ops[3],Wave::Noise,1.0f,0.0f,.15f,.001f,.025f,0.0f,.055f);
+        disable(p.ops[4]);disable(p.ops[5]);
+        for(auto& row:p.matrix)row.fill(0.0f);
+        p.filter={FilterType::Lowpass,7500.0f,1.1f,0.0f,{.004f,.20f,.5f,.16f}};
+        p.amp={.003f,.18f,1.0f,1.05f};
+        p.stringDecay=3.65f;p.stringHarmLoss=.42f;
+        p.stringBrightness=.78f;p.stringDamping=0.0f;
+        p.velocityAmp=.67f;p.velocityFilter=.12f;
+        slots(p,{{ModTarget::StringDamping,0.0f,1.0f},
+                 {ModTarget::Cutoff,7500.0f,1500.0f}});
+        p.velocitySlots={
+            {ModTarget::StringBrightness,.34f,.96f},
+            {ModTarget::StringDecay,.95f,4.3f},
+            {ModTarget::Op4,.008f,.29f},
+            {ModTarget::Op2,.15f,.46f}
+        };
+        p.velocitySlotCount=p.velocitySlots.size();
+        p.unison=0.0f;p.volume=.79f;
+        p.fx.distortion=.0f;p.fx.delay=.025f;p.fx.reverb=.10f;
     } else if (preset == FactoryPreset::Nexdrum) {
         setOp(p.ops[0],Wave::Sine,1.0f,0.0f,0.7f,0.002f,0.25f,0.0f,0.15f);
         setOp(p.ops[1],Wave::Sine,0.5f,0.0f,0.5f,0.002f,0.22f,0.0f,0.12f);

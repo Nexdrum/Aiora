@@ -103,6 +103,7 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     const float vMean=clamp01(curveMean(automation_.velocity,velocity_));
     const float vEnd=automation_.velocity.count?clamp01(automation_.velocity.points[automation_.velocity.count-1].value):velocity_;
     modValue_=m0;timpaniRingGain_=1.0f;
+    stringEnergy_=1.0f;stringUpperEnergy_=1.0f;stringToneState_=0.0f;
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
@@ -260,6 +261,35 @@ float SpectrachordVoice::render() noexcept {
         now[i]=opSum/static_cast<float>(uniCount)*level;
     }
     lastOp_=now;float sum=0;for(float v:now)sum+=v;
+    // Shared physical-style string response. The exposed controls work on
+    // every waveform and patch; V/M routes can change them mid-note.
+    const float stringDecay=std::clamp(
+        slotValue(ModTarget::StringDecay,expressionV,m,P.stringDecay),0.0f,8.0f);
+    const float stringLoss=clamp01(
+        slotValue(ModTarget::StringHarmLoss,expressionV,m,P.stringHarmLoss));
+    const float stringBright=clamp01(
+        slotValue(ModTarget::StringBrightness,expressionV,m,P.stringBrightness));
+    const float stringDamp=clamp01(
+        slotValue(ModTarget::StringDamping,expressionV,m,P.stringDamping));
+    if(stringDecay>0.0001f||stringLoss>0.0001f||
+       stringBright<0.9999f||stringDamp>0.0001f||
+       stringEnergy_<0.9999f||stringUpperEnergy_<0.9999f){
+        const float dampingSquared=stringDamp*stringDamp;
+        const float energyLoss=(stringDecay>0.0001f
+            ?6.907755f/std::max(0.05f,stringDecay):0.0f)
+            +42.0f*dampingSquared;
+        // Energy loss is irreversible even if M later releases the mute.
+        stringEnergy_*=std::max(0.0f,1.0f-energyLoss/sampleRate_);
+        const float upperLoss=2.4f*stringLoss+9.0f*dampingSquared;
+        stringUpperEnergy_*=std::max(0.0f,1.0f-upperLoss/sampleRate_);
+        const float fundamental=midiHz(baseMidi);
+        const float harmonics=1.4f+105.0f*stringBright*stringBright*stringUpperEnergy_;
+        const float hz=std::clamp(fundamental*harmonics,40.0f,sampleRate_*0.43f);
+        const float omega=kTwoPi*hz;
+        const float coeff=omega/(sampleRate_+omega);
+        stringToneState_+=coeff*(sum-stringToneState_);
+        sum=stringToneState_*stringEnergy_;
+    }
     if(P.cymbalModel){
         // Independent inharmonic modes add the evolving ring missing from
         // filtered white-noise cymbal approximations.

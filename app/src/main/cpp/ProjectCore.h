@@ -20,7 +20,8 @@ enum class PatchParam : uint8_t {
     LfoRate, LfoAmount, LfoAttack, LfoVelocity,
     Unison, Glide, Volume,
     Distortion, Delay, DelayTime, DelayFeedback, Reverb,
-    DistIn, DistOut, ReverbDecay, ReverbRoom
+    DistIn, DistOut, ReverbDecay, ReverbRoom,
+    StringDecay, StringHarmLoss, StringBrightness, StringDamping
 };
 
 class ProjectCore {
