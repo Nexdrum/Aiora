@@ -47,9 +47,11 @@ constexpr std::array<PatchParam,9> kAmpParams{
     PatchParam::AmpAttack,PatchParam::AmpDecay,PatchParam::AmpSustain,PatchParam::AmpRelease,
     PatchParam::Volume,PatchParam::VelocityAmp,PatchParam::VelocityFilter,PatchParam::Unison,PatchParam::Glide
 };
-constexpr std::array<PatchParam,9> kLfoFxParams{
+constexpr std::array<PatchParam,13> kLfoFxParams{
     PatchParam::LfoRate,PatchParam::LfoAmount,PatchParam::LfoAttack,PatchParam::LfoVelocity,
-    PatchParam::Distortion,PatchParam::Delay,PatchParam::DelayTime,PatchParam::DelayFeedback,PatchParam::Reverb
+    PatchParam::Distortion,PatchParam::DistIn,PatchParam::DistOut,
+    PatchParam::Delay,PatchParam::DelayTime,PatchParam::DelayFeedback,
+    PatchParam::Reverb,PatchParam::ReverbDecay,PatchParam::ReverbRoom
 };
 constexpr std::array<OperatorParam,8> kOperatorParams{
     OperatorParam::Ratio,OperatorParam::Semitone,
@@ -315,7 +317,7 @@ NativeEditor::Rect NativeEditor::matrixRect(int modulator,int carrier) const noe
 NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    static constexpr float heights[4]={760.0f,844.0f,916.0f,650.0f};
+    static constexpr float heights[4]={760.0f,844.0f,1292.0f,650.0f};
     const int clamped=std::clamp(index,0,3);
     float y=b.y+gap-fxScrollY_;
     for(int i=0;i<clamped;++i)y+=heights[i]+gap;
@@ -448,9 +450,13 @@ NativeEditor::Range NativeEditor::patchRange(PatchParam p) noexcept {
         case PatchParam::Unison:
         case PatchParam::Glide:
         case PatchParam::Volume:
-        case PatchParam::Distortion:
         case PatchParam::Delay:
         case PatchParam::Reverb:return {0.0f,1.0f};
+        case PatchParam::Distortion:return {0.0f,10.0f};
+        case PatchParam::DistIn:
+        case PatchParam::DistOut:return {0.0f,4.0f};
+        case PatchParam::ReverbDecay:return {0.2f,12.0f};
+        case PatchParam::ReverbRoom:return {0.5f,2.5f};
         case PatchParam::LfoRate:return {0.1f,20.0f};
         case PatchParam::LfoAttack:return {0.0f,2.0f};
         case PatchParam::DelayTime:return {0.03f,1.0f};
@@ -521,6 +527,10 @@ float NativeEditor::patchValue(const Patch& p,PatchParam param) noexcept {
         case PatchParam::Glide:return p.glide;
         case PatchParam::Volume:return p.volume;
         case PatchParam::Distortion:return p.fx.distortion;
+        case PatchParam::DistIn:return p.fx.distIn;
+        case PatchParam::DistOut:return p.fx.distOut;
+        case PatchParam::ReverbDecay:return p.fx.reverbDecay;
+        case PatchParam::ReverbRoom:return p.fx.reverbRoom;
         case PatchParam::Delay:return p.fx.delay;
         case PatchParam::DelayTime:return p.fx.delayTime;
         case PatchParam::DelayFeedback:return p.fx.delayFeedback;
@@ -962,10 +972,12 @@ void NativeEditor::renderFx() const noexcept {
 
     // LFO / FX
     drawSection(2);
-    static constexpr const char* lfoLabels[9]={
+    static constexpr const char* lfoLabels[13]={
         "Rate","Amount","LFO Atk","LFO Vel",
-        "Distort","Delay","Delay time","Feedback","Reverb"};
-    for(int i=0;i<9;++i)
+        "Distort","Dist In","Dist Out",
+        "Delay","Delay time","Feedback",
+        "Reverb","Decay (s)","Room size"};
+    for(int i=0;i<13;++i)
         drawParam(2,i,lfoLabels[i],
             kLfoFxParams[static_cast<size_t>(i)],
             i<4?kPurple:kGreen);

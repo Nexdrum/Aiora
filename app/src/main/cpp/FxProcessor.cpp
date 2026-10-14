@@ -5,20 +5,20 @@
 namespace aiora {
 
 float FxProcessor::Comb::process(float x) noexcept {
-    if(buf.empty())return 0.0f;
+    if(length==0)return 0.0f;
     const float y=buf[pos];
     store=y*(1.0f-damp)+store*damp;
     buf[pos]=x+store*feedback;
-    pos=(pos+1)%buf.size();
+    pos=(pos+1)%length;
     return y;
 }
 void FxProcessor::Comb::reset() noexcept { std::fill(buf.begin(),buf.end(),0.0f);pos=0;store=0; }
 float FxProcessor::Allpass::process(float x) noexcept {
-    if(buf.empty())return x;
+    if(length==0)return x;
     const float b=buf[pos];
     const float y=-x+b;
     buf[pos]=x+b*feedback;
-    pos=(pos+1)%buf.size();
+    pos=(pos+1)%length;
     return y;
 }
 void FxProcessor::Allpass::reset() noexcept { std::fill(buf.begin(),buf.end(),0.0f);pos=0; }
@@ -29,14 +29,49 @@ void FxProcessor::prepare(float sampleRate,float maxDelaySeconds) {
     const std::array<float,4> combMs{29.7f,37.1f,41.1f,43.7f};
     const std::array<float,2> allMs{5.0f,1.7f};
     for(size_t i=0;i<4;++i){
-        combL_[i].buf.assign(static_cast<size_t>(sampleRate_*combMs[i]/1000.0f),0.0f);
-        combR_[i].buf.assign(static_cast<size_t>(sampleRate_*(combMs[i]+1.3f)/1000.0f),0.0f);
+        combL_[i].buf.assign(static_cast<size_t>(sampleRate_*combMs[i]*2.5f/1000.0f)+2,0.0f);
+        combR_[i].buf.assign(static_cast<size_t>(sampleRate_*(combMs[i]+1.3f)*2.5f/1000.0f)+2,0.0f);
     }
     for(size_t i=0;i<2;++i){
-        allL_[i].buf.assign(static_cast<size_t>(sampleRate_*allMs[i]/1000.0f),0.0f);
-        allR_[i].buf.assign(static_cast<size_t>(sampleRate_*(allMs[i]+0.7f)/1000.0f),0.0f);
+        allL_[i].buf.assign(static_cast<size_t>(sampleRate_*allMs[i]*2.5f/1000.0f)+2,0.0f);
+        allR_[i].buf.assign(static_cast<size_t>(sampleRate_*(allMs[i]+0.7f)*2.5f/1000.0f)+2,0.0f);
     }
+    set(fx_);
     reset();
+}
+void FxProcessor::set(const Fx& fx) noexcept {
+    fx_=fx;
+    // Room size changes the delay topology, not merely the EQ. Buffers
+    // are allocated at maximum size in prepare(), never in audio callbacks.
+    constexpr std::array<float,4> combMs{29.7f,37.1f,41.1f,43.7f};
+    constexpr std::array<float,2> allMs{5.0f,1.7f};
+    const float room=std::clamp(fx.reverbRoom,0.5f,2.5f);
+    const float decay=std::clamp(fx.reverbDecay,0.2f,12.0f);
+    const auto configureComb=[&](Comb& c,float milliseconds) {
+        if(c.buf.empty())return;
+        const size_t length=std::clamp<size_t>(
+            static_cast<size_t>(sampleRate_*milliseconds*room*.001f),
+            1,c.buf.size());
+        if(c.length!=length){c.length=length;c.pos%=length;}
+        const float delaySeconds=static_cast<float>(length)/sampleRate_;
+        // -60 dB after decay seconds (RT60) with positive stable feedback.
+        c.feedback=std::clamp(std::pow(0.001f,delaySeconds/decay),0.0f,0.995f);
+    };
+    const auto configureAllpass=[&](Allpass& a,float milliseconds) {
+        if(a.buf.empty())return;
+        const size_t length=std::clamp<size_t>(
+            static_cast<size_t>(sampleRate_*milliseconds*room*.001f),
+            1,a.buf.size());
+        if(a.length!=length){a.length=length;a.pos%=length;}
+    };
+    for(size_t i=0;i<4;++i){
+        configureComb(combL_[i],combMs[i]);
+        configureComb(combR_[i],combMs[i]+1.3f);
+    }
+    for(size_t i=0;i<2;++i){
+        configureAllpass(allL_[i],allMs[i]);
+        configureAllpass(allR_[i],allMs[i]+.7f);
+    }
 }
 void FxProcessor::reset() noexcept {
     std::fill(delay_.begin(),delay_.end(),0.0f);delayWrite_=0;
@@ -53,9 +88,11 @@ std::array<float,2> FxProcessor::process(float input) noexcept {
 std::array<float,2> FxProcessor::processStereo(float left,float right) noexcept {
     float dryL=left,dryR=right;
     if(fx_.distortion>0.005f){
-        const float drive=1.0f+fx_.distortion*8.0f;
-        dryL=std::tanh(dryL*drive);
-        dryR=std::tanh(dryR*drive);
+        const float drive=1.0f+std::clamp(fx_.distortion,0.0f,10.0f)*8.0f;
+        const float in=std::clamp(fx_.distIn,0.0f,4.0f);
+        const float out=std::clamp(fx_.distOut,0.0f,4.0f);
+        dryL=std::tanh(dryL*in*drive)*out;
+        dryR=std::tanh(dryR*in*drive)*out;
     }
     const float mono=(dryL+dryR)*0.5f;
 

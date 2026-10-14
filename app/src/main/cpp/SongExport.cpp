@@ -219,6 +219,8 @@ bool exportProjectWav(
     masterCfg.delay=0.0f;
     masterCfg.delayFeedback=0.0f;
     masterCfg.reverb=std::clamp(snapshot->masterReverb,0.0f,1.0f);
+    masterCfg.reverbDecay=snapshot->masterReverbDecay;
+    masterCfg.reverbRoom=snapshot->masterReverbRoom;
     masterFx.set(masterCfg);
 
     uint64_t age=0;

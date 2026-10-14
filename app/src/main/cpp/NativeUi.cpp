@@ -791,7 +791,7 @@ NativeUi::Rect NativeUi::songCardRect() const noexcept {
 NativeUi::Rect NativeUi::masterCardRect() const noexcept {
     const auto prev=songCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,226.0f};
+    return {prev.x,prev.y+prev.h+gap,prev.w,370.0f};
 }
 
 NativeUi::Rect NativeUi::trackSongSliderRect(int index) const noexcept {
@@ -2339,13 +2339,19 @@ void NativeUi::drawTracks() const noexcept {
     // MASTER
     const auto master=masterCardRect();
     drawCard(master,"MASTER");
-    for(int i=0;i<2;++i){
+    for(int i=0;i<4;++i){
         const auto mr=masterSliderRect(i);
-        const float value=i==0?project.masterVolume():project.masterReverb();
-        drawSlider(
-            mr,value,i==0?kCyan:kPurple,
-            i==0?"Volume":"Reverb",
-            std::to_string(static_cast<int>(std::lround(value*100.0f))));
+        const float value=i==0?project.masterVolume()
+            :i==1?project.masterReverb()
+            :i==2?project.masterReverbDecay()
+                :project.masterReverbRoom();
+        const float norm=i<2?value:i==2?(value-0.2f)/11.8f:(value-0.5f)/2.0f;
+        const std::string shown=i<2
+            ?std::to_string(static_cast<int>(std::lround(value*100.0f)))
+            :std::to_string(std::round(value*10.0f)/10.0f).substr(0,4);
+        drawSlider(mr,norm,i==0?kCyan:kPurple,
+            i==0?"Volume":i==1?"Reverb":i==2?"Decay (s)":"Room size",
+            shown);
     }
 }
 
@@ -2357,14 +2363,17 @@ bool NativeUi::trackPointerDown(float x,float y){
     trackActiveIndex_=-1;
     trackReorderIndex_=-1;
 
-    for(int i=0;i<2;++i){
+    for(int i=0;i<4;++i){
         const auto r=masterSliderRect(i);if(!r.contains(x,y))continue;
         const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
         const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);
         const float start=r.x+labelW;
         const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
         const float n=std::clamp((x-start)/width,0.0f,1.0f);
-        if(i==0)project.setMasterVolume(n);else project.setMasterReverb(n);
+        if(i==0)project.setMasterVolume(n);
+        else if(i==1)project.setMasterReverb(n);
+        else if(i==2)project.setMasterReverbDecay(0.2f+n*11.8f);
+        else project.setMasterReverbRoom(0.5f+n*2.0f);
         trackActiveSlider_=i+2;trackControlChanged_=true;return true;
     }
 
@@ -2378,7 +2387,7 @@ bool NativeUi::trackPointerDown(float x,float y){
         if(i==0)project.setBpm(12.0f+n*276.0f);
         else if(i==1)project.setSignature(1+static_cast<int>(std::lround(n*11.0f)),project.divisions());
         else project.setSignature(project.beats(),1+static_cast<int>(std::lround(n*11.0f)));
-        trackActiveSlider_=i+4;trackControlChanged_=true;return true;
+        trackActiveSlider_=i+6;trackControlChanged_=true;return true;
     }
 
     const int count=project.trackCount();
@@ -2432,7 +2441,7 @@ bool NativeUi::trackPointerMove(float x,float y){
 
     if(trackActiveSlider_<0)return false;
 
-    if(trackActiveSlider_==2||trackActiveSlider_==3){
+    if(trackActiveSlider_>=2&&trackActiveSlider_<=5){
         const int i=trackActiveSlider_-2;
         const auto r=masterSliderRect(i);
         const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
@@ -2440,9 +2449,12 @@ bool NativeUi::trackPointerMove(float x,float y){
         const float start=r.x+labelW;
         const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
         const float n=std::clamp((x-start)/width,0.0f,1.0f);
-        if(i==0)project.setMasterVolume(n);else project.setMasterReverb(n);
-    }else if(trackActiveSlider_>=4&&trackActiveSlider_<=6){
-        const int i=trackActiveSlider_-4;
+        if(i==0)project.setMasterVolume(n);
+        else if(i==1)project.setMasterReverb(n);
+        else if(i==2)project.setMasterReverbDecay(0.2f+n*11.8f);
+        else project.setMasterReverbRoom(0.5f+n*2.0f);
+    }else if(trackActiveSlider_>=6&&trackActiveSlider_<=8){
+        const int i=trackActiveSlider_-6;
         const auto r=trackSongSliderRect(i);
         const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
         const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);

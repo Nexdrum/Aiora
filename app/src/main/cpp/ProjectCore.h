@@ -19,7 +19,8 @@ enum class PatchParam : uint8_t {
     VelocityAmp, VelocityFilter,
     LfoRate, LfoAmount, LfoAttack, LfoVelocity,
     Unison, Glide, Volume,
-    Distortion, Delay, DelayTime, DelayFeedback, Reverb
+    Distortion, Delay, DelayTime, DelayFeedback, Reverb,
+    DistIn, DistOut, ReverbDecay, ReverbRoom
 };
 
 class ProjectCore {
@@ -115,11 +116,15 @@ public:
     bool dozenal() const;
     float masterVolume() const;
     float masterReverb() const;
+    float masterReverbDecay() const;
+    float masterReverbRoom() const;
     void setBpm(float value);
     void setSignature(int beats, int divisions);
     void setDozenal(bool enabled);
     void setMasterVolume(float value);
     void setMasterReverb(float value);
+    void setMasterReverbDecay(float value);
+    void setMasterReverbRoom(float value);
 
     Patch selectedPatch() const;
     DspPatch selectedDspPatch() const;

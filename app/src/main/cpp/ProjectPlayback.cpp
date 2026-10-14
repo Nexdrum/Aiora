@@ -90,6 +90,8 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
     snap->lengthSteps=std::max(bar,snap->lengthSteps);
     snap->masterVolume=project_.masterVolume;
     snap->masterReverb=project_.masterReverb;
+    snap->masterReverbDecay=project_.masterReverbDecay;
+    snap->masterReverbRoom=project_.masterReverbRoom;
     snap->steps.resize(static_cast<size_t>(snap->lengthSteps));
 
     auto addFxBus=[&](const Fx& fx)->int {

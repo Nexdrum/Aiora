@@ -199,6 +199,8 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             auto*old=playback_;playback_=incoming;
             playbackFxCount_=static_cast<int32_t>(playback_->preparedFx.size());
             Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);
+            masterFxCfg.reverbDecay=playback_->masterReverbDecay;
+            masterFxCfg.reverbRoom=playback_->masterReverbRoom;
             masterFx_.reset();masterFx_.set(masterFxCfg);
             transportSamplesPerStep_=static_cast<double>(std::max(1,sampleRate_.load(std::memory_order_relaxed)))*60.0/(std::max(12.0f,playback_->bpm)*std::max(1,playback_->divisions));
             stepEventCursor_=0;
@@ -229,7 +231,9 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
             for(int i=0;i<playbackFxCount_;++i)playback_->preparedFx[static_cast<size_t>(i)].reset();
             masterFx_.reset();
-            {Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);masterFx_.set(masterFxCfg);}
+            {Fx masterFxCfg;masterFxCfg.distortion=0.0f;masterFxCfg.delay=0.0f;masterFxCfg.delayFeedback=0.0f;masterFxCfg.reverb=std::clamp(playback_->masterReverb,0.0f,1.0f);
+            masterFxCfg.reverbDecay=playback_->masterReverbDecay;
+            masterFxCfg.reverbRoom=playback_->masterReverbRoom;masterFx_.set(masterFxCfg);}
             transportStep_=std::clamp(e.source,0,std::max(0,playback_->lengthSteps-1));
             samplesIntoStep_=0;
             stepEventCursor_=0;

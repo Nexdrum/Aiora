@@ -5,6 +5,7 @@
 #include "SpectrachordVoice.h"
 #include "PlaybackSnapshot.h"
 #include "SongExport.h"
+#include "FxProcessor.h"
 #include <cassert>
 #include <cmath>
 #include <fstream>
@@ -15,6 +16,70 @@
 using namespace aiora;
 
 int main(){
+    // FX sliders must affect actual DSP, not only their UI labels.
+    Fx distort{};distort.delay=0.0f;distort.reverb=0.0f;
+    distort.distortion=3.0f;distort.distIn=1.0f;distort.distOut=0.25f;
+    FxProcessor distortionBus;distortionBus.prepare(12000.0f);distortionBus.set(distort);
+    const float reduced=distortionBus.process(0.1f)[0];
+    assert(std::fabs(reduced-0.25f*std::tanh(2.5f))<0.00001f);
+    distort.distOut=1.0f;distortionBus.set(distort);
+    assert(distortionBus.process(0.1f)[0]>reduced*3.9f);
+    distort.distIn=0.0f;distortionBus.set(distort);
+    assert(std::fabs(distortionBus.process(0.1f)[0])<0.00001f);
+    distort.distIn=1.0f;distort.distortion=1.0f;distortionBus.set(distort);
+    const float oldDrive=distortionBus.process(0.001f)[0];
+    distort.distortion=10.0f;distortionBus.set(distort);
+    assert(distortionBus.process(0.001f)[0]>oldDrive*8.0f);
+    distort.distortion=0.0f;distort.distIn=0.0f;distort.distOut=0.0f;
+    distortionBus.set(distort);
+    assert(std::fabs(distortionBus.process(0.1f)[0]-0.1f)<0.00001f);
+
+    // Larger virtual rooms have later reflections. Longer decay values
+    // retain more energy; both parameters belong to the shared processor.
+    const auto firstReflection=[](float room){
+        Fx fx{};fx.distortion=0;fx.delay=0;fx.reverb=1;
+        fx.reverbDecay=0.8f;fx.reverbRoom=room;
+        FxProcessor reverb;reverb.prepare(12000.0f);reverb.set(fx);
+        int first=-1;
+        for(int i=0;i<2400;++i){
+            const float dry=i==0?1.0f:0.0f;
+            const float wet=reverb.process(dry)[0]-dry;
+            if(first<0&&std::fabs(wet)>0.00001f)first=i;
+        }
+        return first;
+    };
+    assert(firstReflection(0.5f)>0);
+    assert(firstReflection(2.0f)>firstReflection(0.5f));
+    const auto lateReverbEnergy=[](float decay){
+        Fx fx{};fx.distortion=0;fx.delay=0;fx.reverb=1;
+        fx.reverbDecay=decay;fx.reverbRoom=1.0f;
+        FxProcessor reverb;reverb.prepare(12000.0f);reverb.set(fx);
+        float energy=0.0f;
+        for(int i=0;i<18000;++i){
+            const float sample=reverb.process(i==0?1.0f:0.0f)[0];
+            assert(std::isfinite(sample));
+            if(i>=9000)energy+=sample*sample;
+        }
+        return energy;
+    };
+    assert(lateReverbEnergy(5.0f)>lateReverbEnergy(0.2f)*2.0f);
+    Project fxProject;fxProject.masterReverb=0.65f;
+    fxProject.masterReverbDecay=5.5f;fxProject.masterReverbRoom=2.1f;
+    Track fxTrack;fxTrack.patch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    fxTrack.patch.fx.distortion=8.5f;
+    fxTrack.patch.fx.distIn=2.2f;fxTrack.patch.fx.distOut=0.35f;
+    fxTrack.patch.fx.reverbDecay=6.7f;fxTrack.patch.fx.reverbRoom=2.3f;
+    fxProject.tracks.push_back(fxTrack);
+    Project fxRestored;std::string fxError;
+    assert(deserializeProjectJson(serializeProjectJson(fxProject),fxRestored,&fxError));
+    assert(std::fabs(fxRestored.masterReverbDecay-5.5f)<.001f);
+    assert(std::fabs(fxRestored.masterReverbRoom-2.1f)<.001f);
+    assert(std::fabs(fxRestored.tracks[0].patch.fx.distortion-8.5f)<.001f);
+    assert(std::fabs(fxRestored.tracks[0].patch.fx.distIn-2.2f)<.001f);
+    assert(std::fabs(fxRestored.tracks[0].patch.fx.distOut-.35f)<.001f);
+    assert(std::fabs(fxRestored.tracks[0].patch.fx.reverbDecay-6.7f)<.001f);
+    assert(std::fabs(fxRestored.tracks[0].patch.fx.reverbRoom-2.3f)<.001f);
+
     auto& core=ProjectCore::instance();
     core.reset();
 

@@ -37,7 +37,11 @@ struct Operator {
 };
 struct Filter { FilterType type{FilterType::Lowpass}; float cutoff{6500},resonance{0.7f},envAmount{0}; Envelope env{0.01f,0.15f,0.7f,0.2f}; };
 struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget target{LfoTarget::None}; };
-struct Fx { float distortion{0},delay{0.18f},delayTime{0.32f},delayFeedback{0.32f},reverb{0.25f}; };
+struct Fx {
+    float distortion{0},delay{0.18f},delayTime{0.32f},delayFeedback{0.32f},reverb{0.25f};
+    float distIn{1.0f},distOut{1.0f};
+    float reverbDecay{0.8f},reverbRoom{1.0f};
+};
 struct ModSlot { ModTarget target{ModTarget::None}; float min{0},max{1}; };
 enum class LinkSource : uint8_t { Mod, Velocity };
 
@@ -168,7 +172,10 @@ struct Track {
     std::vector<DrumPad> pads; int32_t selectedPad{0},drumZoneLow{-1},drumZoneHigh{-1}; std::vector<Note> notes;
 };
 struct Project {
-    float bpm{112}; int32_t beats{4},divisions{4}; bool dozenal{false}; float masterVolume{0.9f},masterReverb{0}; std::vector<Track> tracks;
+    float bpm{112}; int32_t beats{4},divisions{4}; bool dozenal{false};
+    float masterVolume{0.9f},masterReverb{0};
+    float masterReverbDecay{0.8f},masterReverbRoom{1.0f};
+    std::vector<Track> tracks;
 };
 
 } // namespace aiora

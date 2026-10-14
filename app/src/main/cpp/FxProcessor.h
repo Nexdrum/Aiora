@@ -10,7 +10,7 @@ class FxProcessor {
 public:
     void prepare(float sampleRate, float maxDelaySeconds = 1.2f);
     void reset() noexcept;
-    void set(const Fx& fx) noexcept { fx_ = fx; }
+    void set(const Fx& fx) noexcept;
     std::array<float,2> process(float input) noexcept;
     std::array<float,2> processStereo(float left, float right) noexcept;
 
@@ -18,6 +18,7 @@ private:
     struct Comb {
         std::vector<float> buf;
         size_t pos{0};
+        size_t length{0};
         float feedback{0.72f};
         float damp{0.22f};
         float store{0};
@@ -27,6 +28,7 @@ private:
     struct Allpass {
         std::vector<float> buf;
         size_t pos{0};
+        size_t length{0};
         float feedback{0.5f};
         float process(float x) noexcept;
         void reset() noexcept;

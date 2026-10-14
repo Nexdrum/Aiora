@@ -112,10 +112,14 @@ float clampPatchParam(PatchParam param,float v){
         case PatchParam::Unison:
         case PatchParam::Glide:
         case PatchParam::Volume:
-        case PatchParam::Distortion:
         case PatchParam::Delay:
         case PatchParam::Reverb:
             return std::clamp(v,0.0f,1.0f);
+        case PatchParam::Distortion:return std::clamp(v,0.0f,10.0f);
+        case PatchParam::DistIn:
+        case PatchParam::DistOut:return std::clamp(v,0.0f,4.0f);
+        case PatchParam::ReverbDecay:return std::clamp(v,0.2f,12.0f);
+        case PatchParam::ReverbRoom:return std::clamp(v,0.5f,2.5f);
         case PatchParam::LfoRate:return std::clamp(v,0.1f,20.0f);
         case PatchParam::LfoAttack:return std::clamp(v,0.0f,2.0f);
         case PatchParam::DelayTime:return std::clamp(v,0.03f,1.0f);
@@ -708,11 +712,15 @@ int ProjectCore::divisions() const {std::scoped_lock lock(mutex_);return project
 bool ProjectCore::dozenal() const {std::scoped_lock lock(mutex_);return project_.dozenal;}
 float ProjectCore::masterVolume() const {std::scoped_lock lock(mutex_);return project_.masterVolume;}
 float ProjectCore::masterReverb() const {std::scoped_lock lock(mutex_);return project_.masterReverb;}
+float ProjectCore::masterReverbDecay() const {std::scoped_lock lock(mutex_);return project_.masterReverbDecay;}
+float ProjectCore::masterReverbRoom() const {std::scoped_lock lock(mutex_);return project_.masterReverbRoom;}
 void ProjectCore::setBpm(float v){std::scoped_lock lock(mutex_);project_.bpm=std::clamp(v,12.0f,288.0f);}
 void ProjectCore::setSignature(int b,int d){std::scoped_lock lock(mutex_);project_.beats=std::clamp(b,1,12);project_.divisions=std::clamp(d,1,12);}
 void ProjectCore::setDozenal(bool e){std::scoped_lock lock(mutex_);project_.dozenal=e;}
 void ProjectCore::setMasterVolume(float v){std::scoped_lock lock(mutex_);project_.masterVolume=std::clamp(v,0.0f,1.0f);}
 void ProjectCore::setMasterReverb(float v){std::scoped_lock lock(mutex_);project_.masterReverb=std::clamp(v,0.0f,1.0f);}
+void ProjectCore::setMasterReverbDecay(float v){std::scoped_lock lock(mutex_);project_.masterReverbDecay=std::clamp(v,0.2f,12.0f);}
+void ProjectCore::setMasterReverbRoom(float v){std::scoped_lock lock(mutex_);project_.masterReverbRoom=std::clamp(v,0.5f,2.5f);}
 
 Patch ProjectCore::selectedPatch() const {
     std::scoped_lock lock(mutex_);
@@ -802,6 +810,10 @@ bool ProjectCore::setSelectedPatchParam(PatchParam param,float value){
         case PatchParam::Glide:p->glide=v;break;
         case PatchParam::Volume:p->volume=v;break;
         case PatchParam::Distortion:p->fx.distortion=v;break;
+        case PatchParam::DistIn:p->fx.distIn=v;break;
+        case PatchParam::DistOut:p->fx.distOut=v;break;
+        case PatchParam::ReverbDecay:p->fx.reverbDecay=v;break;
+        case PatchParam::ReverbRoom:p->fx.reverbRoom=v;break;
         case PatchParam::Delay:p->fx.delay=v;break;
         case PatchParam::DelayTime:p->fx.delayTime=v;break;
         case PatchParam::DelayFeedback:p->fx.delayFeedback=v;break;

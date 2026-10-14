@@ -399,7 +399,13 @@ void writePatch(Writer& w,const Patch& p){
         w.raw("}");
     }
     w.raw("]}");
-    w.raw(",\"fx\":{\"dist\":");w.number(p.fx.distortion);w.raw(",\"delay\":");w.number(p.fx.delay);w.raw(",\"delayTime\":");w.number(p.fx.delayTime);w.raw(",\"delayFb\":");w.number(p.fx.delayFeedback);w.raw(",\"reverb\":");w.number(p.fx.reverb);w.raw("}");
+    w.raw(",\"fx\":{\"dist\":");w.number(p.fx.distortion);
+    w.raw(",\"distIn\":");w.number(p.fx.distIn);w.raw(",\"distOut\":");w.number(p.fx.distOut);
+    w.raw(",\"delay\":");w.number(p.fx.delay);w.raw(",\"delayTime\":");w.number(p.fx.delayTime);w.raw(",\"delayFb\":");w.number(p.fx.delayFeedback);
+    w.raw(",\"reverb\":");w.number(p.fx.reverb);
+    w.raw(",\"reverbDecay\":");w.number(p.fx.reverbDecay);
+    w.raw(",\"reverbRoom\":");w.number(p.fx.reverbRoom);
+    w.raw("}");
     w.raw(",\"unison\":");w.number(p.unison);w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
     if(p.timpaniMembrane)w.raw(",\"timpaniMembrane\":true");
     if(p.drumPitchDrop>0.0f&&p.drumPitchDropSeconds>0.0f){w.raw(",\"drumPitchDrop\":");w.number(p.drumPitchDrop);w.raw(",\"drumPitchDropSeconds\":");w.number(p.drumPitchDropSeconds);}
@@ -511,7 +517,17 @@ bool readPatch(const Json& src,Patch& p){
                     clampf(num(js.get("max"),hi),lo,hi,hi)});
             }
     p.velocitySlotCount=p.velocitySlots.size();
-    if(const Json* x=src.get("fx");x&&x->type==Json::Type::Object){p.fx.distortion=clampf(num(x->get("dist"),0),0,1,0);p.fx.delay=clampf(num(x->get("delay"),0),0,1,0);p.fx.delayTime=clampf(num(x->get("delayTime"),.32),.03f,1,.32f);p.fx.delayFeedback=clampf(num(x->get("delayFb"),.3),0,1,.3f);p.fx.reverb=clampf(num(x->get("reverb"),0),0,1,0);}
+    if(const Json* x=src.get("fx");x&&x->type==Json::Type::Object){
+        p.fx.distortion=clampf(num(x->get("dist"),0),0,10,0);
+        p.fx.distIn=clampf(num(x->get("distIn"),1),0,4,1);
+        p.fx.distOut=clampf(num(x->get("distOut"),1),0,4,1);
+        p.fx.delay=clampf(num(x->get("delay"),0),0,1,0);
+        p.fx.delayTime=clampf(num(x->get("delayTime"),.32),.03f,1,.32f);
+        p.fx.delayFeedback=clampf(num(x->get("delayFb"),.3),0,1,.3f);
+        p.fx.reverb=clampf(num(x->get("reverb"),0),0,1,0);
+        p.fx.reverbDecay=clampf(num(x->get("reverbDecay"),.8),.2f,12,.8f);
+        p.fx.reverbRoom=clampf(num(x->get("reverbRoom"),1),.5f,2.5f,1);
+    }
     p.unison=clampf(num(src.get("unison"),0),0,1,0);p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
     p.timpaniMembrane=boolean(src.get("timpaniMembrane"),false);
     p.drumPitchDrop=clampf(num(src.get("drumPitchDrop"),0),0,36,0);
@@ -570,7 +586,11 @@ bool deserializePatchJson(std::string_view json,Patch& patch,std::string* error)
 std::string serializeProjectJson(const Project& project){
     Writer w;
     w.raw("{\"bpm\":");w.number(project.bpm);w.raw(",\"beats\":");w.number(project.beats);w.raw(",\"div\":");w.number(project.divisions);w.raw(",\"dz\":");w.boolean(project.dozenal);
-    w.raw(",\"mvol\":");w.number(project.masterVolume);w.raw(",\"mrev\":");w.number(project.masterReverb);w.raw(",\"tracks\":[");
+    w.raw(",\"mvol\":");w.number(project.masterVolume);
+    w.raw(",\"mrev\":");w.number(project.masterReverb);
+    w.raw(",\"mrevDecay\":");w.number(project.masterReverbDecay);
+    w.raw(",\"mrevRoom\":");w.number(project.masterReverbRoom);
+    w.raw(",\"tracks\":[");
     for(size_t ti=0;ti<project.tracks.size();++ti){
         if(ti)w.raw(",");const auto&t=project.tracks[ti];
         w.raw("{\"name\":");w.string(t.name);w.raw(",\"kind\":");w.string(t.drums?"drums":"melodic");w.raw(",\"patch\":");writePatch(w,t.patch);
@@ -598,6 +618,8 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
         if(!tracks||tracks->type!=Json::Type::Array){setError(error,"Missing AIORA tracks array");return false;}
         Project out;
         out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);out.masterReverb=clampf(num(root.get("mrev"),0),0,1,0);
+        out.masterReverbDecay=clampf(num(root.get("mrevDecay"),.8),.2f,12,.8f);
+        out.masterReverbRoom=clampf(num(root.get("mrevRoom"),1),.5f,2.5f,1);
         for(size_t ti=0;ti<tracks->array.size();++ti){
             const auto& jt=tracks->array[ti];if(jt.type!=Json::Type::Object)continue;
             Track t;t.name=str(jt.get("name"),"Track "+std::to_string(ti+1));t.drums=str(jt.get("kind"),"melodic")=="drums";t.volume=clampf(num(jt.get("vol"),.8),0,1,.8f);t.pan=clampf(num(jt.get("panV"),0),-1,1,0);t.mute=boolean(jt.get("mute"),false);t.solo=boolean(jt.get("solo"),false);
