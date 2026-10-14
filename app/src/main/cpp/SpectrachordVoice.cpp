@@ -106,13 +106,17 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
+    cymbalTailGain_=1.0f;
+    cymbalTailMultiplier_=patch_.cymbalModel
+        ?std::exp(-1.0f/(sampleRate_*(patch_.cymbalModel==2?.34f:.22f)))
+        :1.0f;
     platePhase_.fill(0);plateGain_.fill(0);plateDecay_.fill(1);
     if(patch_.cymbalModel){
         // Flexing metal plates produce unrelated modal frequencies and decay times.
         constexpr std::array<float,12> crashStrength{{
-            .115f,.094f,.120f,.091f,.113f,.077f,.102f,.080f,.065f,.060f,.047f,.039f}};
+            .065f,.057f,.069f,.050f,.056f,.040f,.043f,.033f,.026f,.022f,.016f,.012f}};
         constexpr std::array<float,12> rideStrength{{
-            .105f,.145f,.166f,.157f,.145f,.117f,.087f,.063f,.044f,.032f,.023f,.016f}};
+            .066f,.085f,.095f,.087f,.074f,.051f,.034f,.021f,.014f,.009f,.007f,.004f}};
         const bool ride=patch_.cymbalModel==2;
         for(size_t i=0;i<plateGain_.size();++i){
             rng_^=rng_<<13;rng_^=rng_>>17;rng_^=rng_<<5;
@@ -126,10 +130,10 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
             const float excitation=low+(high-low)*band;
             const float strength=ride?rideStrength[i]:crashStrength[i];
             plateGain_[i]=strength*(0.82f+0.36f*variation)*excitation;
-            // A heavy ride's low-frequency flexing persists long after its
-            // initial stick sound; a thinner crash disperses energy faster.
-            const float seconds=(ride?7.2f:3.8f)/
-                (1.0f+(ride?0.09f:0.16f)*static_cast<float>(i));
+            // Close-miked/mix-gated voicing: low metal modes linger briefly
+            // but upper ringing is suppressed rapidly, especially in the crash.
+            const float seconds=(ride?1.25f:.72f)/
+                (1.0f+(ride?0.13f:0.18f)*static_cast<float>(i));
             plateDecay_[i]=std::exp(-1.0f/(sampleRate_*seconds));
         }
     }
@@ -179,6 +183,10 @@ float SpectrachordVoice::render() noexcept {
     const float cutScale=velocityOwns(ModTarget::Cutoff)?1.0f:1-P.velocityFilter+P.velocityFilter*(0.4f+0.6f*pressure);
     const float m=modValue_;
     const float expressionV=velocityCurveActive_?velNow:velocity_;
+    // Smooth post-strike loss of metallic energy brings cymbals beneath
+    // a dense metal mix; M-controlled chokes still act independently.
+    if(P.cymbalModel && elapsedSamples_>static_cast<uint64_t>(sampleRate_*.065f))
+        cymbalTailGain_*=cymbalTailMultiplier_;
     // First ~65 ms: M sets mallet attack spectral hardness. Thereafter
     // the SAME M line represents player-applied felt/head damping.
     // Damping is cumulative and irreversible, as with a real drumhead.
@@ -251,7 +259,7 @@ float SpectrachordVoice::render() noexcept {
     const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,expressionV,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
     if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,expressionV,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
     const float amp=ampEnv_.next(sampleRate_)*lvlScale;if(ampEnv_.done()){active_=false;return 0;}float gain=std::max(0.0f,slotValue(ModTarget::Volume,expressionV,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);
-    ++elapsedSamples_;return filtered*amp*gain*P.volume*velocityGain*(P.timpaniMembrane?timpaniRingGain_:1.0f);
+    ++elapsedSamples_;return filtered*amp*gain*P.volume*velocityGain*(P.timpaniMembrane?timpaniRingGain_:1.0f)*(P.cymbalModel?cymbalTailGain_:1.0f);
 }
 
 } // namespace aiora

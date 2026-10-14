@@ -82,6 +82,8 @@ private:
     float lfoAge_{0.0f};
     float modValue_{0.0f};
     float timpaniRingGain_{1.0f};
+    float cymbalTailGain_{1.0f};
+    float cymbalTailMultiplier_{1.0f};
     float samplesPerStep_{1.0f};
     float fixedUnison_{0.0f};
     float fixedFilterEnvAmount_{0.0f};

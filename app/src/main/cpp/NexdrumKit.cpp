@@ -24,59 +24,59 @@ void drumVelocity(Patch& p,std::initializer_list<ModSlot> slots) {
 Patch pad0() {
     Patch p=makeDefaultPatch("Cymbal - Tap / Crash / Choke");
     drumReset(p);
-    drumOp(p,0,Wave::Noise,1.0f,.56f,.001f,.19f,.22f);
-    drumOp(p,1,Wave::Noise,1.0f,.26f,.001f,1.22f,1.55f);
-    drumOp(p,2,Wave::Custom,1.68f,.23f,.001f,1.05f,1.5f);
+    drumOp(p,0,Wave::Noise,1.0f,.70f,.0005f,.09f,.12f);
+    drumOp(p,1,Wave::Noise,1.0f,.21f,.001f,.34f,.29f);
+    drumOp(p,2,Wave::Custom,1.68f,.16f,.001f,.29f,.27f);
     p.ops[2].hasHarm=true;
     p.ops[2].harm={.08f,.36f,.07f,.52f,.06f,.36f,.05f,.28f,.04f,.17f,.03f,.12f,.02f,.08f,.01f,.05f};
-    drumOp(p,3,Wave::Noise,1.0f,.37f,.001f,.027f,.026f);
-    drumOp(p,4,Wave::Sine,2.93f,.12f,.001f,1.14f,1.65f);
-    drumOp(p,5,Wave::Sine,4.41f,.085f,.001f,.67f,1.0f);
+    drumOp(p,3,Wave::Noise,1.0f,.66f,.0005f,.026f,.022f);
+    drumOp(p,4,Wave::Sine,2.93f,.09f,.001f,.42f,.32f);
+    drumOp(p,5,Wave::Sine,4.41f,.055f,.001f,.27f,.22f);
     p.cymbalModel=1;p.timpaniMembrane=true;
     p.filter={FilterType::Highpass,1050.0f,.78f,0.0f,{.005f,.1f,.5f,.1f}};
-    p.amp={.001f,1.65f,0.0f,2.45f};
+    p.amp={.0005f,.54f,0.0f,.52f};
     p.velocityAmp=.77f;p.velocityFilter=.15f;
-    // V excites the noise wash progressively: a soft tap remains metallic,
-    // while a hard strike brings the full broad-spectrum crash.
-    // M stays free for independent choking/damping and edge color.
+    // A close-miked metal crash: V turns a gentle metal tap into a sharp
+    // broadband "kaashh". The wash falls quickly below the mix gate.
+    // M remains an independent choke/tone gesture.
     drumMods(p,{{ModTarget::Cutoff,950.0f,1600.0f},
-                {ModTarget::AmpRelease,2.45f,.09f}});
-    drumVelocity(p,{{ModTarget::Op1,.035f,.56f},
-                    {ModTarget::Op2,.014f,.26f},
-                    {ModTarget::Op3,.10f,.24f},
-                    {ModTarget::Op4,.020f,.37f}});
-    p.fx={0.0f,0.0f,.32f,0.0f,.095f};
-    p.volume=.61f;p.fundamentalMidi=80;
+                {ModTarget::AmpRelease,.52f,.065f}});
+    drumVelocity(p,{{ModTarget::Op1,.024f,.70f},
+                    {ModTarget::Op2,.010f,.21f},
+                    {ModTarget::Op3,.07f,.16f},
+                    {ModTarget::Op4,.014f,.66f}});
+    p.fx={0.0f,0.0f,.32f,0.0f,.045f};
+    p.volume=.34f;p.fundamentalMidi=80;
     return p;
 }
 
 Patch pad1() {
     Patch p=makeDefaultPatch("Ride - Ping / Crash / Choke");
     drumReset(p);
-    drumOp(p,0,Wave::Noise,1.0f,.25f,.001f,.22f,.32f);
-    drumOp(p,1,Wave::Sine,2.72f,.30f,.001f,1.45f,2.8f);
-    drumOp(p,2,Wave::Custom,1.0f,.24f,.001f,1.95f,2.8f);
+    drumOp(p,0,Wave::Noise,1.0f,.15f,.0005f,.12f,.14f);
+    drumOp(p,1,Wave::Sine,2.72f,.27f,.001f,.75f,.85f);
+    drumOp(p,2,Wave::Custom,1.0f,.19f,.001f,.85f,.86f);
     p.ops[2].hasHarm=true;
     p.ops[2].harm={.06f,.12f,.09f,.66f,.10f,.58f,.06f,.4f,.04f,.27f,.03f,.2f,.02f,.15f,.01f,.09f};
-    drumOp(p,3,Wave::Noise,1.0f,.11f,.001f,.032f,.035f);
-    drumOp(p,4,Wave::Sine,4.17f,.13f,.001f,2.2f,2.8f);
-    drumOp(p,5,Wave::Sine,5.68f,.075f,.001f,1.7f,2.5f);
+    drumOp(p,3,Wave::Noise,1.0f,.23f,.0005f,.018f,.024f);
+    drumOp(p,4,Wave::Sine,4.17f,.13f,.001f,.82f,.85f);
+    drumOp(p,5,Wave::Sine,5.68f,.065f,.001f,.69f,.65f);
     p.cymbalModel=2;p.timpaniMembrane=true;
-    // A thicker metal plate retains its lower modes. The short stick tick
-    // and moderate wash respond to V, while M controls bow/bell and choke.
-    p.filter={FilterType::Highpass,420.0f,.78f,0.0f,{.005f,.1f,.5f,.1f}};
-    p.amp={.001f,2.70f,0.0f,5.80f};
+    // The ride is stick tick + dark body; unlike the crash it has
+    // a slightly longer, quieter ring, rather than an extended "shhh".
+    p.filter={FilterType::Highpass,550.0f,.78f,0.0f,{.005f,.1f,.5f,.1f}};
+    p.amp={.0005f,.82f,0.0f,.90f};
     p.velocityAmp=.74f;p.velocityFilter=.12f;
-    drumMods(p,{{ModTarget::Op2,.34f,.18f},
-                {ModTarget::Op3,.24f,.08f},
-                {ModTarget::Cutoff,420.0f,1100.0f},
-                {ModTarget::AmpRelease,5.80f,.12f}});
-    drumVelocity(p,{{ModTarget::Op1,.008f,.22f},
-                    {ModTarget::Op4,.006f,.10f},
-                    {ModTarget::Op5,.050f,.16f},
-                    {ModTarget::Op6,.020f,.105f}});
-    p.fx={0.0f,0.0f,.32f,0.0f,.08f};
-    p.volume=.64f;p.fundamentalMidi=73;
+    drumMods(p,{{ModTarget::Op2,.29f,.17f},
+                {ModTarget::Op3,.19f,.07f},
+                {ModTarget::Cutoff,550.0f,1250.0f},
+                {ModTarget::AmpRelease,.90f,.075f}});
+    drumVelocity(p,{{ModTarget::Op1,.008f,.15f},
+                    {ModTarget::Op4,.018f,.23f},
+                    {ModTarget::Op5,.045f,.13f},
+                    {ModTarget::Op6,.014f,.065f}});
+    p.fx={0.0f,0.0f,.32f,0.0f,.04f};
+    p.volume=.38f;p.fundamentalMidi=73;
     return p;
 }
 
@@ -199,8 +199,8 @@ Patch pad6() {
 
 const std::array<DrumPad,7>& nexdrumKit() {
     static const std::array<DrumPad,7> kit{{
-        DrumPad{80,80,86,"crash",pad0(),0.76f,0.24f},
-        DrumPad{73,73,79,"ride",pad1(),0.78f,-0.20f},
+        DrumPad{80,80,86,"crash",pad0(),0.66f,0.24f},
+        DrumPad{73,73,79,"ride",pad1(),0.70f,-0.20f},
         DrumPad{66,66,72,"bongo",pad2(),0.72f,0.27f},
         DrumPad{59,59,65,"snare",pad3(),0.86f,0.0f},
         DrumPad{52,52,58,"tom",pad4(),0.72f,0.19f},

@@ -122,7 +122,10 @@ int main(){
     assert(kit[1].patch.cymbalModel==2);
     assert(kit[0].patch.filter.cutoff<2500.0f);
     assert(kit[0].patch.timpaniMembrane);
-    assert(kit[1].patch.amp.release>kit[0].patch.amp.release*2.0f);
+    assert(kit[1].patch.amp.release>kit[0].patch.amp.release*1.5f);
+    assert(kit[0].patch.amp.release<.8f);
+    assert(kit[1].patch.amp.release<1.3f);
+    assert(kit[0].patch.volume<.45f&&kit[1].patch.volume<.45f);
     assert(kit[1].patch.filter.cutoff<kit[0].patch.filter.cutoff);
     assert(kit[1].patch.velocitySlotCount>=3);
     // Natural wash responds to V; expressive M remains free for choking.
@@ -143,7 +146,7 @@ int main(){
     assert(kitRestored.tracks[0].pads[6].patch.drumPitchDrop==kick.drumPitchDrop);
     assert(kitRestored.tracks[0].pads[0].patch.cymbalModel==1);
     assert(kitRestored.tracks[0].pads[1].patch.cymbalModel==2);
-    assert(kitRestored.tracks[0].pads[1].patch.amp.release>5.0f);
+    assert(std::fabs(kitRestored.tracks[0].pads[1].patch.amp.release-.90f)<.001f);
     assert(kitRestored.tracks[0].pads[1].patch.modSlots.back().max<1.0f);
     assert(kitRestored.tracks[0].pads[3].patch.velocitySlotCount>=2);
     assert(kitRestored.tracks[0].pads[6].patch.velocitySlotCount>=2);
@@ -167,20 +170,24 @@ int main(){
         }
         assert(energies[0]>0.0f&&energies[1]>energies[0]*1.5f);
     }
-    // The ride body sustains significantly longer after an equal short hit.
+    // The full-velocity crash should be punchy and both cymbals should
+    // fade into a typical metal mix, not continue ringing for many seconds.
     SpectrachordVoice crashTail,rideTail;
     crashTail.prepare(12000.0f);rideTail.prepare(12000.0f);
     crashTail.start(380,toDspPatch(kit[0].patch),kit[0].centerMidi,.9f,1200u,12000.0f);
     rideTail.start(381,toDspPatch(kit[1].patch),kit[1].centerMidi,.9f,1200u,12000.0f);
-    float rideLateEnergy=0.0f;
-    for(int frame=0;frame<51000;++frame){
+    float crashEarly=0.0f,rideEarly=0.0f,crashLate=0.0f,rideLate=0.0f;
+    for(int frame=0;frame<24000;++frame){
         const float crash=crashTail.render();
         const float ride=rideTail.render();
         assert(std::isfinite(crash)&&std::isfinite(ride));
-        if(frame>48000)rideLateEnergy+=ride*ride;
+        if(frame<2400){crashEarly+=crash*crash;rideEarly+=ride*ride;}
+        if(frame>13200){crashLate+=crash*crash;rideLate+=ride*ride;}
     }
-    assert(!crashTail.active()&&rideTail.active());
-    assert(rideLateEnergy>1.0e-6f);
+    assert(crashEarly>0.0001f&&rideEarly>0.0001f);
+    assert(crashLate<crashEarly*.0001f);
+    assert(rideLate<rideEarly*.0001f);
+    assert(!crashTail.active()&&!rideTail.active());
     // Animated velocity must influence sound beyond the original V volume.
     Patch linked=makeFactoryPatch(FactoryPreset::SpectrachordInit);
     for(auto& op:linked.ops){op.enabled=false;op.level=0.0f;}
