@@ -736,6 +736,70 @@ Fx ProjectCore::selectedFx() const {
     std::scoped_lock lock(mutex_);if(!validTrack(selectedTrack_))return makeFactoryPatch(FactoryPreset::SpectrachordInit).fx;
     const auto& t=project_.tracks[selectedTrack_];if(t.drums&&validPad(selectedTrack_,t.selectedPad))return t.pads[t.selectedPad].patch.fx;return t.patch.fx;
 }
+
+Fx ProjectCore::fxRack(bool master) const {
+    std::scoped_lock lock(mutex_);
+    if(master){
+        Fx fx=project_.masterFx;
+        if(!fx.rackConfigured)fx=legacyMasterFx(project_.masterReverb,project_.masterReverbDecay,project_.masterReverbRoom);
+        return fx;
+    }
+    const auto* patch=selectedPatchUnsafe();
+    Fx fx=patch?patch->fx:Fx{};
+    migrateLegacyFx(fx);
+    return fx;
+}
+bool ProjectCore::addFxStage(bool master,FxType type){
+    std::scoped_lock lock(mutex_);
+    Fx* fx=master?&project_.masterFx:nullptr;
+    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    if(master&&!fx->rackConfigured)*fx=legacyMasterFx(project_.masterReverb,project_.masterReverbDecay,project_.masterReverbRoom);
+    migrateLegacyFx(*fx);
+    if(fx->count>=kMaxFxStages||static_cast<int>(type)>static_cast<int>(FxType::Reverb))return false;
+    fx->chain[fx->count++]=makeFxModule(type);return true;
+}
+bool ProjectCore::removeFxStage(bool master,int index){
+    std::scoped_lock lock(mutex_);
+    Fx* fx=master?&project_.masterFx:nullptr;
+    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    if(master&&!fx->rackConfigured)*fx=legacyMasterFx(project_.masterReverb,project_.masterReverbDecay,project_.masterReverbRoom);
+    migrateLegacyFx(*fx);
+    if(index<0||index>=fx->count)return false;
+    for(int i=index;i+1<fx->count;++i)fx->chain[i]=fx->chain[i+1];
+    --fx->count;return true;
+}
+bool ProjectCore::moveFxStage(bool master,int index,int direction){
+    std::scoped_lock lock(mutex_);
+    Fx* fx=master?&project_.masterFx:nullptr;
+    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    if(master&&!fx->rackConfigured)*fx=legacyMasterFx(project_.masterReverb,project_.masterReverbDecay,project_.masterReverbRoom);
+    migrateLegacyFx(*fx);
+    const int other=index+direction;
+    if(index<0||other<0||index>=fx->count||other>=fx->count)return false;
+    std::swap(fx->chain[index],fx->chain[other]);return true;
+}
+bool ProjectCore::setFxStageEnabled(bool master,int index,bool enabled){
+    std::scoped_lock lock(mutex_);
+    Fx* fx=master?&project_.masterFx:nullptr;
+    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    if(master&&!fx->rackConfigured)*fx=legacyMasterFx(project_.masterReverb,project_.masterReverbDecay,project_.masterReverbRoom);
+    migrateLegacyFx(*fx);
+    if(index<0||index>=fx->count)return false;
+    fx->chain[index].enabled=enabled;return true;
+}
+bool ProjectCore::setFxStageParameter(bool master,int index,int parameter,float value){
+    std::scoped_lock lock(mutex_);
+    Fx* fx=master?&project_.masterFx:nullptr;
+    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    if(master&&!fx->rackConfigured)*fx=legacyMasterFx(project_.masterReverb,project_.masterReverbDecay,project_.masterReverbRoom);
+    migrateLegacyFx(*fx);
+    if(index<0||index>=fx->count)return false;
+    auto& mod=fx->chain[index];
+    if(parameter<0||static_cast<size_t>(parameter)>=fxParamCount(mod.type))return false;
+    const auto desc=fxParamDesc(mod.type,static_cast<size_t>(parameter));
+    mod.params[static_cast<size_t>(parameter)]=std::clamp(value,desc.lo,desc.hi);
+    return true;
+}
 DspPatch ProjectCore::padDspPatch(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?toDspPatch(project_.tracks[t].pads[p].patch):toDspPatch(makeFactoryPatch(FactoryPreset::SpectrachordInit));}
 Fx ProjectCore::padFx(int t,int p) const {std::scoped_lock lock(mutex_);return validPad(t,p)?project_.tracks[t].pads[p].patch.fx:Fx{};}
 

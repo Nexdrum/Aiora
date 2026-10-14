@@ -16,6 +16,66 @@
 using namespace aiora;
 
 int main(){
+    // Rack effects are ordinary, repeatable, ordered modules, not fixed slots.
+    Fx rack{};rack.rackConfigured=true;rack.count=2;
+    rack.chain[0]=makeFxModule(FxType::MetalAmp);
+    rack.chain[1]=makeFxModule(FxType::Cabinet);
+    assert(fxParamCount(FxType::MetalAmp)==8);
+    assert(fxParamCount(FxType::Cabinet)==5);
+    FxProcessor metalFirst,cabinetFirst,bypassed;
+    metalFirst.prepare(12000);cabinetFirst.prepare(12000);bypassed.prepare(12000);
+    metalFirst.set(rack);
+    std::swap(rack.chain[0],rack.chain[1]);
+    cabinetFirst.set(rack);
+    rack.chain[0].enabled=false;bypassed.set(rack);
+    double orderDifference=0,bypassDifference=0;
+    for(int n=0;n<1200;++n){
+        const float x=.15f*std::sin(n*.073f);
+        const auto a=metalFirst.process(x),b=cabinetFirst.process(x),c=bypassed.process(x);
+        assert(std::isfinite(a[0])&&std::isfinite(b[0])&&std::isfinite(c[0]));
+        orderDifference+=std::fabs(a[0]-b[0]);
+        bypassDifference+=std::fabs(c[0]-b[0]);
+    }
+    assert(orderDifference>.05&&bypassDifference>.05);
+    Fx duplicates{};duplicates.rackConfigured=true;duplicates.count=2;
+    duplicates.chain[0]=makeFxModule(FxType::BandEq);
+    duplicates.chain[1]=makeFxModule(FxType::BandEq);
+    duplicates.chain[1].params[2]=-4.5f;
+    Patch testPatch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    testPatch.fx=duplicates;
+    Patch roundTrip;std::string fxError;
+    assert(deserializePatchJson(serializePatchJson(testPatch),roundTrip,&fxError));
+    assert(roundTrip.fx.rackConfigured&&roundTrip.fx.count==2);
+    assert(roundTrip.fx.chain[0].type==FxType::BandEq);
+    assert(roundTrip.fx.chain[1].params[2]==-4.5f);
+    Project fxProject;Track fxTrack;fxTrack.patch=testPatch;
+    fxTrack.name="Test";fxProject.tracks.push_back(fxTrack);
+    fxProject.masterFx.rackConfigured=true;fxProject.masterFx.count=2;
+    fxProject.masterFx.chain[0]=makeFxModule(FxType::Delay);
+    fxProject.masterFx.chain[1]=makeFxModule(FxType::Reverb);
+    Project fxRecovered;
+    assert(deserializeProjectJson(serializeProjectJson(fxProject),fxRecovered,&fxError));
+    assert(fxRecovered.masterFx.count==2);
+    assert(fxRecovered.tracks[0].patch.fx.count==2);
+    const auto oldMaster=legacyMasterFx(.45f,2.3f,1.3f);
+    assert(oldMaster.count==1&&oldMaster.chain[0].type==FxType::Reverb);
+    assert(std::fabs(oldMaster.chain[0].params[0]-.45f)<.0001f);
+    auto& fxCore=ProjectCore::instance();
+    fxCore.replaceProject(fxProject,0);
+    assert(fxCore.fxRack(true).count==2);
+    assert(fxCore.moveFxStage(true,0,1));
+    assert(fxCore.fxRack(true).chain[0].type==FxType::Reverb);
+    assert(fxCore.addFxStage(true,FxType::MetalAmp));
+    assert(fxCore.setFxStageParameter(true,2,1,8.5f));
+    assert(fxCore.setFxStageEnabled(true,2,false));
+    assert(!fxCore.fxRack(true).chain[2].enabled);
+    assert(fxCore.removeFxStage(true,2));
+    assert(fxCore.addFxStage(false,FxType::Cabinet));
+    assert(fxCore.fxRack(false).count==3);
+    const auto snapshot=fxCore.makePlaybackSnapshot();
+    assert(snapshot&&snapshot->masterEffects.count==2);
+    fxCore.reset();
+
     // Native presets are ordinary editable Spectrachord patches.
     const auto nebular=makeFactoryPatch(FactoryPreset::Nebular);
     const auto spectrello=makeFactoryPatch(FactoryPreset::Spectrello);

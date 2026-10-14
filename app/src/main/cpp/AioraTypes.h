@@ -37,11 +37,93 @@ struct Operator {
 };
 struct Filter { FilterType type{FilterType::Lowpass}; float cutoff{6500},resonance{0.7f},envAmount{0}; Envelope env{0.01f,0.15f,0.7f,0.2f}; };
 struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget target{LfoTarget::None}; };
+enum class FxType : uint8_t { Saturation, MetalAmp, Cabinet, BandEq, Delay, Reverb };
+constexpr size_t kMaxFxStages=16;
+struct FxModule {
+    FxType type{FxType::Saturation};
+    bool enabled{true};
+    std::array<float,8> params{};
+};
+struct FxParamDesc { const char* name;float lo,hi,defaultValue; };
+inline const char* fxTypeName(FxType type) noexcept {
+    switch(type){
+        case FxType::Saturation:return "Saturation";
+        case FxType::MetalAmp:return "Metal Amp";
+        case FxType::Cabinet:return "Cabinet";
+        case FxType::BandEq:return "5-Band EQ";
+        case FxType::Delay:return "Delay";
+        case FxType::Reverb:return "Reverb";
+    }
+    return "Effect";
+}
+inline size_t fxParamCount(FxType type) noexcept {
+    switch(type){
+        case FxType::Saturation:return 3;
+        case FxType::MetalAmp:return 8;
+        case FxType::Cabinet:return 5;
+        case FxType::BandEq:return 6;
+        case FxType::Delay:return 3;
+        case FxType::Reverb:return 3;
+    }
+    return 0;
+}
+inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
+    static constexpr FxParamDesc saturation[]={{"Input",0,4,1},{"Drive",0,10,3},{"Output",0,4,1}};
+    static constexpr FxParamDesc metal[]={{"Input",0,4,1},{"Drive",0,10,6.5f},{"Tight Hz",40,240,115},{"Bass dB",-12,12,0},{"Mid dB",-12,12,2},{"Treble dB",-12,12,0},{"Presence dB",-12,12,1.5f},{"Output",0,4,.6f}};
+    static constexpr FxParamDesc cabinet[]={{"Low cut",40,200,85},{"High cut",2500,9500,5100},{"Body",0,1,.55f},{"Bite",0,1,.48f},{"Mix",0,1,1}};
+    static constexpr FxParamDesc eq[]={{"80 Hz dB",-12,12,0},{"240 Hz dB",-12,12,0},{"750 Hz dB",-12,12,0},{"2.2k dB",-12,12,0},{"6k dB",-12,12,0},{"Output",0,2,1}};
+    static constexpr FxParamDesc delay[]={{"Mix",0,1,.18f},{"Time s",.03f,1,.32f},{"Feedback",0,.85f,.32f}};
+    static constexpr FxParamDesc reverb[]={{"Mix",0,1,.25f},{"Decay s",.2f,12,.8f},{"Room",.5f,2.5f,1}};
+    if(p>=fxParamCount(type))return {"Parameter",0,1,0};
+    switch(type){
+        case FxType::Saturation:return saturation[p];
+        case FxType::MetalAmp:return metal[p];
+        case FxType::Cabinet:return cabinet[p];
+        case FxType::BandEq:return eq[p];
+        case FxType::Delay:return delay[p];
+        case FxType::Reverb:return reverb[p];
+    }
+    return {"Parameter",0,1,0};
+}
+inline FxModule makeFxModule(FxType type) noexcept {
+    FxModule m;m.type=type;
+    for(size_t i=0;i<fxParamCount(type);++i)m.params[i]=fxParamDesc(type,i).defaultValue;
+    return m;
+}
 struct Fx {
+    // Legacy parameters remain readable for old patch/project migration.
     float distortion{0},delay{0.18f},delayTime{0.32f},delayFeedback{0.32f},reverb{0.25f};
     float distIn{1.0f},distOut{1.0f};
     float reverbDecay{0.8f},reverbRoom{1.0f};
+    // Ordered fixed-capacity rack: no allocations when passed into audio events.
+    std::array<FxModule,kMaxFxStages> chain{};
+    uint8_t count{0};
+    bool rackConfigured{false}; // true even if all modules were removed
 };
+inline void migrateLegacyFx(Fx& fx) noexcept {
+    if(fx.rackConfigured)return;
+    fx.count=0;fx.rackConfigured=true;
+    if(fx.distortion>.005f){
+        auto m=makeFxModule(FxType::Saturation);
+        m.params[0]=fx.distIn;m.params[1]=fx.distortion;m.params[2]=fx.distOut;
+        fx.chain[fx.count++]=m;
+    }
+    if(fx.delay>.005f){
+        auto m=makeFxModule(FxType::Delay);
+        m.params[0]=fx.delay;m.params[1]=fx.delayTime;m.params[2]=fx.delayFeedback;
+        fx.chain[fx.count++]=m;
+    }
+    if(fx.reverb>.005f){
+        auto m=makeFxModule(FxType::Reverb);
+        m.params[0]=fx.reverb;m.params[1]=fx.reverbDecay;m.params[2]=fx.reverbRoom;
+        fx.chain[fx.count++]=m;
+    }
+}
+inline Fx legacyMasterFx(float mix,float decay,float room) noexcept {
+    Fx fx{};fx.distortion=0;fx.delay=0;fx.reverb=mix;
+    fx.reverbDecay=decay;fx.reverbRoom=room;
+    migrateLegacyFx(fx);return fx;
+}
 struct ModSlot { ModTarget target{ModTarget::None}; float min{0},max{1}; };
 enum class LinkSource : uint8_t { Mod, Velocity };
 
@@ -175,6 +257,7 @@ struct Project {
     float bpm{112}; int32_t beats{4},divisions{4}; bool dozenal{false};
     float masterVolume{0.9f},masterReverb{0};
     float masterReverbDecay{0.8f},masterReverbRoom{1.0f};
+    Fx masterFx{};
     std::vector<Track> tracks;
 };
 

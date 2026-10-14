@@ -50,7 +50,8 @@ private:
         SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
         FxGroup, FilterType, LfoTarget, PatchParam,
-        LinkSourceV, LinkSourceM, ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd
+        LinkSourceV, LinkSourceM, ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd,
+        RackScope, RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackSelectType, RackAdd
     };
     struct Hit {
         HitKind kind{HitKind::None};
@@ -82,6 +83,11 @@ private:
     [[nodiscard]] Rect harmonicRect(int index) const noexcept;
     [[nodiscard]] Rect matrixRect(int modulator,int carrier) const noexcept;
 
+    [[nodiscard]] Rect fxRackRect() const noexcept;
+    [[nodiscard]] Rect fxRackScopeRect(bool master) const noexcept;
+    [[nodiscard]] Rect fxRackStageRect(int index) const noexcept;
+    [[nodiscard]] Rect fxRackParamRect(int index,int parameter) const noexcept;
+    [[nodiscard]] Rect fxRackAddRect(bool add) const noexcept;
     [[nodiscard]] Rect fxGroupRect(int index) const noexcept;
     [[nodiscard]] Rect fxSectionParamRect(int section,int row) const noexcept;
     [[nodiscard]] Rect filterTypeRect(int index) const noexcept;
@@ -123,6 +129,9 @@ private:
     int selectedOperator_{0};
     bool matrixMode_{false};
     int fxGroup_{0};
+    bool fxRackMaster_{false};
+    int fxRackExpanded_{-1};
+    FxType fxRackNewType_{FxType::MetalAmp};
     LinkSource linkSource_{LinkSource::Mod};
     float synthScrollY_{0.0f};
     float fxScrollY_{0.0f};

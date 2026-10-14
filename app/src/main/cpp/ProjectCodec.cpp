@@ -350,6 +350,43 @@ std::pair<float,float> modBounds(ModTarget t){
     return {0,1};
 }
 
+
+void writeFxRack(Writer& w,Fx fx){
+    migrateLegacyFx(fx);
+    w.raw("[");
+    for(size_t i=0;i<fx.count;++i){
+        if(i)w.raw(",");
+        const auto& m=fx.chain[i];
+        w.raw("{\"type\":");w.number(static_cast<int>(m.type));
+        w.raw(",\"on\":");w.boolean(m.enabled);
+        w.raw(",\"p\":[");
+        for(size_t j=0;j<fxParamCount(m.type);++j){
+            if(j)w.raw(",");
+            w.number(m.params[j]);
+        }
+        w.raw("]}");
+    }
+    w.raw("]");
+}
+bool readFxRack(const Json* source,Fx& fx){
+    if(!source||source->type!=Json::Type::Array)return false;
+    fx.rackConfigured=true;fx.count=0;
+    for(const auto& item:source->array){
+        if(fx.count>=kMaxFxStages)break;
+        if(item.type!=Json::Type::Object)continue;
+        const int t=static_cast<int>(num(item.get("type"),-1));
+        if(t<0||t>static_cast<int>(FxType::Reverb))continue;
+        auto module=makeFxModule(static_cast<FxType>(t));
+        module.enabled=boolean(item.get("on"),true);
+        if(const Json* a=item.get("p");a&&a->type==Json::Type::Array)
+            for(size_t j=0;j<std::min(a->array.size(),fxParamCount(module.type));++j){
+                const auto d=fxParamDesc(module.type,j);
+                module.params[j]=clampf(num(&a->array[j],d.defaultValue),d.lo,d.hi,d.defaultValue);
+            }
+        fx.chain[fx.count++]=module;
+    }
+    return true;
+}
 void writeFloatArray(Writer& w,const std::array<float,16>& a){
     w.raw("[");for(size_t i=0;i<a.size();++i){if(i)w.raw(",");w.number(a[i]);}w.raw("]");
 }
@@ -406,6 +443,7 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"reverbDecay\":");w.number(p.fx.reverbDecay);
     w.raw(",\"reverbRoom\":");w.number(p.fx.reverbRoom);
     w.raw("}");
+    w.raw(",\"fxChain\":");writeFxRack(w,p.fx);
     w.raw(",\"unison\":");w.number(p.unison);w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
     if(p.timpaniMembrane)w.raw(",\"timpaniMembrane\":true");
     if(p.drumPitchDrop>0.0f&&p.drumPitchDropSeconds>0.0f){w.raw(",\"drumPitchDrop\":");w.number(p.drumPitchDrop);w.raw(",\"drumPitchDropSeconds\":");w.number(p.drumPitchDropSeconds);}
@@ -528,6 +566,7 @@ bool readPatch(const Json& src,Patch& p){
         p.fx.reverbDecay=clampf(num(x->get("reverbDecay"),.8),.2f,12,.8f);
         p.fx.reverbRoom=clampf(num(x->get("reverbRoom"),1),.5f,2.5f,1);
     }
+    readFxRack(src.get("fxChain"),p.fx);
     p.unison=clampf(num(src.get("unison"),0),0,1,0);p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
     p.timpaniMembrane=boolean(src.get("timpaniMembrane"),false);
     p.drumPitchDrop=clampf(num(src.get("drumPitchDrop"),0),0,36,0);
@@ -590,6 +629,9 @@ std::string serializeProjectJson(const Project& project){
     w.raw(",\"mrev\":");w.number(project.masterReverb);
     w.raw(",\"mrevDecay\":");w.number(project.masterReverbDecay);
     w.raw(",\"mrevRoom\":");w.number(project.masterReverbRoom);
+    w.raw(",\"masterFxChain\":");
+    writeFxRack(w,project.masterFx.rackConfigured?project.masterFx:
+        legacyMasterFx(project.masterReverb,project.masterReverbDecay,project.masterReverbRoom));
     w.raw(",\"tracks\":[");
     for(size_t ti=0;ti<project.tracks.size();++ti){
         if(ti)w.raw(",");const auto&t=project.tracks[ti];
@@ -620,6 +662,7 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
         out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);out.masterReverb=clampf(num(root.get("mrev"),0),0,1,0);
         out.masterReverbDecay=clampf(num(root.get("mrevDecay"),.8),.2f,12,.8f);
         out.masterReverbRoom=clampf(num(root.get("mrevRoom"),1),.5f,2.5f,1);
+        readFxRack(root.get("masterFxChain"),out.masterFx);
         for(size_t ti=0;ti<tracks->array.size();++ti){
             const auto& jt=tracks->array[ti];if(jt.type!=Json::Type::Object)continue;
             Track t;t.name=str(jt.get("name"),"Track "+std::to_string(ti+1));t.drums=str(jt.get("kind"),"melodic")=="drums";t.volume=clampf(num(jt.get("vol"),.8),0,1,.8f);t.pan=clampf(num(jt.get("panV"),0),-1,1,0);t.mute=boolean(jt.get("mute"),false);t.solo=boolean(jt.get("solo"),false);

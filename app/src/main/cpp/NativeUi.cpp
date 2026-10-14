@@ -2336,23 +2336,15 @@ void NativeUi::drawTracks() const noexcept {
         dz.x+box+12.0f,dz.y+dz.h*0.30f,
         0.88f,overlayColor(kWhite));
 
-    // MASTER
+    // Master effects are no longer a fixed reverb: edit their ordered rack
+    // in FX > Master. Keep the volume as the dedicated Tracks control.
     const auto master=masterCardRect();
     drawCard(master,"MASTER");
-    for(int i=0;i<4;++i){
-        const auto mr=masterSliderRect(i);
-        const float value=i==0?project.masterVolume()
-            :i==1?project.masterReverb()
-            :i==2?project.masterReverbDecay()
-                :project.masterReverbRoom();
-        const float norm=i<2?value:i==2?(value-0.2f)/11.8f:(value-0.5f)/2.0f;
-        const std::string shown=i<2
-            ?std::to_string(static_cast<int>(std::lround(value*100.0f)))
-            :std::to_string(std::round(value*10.0f)/10.0f).substr(0,4);
-        drawSlider(mr,norm,i==0?kCyan:kPurple,
-            i==0?"Volume":i==1?"Reverb":i==2?"Decay (s)":"Room size",
-            shown);
-    }
+    const auto mr=masterSliderRect(0);
+    drawSlider(mr,project.masterVolume(),kCyan,"Volume",
+        std::to_string(static_cast<int>(std::lround(project.masterVolume()*100.0f))));
+    overlay.addText("FX page  >  Master chain",master.x+20,master.y+195.0f,
+        .86f,overlayColor(kPurple));
 }
 
 bool NativeUi::trackPointerDown(float x,float y){
@@ -2363,7 +2355,7 @@ bool NativeUi::trackPointerDown(float x,float y){
     trackActiveIndex_=-1;
     trackReorderIndex_=-1;
 
-    for(int i=0;i<4;++i){
+    for(int i=0;i<1;++i){
         const auto r=masterSliderRect(i);if(!r.contains(x,y))continue;
         const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
         const float valueW=std::clamp(r.w*0.12f,40.0f,64.0f);

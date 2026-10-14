@@ -29,6 +29,7 @@ struct PlaybackSnapshot {
     float masterReverb{0.0f};
     float masterReverbDecay{0.8f};
     float masterReverbRoom{1.0f};
+    Fx masterEffects{};
     std::vector<Fx> fxBuses;
     std::vector<FxProcessor> preparedFx;
     std::vector<float> scratchLeft,scratchRight;

@@ -131,6 +131,12 @@ public:
     Fx selectedFx() const;
     DspPatch padDspPatch(int trackIndex, int padIndex) const;
     Fx padFx(int trackIndex, int padIndex) const;
+    Fx fxRack(bool master) const;
+    bool addFxStage(bool master,FxType type);
+    bool removeFxStage(bool master,int index);
+    bool moveFxStage(bool master,int index,int direction);
+    bool setFxStageEnabled(bool master,int index,bool enabled);
+    bool setFxStageParameter(bool master,int index,int parameter,float value);
 
     bool setSelectedOperatorEnabled(int opIndex, bool enabled);
     bool setSelectedOperatorWave(int opIndex, Wave wave);
