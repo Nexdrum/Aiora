@@ -81,7 +81,9 @@ enum class DropdownKind : int {
     Wave,
     FilterType,
     LfoTarget,
-    ModTarget
+    ModTarget,
+    FxType,
+    MasterFxType
 };
 
 struct DropdownChoice {
@@ -289,6 +291,7 @@ public:
     void closeDropdown() noexcept;
     [[nodiscard]] bool dropdownOpen() const noexcept { return dropdownKind_!=DropdownKind::None; }
     [[nodiscard]] bool openUiDropdownAt(float x,float y);
+    void setMasterFxType(FxType type) noexcept { masterFxNewType_=type; }
     [[nodiscard]] std::optional<DropdownChoice> hitDropdown(float x,float y);
 
     [[nodiscard]] std::optional<HeaderAction> hitHeader(float x, float y) const noexcept;
@@ -345,6 +348,9 @@ private:
     [[nodiscard]] Rect aiCardRect() const noexcept;
     [[nodiscard]] Rect songCardRect() const noexcept;
     [[nodiscard]] Rect masterCardRect() const noexcept;
+    [[nodiscard]] Rect masterFxStageRect(int index) const noexcept;
+    [[nodiscard]] Rect masterFxParamRect(int index,int parameter) const noexcept;
+    [[nodiscard]] Rect masterFxAddRect(bool button) const noexcept;
     [[nodiscard]] Rect trackSongSliderRect(int index) const noexcept;
     [[nodiscard]] Rect trackUtilityRect(int index) const noexcept;
     [[nodiscard]] Rect projectTransferRect(int index) const noexcept;
@@ -408,6 +414,8 @@ private:
     int trackActiveIndex_{-1};
     int trackReorderIndex_{-1};
     bool trackControlChanged_{false};
+    int masterFxExpanded_{-1};
+    FxType masterFxNewType_{FxType::MetalAmp};
 
     bool drumRangeArmed_{false};
     int drumActiveSlider_{-1};

@@ -493,6 +493,16 @@ bool NativeUi::openUiDropdownAt(float x,float y){
         }
     }
 
+    if(page_==NativePage::Tracks&&contentRect().contains(x,y)&&
+       masterFxAddRect(false).contains(x,y)){
+        std::vector<std::string> labels;
+        for(int i=0;i<=static_cast<int>(FxType::Reverb);++i)
+            labels.emplace_back(fxTypeName(static_cast<FxType>(i)));
+        openDropdown(DropdownKind::MasterFxType,-1,masterFxAddRect(false),
+            static_cast<int>(masterFxNewType_),std::move(labels));
+        return true;
+    }
+
     if(page_==NativePage::Tracks&&patchPresetRect().contains(x,y)){
         // Keep the UI selector synchronized with the compiled factory bank.
         std::vector<std::string> labels;
@@ -791,7 +801,30 @@ NativeUi::Rect NativeUi::songCardRect() const noexcept {
 NativeUi::Rect NativeUi::masterCardRect() const noexcept {
     const auto prev=songCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,370.0f};
+    const Fx rack=ProjectCore::instance().fxRack(true);
+    float height=285.0f+82.0f*static_cast<float>(rack.count);
+    if(masterFxExpanded_>=0&&masterFxExpanded_<rack.count)
+        height+=64.0f*static_cast<float>(fxParamCount(rack.chain[masterFxExpanded_].type));
+    return {prev.x,prev.y+prev.h+gap,prev.w,height};
+}
+NativeUi::Rect NativeUi::masterFxStageRect(int index) const noexcept {
+    const auto c=masterCardRect();
+    const Fx rack=ProjectCore::instance().fxRack(true);
+    float y=c.y+182.0f;
+    for(int i=0;i<index&&i<rack.count;++i){
+        y+=82.0f;
+        if(i==masterFxExpanded_)y+=64.0f*fxParamCount(rack.chain[i].type);
+    }
+    return {c.x+18.0f,y,c.w-36.0f,75.0f};
+}
+NativeUi::Rect NativeUi::masterFxParamRect(int index,int parameter) const noexcept {
+    const auto row=masterFxStageRect(index);
+    return {row.x+10.0f,row.y+row.h+parameter*64.0f,row.w-20.0f,58.0f};
+}
+NativeUi::Rect NativeUi::masterFxAddRect(bool button) const noexcept {
+    const auto c=masterCardRect();
+    const float w=(c.w-50.0f)*.5f;
+    return {c.x+20.0f+(button?w+10.0f:0.0f),c.y+c.h-82.0f,w,61.0f};
 }
 
 NativeUi::Rect NativeUi::trackSongSliderRect(int index) const noexcept {
@@ -2336,15 +2369,66 @@ void NativeUi::drawTracks() const noexcept {
         dz.x+box+12.0f,dz.y+dz.h*0.30f,
         0.88f,overlayColor(kWhite));
 
-    // Master effects are no longer a fixed reverb: edit their ordered rack
-    // in FX > Master. Keep the volume as the dedicated Tracks control.
+    // Master processing is edited here, directly after master volume.
     const auto master=masterCardRect();
     drawCard(master,"MASTER");
     const auto mr=masterSliderRect(0);
     drawSlider(mr,project.masterVolume(),kCyan,"Volume",
         std::to_string(static_cast<int>(std::lround(project.masterVolume()*100.0f))));
-    overlay.addText("FX page  >  Master chain",master.x+20,master.y+195.0f,
-        .86f,overlayColor(kPurple));
+    overlay.addText("MASTER FX CHAIN",master.x+20,master.y+142.0f,
+        .95f,overlayColor(kPurple));
+    const Fx masterRack=project.fxRack(true);
+    const auto shortFxValue=[](float value){
+        std::string str=std::to_string(value);
+        while(str.size()>1&&str.back()=='0')str.pop_back();
+        if(!str.empty()&&str.back()=='.')str.pop_back();
+        if(str.size()>7)str.resize(7);
+        return str;
+    };
+    for(int i=0;i<masterRack.count;++i){
+        const auto& module=masterRack.chain[i];
+        const auto row=masterFxStageRect(i);
+        fillRect(row,mix(kPanel,kButton,.45f));
+        const float bw=std::clamp(row.w*.10f,39.0f,67.0f);
+        const float right=row.x+row.w;
+        overlay.addText(std::to_string(i+1)+". "+fxTypeName(module.type)+
+            (masterFxExpanded_==i?"   -":"   +"),
+            row.x+12.0f,row.y+25.0f,.88f,overlayColor(module.enabled?kWhite:kMuted));
+        const char* labels[4]={"^","v",module.enabled?"On":"Off","X"};
+        const Rgb colors[4]={kCyan,kCyan,module.enabled?kGreen:kMuted,kRed};
+        for(int control=0;control<4;++control){
+            const Rect button{right-(4-control)*bw,row.y+5.0f,bw-3.0f,row.h-10.0f};
+            fillRect(button,colors[control]);
+            overlay.addTextCentered(labels[control],
+                {button.x,button.y,button.w,button.h},.84f,overlayColor(kWhite));
+        }
+        if(i==masterFxExpanded_){
+            for(size_t p=0;p<fxParamCount(module.type);++p){
+                const auto pr=masterFxParamRect(i,static_cast<int>(p));
+                const auto d=fxParamDesc(module.type,p);
+                const float n=std::clamp((module.params[p]-d.lo)/
+                    std::max(.0001f,d.hi-d.lo),0.0f,1.0f);
+                const float lw=std::clamp(pr.w*.27f,115.0f,182.0f);
+                const float vw=71.0f,x0=pr.x+lw;
+                const float w=std::max(24.0f,pr.w-lw-vw-9.0f);
+                const float cy=pr.y+pr.h*.52f;
+                overlay.addText(d.name,pr.x,pr.y+pr.h*.26f,.75f,overlayColor(kMuted));
+                fillRect({x0,cy-3.0f,w,6.0f},kMuted);
+                fillRect({x0,cy-3.0f,w*n,6.0f},kPurple);
+                fillRect({x0+w*n-10.0f,cy-10.0f,20.0f,20.0f},mix(kWhite,kPurple,.28f));
+                overlay.addText(shortFxValue(module.params[p]),
+                    pr.x+pr.w-vw+3.0f,pr.y+pr.h*.26f,.78f,overlayColor(kWhite));
+            }
+        }
+    }
+    const auto chooser=masterFxAddRect(false),addFx=masterFxAddRect(true);
+    fillRect(chooser,kButton);fillRect(addFx,kGreen);
+    overlay.addTextCentered(fxTypeName(masterFxNewType_),
+        {chooser.x,chooser.y,chooser.w,chooser.h},.83f,overlayColor(kWhite));
+    overlay.addDownChevron({chooser.x+chooser.w-37.0f,chooser.y,37.0f,chooser.h},
+        overlayColor(kWhite));
+    overlay.addTextCentered("+ Add FX",{addFx.x,addFx.y,addFx.w,addFx.h},
+        .9f,overlayColor(kWhite));
 }
 
 bool NativeUi::trackPointerDown(float x,float y){
@@ -2354,6 +2438,65 @@ bool NativeUi::trackPointerDown(float x,float y){
     trackActiveSlider_=-1;
     trackActiveIndex_=-1;
     trackReorderIndex_=-1;
+
+    // The effect selector opens a modal dropdown through handleUiTap,
+    // so do not consume that touch here.
+    if(contentRect().contains(x,y)){
+        if(masterFxAddRect(false).contains(x,y))return false;
+        const Fx rack=project.fxRack(true);
+        if(masterFxAddRect(true).contains(x,y)){
+            trackControlChanged_=project.addFxStage(true,masterFxNewType_);
+            if(trackControlChanged_)
+                masterFxExpanded_=static_cast<int>(project.fxRack(true).count)-1;
+            return true;
+        }
+        for(int stage=0;stage<rack.count;++stage){
+            const auto row=masterFxStageRect(stage);
+            const float bw=std::clamp(row.w*.10f,39.0f,67.0f);
+            const float right=row.x+row.w;
+            for(int action=0;action<4;++action){
+                const Rect button{right-(4-action)*bw,row.y+5.0f,bw-3.0f,row.h-10.0f};
+                if(!button.contains(x,y))continue;
+                if(action==0||action==1){
+                    const int shift=action==0?-1:1;
+                    trackControlChanged_=project.moveFxStage(true,stage,shift);
+                    if(trackControlChanged_){
+                        if(masterFxExpanded_==stage)masterFxExpanded_+=shift;
+                        else if(masterFxExpanded_==stage+shift)masterFxExpanded_=stage;
+                    }
+                }else if(action==2){
+                    trackControlChanged_=project.setFxStageEnabled(true,stage,
+                        !rack.chain[stage].enabled);
+                }else{
+                    trackControlChanged_=project.removeFxStage(true,stage);
+                    if(trackControlChanged_){
+                        if(masterFxExpanded_==stage)masterFxExpanded_=-1;
+                        else if(masterFxExpanded_>stage)--masterFxExpanded_;
+                    }
+                }
+                return true;
+            }
+            if(row.contains(x,y)){
+                masterFxExpanded_=masterFxExpanded_==stage?-1:stage;
+                return true;
+            }
+            if(masterFxExpanded_==stage){
+                for(size_t param=0;param<fxParamCount(rack.chain[stage].type);++param){
+                    const auto pr=masterFxParamRect(stage,static_cast<int>(param));
+                    if(!pr.contains(x,y))continue;
+                    const auto d=fxParamDesc(rack.chain[stage].type,param);
+                    const float lw=std::clamp(pr.w*.27f,115.0f,182.0f);
+                    const float vw=71.0f;
+                    const float w=std::max(24.0f,pr.w-lw-vw-9.0f);
+                    const float n=std::clamp((x-pr.x-lw)/w,0.0f,1.0f);
+                    trackControlChanged_=project.setFxStageParameter(true,stage,
+                        static_cast<int>(param),d.lo+n*(d.hi-d.lo));
+                    trackActiveSlider_=1000+stage*8+static_cast<int>(param);
+                    return true;
+                }
+            }
+        }
+    }
 
     for(int i=0;i<1;++i){
         const auto r=masterSliderRect(i);if(!r.contains(x,y))continue;
@@ -2432,6 +2575,22 @@ bool NativeUi::trackPointerMove(float x,float y){
     }
 
     if(trackActiveSlider_<0)return false;
+
+    if(trackActiveSlider_>=1000){
+        const int encoded=trackActiveSlider_-1000;
+        const int stage=encoded/8,param=encoded%8;
+        const auto rack=project.fxRack(true);
+        if(stage<0||stage>=rack.count||
+           static_cast<size_t>(param)>=fxParamCount(rack.chain[stage].type))return false;
+        const auto pr=masterFxParamRect(stage,param);
+        const auto d=fxParamDesc(rack.chain[stage].type,static_cast<size_t>(param));
+        const float lw=std::clamp(pr.w*.27f,115.0f,182.0f);
+        const float vw=71.0f,w=std::max(24.0f,pr.w-lw-vw-9.0f);
+        const float n=std::clamp((x-pr.x-lw)/w,0.0f,1.0f);
+        trackControlChanged_|=project.setFxStageParameter(true,stage,param,
+            d.lo+n*(d.hi-d.lo));
+        return true;
+    }
 
     if(trackActiveSlider_>=2&&trackActiveSlider_<=5){
         const int i=trackActiveSlider_-2;

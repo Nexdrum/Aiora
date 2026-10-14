@@ -311,18 +311,14 @@ NativeEditor::Rect NativeEditor::matrixRect(int modulator,int carrier) const noe
 
 NativeEditor::Rect NativeEditor::fxRackRect() const noexcept {
     const auto b=bodyRect();const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
-    const Fx rack=ProjectCore::instance().fxRack(fxRackMaster_);
-    float height=210;
+    const Fx rack=ProjectCore::instance().fxRack(false);
+    float height=175;
     for(int i=0;i<rack.count;++i){height+=82;if(i==fxRackExpanded_)height+=64.0f*fxParamCount(rack.chain[i].type);}
     return {b.x+gap,b.y+gap-fxScrollY_,b.w-2*gap,height};
 }
-NativeEditor::Rect NativeEditor::fxRackScopeRect(bool master) const noexcept {
-    const auto c=fxRackRect();const float w=(c.w-50)*.5f;
-    return {c.x+20+(master?w+10:0),c.y+55,w,50};
-}
 NativeEditor::Rect NativeEditor::fxRackStageRect(int index) const noexcept {
-    const auto c=fxRackRect();const Fx rack=ProjectCore::instance().fxRack(fxRackMaster_);
-    float y=c.y+116;
+    const auto c=fxRackRect();const Fx rack=ProjectCore::instance().fxRack(false);
+    float y=c.y+72;
     for(int i=0;i<index&&i<rack.count;++i){y+=82;if(i==fxRackExpanded_)y+=64.0f*fxParamCount(rack.chain[i].type);}
     return {c.x+18,y,c.w-36,75};
 }
@@ -952,19 +948,12 @@ void NativeEditor::renderFx() const noexcept {
             0.78f,overlayColor(kMuted));
     };
 
-    // Ordered, removable, per-instrument and master effects.
-    const Fx rack=ProjectCore::instance().fxRack(fxRackMaster_);
+    // Instrument / pad FX only; the master rack lives on Tracks.
+    const Fx rack=ProjectCore::instance().fxRack(false);
     const auto rackRect=fxRackRect();
     fillRect(rackRect,kButton);
     fillRect({rackRect.x+2,rackRect.y+2,rackRect.w-4,rackRect.h-4},kPanel);
-    ov.addText("FX chain",rackRect.x+20,rackRect.y+18,1.12f,overlayColor(kCyan));
-    const auto inst=fxRackScopeRect(false),master=fxRackScopeRect(true);
-    drawButton(inst,!fxRackMaster_,kCyan);
-    drawButton(master,fxRackMaster_,kPurple);
-    ov.addTextCentered("Instrument / Pad",{inst.x,inst.y,inst.w,inst.h},
-        .85f,overlayColor(kWhite));
-    ov.addTextCentered("Master",{master.x,master.y,master.w,master.h},
-        .85f,overlayColor(kWhite));
+    ov.addText("Instrument / Pad FX chain",rackRect.x+20,rackRect.y+18,1.08f,overlayColor(kCyan));
     for(int i=0;i<rack.count;++i){
         const auto& module=rack.chain[i];
         const auto r=fxRackStageRect(i);
@@ -1000,8 +989,9 @@ void NativeEditor::renderFx() const noexcept {
     }
     const auto pick=fxRackAddRect(false),rackAdd=fxRackAddRect(true);
     drawButton(pick,false,kCyan);drawButton(rackAdd,true,kGreen);
-    ov.addTextCentered(std::string(fxTypeName(fxRackNewType_))+"  >",
+    ov.addTextCentered(std::string(fxTypeName(fxRackNewType_)),
         {pick.x,pick.y,pick.w,pick.h},.82f,overlayColor(kWhite));
+    ov.addDownChevron({pick.x+pick.w-37,pick.y,37,pick.h},overlayColor(kWhite));
     ov.addTextCentered("+ Add FX",{rackAdd.x,rackAdd.y,rackAdd.w,rackAdd.h},.90f,overlayColor(kWhite));
 
     // Filter
@@ -1178,6 +1168,18 @@ bool NativeEditor::openDropdownAt(
         return false;
     }
 
+    if(page==EditorPage::Fx){
+        const auto rr=fxRackAddRect(false);
+        if(rr.contains(x,y)&&bodyRect().contains(x,y)){
+            std::vector<std::string> labels;
+            for(int i=0;i<=static_cast<int>(FxType::Reverb);++i)
+                labels.emplace_back(fxTypeName(static_cast<FxType>(i)));
+            ui.openDropdown(DropdownKind::FxType,-1,anchor(rr),
+                static_cast<int>(fxRackNewType_),std::move(labels));
+            return true;
+        }
+    }
+
     {
         const auto rr=filterTypeRect(0);
         if(rr.contains(x,y)){
@@ -1241,6 +1243,10 @@ bool NativeEditor::openDropdownAt(
 bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
     auto& project=ProjectCore::instance();
     switch(choice.kind){
+        case DropdownKind::FxType:
+            if(choice.option<0||choice.option>static_cast<int>(FxType::Reverb))return false;
+            fxRackNewType_=static_cast<FxType>(choice.option);
+            return false;
         case DropdownKind::Wave:
             if(choice.context<0||choice.context>=6||choice.option<0||choice.option>=6)
                 return false;
@@ -1352,11 +1358,7 @@ std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const n
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noexcept {
-    if(const auto r=fxRackScopeRect(false);r.contains(x,y))
-        return Hit{HitKind::RackScope,0,-1,r};
-    if(const auto r=fxRackScopeRect(true);r.contains(x,y))
-        return Hit{HitKind::RackScope,1,-1,r};
-    const auto rack=ProjectCore::instance().fxRack(fxRackMaster_);
+    const auto rack=ProjectCore::instance().fxRack(false);
     for(int i=0;i<rack.count;++i){
         const auto r=fxRackStageRect(i);
         const float bw=std::clamp(r.w*.10f,39.0f,67.0f);
@@ -1375,8 +1377,6 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
             }
         }
     }
-    if(const auto r=fxRackAddRect(false);r.contains(x,y))
-        return Hit{HitKind::RackSelectType,-1,-1,r};
     if(const auto r=fxRackAddRect(true);r.contains(x,y))
         return Hit{HitKind::RackAdd,-1,-1,r};
     const auto filterType=filterTypeRect(0);
@@ -1455,18 +1455,13 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
         :0.5f;
 
     switch(hit.kind){
-        case HitKind::RackScope:{
-            fxRackMaster_=hit.a==1;
-            fxRackExpanded_=-1;
-            return false;
-        }
         case HitKind::RackExpand:
             fxRackExpanded_=fxRackExpanded_==hit.a?-1:hit.a;
             return false;
         case HitKind::RackUp:
         case HitKind::RackDown:{
             const int shift=hit.kind==HitKind::RackUp?-1:1;
-            if(project.moveFxStage(fxRackMaster_,hit.a,shift)){
+            if(project.moveFxStage(false,hit.a,shift)){
                 if(fxRackExpanded_==hit.a)fxRackExpanded_+=shift;
                 else if(fxRackExpanded_==hit.a+shift)fxRackExpanded_=hit.a;
                 return true;
@@ -1474,33 +1469,29 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             return false;
         }
         case HitKind::RackBypass:{
-            const Fx rack=project.fxRack(fxRackMaster_);
+            const Fx rack=project.fxRack(false);
             if(hit.a<0||hit.a>=rack.count)return false;
-            return project.setFxStageEnabled(fxRackMaster_,hit.a,!rack.chain[hit.a].enabled);
+            return project.setFxStageEnabled(false,hit.a,!rack.chain[hit.a].enabled);
         }
         case HitKind::RackDelete:{
-            if(!project.removeFxStage(fxRackMaster_,hit.a))return false;
+            if(!project.removeFxStage(false,hit.a))return false;
             if(fxRackExpanded_==hit.a)fxRackExpanded_=-1;
             else if(fxRackExpanded_>hit.a)--fxRackExpanded_;
             return true;
         }
         case HitKind::RackParameter:{
-            const Fx rack=project.fxRack(fxRackMaster_);
+            const Fx rack=project.fxRack(false);
             if(hit.a<0||hit.a>=rack.count)return false;
             const auto d=fxParamDesc(rack.chain[hit.a].type,static_cast<size_t>(hit.b));
             const float lw=std::clamp(hit.rect.w*.27f,115.0f,182.0f),vw=71.0f;
             const float range=std::max(24.0f,hit.rect.w-lw-vw-9.0f);
             const float fraction=std::clamp((x-(hit.rect.x+lw))/range,0.0f,1.0f);
-            return project.setFxStageParameter(fxRackMaster_,hit.a,hit.b,
+            return project.setFxStageParameter(false,hit.a,hit.b,
                 d.lo+fraction*(d.hi-d.lo));
         }
-        case HitKind::RackSelectType:
-            fxRackNewType_=static_cast<FxType>(
-                (static_cast<int>(fxRackNewType_)+1)%6);
-            return false;
         case HitKind::RackAdd:{
-            if(!project.addFxStage(fxRackMaster_,fxRackNewType_))return false;
-            fxRackExpanded_=project.fxRack(fxRackMaster_).count-1;
+            if(!project.addFxStage(false,fxRackNewType_))return false;
+            fxRackExpanded_=project.fxRack(false).count-1;
             return true;
         }
         case HitKind::SynthTab:
