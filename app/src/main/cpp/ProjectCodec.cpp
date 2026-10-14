@@ -331,7 +331,7 @@ ModTarget parseMod(std::string_view s){
 std::pair<float,float> modBounds(ModTarget t){
     switch(t){
         case ModTarget::Cutoff:return {40,18000};case ModTarget::Resonance:return {.1f,18};case ModTarget::FilterEnv:return {0,1};
-        case ModTarget::AmpAttack:return {.001f,1};case ModTarget::AmpDecay:return {.01f,1.5f};case ModTarget::AmpSustain:return {0,1};case ModTarget::AmpRelease:return {.02f,2};
+        case ModTarget::AmpAttack:return {.001f,1};case ModTarget::AmpDecay:return {.01f,1.5f};case ModTarget::AmpSustain:return {0,1};case ModTarget::AmpRelease:return {.02f,8};
         case ModTarget::FilterAttack:return {.005f,1};case ModTarget::FilterDecay:return {.01f,1.5f};case ModTarget::FilterSustain:return {0,1};case ModTarget::FilterRelease:return {.02f,2};
         case ModTarget::Op1:case ModTarget::Op2:case ModTarget::Op3:case ModTarget::Op4:case ModTarget::Op5:case ModTarget::Op6:
         case ModTarget::Morph1:case ModTarget::Morph2:case ModTarget::Morph3:case ModTarget::Morph4:case ModTarget::Morph5:case ModTarget::Morph6:
@@ -453,7 +453,7 @@ bool readPatch(const Json& src,Patch& p){
         p.filter.env.attack=clampf(num(f->get("attack"),.01),.005f,2,.01f);p.filter.env.decay=clampf(num(f->get("decay"),.15),.01f,3,.15f);p.filter.env.sustain=clampf(num(f->get("sustain"),.7),0,1,.7f);p.filter.env.release=clampf(num(f->get("release"),.2),.02f,3,.2f);
     }
     if(const Json* a=src.get("amp");a&&a->type==Json::Type::Object){
-        p.amp.attack=clampf(num(a->get("attack"),.008),.001f,2,.008f);p.amp.decay=clampf(num(a->get("decay"),.12),.01f,3,.12f);p.amp.sustain=clampf(num(a->get("sustain"),.85),0,1,.85f);p.amp.release=clampf(num(a->get("release"),.25),.02f,3,.25f);
+        p.amp.attack=clampf(num(a->get("attack"),.008),.001f,2,.008f);p.amp.decay=clampf(num(a->get("decay"),.12),.01f,3,.12f);p.amp.sustain=clampf(num(a->get("sustain"),.85),0,1,.85f);p.amp.release=clampf(num(a->get("release"),.25),.02f,8,.25f);
     }
     if(const Json* l=src.get("lfo");l&&l->type==Json::Type::Object){
         p.lfo.rate=clampf(num(l->get("rate"),5),.1f,20,5);p.lfo.amount=clampf(num(l->get("amount"),0),0,2,0);p.lfo.target=parseLfo(str(l->get("target"),"none"));p.lfo.attack=clampf(num(l->get("attack"),0),0,2,0);p.lfo.velocitySensitivity=clampf(num(l->get("velSens"),0),0,1,0);

@@ -104,7 +104,7 @@ float clampPatchParam(PatchParam param,float v){
         case PatchParam::AmpAttack:return std::clamp(v,0.001f,1.0f);
         case PatchParam::AmpDecay:return std::clamp(v,0.01f,1.5f);
         case PatchParam::AmpSustain:return std::clamp(v,0.0f,1.0f);
-        case PatchParam::AmpRelease:return std::clamp(v,0.02f,2.0f);
+        case PatchParam::AmpRelease:return std::clamp(v,0.02f,8.0f);
         case PatchParam::VelocityAmp:
         case PatchParam::VelocityFilter:
         case PatchParam::LfoAmount:
@@ -132,7 +132,7 @@ float clampModValue(ModTarget target,float v){
         case ModTarget::AmpAttack:return std::clamp(v,0.001f,1.0f);
         case ModTarget::AmpDecay:return std::clamp(v,0.01f,1.5f);
         case ModTarget::AmpSustain:return std::clamp(v,0.0f,1.0f);
-        case ModTarget::AmpRelease:return std::clamp(v,0.02f,2.0f);
+        case ModTarget::AmpRelease:return std::clamp(v,0.02f,8.0f);
         case ModTarget::FilterAttack:return std::clamp(v,0.005f,1.0f);
         case ModTarget::FilterDecay:return std::clamp(v,0.01f,1.5f);
         case ModTarget::FilterSustain:return std::clamp(v,0.0f,1.0f);

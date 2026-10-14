@@ -122,6 +122,18 @@ int main(){
     assert(kit[1].patch.cymbalModel==2);
     assert(kit[0].patch.filter.cutoff<2500.0f);
     assert(kit[0].patch.timpaniMembrane);
+    assert(kit[1].patch.amp.release>kit[0].patch.amp.release*2.0f);
+    assert(kit[1].patch.filter.cutoff<kit[0].patch.filter.cutoff);
+    assert(kit[1].patch.velocitySlotCount>=3);
+    // Natural wash responds to V; expressive M remains free for choking.
+    const auto hasTarget=[](const auto& slots,ModTarget t){
+        for(const auto& slot:slots)if(slot.target==t)return true;
+        return false;
+    };
+    assert(hasTarget(kit[0].patch.velocitySlots,ModTarget::Op1));
+    assert(hasTarget(kit[1].patch.velocitySlots,ModTarget::Op1));
+    assert(!hasTarget(kit[0].patch.modSlots,ModTarget::Op1));
+    assert(!hasTarget(kit[1].patch.modSlots,ModTarget::Op1));
     Project kitProject;
     Track kitTrack;kitTrack.name="Nexdrum";kitTrack.drums=true;
     kitTrack.pads.assign(kit.begin(),kit.end());
@@ -131,12 +143,44 @@ int main(){
     assert(kitRestored.tracks[0].pads[6].patch.drumPitchDrop==kick.drumPitchDrop);
     assert(kitRestored.tracks[0].pads[0].patch.cymbalModel==1);
     assert(kitRestored.tracks[0].pads[1].patch.cymbalModel==2);
+    assert(kitRestored.tracks[0].pads[1].patch.amp.release>5.0f);
+    assert(kitRestored.tracks[0].pads[1].patch.modSlots.back().max<1.0f);
     assert(kitRestored.tracks[0].pads[3].patch.velocitySlotCount>=2);
     assert(kitRestored.tracks[0].pads[6].patch.velocitySlotCount>=2);
     for(const auto& pad:kit){
         for(const auto& vel:pad.patch.velocitySlots)
             for(const auto& mod:pad.patch.modSlots)assert(vel.target!=mod.target);
     }
+    // A high-V strike produces stronger cymbal excitation than a light tap.
+    for(size_t padIndex : {size_t{0},size_t{1}}){
+        const auto& pad=kit[padIndex];
+        float energies[2]{};
+        for(int vi=0;vi<2;++vi){
+            SpectrachordVoice voice;voice.prepare(12000.0f);
+            voice.start(340+vi,toDspPatch(pad.patch),pad.centerMidi,
+                        vi?1.0f:0.3f,6000u,12000.0f);
+            for(int sample=0;sample<2400;++sample){
+                const float v=voice.render();
+                assert(std::isfinite(v));
+                energies[vi]+=v*v;
+            }
+        }
+        assert(energies[0]>0.0f&&energies[1]>energies[0]*1.5f);
+    }
+    // The ride body sustains significantly longer after an equal short hit.
+    SpectrachordVoice crashTail,rideTail;
+    crashTail.prepare(12000.0f);rideTail.prepare(12000.0f);
+    crashTail.start(380,toDspPatch(kit[0].patch),kit[0].centerMidi,.9f,1200u,12000.0f);
+    rideTail.start(381,toDspPatch(kit[1].patch),kit[1].centerMidi,.9f,1200u,12000.0f);
+    float rideLateEnergy=0.0f;
+    for(int frame=0;frame<51000;++frame){
+        const float crash=crashTail.render();
+        const float ride=rideTail.render();
+        assert(std::isfinite(crash)&&std::isfinite(ride));
+        if(frame>48000)rideLateEnergy+=ride*ride;
+    }
+    assert(!crashTail.active()&&rideTail.active());
+    assert(rideLateEnergy>1.0e-6f);
     // Animated velocity must influence sound beyond the original V volume.
     Patch linked=makeFactoryPatch(FactoryPreset::SpectrachordInit);
     for(auto& op:linked.ops){op.enabled=false;op.level=0.0f;}

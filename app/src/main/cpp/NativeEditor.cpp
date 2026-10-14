@@ -440,7 +440,7 @@ NativeEditor::Range NativeEditor::patchRange(PatchParam p) noexcept {
         case PatchParam::AmpAttack:return {0.001f,1.0f};
         case PatchParam::AmpDecay:return {0.01f,1.5f};
         case PatchParam::AmpSustain:return {0.0f,1.0f};
-        case PatchParam::AmpRelease:return {0.02f,2.0f};
+        case PatchParam::AmpRelease:return {0.02f,8.0f};
         case PatchParam::VelocityAmp:
         case PatchParam::VelocityFilter:
         case PatchParam::LfoAmount:
@@ -466,7 +466,7 @@ NativeEditor::Range NativeEditor::modRange(ModTarget t) noexcept {
         case ModTarget::AmpAttack:return {0.001f,1.0f};
         case ModTarget::AmpDecay:return {0.01f,1.5f};
         case ModTarget::AmpSustain:return {0.0f,1.0f};
-        case ModTarget::AmpRelease:return {0.02f,2.0f};
+        case ModTarget::AmpRelease:return {0.02f,8.0f};
         case ModTarget::FilterAttack:return {0.005f,1.0f};
         case ModTarget::FilterDecay:return {0.01f,1.5f};
         case ModTarget::FilterSustain:return {0.0f,1.0f};

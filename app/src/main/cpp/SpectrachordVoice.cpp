@@ -109,13 +109,27 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     platePhase_.fill(0);plateGain_.fill(0);plateDecay_.fill(1);
     if(patch_.cymbalModel){
         // Flexing metal plates produce unrelated modal frequencies and decay times.
-        constexpr std::array<float,12> strength{{.115f,.094f,.120f,.091f,.113f,.077f,.102f,.080f,.065f,.060f,.047f,.039f}};
+        constexpr std::array<float,12> crashStrength{{
+            .115f,.094f,.120f,.091f,.113f,.077f,.102f,.080f,.065f,.060f,.047f,.039f}};
+        constexpr std::array<float,12> rideStrength{{
+            .105f,.145f,.166f,.157f,.145f,.117f,.087f,.063f,.044f,.032f,.023f,.016f}};
+        const bool ride=patch_.cymbalModel==2;
         for(size_t i=0;i<plateGain_.size();++i){
             rng_^=rng_<<13;rng_^=rng_>>17;rng_^=rng_<<5;
             platePhase_[i]=static_cast<float>(rng_&65535u)*(kTwoPi/65536.0f);
-            const float j=static_cast<float>((rng_>>16)&255u)/255.0f;
-            plateGain_[i]=strength[i]*(0.82f+0.36f*j)*(patch_.cymbalModel==2?0.82f:1.0f);
-            const float seconds=(patch_.cymbalModel==2?2.5f:3.8f)/(1.0f+0.16f*static_cast<float>(i));
+            const float variation=static_cast<float>((rng_>>16)&255u)/255.0f;
+            // A light stick tap predominantly excites low, bell-like modes.
+            // Harder strikes progressively excite the upper modes as well.
+            const float band=static_cast<float>(i)/static_cast<float>(plateGain_.size()-1);
+            const float low=ride?(.65f+.35f*v0):(.48f+.52f*v0);
+            const float high=ride?(.35f+.65f*v0):(.20f+.80f*v0);
+            const float excitation=low+(high-low)*band;
+            const float strength=ride?rideStrength[i]:crashStrength[i];
+            plateGain_[i]=strength*(0.82f+0.36f*variation)*excitation;
+            // A heavy ride's low-frequency flexing persists long after its
+            // initial stick sound; a thinner crash disperses energy faster.
+            const float seconds=(ride?7.2f:3.8f)/
+                (1.0f+(ride?0.09f:0.16f)*static_cast<float>(i));
             plateDecay_[i]=std::exp(-1.0f/(sampleRate_*seconds));
         }
     }
@@ -215,7 +229,11 @@ float SpectrachordVoice::render() noexcept {
     if(P.cymbalModel){
         // Independent inharmonic modes add the evolving ring missing from
         // filtered white-noise cymbal approximations.
-        constexpr std::array<float,12> ratios{{.41f,.67f,1.03f,1.48f,2.09f,2.91f,3.79f,4.67f,5.83f,7.21f,8.64f,10.2f}};
+        constexpr std::array<float,12> crashRatios{{
+            .41f,.67f,1.03f,1.48f,2.09f,2.91f,3.79f,4.67f,5.83f,7.21f,8.64f,10.2f}};
+        constexpr std::array<float,12> rideRatios{{
+            .31f,.52f,.81f,1.14f,1.60f,2.17f,2.79f,3.46f,4.38f,5.30f,6.92f,8.40f}};
+        const auto& ratios=P.cymbalModel==2?rideRatios:crashRatios;
         const float fundamental=midiHz(baseMidi);
         const float nyquist=sampleRate_*0.48f;
         float plate=0.0f;
@@ -228,7 +246,7 @@ float SpectrachordVoice::render() noexcept {
             }
             plateGain_[i]*=plateDecay_[i];
         }
-        sum+=plate*(P.cymbalModel==2?0.78f:1.0f);
+        sum+=plate*(P.cymbalModel==2?0.94f:1.0f);
     }
     const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,expressionV,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
     if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,expressionV,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
