@@ -861,82 +861,89 @@ Patch makeFactoryPatch(FactoryPreset preset) {
     }
 
     if (preset == FactoryPreset::Spectrello) {
-        // Five-string electric cello: driven bow, not a decaying pluck.
-        // Reuses the same editable harmonic and friction operators as Cello.
+        // Five-string electric cello. All layers are ordinary Spectrachord
+        // operators. Bow pressure/texture comes from editable M links.
         configureBowedString(p,FactoryPreset::Cello);
-        p.amp={.055f,.24f,.97f,.36f};
-        p.stringDecay=0.0f; // Sustain while the bow excites the string.
-        p.stringHarmLoss=.015f;p.stringBrightness=.72f;
-        p.stringDamping=0.0f;
-        p.velocityAmp=.60f;p.velocityFilter=.14f;
+        p.amp={.065f,.27f,.97f,.37f};
+        p.velocityAmp=.72f;
+        p.velocityFilter=.22f;
         p.velocitySlots={
-            {ModTarget::StringBrightness,.38f,.96f},
-            {ModTarget::AmpAttack,.11f,.023f},
-            {ModTarget::Op2,.23f,.52f},
-            {ModTarget::Op3,.07f,.23f}
+            {ModTarget::AmpAttack,.15f,.025f}, // hard bow attacks engage quickly
+            {ModTarget::Op2,.17f,.42f},       // cello body
+            {ModTarget::Op3,.06f,.24f},       // upper harmonic bow excitation
+            {ModTarget::Op4,.02f,.20f}        // bridge bite
         };
         p.velocitySlotCount=p.velocitySlots.size();
-        // M was assigned by configureBowedString: pressure moves the
-        // harmonic morph, bow-hair friction, bridge bite and cutoff.
         p.unison=0.0f;p.volume=.77f;
-        p.fx.reverb=.20f;p.fx.delay=.0f;
+        p.fx.delay=0.0f;p.fx.reverb=.18f;
     } else if (preset == FactoryPreset::Nebular) {
-        // Seven-string guitar: pick impulse plus resonating harmonics.
-        // M is palm position/damping; V is pick force and tonal excitation.
-        setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.82f,.0025f,.15f,1.0f,.75f);
-        setHarm(p.ops[0],{1,.68f,.45f,.31f,.22f,.16f,.11f,.08f,.06f,.04f,.025f,.017f,.012f,.008f,.005f,.003f});
-        setHarmMute(p.ops[0],{1,.23f,.065f,.017f,.005f,.002f,0,0,0,0,0,0,0,0,0,0});
-        setOp(p.ops[1],Wave::Custom,1.0f,2.5f,.32f,.003f,.20f,1.0f,.66f);
-        setHarm(p.ops[1],{1,.54f,.22f,.13f,.07f,.042f,.022f,.013f,.008f,.004f,.002f,0,0,0,0,0});
-        setOp(p.ops[2],Wave::Noise,1.0f,0.0f,.2f,.0006f,.038f,0.0f,.058f);
-        setOp(p.ops[3],Wave::Custom,2.0f,0.0f,.13f,.003f,.10f,.0f,.14f);
-        setHarm(p.ops[3],{.7f,.45f,.29f,.18f,.12f,.08f,.045f,.025f,.012f,.007f,.003f,0,0,0,0,0});
+        // Seven-string guitar. M at the note attack is a conventional
+        // METAL PALM MUTE: short amp decay/release, zero sustain and a
+        // duller spectrum. No mid-note choke simulation is necessary.
+        setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.88f,.002f,.36f,.84f,.55f);
+        setHarm(p.ops[0],{1,.72f,.50f,.33f,.22f,.16f,.10f,.070f,.045f,.028f,.017f,.010f,.006f,.004f,.002f,.001f});
+        setHarmMute(p.ops[0],{1,.24f,.055f,.012f,.003f,0,0,0,0,0,0,0,0,0,0,0});
+        setOp(p.ops[1],Wave::Custom,2.0f,1.5f,.30f,.002f,.21f,.46f,.28f);
+        setHarm(p.ops[1],{1,.62f,.33f,.17f,.09f,.049f,.025f,.012f,.006f,.003f,0,0,0,0,0,0});
+        setOp(p.ops[2],Wave::Noise,1.0f,0.0f,.16f,.001f,.028f,0.0f,.045f);
+        setOp(p.ops[3],Wave::Triangle,0.5f,0.0f,.26f,.002f,.27f,.74f,.45f);
         disable(p.ops[4]);disable(p.ops[5]);
         for(auto& row:p.matrix)row.fill(0.0f);
-        p.matrix[1][0]=.13f;
-        p.filter={FilterType::Lowpass,9800.0f,.83f,0.0f,{.004f,.25f,.5f,.17f}};
-        p.amp={.0025f,.14f,1.0f,.82f};
-        p.stringDecay=2.8f;p.stringHarmLoss=.33f;
-        p.stringBrightness=.82f;p.stringDamping=0.0f;
-        p.velocityAmp=.67f;p.velocityFilter=.10f;
-        slots(p,{{ModTarget::StringDamping,0.0f,1.0f},
-                 {ModTarget::Morph1,0.0f,1.0f},
-                 {ModTarget::Cutoff,9800.0f,1100.0f}});
+        p.matrix[1][0]=.11f;
+        p.filter={FilterType::Lowpass,5400.0f,.80f,.36f,
+            {.003f,.27f,0.0f,.18f}};
+        p.amp={.002f,1.1f,.15f,.64f};
+        p.velocityAmp=.75f;p.velocityFilter=.45f;
+        // M is read at note onset by AmpDecay/Sustain/Release and
+        // FilterEnv; Cutoff/Morph1 provide the palm-muted tonal color.
+        slots(p,{
+            {ModTarget::AmpDecay,1.15f,.055f},
+            {ModTarget::AmpSustain,.15f,0.0f},
+            {ModTarget::AmpRelease,.64f,.07f},
+            {ModTarget::FilterEnv,.42f,.08f},
+            {ModTarget::Cutoff,5400.0f,1150.0f},
+            {ModTarget::Morph1,0.0f,1.0f}
+        });
         p.velocitySlots={
-            {ModTarget::StringBrightness,.43f,1.0f},
-            {ModTarget::StringDecay,.82f,3.3f},
-            {ModTarget::Op3,.012f,.44f},
-            {ModTarget::Op2,.13f,.39f},
-            {ModTarget::Op4,.018f,.25f}
+            {ModTarget::AmpAttack,.007f,.001f},
+            {ModTarget::Op2,.11f,.41f}, // pick-excited string harmonics
+            {ModTarget::Op3,.022f,.37f},// initial pick scratch
+            {ModTarget::Op4,.17f,.35f}, // bassy string body
+            {ModTarget::FilterDecay,.16f,.40f}
         };
         p.velocitySlotCount=p.velocitySlots.size();
-        p.unison=0.0f;p.volume=.79f;
-        p.fx.distortion=.0f;p.fx.delay=.07f;p.fx.reverb=.12f;
+        p.unison=0.0f;p.volume=.78f;
+        p.fx.distortion=0.0f;p.fx.delay=.04f;p.fx.delayFeedback=.15f;p.fx.reverb=.10f;
     } else if (preset == FactoryPreset::Subula) {
-        // Tribass Kitara: three heavy strings, sawtooth body with physical-
-        // style spectral decay. M continuously damps; V excites the string.
-        setOp(p.ops[0],Wave::Saw,1.0f,0.0f,.65f,.0025f,.14f,1.0f,.82f);
-        setOp(p.ops[1],Wave::Saw,1.004f,3.0f,.33f,.003f,.16f,1.0f,.70f);
-        setOp(p.ops[2],Wave::Sine,.5f,0.0f,.47f,.003f,.20f,1.0f,.76f);
-        setOp(p.ops[3],Wave::Noise,1.0f,0.0f,.15f,.001f,.025f,0.0f,.055f);
+        // Three-string Tribass Kitara. Saw waves supply the low growl;
+        // a standard filter ADSR removes upper harmonics after the pluck.
+        // M dampens the note at its attack, using the same editable ADSR.
+        setOp(p.ops[0],Wave::Saw,1.0f,0.0f,.72f,.003f,.30f,.88f,.66f);
+        setOp(p.ops[1],Wave::Saw,1.006f,3.0f,.34f,.003f,.24f,.73f,.52f);
+        setOp(p.ops[2],Wave::Sine,.5f,0.0f,.43f,.003f,.28f,.90f,.66f);
+        setOp(p.ops[3],Wave::Noise,1.0f,0.0f,.12f,.001f,.023f,0.0f,.045f);
         disable(p.ops[4]);disable(p.ops[5]);
         for(auto& row:p.matrix)row.fill(0.0f);
-        p.filter={FilterType::Lowpass,7500.0f,1.1f,0.0f,{.004f,.20f,.5f,.16f}};
-        p.amp={.003f,.18f,1.0f,1.05f};
-        p.stringDecay=3.65f;p.stringHarmLoss=.42f;
-        p.stringBrightness=.78f;p.stringDamping=0.0f;
-        p.velocityAmp=.67f;p.velocityFilter=.12f;
-        slots(p,{{ModTarget::StringDamping,0.0f,1.0f},
-                 {ModTarget::Cutoff,7500.0f,1500.0f}});
+        p.filter={FilterType::Lowpass,2850.0f,1.1f,.42f,
+            {.005f,.44f,0.0f,.21f}};
+        p.amp={.003f,1.35f,.22f,.82f};
+        p.velocityAmp=.73f;p.velocityFilter=.35f;
+        slots(p,{
+            {ModTarget::AmpDecay,1.48f,.10f},
+            {ModTarget::AmpSustain,.22f,0.0f},
+            {ModTarget::AmpRelease,.82f,.075f},
+            {ModTarget::FilterEnv,.48f,.08f},
+            {ModTarget::Cutoff,2850.0f,570.0f}
+        });
         p.velocitySlots={
-            {ModTarget::StringBrightness,.34f,.96f},
-            {ModTarget::StringDecay,.95f,4.3f},
-            {ModTarget::Op4,.008f,.29f},
-            {ModTarget::Op2,.15f,.46f}
+            {ModTarget::AmpAttack,.010f,.0015f},
+            {ModTarget::Op2,.14f,.48f},   // upper saw harmonics
+            {ModTarget::Op4,.012f,.26f}, // finger/pick transient
+            {ModTarget::FilterDecay,.20f,.58f}
         };
         p.velocitySlotCount=p.velocitySlots.size();
-        p.unison=0.0f;p.volume=.79f;
-        p.fx.distortion=.0f;p.fx.delay=.025f;p.fx.reverb=.10f;
+        p.unison=0.0f;p.volume=.77f;
+        p.fx.distortion=0.0f;p.fx.delay=.0f;p.fx.reverb=.07f;
     } else if (preset == FactoryPreset::Nexdrum) {
         setOp(p.ops[0],Wave::Sine,1.0f,0.0f,0.7f,0.002f,0.25f,0.0f,0.15f);
         setOp(p.ops[1],Wave::Sine,0.5f,0.0f,0.5f,0.002f,0.22f,0.0f,0.12f);

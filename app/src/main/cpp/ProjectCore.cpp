@@ -120,10 +120,6 @@ float clampPatchParam(PatchParam param,float v){
         case PatchParam::DistOut:return std::clamp(v,0.0f,4.0f);
         case PatchParam::ReverbDecay:return std::clamp(v,0.2f,12.0f);
         case PatchParam::ReverbRoom:return std::clamp(v,0.5f,2.5f);
-        case PatchParam::StringDecay:return std::clamp(v,0.0f,8.0f);
-        case PatchParam::StringHarmLoss:
-        case PatchParam::StringBrightness:
-        case PatchParam::StringDamping:return std::clamp(v,0.0f,1.0f);
         case PatchParam::LfoRate:return std::clamp(v,0.1f,20.0f);
         case PatchParam::LfoAttack:return std::clamp(v,0.0f,2.0f);
         case PatchParam::DelayTime:return std::clamp(v,0.03f,1.0f);
@@ -158,10 +154,6 @@ float clampModValue(ModTarget target,float v){
         case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
         case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
             return std::clamp(v,0.005f,1.5f);
-        case ModTarget::StringDecay:return std::clamp(v,0.0f,8.0f);
-        case ModTarget::StringHarmLoss:
-        case ModTarget::StringBrightness:
-        case ModTarget::StringDamping:return std::clamp(v,0.0f,1.0f);
         case ModTarget::None:return 0.0f;
     }
     return v;
@@ -822,10 +814,6 @@ bool ProjectCore::setSelectedPatchParam(PatchParam param,float value){
         case PatchParam::DistOut:p->fx.distOut=v;break;
         case PatchParam::ReverbDecay:p->fx.reverbDecay=v;break;
         case PatchParam::ReverbRoom:p->fx.reverbRoom=v;break;
-        case PatchParam::StringDecay:p->stringDecay=v;break;
-        case PatchParam::StringHarmLoss:p->stringHarmLoss=v;break;
-        case PatchParam::StringBrightness:p->stringBrightness=v;break;
-        case PatchParam::StringDamping:p->stringDamping=v;break;
         case PatchParam::Delay:p->fx.delay=v;break;
         case PatchParam::DelayTime:p->fx.delayTime=v;break;
         case PatchParam::DelayFeedback:p->fx.delayFeedback=v;break;
@@ -865,10 +853,6 @@ float baseLinkValue(const Patch& p,ModTarget target){
         case ModTarget::LfoRate:return p.lfo.rate;
         case ModTarget::Unison:return p.unison;
         case ModTarget::Volume:return 1.0f;
-        case ModTarget::StringDecay:return p.stringDecay;
-        case ModTarget::StringHarmLoss:return p.stringHarmLoss;
-        case ModTarget::StringBrightness:return p.stringBrightness;
-        case ModTarget::StringDamping:return p.stringDamping;
         case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
         case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
             return p.ops[static_cast<size_t>(static_cast<int>(target)-static_cast<int>(ModTarget::Op1Decay))].env.decay;
@@ -893,7 +877,7 @@ bool ProjectCore::addSelectedModSlot(ModTarget target,LinkSource source){
     if(!p)return false;
     if(target==ModTarget::None||linkTargetUsed(*p,target,source)){
         target=ModTarget::None;
-        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::StringDamping);++value){
+        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::Op6Decay);++value){
             const auto candidate=static_cast<ModTarget>(value);
             if(!linkTargetUsed(*p,candidate,source)){target=candidate;break;}
         }

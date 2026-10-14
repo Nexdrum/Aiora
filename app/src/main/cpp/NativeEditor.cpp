@@ -43,10 +43,9 @@ constexpr std::array<PatchParam,7> kFilterParams{
     PatchParam::FilterCutoff,PatchParam::FilterResonance,PatchParam::FilterEnv,
     PatchParam::FilterAttack,PatchParam::FilterDecay,PatchParam::FilterSustain,PatchParam::FilterRelease
 };
-constexpr std::array<PatchParam,13> kAmpParams{
+constexpr std::array<PatchParam,9> kAmpParams{
     PatchParam::AmpAttack,PatchParam::AmpDecay,PatchParam::AmpSustain,PatchParam::AmpRelease,
-    PatchParam::Volume,PatchParam::VelocityAmp,PatchParam::VelocityFilter,PatchParam::Unison,PatchParam::Glide,
-    PatchParam::StringDecay,PatchParam::StringHarmLoss,PatchParam::StringBrightness,PatchParam::StringDamping
+    PatchParam::Volume,PatchParam::VelocityAmp,PatchParam::VelocityFilter,PatchParam::Unison,PatchParam::Glide
 };
 constexpr std::array<PatchParam,13> kLfoFxParams{
     PatchParam::LfoRate,PatchParam::LfoAmount,PatchParam::LfoAttack,PatchParam::LfoVelocity,
@@ -95,16 +94,6 @@ const char* modTargetName(ModTarget t) noexcept {
         case ModTarget::LfoRate:return "LFO R";
         case ModTarget::Unison:return "UNI";
         case ModTarget::Volume:return "VOL";
-        case ModTarget::Op1Decay:return "OP1 DEC";
-        case ModTarget::Op2Decay:return "OP2 DEC";
-        case ModTarget::Op3Decay:return "OP3 DEC";
-        case ModTarget::Op4Decay:return "OP4 DEC";
-        case ModTarget::Op5Decay:return "OP5 DEC";
-        case ModTarget::Op6Decay:return "OP6 DEC";
-        case ModTarget::StringDecay:return "STR DEC";
-        case ModTarget::StringHarmLoss:return "HARM LOSS";
-        case ModTarget::StringBrightness:return "EXCITE";
-        case ModTarget::StringDamping:return "DAMP";
     }
     return "?";
 }
@@ -328,7 +317,7 @@ NativeEditor::Rect NativeEditor::matrixRect(int modulator,int carrier) const noe
 NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    static constexpr float heights[4]={760.0f,1164.0f,1292.0f,650.0f};
+    static constexpr float heights[4]={760.0f,844.0f,1292.0f,650.0f};
     const int clamped=std::clamp(index,0,3);
     float y=b.y+gap-fxScrollY_;
     for(int i=0;i<clamped;++i)y+=heights[i]+gap;
@@ -468,10 +457,6 @@ NativeEditor::Range NativeEditor::patchRange(PatchParam p) noexcept {
         case PatchParam::DistOut:return {0.0f,4.0f};
         case PatchParam::ReverbDecay:return {0.2f,12.0f};
         case PatchParam::ReverbRoom:return {0.5f,2.5f};
-        case PatchParam::StringDecay:return {0.0f,8.0f};
-        case PatchParam::StringHarmLoss:
-        case PatchParam::StringBrightness:
-        case PatchParam::StringDamping:return {0.0f,1.0f};
         case PatchParam::LfoRate:return {0.1f,20.0f};
         case PatchParam::LfoAttack:return {0.0f,2.0f};
         case PatchParam::DelayTime:return {0.03f,1.0f};
@@ -501,13 +486,6 @@ NativeEditor::Range NativeEditor::modRange(ModTarget t) noexcept {
         case ModTarget::LfoAmount:return {0.0f,2.0f};
         case ModTarget::LfoRate:return {0.1f,20.0f};
         case ModTarget::Volume:return {0.0f,2.0f};
-        case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
-        case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
-            return {0.005f,1.5f};
-        case ModTarget::StringDecay:return {0.0f,8.0f};
-        case ModTarget::StringHarmLoss:
-        case ModTarget::StringBrightness:
-        case ModTarget::StringDamping:return {0.0f,1.0f};
         case ModTarget::None:return {0.0f,1.0f};
     }
     return {0.0f,1.0f};
@@ -553,10 +531,6 @@ float NativeEditor::patchValue(const Patch& p,PatchParam param) noexcept {
         case PatchParam::DistOut:return p.fx.distOut;
         case PatchParam::ReverbDecay:return p.fx.reverbDecay;
         case PatchParam::ReverbRoom:return p.fx.reverbRoom;
-        case PatchParam::StringDecay:return p.stringDecay;
-        case PatchParam::StringHarmLoss:return p.stringHarmLoss;
-        case PatchParam::StringBrightness:return p.stringBrightness;
-        case PatchParam::StringDamping:return p.stringDamping;
         case PatchParam::Delay:return p.fx.delay;
         case PatchParam::DelayTime:return p.fx.delayTime;
         case PatchParam::DelayFeedback:return p.fx.delayFeedback;
@@ -572,7 +546,7 @@ float NativeEditor::denormalized(float value,Range r) noexcept {
 }
 ModTarget NativeEditor::cycleModTarget(ModTarget current,int direction) noexcept {
     constexpr int first=static_cast<int>(ModTarget::Cutoff);
-    constexpr int last=static_cast<int>(ModTarget::StringDamping);
+    constexpr int last=static_cast<int>(ModTarget::Volume);
     int n=static_cast<int>(current);
     if(n<first||n>last)n=first;
     n+=direction;
@@ -988,11 +962,10 @@ void NativeEditor::renderFx() const noexcept {
 
     // Amp envelope
     drawSection(1);
-    static constexpr const char* ampLabels[13]={
+    static constexpr const char* ampLabels[9]={
         "A","D","S","R","Volume",
-        "Vel→Amp","Vel→Cut","Unison","Glide",
-        "String Decay","Harm Loss","Excitation","Damping"};
-    for(int i=0;i<13;++i)
+        "Vel→Amp","Vel→Cut","Unison","Glide"};
+    for(int i=0;i<9;++i)
         drawParam(1,i,ampLabels[i],
             kAmpParams[static_cast<size_t>(i)],
             i<5?kCyan:kOrange);
@@ -1167,7 +1140,7 @@ bool NativeEditor::openDropdownAt(
     // Current selection remains available for editing older patches.
     const auto availableTargets=[](const Patch& patch,ModTarget current){
         std::vector<ModTarget> available;
-        for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::StringDamping);++i){
+        for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::Volume);++i){
             const auto target=static_cast<ModTarget>(i);
             bool used=false;
             if(target!=current){
@@ -1224,7 +1197,7 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
             const Patch patch=project.selectedPatch();
             const ModTarget current=project.selectedModSlot(choice.context,linkSource_).target;
             std::vector<ModTarget> available;
-            for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::StringDamping);++i){
+            for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::Volume);++i){
                 const auto target=static_cast<ModTarget>(i);
                 bool used=false;
                 if(target!=current){
@@ -1486,7 +1459,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             const int dir=hit.kind==HitKind::ModTargetNext?1:-1;
             auto target=s.target;
             const auto patch=project.selectedPatch();
-            for(int attempt=0;attempt<=static_cast<int>(ModTarget::StringDamping);++attempt){
+            for(int attempt=0;attempt<28;++attempt){
                 target=cycleModTarget(target,dir);
                 bool used=false;
                 for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)

@@ -314,10 +314,6 @@ const char* modName(ModTarget t){
         case ModTarget::LfoRate:return "lfoR";
         case ModTarget::Unison:return "uni";
         case ModTarget::Volume:return "vol";
-        case ModTarget::StringDecay:return "strdec";
-        case ModTarget::StringHarmLoss:return "strloss";
-        case ModTarget::StringBrightness:return "strexcite";
-        case ModTarget::StringDamping:return "strdamp";
         case ModTarget::Op1Decay:return "op1dec";case ModTarget::Op2Decay:return "op2dec";case ModTarget::Op3Decay:return "op3dec";
         case ModTarget::Op4Decay:return "op4dec";case ModTarget::Op5Decay:return "op5dec";case ModTarget::Op6Decay:return "op6dec";
     }
@@ -333,10 +329,6 @@ ModTarget parseMod(std::string_view s){
     if(s=="morph4")return ModTarget::Morph4;if(s=="morph5")return ModTarget::Morph5;if(s=="morph6")return ModTarget::Morph6;
     if(s=="fm")return ModTarget::Fm;if(s=="lfoA")return ModTarget::LfoAmount;if(s=="lfoR")return ModTarget::LfoRate;
     if(s=="uni")return ModTarget::Unison;if(s=="vol")return ModTarget::Volume;
-    if(s=="strdec")return ModTarget::StringDecay;
-    if(s=="strloss")return ModTarget::StringHarmLoss;
-    if(s=="strexcite")return ModTarget::StringBrightness;
-    if(s=="strdamp")return ModTarget::StringDamping;
     if(s=="op1dec")return ModTarget::Op1Decay;if(s=="op2dec")return ModTarget::Op2Decay;if(s=="op3dec")return ModTarget::Op3Decay;
     if(s=="op4dec")return ModTarget::Op4Decay;if(s=="op5dec")return ModTarget::Op5Decay;if(s=="op6dec")return ModTarget::Op6Decay;
     return ModTarget::None;
@@ -353,10 +345,6 @@ std::pair<float,float> modBounds(ModTarget t){
         case ModTarget::Fm:return {0,1.5f};case ModTarget::LfoAmount:return {0,2};case ModTarget::LfoRate:return {.1f,20};case ModTarget::Volume:return {0,2};
         case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
         case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:return {.005f,1.5f};
-        case ModTarget::StringDecay:return {0,8};
-        case ModTarget::StringHarmLoss:
-        case ModTarget::StringBrightness:
-        case ModTarget::StringDamping:return {0,1};
         case ModTarget::None:return {0,1};
     }
     return {0,1};
@@ -418,10 +406,6 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"reverbDecay\":");w.number(p.fx.reverbDecay);
     w.raw(",\"reverbRoom\":");w.number(p.fx.reverbRoom);
     w.raw("}");
-    w.raw(",\"stringDecay\":");w.number(p.stringDecay);
-    w.raw(",\"stringHarmLoss\":");w.number(p.stringHarmLoss);
-    w.raw(",\"stringBrightness\":");w.number(p.stringBrightness);
-    w.raw(",\"stringDamping\":");w.number(p.stringDamping);
     w.raw(",\"unison\":");w.number(p.unison);w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
     if(p.timpaniMembrane)w.raw(",\"timpaniMembrane\":true");
     if(p.drumPitchDrop>0.0f&&p.drumPitchDropSeconds>0.0f){w.raw(",\"drumPitchDrop\":");w.number(p.drumPitchDrop);w.raw(",\"drumPitchDropSeconds\":");w.number(p.drumPitchDropSeconds);}
@@ -544,10 +528,6 @@ bool readPatch(const Json& src,Patch& p){
         p.fx.reverbDecay=clampf(num(x->get("reverbDecay"),.8),.2f,12,.8f);
         p.fx.reverbRoom=clampf(num(x->get("reverbRoom"),1),.5f,2.5f,1);
     }
-    p.stringDecay=clampf(num(src.get("stringDecay"),0),0,8,0);
-    p.stringHarmLoss=clampf(num(src.get("stringHarmLoss"),0),0,1,0);
-    p.stringBrightness=clampf(num(src.get("stringBrightness"),1),0,1,1);
-    p.stringDamping=clampf(num(src.get("stringDamping"),0),0,1,0);
     p.unison=clampf(num(src.get("unison"),0),0,1,0);p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
     p.timpaniMembrane=boolean(src.get("timpaniMembrane"),false);
     p.drumPitchDrop=clampf(num(src.get("drumPitchDrop"),0),0,36,0);

@@ -83,10 +83,6 @@ private:
     float lfoPhase_{0.0f};
     float lfoAge_{0.0f};
     float modValue_{0.0f};
-    // General-purpose editable string model; not tied to preset IDs.
-    float stringEnergy_{1.0f};
-    float stringUpperEnergy_{1.0f};
-    float stringToneState_{0.0f};
     float timpaniRingGain_{1.0f};
     float cymbalTailGain_{1.0f};
     float cymbalTailMultiplier_{1.0f};

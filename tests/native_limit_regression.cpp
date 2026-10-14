@@ -16,85 +16,83 @@
 using namespace aiora;
 
 int main(){
-    // New general string synthesis never relies on a named preset flag.
+    // Native presets are ordinary editable Spectrachord patches.
     const auto nebular=makeFactoryPatch(FactoryPreset::Nebular);
     const auto spectrello=makeFactoryPatch(FactoryPreset::Spectrello);
     const auto subula=makeFactoryPatch(FactoryPreset::Subula);
-    const auto owns=[](const Patch& p,LinkSource source,ModTarget target){
-        const auto& slots=source==LinkSource::Velocity?p.velocitySlots:p.modSlots;
+    const auto hasTarget=[](const auto& slots,ModTarget target){
         for(const auto& slot:slots)if(slot.target==target)return true;
         return false;
     };
-    for(const Patch* preset:{&nebular,&spectrello,&subula}){
-        assert(preset->cymbalModel==0&&!preset->timpaniMembrane);
-        assert(preset->velocitySlotCount>=3&&preset->modSlotCount>=2);
-        assert(owns(*preset,LinkSource::Velocity,ModTarget::StringBrightness));
-        for(const auto& v:preset->velocitySlots)
-            for(const auto& m:preset->modSlots)assert(v.target!=m.target);
+    for(const Patch* patch:{&nebular,&spectrello,&subula}){
+        assert(!patch->cymbalModel&&!patch->timpaniMembrane);
+        assert(patch->velocitySlotCount>=3&&patch->modSlotCount>=3);
+        for(const auto& v:patch->velocitySlots)
+            for(const auto& m:patch->modSlots)assert(v.target!=m.target);
+        const auto json=serializePatchJson(*patch);
+        assert(json.find("stringDecay")==std::string::npos);
+        assert(json.find("stringDamping")==std::string::npos);
+        Patch restored;std::string patchError;
+        assert(deserializePatchJson(json,restored,&patchError));
+        assert(restored.modSlotCount==patch->modSlotCount);
+        assert(restored.velocitySlotCount==patch->velocitySlotCount);
     }
-    assert(nebular.stringDecay>0&&nebular.stringHarmLoss>0);
-    assert(subula.stringDecay>0&&subula.stringHarmLoss>0);
-    assert(subula.ops[0].wave==Wave::Saw&&subula.ops[1].wave==Wave::Saw);
-    assert(owns(nebular,LinkSource::Mod,ModTarget::StringDamping));
-    assert(owns(subula,LinkSource::Mod,ModTarget::StringDamping));
-    assert(!owns(spectrello,LinkSource::Mod,ModTarget::StringDamping));
-    assert(owns(spectrello,LinkSource::Mod,ModTarget::Morph1));
-    assert(owns(spectrello,LinkSource::Velocity,ModTarget::AmpAttack));
-    assert(spectrello.stringDecay==0.0f); // The bow sustains without pluck decay.
+    assert(hasTarget(nebular.modSlots,ModTarget::AmpDecay));
+    assert(hasTarget(nebular.modSlots,ModTarget::AmpSustain));
+    assert(hasTarget(nebular.modSlots,ModTarget::AmpRelease));
+    assert(hasTarget(nebular.modSlots,ModTarget::Morph1));
+    assert(hasTarget(nebular.modSlots,ModTarget::Cutoff));
+    assert(hasTarget(nebular.velocitySlots,ModTarget::Op3));
+    assert(hasTarget(nebular.velocitySlots,ModTarget::Op2));
+    assert(hasTarget(subula.modSlots,ModTarget::AmpDecay));
+    assert(hasTarget(subula.modSlots,ModTarget::AmpSustain));
+    assert(hasTarget(subula.modSlots,ModTarget::AmpRelease));
+    assert(hasTarget(subula.modSlots,ModTarget::Cutoff));
+    assert(subula.ops[0].wave==Wave::Saw);
+    assert(subula.ops[1].wave==Wave::Saw);
+    assert(hasTarget(spectrello.modSlots,ModTarget::Morph1));
+    assert(hasTarget(spectrello.modSlots,ModTarget::Op5));
+    assert(hasTarget(spectrello.modSlots,ModTarget::Op6));
+    assert(hasTarget(spectrello.velocitySlots,ModTarget::AmpAttack));
 
-    // Factory patches serialize the same values and V/M links that can be
-    // entered manually in Spectrachord's synth controls.
-    for(const Patch* preset:{&nebular,&spectrello,&subula}){
-        Patch loaded;std::string patchError;
-        assert(deserializePatchJson(serializePatchJson(*preset),loaded,&patchError));
-        assert(std::fabs(loaded.stringDecay-preset->stringDecay)<0.0001f);
-        assert(std::fabs(loaded.stringHarmLoss-preset->stringHarmLoss)<0.0001f);
-        assert(std::fabs(loaded.stringBrightness-preset->stringBrightness)<0.0001f);
-        assert(loaded.velocitySlotCount==preset->velocitySlotCount);
-        assert(loaded.modSlotCount==preset->modSlotCount);
+    // M selects a palm-muted *note articulation* at its onset.
+    // Short amp decay and zero sustain must make the note percussive
+    // rather than choking a previously ringing open note.
+    const auto noteEnergy=[](const Patch& patch,float mod,float velocity,
+                             int first,int last){
+        SpectrachordVoice voice;
+        voice.prepare(12000.0f);
+        VoiceAutomation automation;
+        automation.mod.storage=std::make_shared<std::vector<DspCurvePoint>>();
+        automation.mod.storage->push_back({0.0f,mod,0.5f,mod,false});
+        automation.mod.points=automation.mod.storage->data();
+        automation.mod.count=1;
+        voice.start(601,toDspPatch(patch),48,velocity,12000,12000.0f,automation);
+        float energy=0.0f;
+        for(int i=0;i<last;++i){
+            const float sample=voice.render();
+            assert(std::isfinite(sample));
+            if(i>=first)energy+=sample*sample;
+        }
+        return energy;
+    };
+    for(const Patch* patch:{&nebular,&subula}){
+        const float mutedOnset=noteEnergy(*patch,1.0f,.95f,20,320);
+        const float openOnset=noteEnergy(*patch,0.0f,.95f,20,320);
+        const float mutedLate=noteEnergy(*patch,1.0f,.95f,2800,4100);
+        const float openLate=noteEnergy(*patch,0.0f,.95f,2800,4100);
+        assert(openOnset>0.00001f&&mutedOnset>0.00001f);
+        assert(openLate>0.000001f);
+        assert(mutedLate<openLate*0.1f);
+        const float soft=noteEnergy(*patch,0.0f,.25f,20,400);
+        const float hard=noteEnergy(*patch,0.0f,1.0f,20,400);
+        assert(hard>soft*1.5f);
     }
-    Patch normal=makeFactoryPatch(FactoryPreset::SpectrachordInit);
-    assert(normal.stringDecay==0&&normal.stringHarmLoss==0);
-    assert(normal.stringDamping==0&&normal.stringBrightness==1);
-
-    // At fixed pitch and velocity, mid-note M damping should choke a
-    // freely ringing saw even after M is released back to zero.
-    Patch model=normal;
-    model.ops[0].wave=Wave::Saw;
-    model.ops[0].env={.001f,.08f,1.0f,.5f};
-    model.amp={.001f,.08f,1.0f,.5f};
-    model.filter.cutoff=12000.0f;
-    model.stringDecay=6.0f;model.stringHarmLoss=.35f;
-    model.stringBrightness=.9f;model.stringDamping=0;
-    model.modSlots={{ModTarget::StringDamping,0.0f,1.0f}};
-    model.modSlotCount=1;
-    SpectrachordVoice openString,mutedString;
-    openString.prepare(12000.0f);mutedString.prepare(12000.0f);
-    openString.start(751,toDspPatch(model),54,.85f,18000u,12000.0f);
-    mutedString.start(751,toDspPatch(model),54,.85f,18000u,12000.0f);
-    openString.setModValue(0.0f,true);
-    mutedString.setModValue(0.0f,true);
-    float openLate=0.0f,mutedLate=0.0f;
-    for(int n=0;n<11000;++n){
-        if(n==1500)mutedString.setModValue(1.0f,true);
-        if(n==3000)mutedString.setModValue(0.0f,true);
-        const float a=openString.render(),b=mutedString.render();
-        assert(std::isfinite(a)&&std::isfinite(b));
-        if(n>=8000&&n<10500){openLate+=a*a;mutedLate+=b*b;}
-    }
-    assert(openLate>.00001f);
-    assert(mutedLate<openLate*.12f);
-    // The same patch can sustain indefinitely with stringDecay zero,
-    // letting bow-driven ADSR and expression supply the energy.
-    model.stringDecay=0.0f;model.stringHarmLoss=0.0f;
-    model.stringBrightness=1.0f;
-    model.modSlots.clear();model.modSlotCount=0;
-    SpectrachordVoice sustaining;
-    sustaining.prepare(12000.0f);
-    sustaining.start(752,toDspPatch(model),54,.85f,18000u,12000.0f);
-    float sustainedPower=0.0f;
-    for(int n=0;n<11000;++n){const float v=sustaining.render();if(n>9000)sustainedPower+=v*v;}
-    assert(sustainedPower>.001f);
+    // A bowed cello holds sustained tone; M changes bow pressure/timbre.
+    const float celloSoft=noteEnergy(spectrello,0.0f,.85f,2500,3300);
+    const float celloHard=noteEnergy(spectrello,1.0f,.85f,2500,3300);
+    assert(celloSoft>0.000001f&&celloHard>0.000001f);
+    assert(std::fabs(celloHard-celloSoft)>.000001f);
     // FX sliders must affect actual DSP, not only their UI labels.
     Fx distort{};distort.delay=0.0f;distort.reverb=0.0f;
     distort.distortion=3.0f;distort.distIn=1.0f;distort.distOut=0.25f;
