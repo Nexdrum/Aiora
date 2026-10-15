@@ -2,6 +2,7 @@
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
 #include "FactoryPresets.h"
+#include "RollDrawControllers.h"
 
 #include <GLES3/gl3.h>
 
@@ -1168,16 +1169,24 @@ float NativeUi::rollCellPixels() const noexcept {
 }
 
 float NativeUi::rollGutterPixels() const noexcept {
-    return std::clamp(rollBaseCellPixels()*1.55f,78.0f,108.0f);
+    const float base=std::clamp(rollBaseCellPixels()*1.55f,78.0f,108.0f);
+    // Only the roll header/gutter follow the grid zoom; other pages' gutter
+    // remains unaffected when the user changes zoom on the piano roll.
+    const float scale=page_==NativePage::Roll
+        ?rollDrawZoomThicknessScale(rollZoomIndex_):1.0f;
+    return std::clamp(base*scale,56.0f,132.0f);
 }
 
 float NativeUi::rollHeaderPixels() const noexcept {
     auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
-    if(track>=0&&project.trackIsDrums(track)){
-        return std::clamp(rollBaseCellPixels()*1.95f,104.0f,132.0f);
-    }
-    return std::clamp(rollBaseCellPixels()*1.32f,72.0f,96.0f);
+    const bool drums=track>=0&&project.trackIsDrums(track);
+    const float base=drums
+        ?std::clamp(rollBaseCellPixels()*1.95f,104.0f,132.0f)
+        :std::clamp(rollBaseCellPixels()*1.32f,72.0f,96.0f);
+    const float scale=page_==NativePage::Roll
+        ?rollDrawZoomThicknessScale(rollZoomIndex_):1.0f;
+    return std::clamp(base*scale,drums?80.0f:56.0f,160.0f);
 }
 
 void NativeUi::cycleRollZoom() noexcept {
@@ -3075,23 +3084,12 @@ bool NativeUi::drumPitchTap(int midi){
 
 
 NativeUi::Rect NativeUi::rollDrawController(int kind) const noexcept {
+    if(kind!=1&&kind!=2)return {};
     const auto vp=rollViewportRect();
-    const float gutter=rollGutterPixels();
-    const float header=rollHeaderPixels();
-    if(kind==1){
-        // Horizontal V controller across the unused upper pitch header.
-        const float x=vp.x+gutter+rollColumnPixels()*0.75f;
-        return {x,vp.y+header*0.13f,
-            std::max(25.0f,std::min(vp.w-gutter-rollColumnPixels(),rollColumnPixels()*5.0f)),
-            header*0.67f};
-    }
-    if(kind==2){
-        // Vertical M controller inside the left time gutter.
-        return {vp.x+gutter*0.11f,vp.y+header+rollCellPixels()*0.3f,
-            gutter*0.72f,std::min(vp.h-header-rollCellPixels()*0.5f,
-                 rollCellPixels()*8.0f)};
-    }
-    return {};
+    const auto pair=rollControllerPair(
+        vp.x,vp.y,vp.w,vp.h,rollGutterPixels(),rollHeaderPixels());
+    const auto& r=kind==1?pair.velocity:pair.modulation;
+    return {r.x,r.y,r.w,r.h};
 }
 
 bool NativeUi::hitRollDrawController(int kind,float x,float y) const noexcept {
