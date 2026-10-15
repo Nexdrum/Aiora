@@ -123,6 +123,34 @@ int main(){
     assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpRelease));
     assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Morph1));
     assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Cutoff));
+    // A palm mute boosts the NOTE fundamental only during the short attack;
+    // it must not use a sustained sub-octave or steal OP4 from V routing.
+    assert(nebular.ops[3].wave==Wave::Triangle);
+    assert(std::fabs(nebular.ops[3].ratio-1.0f)<.00001f);
+    assert(nebular.ops[3].env.sustain==0.0f);
+    assert(nebular.ops[3].env.decay>=.15f&&nebular.ops[3].env.decay<=.23f);
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Op4));
+    assert(!hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op4));
+    assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op1));
+    const auto nebularLink=[&](ModTarget target){
+        for(const auto& link:nebular.modSlots)
+            if(link.target==target)return link;
+        return ModSlot{};
+    };
+    const auto bodyLink=nebularLink(ModTarget::Op4);
+    assert(bodyLink.max>bodyLink.min*12.0f);
+    assert(nebularLink(ModTarget::AmpDecay).max>=.12f);
+    assert(nebularLink(ModTarget::Cutoff).max>=1900.0f);
+    {
+        Patch restored;std::string err;
+        assert(deserializePatchJson(serializePatchJson(nebular),restored,&err));
+        assert(restored.ops[3].ratio==nebular.ops[3].ratio);
+        assert(restored.modSlotCount==nebular.modSlotCount);
+        for(size_t i=0;i<nebular.modSlotCount;++i){
+            assert(restored.modSlots[i].target==nebular.modSlots[i].target);
+            assert(std::fabs(restored.modSlots[i].max-nebular.modSlots[i].max)<.0001f);
+        }
+    }
     assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op3));
     assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op2));
     assert(hasInstrumentTarget(subula.modSlots,ModTarget::AmpDecay));
