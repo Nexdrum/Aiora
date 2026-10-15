@@ -123,12 +123,16 @@ int main(){
     assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpRelease));
     assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Morph1));
     assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Cutoff));
+    assert(nebular.peak.enabled&&nebular.peak.followNote);
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::PeakRatio));
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::PeakQ));
+    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::PeakGain));
     // A palm mute boosts the NOTE fundamental only during the short attack;
     // it must not use a sustained sub-octave or steal OP4 from V routing.
     assert(nebular.ops[3].wave==Wave::Triangle);
     assert(std::fabs(nebular.ops[3].ratio-1.0f)<.00001f);
     assert(nebular.ops[3].env.sustain==0.0f);
-    assert(nebular.ops[3].env.decay>=.15f&&nebular.ops[3].env.decay<=.23f);
+    assert(nebular.ops[3].env.decay>=.04f&&nebular.ops[3].env.decay<=.07f);
     assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Op4));
     assert(!hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op4));
     assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op1));
@@ -138,13 +142,15 @@ int main(){
         return ModSlot{};
     };
     const auto bodyLink=nebularLink(ModTarget::Op4);
-    assert(bodyLink.max>bodyLink.min*12.0f);
-    assert(nebularLink(ModTarget::AmpDecay).max>=.12f);
-    assert(nebularLink(ModTarget::Cutoff).max>=1900.0f);
+    assert(bodyLink.max>bodyLink.min*10.0f);
+    assert(nebularLink(ModTarget::AmpDecay).max>=.11f);
+    assert(nebularLink(ModTarget::Cutoff).max>=1200.0f);
     {
         Patch restored;std::string err;
         assert(deserializePatchJson(serializePatchJson(nebular),restored,&err));
         assert(restored.ops[3].ratio==nebular.ops[3].ratio);
+        assert(restored.peak.enabled&&restored.peak.followNote);
+        assert(std::fabs(restored.peak.gainDb-nebular.peak.gainDb)<.0001f);
         assert(restored.modSlotCount==nebular.modSlotCount);
         for(size_t i=0;i<nebular.modSlotCount;++i){
             assert(restored.modSlots[i].target==nebular.modSlots[i].target);
@@ -164,6 +170,65 @@ int main(){
     assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Op6));
     assert(hasInstrumentTarget(spectrello.velocitySlots,ModTarget::AmpAttack));
 
+    // Existing patches without a "peak" object remain unchanged/disabled.
+    {
+        Patch old=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+        assert(!old.peak.enabled);
+        std::string oldJson=serializePatchJson(old);
+        const auto begin=oldJson.find(",\"peak\":{");
+        assert(begin!=std::string::npos);
+        const auto end=oldJson.find('}',begin);
+        assert(end!=std::string::npos);
+        oldJson.erase(begin,end-begin+1);
+        Patch restored;std::string error;
+        assert(deserializePatchJson(oldJson,restored,&error));
+        assert(!restored.peak.enabled);
+    }
+    // Per-voice key tracking: a peaking bell centered on each new note
+    // amplifies it, whereas a fixed 220 Hz peak doesn't follow A4 (440 Hz).
+    {
+        Patch sine=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+        for(auto& op:sine.ops){op.enabled=false;op.level=0.0f;}
+        sine.ops[0].enabled=true;
+        sine.ops[0].wave=Wave::Sine;
+        sine.ops[0].ratio=1.0f;
+        sine.ops[0].level=.1f;
+        sine.ops[0].env={.002f,.01f,1.0f,.1f};
+        sine.amp={.002f,.01f,1.0f,.1f};
+        sine.filter={FilterType::Lowpass,8500,.707f,0,{.005f,.1f,0,.1f}};
+        sine.velocityAmp=0;sine.velocityFilter=0;
+        sine.modSlots.clear();sine.modSlotCount=0;
+        sine.velocitySlots.clear();sine.velocitySlotCount=0;
+        sine.peak={true,true,1.0f,220.0f,6.0f,12.0f};
+        const auto energy=[&](Patch p,int midi){
+            SpectrachordVoice voice;
+            voice.prepare(24000.0f);
+            voice.start(723,toDspPatch(p),midi,1.0f,24000,24000.0f);
+            double sum=0.0;
+            for(int sample=0;sample<4000;++sample){
+                const float y=voice.render();
+                assert(std::isfinite(y));
+                if(sample>=1000)sum+=static_cast<double>(y)*y;
+            }
+            return sum;
+        };
+        const auto tracked=energy(sine,69);
+        sine.peak.followNote=false;
+        const auto offCenter=energy(sine,69);
+        sine.peak.enabled=false;
+        const auto bypass=energy(sine,69);
+        assert(tracked>bypass*7.0);
+        assert(tracked>offCenter*3.0);
+        sine.peak.enabled=true;sine.peak.followNote=false;
+        const auto fixedMatched=energy(sine,57);
+        sine.peak.enabled=false;
+        const auto fixedBypass=energy(sine,57);
+        assert(fixedMatched>fixedBypass*7.0);
+        // DSP copies keep the full settings, including fixed/follow mode.
+        sine.peak.enabled=true;
+        const auto dsp=toDspPatch(sine);
+        assert(dsp.peak.enabled&&!dsp.peak.followNote&&dsp.peak.gainDb==12.0f);
+    }
     // M selects a palm-muted *note articulation* at its onset.
     // Short amp decay and zero sustain must make the note percussive
     // rather than choking a previously ringing open note.

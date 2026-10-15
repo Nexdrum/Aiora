@@ -26,7 +26,8 @@ enum class ModTarget : uint8_t {
     Op1, Op2, Op3, Op4, Op5, Op6,
     Morph1, Morph2, Morph3, Morph4, Morph5, Morph6,
     Fm, LfoAmount, LfoRate, Unison, Volume,
-    Op1Decay, Op2Decay, Op3Decay, Op4Decay, Op5Decay, Op6Decay
+    Op1Decay, Op2Decay, Op3Decay, Op4Decay, Op5Decay, Op6Decay,
+    PeakRatio, PeakFrequency, PeakQ, PeakGain
 };
 
 struct Envelope { float attack{0.008f}, decay{0.12f}, sustain{0.85f}, release{0.25f}; };
@@ -42,6 +43,12 @@ struct Operator {
     bool hasHarm{false},hasHarmMute{false};
 };
 struct Filter { FilterType type{FilterType::Lowpass}; float cutoff{6500},resonance{0.7f},envAmount{0}; Envelope env{0.01f,0.15f,0.7f,0.2f}; };
+// Optional per-voice bell EQ before the main filter. Center follows the played
+// fundamental times ratio, or stays at frequency when followNote is false.
+struct PeakFilter {
+    bool enabled{false},followNote{true};
+    float ratio{4.0f},frequency{220.0f},q{1.0f},gainDb{0.0f};
+};
 struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget target{LfoTarget::None}; };
 enum class FxType : uint8_t { Saturation, MetalAmp, Cabinet, BandEq, Delay, Reverb };
 constexpr size_t kMaxFxStages=16;
@@ -136,7 +143,7 @@ enum class LinkSource : uint8_t { Mod, Velocity };
 struct Patch {
     std::string name{"Spectrachord Init"};
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
-    Filter filter{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
+    Filter filter{}; PeakFilter peak{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
     std::vector<ModSlot> modSlots{}; size_t modSlotCount{0};
     std::vector<ModSlot> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
@@ -149,7 +156,7 @@ struct Patch {
 /** Audio-thread copy of Patch: fixed-size and trivially copyable, with no std::string. */
 struct DspPatch {
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
-    Filter filter{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
+    Filter filter{}; PeakFilter peak{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
     std::shared_ptr<const std::vector<ModSlot>> modSlots{}; size_t modSlotCount{0};
     std::shared_ptr<const std::vector<ModSlot>> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
@@ -160,7 +167,7 @@ struct DspPatch {
 
 
 inline DspPatch toDspPatch(const Patch& p) {
-    DspPatch d;d.ops=p.ops;d.matrix=p.matrix;d.filter=p.filter;d.amp=p.amp;
+    DspPatch d;d.ops=p.ops;d.matrix=p.matrix;d.filter=p.filter;d.peak=p.peak;d.amp=p.amp;
     d.velocityAmp=p.velocityAmp;d.velocityFilter=p.velocityFilter;
     if(!p.modSlots.empty())d.modSlots=std::make_shared<const std::vector<ModSlot>>(p.modSlots);
     d.modSlotCount=p.modSlotCount;

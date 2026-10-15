@@ -53,6 +53,19 @@ void SpectrachordVoice::Biquad::configure(FilterType type,float freq,float q,flo
     else{nb0=(1-c)*0.5f;nb1=1-c;nb2=(1-c)*0.5f;na0=1+alpha;na1=-2*c;na2=1-alpha;}
     const float inv=1/std::max(kEps,na0);b0=nb0*inv;b1=nb1*inv;b2=nb2*inv;a1=na1*inv;a2=na2*inv;
 }
+void SpectrachordVoice::Biquad::configurePeak(float freq,float q,float gainDb,float sr) noexcept {
+    // RBJ Audio EQ Cookbook peaking EQ, with a0 normalization.
+    freq=std::clamp(freq,20.0f,sr*.45f);
+    q=std::clamp(q,.3f,12.0f);
+    const float a=std::pow(10.0f,std::clamp(gainDb,-18.0f,18.0f)/40.0f);
+    const float w0=kTwoPi*freq/sr,c=std::cos(w0),alpha=std::sin(w0)/(2.0f*q);
+    const float na0=1.0f+alpha/a,inv=1.0f/na0;
+    b0=(1.0f+alpha*a)*inv;
+    b1=(-2.0f*c)*inv;
+    b2=(1.0f-alpha*a)*inv;
+    a1=(-2.0f*c)*inv;
+    a2=(1.0f-alpha/a)*inv;
+}
 float SpectrachordVoice::Biquad::process(float x) noexcept {const float y=b0*x+z1;z1=b1*x-a1*y+z2;z2=b2*x-a2*y;return y;}
 
 float SpectrachordVoice::midiHz(float midi) noexcept {return 440*std::pow(2.0f,(midi-69)/12.0f);}
@@ -105,7 +118,7 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     modValue_=m0;timpaniRingGain_=1.0f;
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
-    rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();
+    rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();peak_.reset();peakReady_=false;
     // Every operator can select Hiss. Its pitch-responsive noise filter
     // has independent state; ordinary Noise always remains raw white noise.
     for(auto& pair:hissState_)pair.fill(0.0f);
@@ -281,6 +294,30 @@ float SpectrachordVoice::render() noexcept {
             plateGain_[i]*=plateDecay_[i];
         }
         sum+=plate*(P.cymbalModel==2?0.94f:1.0f);
+    }
+    // A separate, optional bell EQ runs once per voice, BEFORE the primary
+    // subtractive filter. Pitch tracking uses the known MIDI fundamental,
+    // including pitch bend; no audio pitch detection is necessary.
+    if(P.peak.enabled){
+        const float center=P.peak.followNote
+            ?midiHz(baseMidi)*std::clamp(slotValue(ModTarget::PeakRatio,expressionV,m,P.peak.ratio),.5f,8.0f)
+            :slotValue(ModTarget::PeakFrequency,expressionV,m,P.peak.frequency);
+        const float targetCenter=std::clamp(center,20.0f,sampleRate_*.45f);
+        const float targetQ=std::clamp(slotValue(ModTarget::PeakQ,expressionV,m,P.peak.q),.3f,12.0f);
+        const float targetGain=std::clamp(slotValue(ModTarget::PeakGain,expressionV,m,P.peak.gainDb),-18.0f,18.0f);
+        if(!peakReady_){
+            peakCenterSmoothed_=targetCenter;peakQSmoothed_=targetQ;
+            peakGainSmoothed_=targetGain;peakReady_=true;
+        }else{
+            // Four-millisecond coefficient motion avoids zipper noise when
+            // M or a live pitch bend moves the resonant center.
+            const float t=std::min(1.0f,1.0f/(sampleRate_*.004f));
+            peakCenterSmoothed_+=(targetCenter-peakCenterSmoothed_)*t;
+            peakQSmoothed_+=(targetQ-peakQSmoothed_)*t;
+            peakGainSmoothed_+=(targetGain-peakGainSmoothed_)*t;
+        }
+        peak_.configurePeak(peakCenterSmoothed_,peakQSmoothed_,peakGainSmoothed_,sampleRate_);
+        sum=peak_.process(sum);
     }
     const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,expressionV,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
     if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,expressionV,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);

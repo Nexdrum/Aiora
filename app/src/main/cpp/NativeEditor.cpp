@@ -89,6 +89,13 @@ const char* modTargetName(ModTarget t) noexcept {
         case ModTarget::LfoRate:return "LFO R";
         case ModTarget::Unison:return "UNI";
         case ModTarget::Volume:return "VOL";
+        case ModTarget::Op1Decay:return "OP1 DEC";case ModTarget::Op2Decay:return "OP2 DEC";
+        case ModTarget::Op3Decay:return "OP3 DEC";case ModTarget::Op4Decay:return "OP4 DEC";
+        case ModTarget::Op5Decay:return "OP5 DEC";case ModTarget::Op6Decay:return "OP6 DEC";
+        case ModTarget::PeakRatio:return "PEAK x";
+        case ModTarget::PeakFrequency:return "PEAK Hz";
+        case ModTarget::PeakQ:return "PEAK Q";
+        case ModTarget::PeakGain:return "PEAK dB";
     }
     return "?";
 }
@@ -333,7 +340,7 @@ NativeEditor::Rect NativeEditor::fxRackAddRect(bool add) const noexcept {
 NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    static constexpr float heights[4]={760.0f,844.0f,470.0f,650.0f};
+    static constexpr float heights[4]={1130.0f,844.0f,470.0f,650.0f};
     const int clamped=std::clamp(index,0,3);
     float y=fxRackRect().y+fxRackRect().h+gap;
     for(int i=0;i<clamped;++i)y+=heights[i]+gap;
@@ -375,6 +382,15 @@ NativeEditor::Rect NativeEditor::filterTypeRect(int) const noexcept {
     };
 }
 
+NativeEditor::Rect NativeEditor::peakToggleRect(int index) const noexcept {
+    const auto card=fxGroupRect(0);
+    const float gap=12.0f,buttonW=(card.w-40.0f-gap)*.5f;
+    return {card.x+20.0f+(index?buttonW+gap:0.0f),card.y+782.0f,buttonW,62.0f};
+}
+NativeEditor::Rect NativeEditor::peakParamRect(int row) const noexcept {
+    const auto card=fxGroupRect(0);
+    return {card.x+20.0f,card.y+858.0f+row*78.0f,card.w-40.0f,68.0f};
+}
 NativeEditor::Rect NativeEditor::lfoTargetRect(int) const noexcept {
     const auto card=fxGroupRect(2);
     return {
@@ -455,6 +471,10 @@ NativeEditor::Range NativeEditor::patchRange(PatchParam p) noexcept {
         case PatchParam::FilterDecay:return {0.01f,1.5f};
         case PatchParam::FilterSustain:return {0.0f,1.0f};
         case PatchParam::FilterRelease:return {0.02f,2.0f};
+        case PatchParam::PeakRatio:return {0.5f,8.0f};
+        case PatchParam::PeakFrequency:return {40.0f,8000.0f};
+        case PatchParam::PeakQ:return {0.3f,12.0f};
+        case PatchParam::PeakGain:return {-18.0f,18.0f};
         case PatchParam::AmpAttack:return {0.001f,1.0f};
         case PatchParam::AmpDecay:return {0.01f,1.5f};
         case PatchParam::AmpSustain:return {0.0f,1.0f};
@@ -502,6 +522,10 @@ NativeEditor::Range NativeEditor::modRange(ModTarget t) noexcept {
         case ModTarget::LfoAmount:return {0.0f,2.0f};
         case ModTarget::LfoRate:return {0.1f,20.0f};
         case ModTarget::Volume:return {0.0f,2.0f};
+        case ModTarget::PeakRatio:return {0.5f,8.0f};
+        case ModTarget::PeakFrequency:return {40.0f,8000.0f};
+        case ModTarget::PeakQ:return {0.3f,12.0f};
+        case ModTarget::PeakGain:return {-18.0f,18.0f};
         case ModTarget::None:return {0.0f,1.0f};
     }
     return {0.0f,1.0f};
@@ -529,6 +553,10 @@ float NativeEditor::patchValue(const Patch& p,PatchParam param) noexcept {
         case PatchParam::FilterDecay:return p.filter.env.decay;
         case PatchParam::FilterSustain:return p.filter.env.sustain;
         case PatchParam::FilterRelease:return p.filter.env.release;
+        case PatchParam::PeakRatio:return p.peak.ratio;
+        case PatchParam::PeakFrequency:return p.peak.frequency;
+        case PatchParam::PeakQ:return p.peak.q;
+        case PatchParam::PeakGain:return p.peak.gainDb;
         case PatchParam::AmpAttack:return p.amp.attack;
         case PatchParam::AmpDecay:return p.amp.decay;
         case PatchParam::AmpSustain:return p.amp.sustain;
@@ -562,7 +590,7 @@ float NativeEditor::denormalized(float value,Range r) noexcept {
 }
 ModTarget NativeEditor::cycleModTarget(ModTarget current,int direction) noexcept {
     constexpr int first=static_cast<int>(ModTarget::Cutoff);
-    constexpr int last=static_cast<int>(ModTarget::Volume);
+    constexpr int last=static_cast<int>(ModTarget::PeakGain);
     int n=static_cast<int>(current);
     if(n<first||n>last)n=first;
     n+=direction;
@@ -917,8 +945,8 @@ void NativeEditor::renderFx() const noexcept {
 
     const auto drawParam=[&](
         int section,int row,const char* label,
-        PatchParam param,Rgb accent){
-        const auto rr=fxSectionParamRect(section,row);
+        PatchParam param,Rgb accent,bool peak=false){
+        const auto rr=peak?peakParamRect(row):fxSectionParamRect(section,row);
         const float value=patchValue(p,param);
         const float norm=normalized(value,patchRange(param));
         ov.addText(
@@ -1019,6 +1047,25 @@ void NativeEditor::renderFx() const noexcept {
         drawParam(0,i,filterLabels[i],
             kFilterParams[static_cast<size_t>(i)],
             i<3?kCyan:kOrange);
+
+    // A distinct per-note peaking EQ precedes the existing filter.
+    // A two-state control keeps Follow Note and Fixed Hz equally accessible.
+    {
+        const auto card=fxGroupRect(0);
+        ov.addText("Parametric Peak",card.x+20.0f,card.y+758.0f,
+            1.00f,overlayColor(kPurple));
+        const auto enabled=peakToggleRect(0),mode=peakToggleRect(1);
+        drawButton(enabled,p.peak.enabled,p.peak.enabled?kGreen:kMuted);
+        drawButton(mode,p.peak.followNote,kCyan);
+        ov.addTextCentered(p.peak.enabled?"Peak: On":"Peak: Off",
+            {enabled.x,enabled.y,enabled.w,enabled.h},.84f,overlayColor(kWhite));
+        ov.addTextCentered(p.peak.followNote?"Follow note":"Fixed Hz",
+            {mode.x,mode.y,mode.w,mode.h},.84f,overlayColor(kWhite));
+        drawParam(0,0,p.peak.followNote?"Center x":"Center Hz",
+            p.peak.followNote?PatchParam::PeakRatio:PatchParam::PeakFrequency,kPurple,true);
+        drawParam(0,1,"Q",PatchParam::PeakQ,kPurple,true);
+        drawParam(0,2,"Gain dB",PatchParam::PeakGain,kPurple,true);
+    }
 
     // Amp envelope
     drawSection(1);
@@ -1206,7 +1253,7 @@ bool NativeEditor::openDropdownAt(
     // Current selection remains available for editing older patches.
     const auto availableTargets=[](const Patch& patch,ModTarget current){
         std::vector<ModTarget> available;
-        for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::Volume);++i){
+        for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::PeakGain);++i){
             const auto target=static_cast<ModTarget>(i);
             bool used=false;
             if(target!=current){
@@ -1268,7 +1315,7 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
             const Patch patch=project.selectedPatch();
             const ModTarget current=project.selectedModSlot(choice.context,linkSource_).target;
             std::vector<ModTarget> available;
-            for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::Volume);++i){
+            for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::PeakGain);++i){
                 const auto target=static_cast<ModTarget>(i);
                 bool used=false;
                 if(target!=current){
@@ -1389,6 +1436,19 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
                 HitKind::PatchParam,
                 static_cast<int>(kFilterParams[static_cast<size_t>(i)]),
                 -1,rr};
+    }
+    for(int button=0;button<2;++button){
+        const auto rr=peakToggleRect(button);
+        if(rr.contains(x,y))return Hit{button==0?HitKind::PeakToggle:HitKind::PeakMode,0,-1,rr};
+    }
+    const auto p=ProjectCore::instance().selectedPatch();
+    const PatchParam peakParams[3]={
+        p.peak.followNote?PatchParam::PeakRatio:PatchParam::PeakFrequency,
+        PatchParam::PeakQ,PatchParam::PeakGain};
+    for(int row=0;row<3;++row){
+        const auto rr=peakParamRect(row);
+        if(rr.contains(x,y))
+            return Hit{HitKind::PatchParam,static_cast<int>(peakParams[row]),-1,rr};
     }
 
     for(int i=0;i<static_cast<int>(kAmpParams.size());++i){
@@ -1561,6 +1621,15 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
                 static_cast<FilterType>((current+1)%3));
         }
 
+        case HitKind::PeakToggle:{
+            const auto p=project.selectedPatch();
+            return project.setSelectedPeakEnabled(!p.peak.enabled);
+        }
+        case HitKind::PeakMode:{
+            const auto p=project.selectedPatch();
+            return project.setSelectedPeakFollowNote(!p.peak.followNote);
+        }
+
         case HitKind::LfoTarget:{
             const auto p=project.selectedPatch();
             const int current=std::clamp(
@@ -1591,7 +1660,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             const int dir=hit.kind==HitKind::ModTargetNext?1:-1;
             auto target=s.target;
             const auto patch=project.selectedPatch();
-            for(int attempt=0;attempt<28;++attempt){
+            for(int attempt=0;attempt<=static_cast<int>(ModTarget::PeakGain);++attempt){
                 target=cycleModTarget(target,dir);
                 bool used=false;
                 for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)

@@ -49,7 +49,7 @@ private:
         None,
         SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
-        FxGroup, FilterType, LfoTarget, PatchParam,
+        FxGroup, FilterType, PeakToggle, PeakMode, LfoTarget, PatchParam,
         LinkSourceV, LinkSourceM, ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
     };
@@ -90,6 +90,8 @@ private:
     [[nodiscard]] Rect fxGroupRect(int index) const noexcept;
     [[nodiscard]] Rect fxSectionParamRect(int section,int row) const noexcept;
     [[nodiscard]] Rect filterTypeRect(int index) const noexcept;
+    [[nodiscard]] Rect peakToggleRect(int index) const noexcept;
+    [[nodiscard]] Rect peakParamRect(int row) const noexcept;
     [[nodiscard]] Rect lfoTargetRect(int index) const noexcept;
     [[nodiscard]] Rect fxSliderRect(int row,int rowCount,bool hasChoiceRow) const noexcept;
     [[nodiscard]] Rect linkSourceRect(LinkSource source) const noexcept;

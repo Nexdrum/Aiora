@@ -316,6 +316,8 @@ const char* modName(ModTarget t){
         case ModTarget::Volume:return "vol";
         case ModTarget::Op1Decay:return "op1dec";case ModTarget::Op2Decay:return "op2dec";case ModTarget::Op3Decay:return "op3dec";
         case ModTarget::Op4Decay:return "op4dec";case ModTarget::Op5Decay:return "op5dec";case ModTarget::Op6Decay:return "op6dec";
+        case ModTarget::PeakRatio:return "peakRatio";case ModTarget::PeakFrequency:return "peakHz";
+        case ModTarget::PeakQ:return "peakQ";case ModTarget::PeakGain:return "peakGain";
     }
     return "none";
 }
@@ -331,6 +333,8 @@ ModTarget parseMod(std::string_view s){
     if(s=="uni")return ModTarget::Unison;if(s=="vol")return ModTarget::Volume;
     if(s=="op1dec")return ModTarget::Op1Decay;if(s=="op2dec")return ModTarget::Op2Decay;if(s=="op3dec")return ModTarget::Op3Decay;
     if(s=="op4dec")return ModTarget::Op4Decay;if(s=="op5dec")return ModTarget::Op5Decay;if(s=="op6dec")return ModTarget::Op6Decay;
+    if(s=="peakRatio")return ModTarget::PeakRatio;if(s=="peakHz")return ModTarget::PeakFrequency;
+    if(s=="peakQ")return ModTarget::PeakQ;if(s=="peakGain")return ModTarget::PeakGain;
     return ModTarget::None;
 }
 
@@ -345,6 +349,8 @@ std::pair<float,float> modBounds(ModTarget t){
         case ModTarget::Fm:return {0,1.5f};case ModTarget::LfoAmount:return {0,2};case ModTarget::LfoRate:return {.1f,20};case ModTarget::Volume:return {0,2};
         case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
         case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:return {.005f,1.5f};
+        case ModTarget::PeakRatio:return {.5f,8};case ModTarget::PeakFrequency:return {40,8000};
+        case ModTarget::PeakQ:return {.3f,12};case ModTarget::PeakGain:return {-18,18};
         case ModTarget::None:return {0,1};
     }
     return {0,1};
@@ -410,6 +416,12 @@ void writePatch(Writer& w,const Patch& p){
     w.raw("],\"filter\":{\"type\":");w.string(filterName(p.filter.type));
     w.raw(",\"cutoff\":");w.number(p.filter.cutoff);w.raw(",\"resonance\":");w.number(p.filter.resonance);w.raw(",\"envAmt\":");w.number(p.filter.envAmount);
     w.raw(",\"attack\":");w.number(p.filter.env.attack);w.raw(",\"decay\":");w.number(p.filter.env.decay);w.raw(",\"sustain\":");w.number(p.filter.env.sustain);w.raw(",\"release\":");w.number(p.filter.env.release);w.raw("}");
+    w.raw(",\"peak\":{\"enabled\":");w.boolean(p.peak.enabled);
+    w.raw(",\"followNote\":");w.boolean(p.peak.followNote);
+    w.raw(",\"ratio\":");w.number(p.peak.ratio);
+    w.raw(",\"frequency\":");w.number(p.peak.frequency);
+    w.raw(",\"q\":");w.number(p.peak.q);
+    w.raw(",\"gainDb\":");w.number(p.peak.gainDb);w.raw("}");
     w.raw(",\"amp\":{\"attack\":");w.number(p.amp.attack);w.raw(",\"decay\":");w.number(p.amp.decay);w.raw(",\"sustain\":");w.number(p.amp.sustain);w.raw(",\"release\":");w.number(p.amp.release);w.raw("}");
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
     w.raw(",\"vel\":{\"amp\":");w.number(p.velocityAmp);w.raw(",\"filter\":");w.number(p.velocityFilter);
@@ -503,6 +515,15 @@ bool readPatch(const Json& src,Patch& p){
     if(const Json* f=src.get("filter");f&&f->type==Json::Type::Object){
         p.filter.type=parseFilter(str(f->get("type"),"lowpass"));p.filter.cutoff=clampf(num(f->get("cutoff"),4000),40,18000,4000);p.filter.resonance=clampf(num(f->get("resonance"),1),.1f,18,1);p.filter.envAmount=clampf(num(f->get("envAmt"),0),0,1,0);
         p.filter.env.attack=clampf(num(f->get("attack"),.01),.005f,2,.01f);p.filter.env.decay=clampf(num(f->get("decay"),.15),.01f,3,.15f);p.filter.env.sustain=clampf(num(f->get("sustain"),.7),0,1,.7f);p.filter.env.release=clampf(num(f->get("release"),.2),.02f,3,.2f);
+    }
+    // Old patches have no peak key and therefore keep it disabled.
+    if(const Json* pk=src.get("peak");pk&&pk->type==Json::Type::Object){
+        p.peak.enabled=boolean(pk->get("enabled"),false);
+        p.peak.followNote=boolean(pk->get("followNote"),true);
+        p.peak.ratio=clampf(num(pk->get("ratio"),4),.5f,8,4);
+        p.peak.frequency=clampf(num(pk->get("frequency"),220),40,8000,220);
+        p.peak.q=clampf(num(pk->get("q"),1),.3f,12,1);
+        p.peak.gainDb=clampf(num(pk->get("gainDb"),0),-18,18,0);
     }
     if(const Json* a=src.get("amp");a&&a->type==Json::Type::Object){
         p.amp.attack=clampf(num(a->get("attack"),.008),.001f,2,.008f);p.amp.decay=clampf(num(a->get("decay"),.12),.01f,3,.12f);p.amp.sustain=clampf(num(a->get("sustain"),.85),0,1,.85f);p.amp.release=clampf(num(a->get("release"),.25),.02f,8,.25f);

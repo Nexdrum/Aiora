@@ -101,6 +101,10 @@ float clampPatchParam(PatchParam param,float v){
         case PatchParam::FilterDecay:return std::clamp(v,0.01f,1.5f);
         case PatchParam::FilterSustain:return std::clamp(v,0.0f,1.0f);
         case PatchParam::FilterRelease:return std::clamp(v,0.02f,2.0f);
+        case PatchParam::PeakRatio:return std::clamp(v,0.5f,8.0f);
+        case PatchParam::PeakFrequency:return std::clamp(v,40.0f,8000.0f);
+        case PatchParam::PeakQ:return std::clamp(v,0.3f,12.0f);
+        case PatchParam::PeakGain:return std::clamp(v,-18.0f,18.0f);
         case PatchParam::AmpAttack:return std::clamp(v,0.001f,1.0f);
         case PatchParam::AmpDecay:return std::clamp(v,0.01f,1.5f);
         case PatchParam::AmpSustain:return std::clamp(v,0.0f,1.0f);
@@ -154,6 +158,10 @@ float clampModValue(ModTarget target,float v){
         case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
         case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
             return std::clamp(v,0.005f,1.5f);
+        case ModTarget::PeakRatio:return std::clamp(v,0.5f,8.0f);
+        case ModTarget::PeakFrequency:return std::clamp(v,40.0f,8000.0f);
+        case ModTarget::PeakQ:return std::clamp(v,0.3f,12.0f);
+        case ModTarget::PeakGain:return std::clamp(v,-18.0f,18.0f);
         case ModTarget::None:return 0.0f;
     }
     return v;
@@ -847,6 +855,12 @@ bool ProjectCore::setSelectedMatrixAmount(int modulator,int carrier,float value)
 bool ProjectCore::setSelectedFilterType(FilterType type){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->filter.type=type;return true;
 }
+bool ProjectCore::setSelectedPeakEnabled(bool enabled){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->peak.enabled=enabled;return true;
+}
+bool ProjectCore::setSelectedPeakFollowNote(bool followNote){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->peak.followNote=followNote;return true;
+}
 bool ProjectCore::setSelectedLfoTarget(LfoTarget target){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->lfo.target=target;return true;
 }
@@ -860,6 +874,10 @@ bool ProjectCore::setSelectedPatchParam(PatchParam param,float value){
         case PatchParam::FilterDecay:p->filter.env.decay=v;break;
         case PatchParam::FilterSustain:p->filter.env.sustain=v;break;
         case PatchParam::FilterRelease:p->filter.env.release=v;break;
+        case PatchParam::PeakRatio:p->peak.ratio=v;break;
+        case PatchParam::PeakFrequency:p->peak.frequency=v;break;
+        case PatchParam::PeakQ:p->peak.q=v;break;
+        case PatchParam::PeakGain:p->peak.gainDb=v;break;
         case PatchParam::AmpAttack:p->amp.attack=v;break;
         case PatchParam::AmpDecay:p->amp.decay=v;break;
         case PatchParam::AmpSustain:p->amp.sustain=v;break;
@@ -902,6 +920,10 @@ float baseLinkValue(const Patch& p,ModTarget target){
         case ModTarget::Cutoff:return p.filter.cutoff;
         case ModTarget::Resonance:return p.filter.resonance;
         case ModTarget::FilterEnv:return p.filter.envAmount;
+        case ModTarget::PeakRatio:return p.peak.ratio;
+        case ModTarget::PeakFrequency:return p.peak.frequency;
+        case ModTarget::PeakQ:return p.peak.q;
+        case ModTarget::PeakGain:return p.peak.gainDb;
         case ModTarget::AmpAttack:return p.amp.attack;
         case ModTarget::AmpDecay:return p.amp.decay;
         case ModTarget::AmpSustain:return p.amp.sustain;
@@ -941,7 +963,7 @@ bool ProjectCore::addSelectedModSlot(ModTarget target,LinkSource source){
     if(!p)return false;
     if(target==ModTarget::None||linkTargetUsed(*p,target,source)){
         target=ModTarget::None;
-        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::Op6Decay);++value){
+        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::PeakGain);++value){
             const auto candidate=static_cast<ModTarget>(value);
             if(!linkTargetUsed(*p,candidate,source)){target=candidate;break;}
         }

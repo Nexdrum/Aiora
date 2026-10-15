@@ -20,7 +20,8 @@ enum class PatchParam : uint8_t {
     LfoRate, LfoAmount, LfoAttack, LfoVelocity,
     Unison, Glide, Volume,
     Distortion, Delay, DelayTime, DelayFeedback, Reverb,
-    DistIn, DistOut, ReverbDecay, ReverbRoom
+    DistIn, DistOut, ReverbDecay, ReverbRoom,
+    PeakRatio, PeakFrequency, PeakQ, PeakGain
 };
 
 class ProjectCore {
@@ -144,6 +145,8 @@ public:
     bool setSelectedHarmonic(int opIndex, int partialIndex, float value, bool muted = false);
     bool setSelectedMatrixAmount(int modulator, int carrier, float value);
     bool setSelectedFilterType(FilterType type);
+    bool setSelectedPeakEnabled(bool enabled);
+    bool setSelectedPeakFollowNote(bool followNote);
     bool setSelectedLfoTarget(LfoTarget target);
     bool setSelectedPatchParam(PatchParam param, float value);
 

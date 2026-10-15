@@ -882,32 +882,39 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         // Open strings keep their upper harmonics and normal resonant tail.
         setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.88f,.002f,.36f,.84f,.55f);
         setHarm(p.ops[0],{1,.72f,.50f,.33f,.22f,.16f,.10f,.070f,.045f,.028f,.017f,.010f,.006f,.004f,.002f,.001f});
-        setHarmMute(p.ops[0],{1,.31f,.095f,.026f,.008f,.002f,0,0,0,0,0,0,0,0,0,0});
+        // Original Nebular palm waveform: strong fundamental and 2nd, rapid upper rolloff.
+        setHarmMute(p.ops[0],{1,.76f,.50f,.26f,.116f,.052f,.024f,.011f,.005f,.002f,0,0,0,0,0,0});
         setOp(p.ops[1],Wave::Custom,2.0f,1.5f,.30f,.002f,.21f,.46f,.28f);
         setHarm(p.ops[1],{1,.62f,.33f,.17f,.09f,.049f,.025f,.012f,.006f,.003f,0,0,0,0,0,0});
         setOp(p.ops[2],Wave::Noise,1.0f,0.0f,.16f,.001f,.028f,0.0f,.045f);
-        // OP4 replaces the always-on sub-octave with a fundamental-frequency
-        // body that is prominent ONLY on palm-muted attacks. Its short
-        // operator envelope creates the characteristic low-mid "thunk".
-        setOp(p.ops[3],Wave::Triangle,1.0f,0.0f,.025f,.0015f,.19f,0.0f,.10f);
+        // Short fundamental-frequency pluck transient; the moving peaking
+        // filter below now supplies the low-mid body instead of a loud OP4.
+        setOp(p.ops[3],Wave::Triangle,1.0f,0.0f,.02f,.0015f,.055f,0.0f,.065f);
         disable(p.ops[4]);disable(p.ops[5]);
         for(auto& row:p.matrix)row.fill(0.0f);
         p.matrix[1][0]=.11f;
-        p.filter={FilterType::Lowpass,5400.0f,.80f,.36f,
+        p.filter={FilterType::Lowpass,5200.0f,.80f,0.0f,
             {.003f,.27f,0.0f,.18f}};
+        // Recreate Nebular's moving resonant body: as M increases the
+        // center shifts from 4x to 1.7x the played pitch, Q narrows the
+        // peak and gain increases by 7.8 dB.
+        p.peak={true,true,4.0f,220.0f,1.0f,5.8f};
         p.amp={.002f,1.1f,.15f,.64f};
         p.velocityAmp=.75f;p.velocityFilter=.45f;
-        // M selects the shorter articulation and the added body. Leave
-        // some upper spectrum to excite the metal amp and preserve pick bite.
-        // Every route remains editable in the ordinary Spectrachord UI.
+        // Same core shaping as the original browser Nebular: the body
+        // peak grows deeper/narrower as M increases while LPF gets darker.
+        // Damped articulation is modestly longer here because Aiora uses a
+        // linear ADSR decay rather than a complete exponential note fade.
         slots(p,{
-            {ModTarget::AmpDecay,1.15f,.16f},
+            {ModTarget::AmpDecay,1.15f,.12f},
             {ModTarget::AmpSustain,.15f,0.0f},
-            {ModTarget::AmpRelease,.64f,.085f},
-            {ModTarget::FilterEnv,.42f,.19f},
-            {ModTarget::Cutoff,5400.0f,2400.0f},
-            {ModTarget::Morph1,0.0f,.82f},
-            {ModTarget::Op4,.025f,.72f}
+            {ModTarget::AmpRelease,.64f,.07f},
+            {ModTarget::Cutoff,5200.0f,1350.0f},
+            {ModTarget::Morph1,0.0f,1.0f},
+            {ModTarget::Op4,.02f,.29f},
+            {ModTarget::PeakRatio,4.0f,1.7f},
+            {ModTarget::PeakQ,1.0f,6.4f},
+            {ModTarget::PeakGain,5.8f,13.6f}
         });
         p.velocitySlots={
             {ModTarget::AmpAttack,.007f,.001f},

@@ -45,6 +45,7 @@ private:
         float z1{0},z2{0};
         void reset() noexcept { z1=z2=0; }
         void configure(FilterType type, float freq, float q, float sr) noexcept;
+        void configurePeak(float freq,float q,float gainDb,float sr) noexcept;
         float process(float x) noexcept;
     };
 
@@ -79,6 +80,9 @@ private:
     std::array<float,12> plateDecay_{};
     std::array<std::array<float,2>,6> hissState_{};
     Biquad filter_{};
+    Biquad peak_{};
+    float peakCenterSmoothed_{220.0f},peakQSmoothed_{1.0f},peakGainSmoothed_{0.0f};
+    bool peakReady_{false};
     uint32_t rng_{0x91e10da5u};
     float lfoPhase_{0.0f};
     float lfoAge_{0.0f};
