@@ -11,6 +11,12 @@
 namespace aiora {
 
 enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise, Hiss };
+// Single source of truth for selectable operator waveforms and their menu names.
+inline constexpr std::array<const char*,7> kWaveformLabels{
+    "sine","sawtooth","square","triangle","custom","noise","hiss"
+};
+static_assert(kWaveformLabels.size()==static_cast<size_t>(Wave::Hiss)+1);
+
 enum class FilterType : uint8_t { Lowpass, Highpass, Bandpass };
 enum class LfoTarget : uint8_t { None, Pitch, Filter, Amp };
 enum class ModTarget : uint8_t {

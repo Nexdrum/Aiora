@@ -746,8 +746,6 @@ void NativeEditor::renderSynth() const noexcept {
             }
         }
     }else{
-        static constexpr const char* kWaveNames[7]={
-            "sine","sawtooth","square","triangle","custom","noise","hiss"};
         static constexpr const char* kLabels[8]={
             "R","ST","F","L","A","D","S","R"};
 
@@ -777,9 +775,9 @@ void NativeEditor::renderSynth() const noexcept {
 
             const auto wave=operatorWaveFieldRect(op);
             fillRect(wave,mix(kRollBg,kButton,0.25f));
-            const int waveIndex=std::clamp(static_cast<int>(o.wave),0,6);
+            const int waveIndex=std::clamp(static_cast<int>(o.wave),0,static_cast<int>(kWaveformLabels.size())-1);
             ov.addText(
-                kWaveNames[waveIndex],
+                kWaveformLabels[static_cast<size_t>(waveIndex)],
                 wave.x+12.0f,wave.y+20.0f,
                 0.96f,overlayColor(kWhite));
             ov.addDownChevron(
@@ -1152,7 +1150,7 @@ bool NativeEditor::openDropdownAt(
         if(y<contentTop||y>=contentBottom)return false;
 
         static const std::vector<std::string> waveNames{
-            "sine","sawtooth","square","triangle","custom","noise"};
+            kWaveformLabels.begin(),kWaveformLabels.end()};
         for(int op=0;op<6;++op){
             const auto rr=operatorWaveFieldRect(op);
             if(!rr.contains(x,y))continue;
@@ -1161,7 +1159,7 @@ bool NativeEditor::openDropdownAt(
                 std::clamp(
                     static_cast<int>(
                         p.ops[static_cast<size_t>(op)].wave),
-                    0,5),
+                    0,static_cast<int>(kWaveformLabels.size())-1),
                 waveNames);
             return true;
         }
@@ -1248,7 +1246,8 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
             fxRackNewType_=static_cast<FxType>(choice.option);
             return false;
         case DropdownKind::Wave:
-            if(choice.context<0||choice.context>=6||choice.option<0||choice.option>=6)
+            if(choice.context<0||choice.context>=6||choice.option<0||
+               choice.option>=static_cast<int>(kWaveformLabels.size()))
                 return false;
             return project.setSelectedOperatorWave(
                 choice.context,static_cast<Wave>(choice.option));
@@ -1507,9 +1506,10 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             const int op=std::clamp(hit.a,0,5);
             const auto p=project.selectedPatch();
             const int current=std::clamp(
-                static_cast<int>(p.ops[static_cast<size_t>(op)].wave),0,5);
+                static_cast<int>(p.ops[static_cast<size_t>(op)].wave),
+                0,static_cast<int>(kWaveformLabels.size())-1);
             return project.setSelectedOperatorWave(
-                op,static_cast<Wave>((current+1)%6));
+                op,static_cast<Wave>((current+1)%static_cast<int>(kWaveformLabels.size())));
         }
 
         case HitKind::OperatorToggle:{

@@ -16,6 +16,27 @@
 using namespace aiora;
 
 int main(){
+    // Every synth waveform, including Hiss, must appear in the editor's
+    // shared dropdown vocabulary and survive patch serialization.
+    assert(kWaveformLabels.size()==7);
+    assert(std::string(kWaveformLabels[static_cast<size_t>(Wave::Hiss)])=="hiss");
+    {
+        auto& synth=ProjectCore::instance();
+        Project waveProject;
+        Track waveTrack;
+        waveTrack.patch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+        waveProject.tracks.push_back(std::move(waveTrack));
+        assert(synth.replaceProject(std::move(waveProject),0));
+        for(int op=0;op<6;++op){
+            assert(synth.setSelectedOperatorWave(op,Wave::Hiss));
+            assert(synth.selectedPatch().ops[static_cast<size_t>(op)].wave==Wave::Hiss);
+        }
+        Patch loaded;
+        std::string parseError;
+        assert(deserializePatchJson(serializePatchJson(synth.selectedPatch()),loaded,&parseError));
+        for(const auto& op:loaded.ops)assert(op.wave==Wave::Hiss);
+        synth.reset();
+    }
     // Rack effects are ordinary, repeatable, ordered modules, not fixed slots.
     Fx rack{};rack.rackConfigured=true;rack.count=2;
     rack.chain[0]=makeFxModule(FxType::MetalAmp);
