@@ -887,7 +887,7 @@ NativeUi::Rect NativeUi::projectTransferRect(int index) const noexcept {
     const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
     return {
         card.x+pad+(index+1)*(w+gap),
-        card.y+138.0f,w,64.0f
+        card.y+212.0f,w,64.0f
     };
 }
 

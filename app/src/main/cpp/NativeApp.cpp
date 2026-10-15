@@ -45,6 +45,8 @@ constexpr int kRequestRenameSong = 4206;
 constexpr int kRequestOperatorRatio = 4203;
 constexpr int kRequestNewProject = 4204;
 constexpr int kRequestOperatorSemitone = 4205;
+constexpr int kRequestLinkMin = 4207;
+constexpr int kRequestLinkMax = 4208;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -604,6 +606,41 @@ void serviceDocumentResult(NativeState& state){
                 project.setPadName(track,pad,fourthLine);
                 scheduleAutosave(state,0);
             }
+        }
+        return;
+    }
+
+    if(requestCode==kRequestLinkMin||requestCode==kRequestLinkMax){
+        if(!success)return;
+        int packed=0;
+        float entered=0.0f;
+        try{
+            packed=std::stoi(thirdLine);
+            size_t parsed=0;
+            entered=std::stof(fourthLine,&parsed);
+            if(parsed!=fourthLine.size())return;
+        }catch(...){return;}
+        if(packed<0||!std::isfinite(entered))return;
+
+        // The editor may have been dismissed while its destination changed;
+        // only apply the value to the exact link target originally tapped.
+        const int index=packed&0xffff;
+        const auto target=static_cast<aiora::ModTarget>((packed>>16)&0xff);
+        const auto source=(packed&0x01000000)
+            ?aiora::LinkSource::Velocity:aiora::LinkSource::Mod;
+        auto& project=aiora::ProjectCore::instance();
+        if(index<0||index>=project.selectedModSlotCount(source))return;
+        const auto current=project.selectedModSlot(index,source);
+        if(current.target!=target)return;
+        const bool isMin=requestCode==kRequestLinkMin;
+        const bool changed=project.setSelectedModSlot(
+            index,target,
+            isMin?entered:current.min,
+            isMin?current.max:entered,source);
+        if(changed){
+            aiora::AudioEngine::instance().syncProject();
+            previewEditorPatch(state);
+            scheduleAutosave(state,0);
         }
         return;
     }
@@ -1751,6 +1788,32 @@ bool handleUiTap(NativeState& state, float x, float y) {
             ?aiora::EditorPage::Synth:aiora::EditorPage::Fx;
         if(aiora::NativeEditor::instance().openDropdownAt(page,x,y,state.ui))
             return true;
+    }
+
+    if(state.ui.page()==aiora::NativePage::Fx){
+        auto& editor=aiora::NativeEditor::instance();
+        if(const auto field=editor.hitModLinkValue(x,y)){
+            // Encode source, target and slot so the response never modifies
+            // an unrelated V/M link if a different source becomes selected.
+            const int packed=field->slot |
+                (static_cast<int>(field->target)<<16) |
+                (field->source==aiora::LinkSource::Velocity?0x01000000:0);
+            char value[48]{};
+            std::snprintf(value,sizeof(value),"%.8g",
+                static_cast<double>(field->value));
+            const std::string title=
+                std::string(field->source==aiora::LinkSource::Velocity?"V":"M")+
+                std::to_string(field->slot+1)+
+                (field->maximum?" maximum":" minimum");
+            if(!launchNumberEditor(
+                    state.app?state.app->activity:nullptr,
+                    field->maximum?kRequestLinkMax:kRequestLinkMin,
+                    packed,title.c_str(),value)){
+                __android_log_print(ANDROID_LOG_WARN,kTag,
+                    "expression link numeric editor could not start");
+            }
+            return true;
+        }
     }
 
     if(state.ui.page()==aiora::NativePage::Synth){

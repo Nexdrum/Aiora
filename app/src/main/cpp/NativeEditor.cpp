@@ -1146,13 +1146,17 @@ void NativeEditor::renderFx() const noexcept {
 
         fillRect(mn,mix(kRollBg,kButton,0.20f));
         fillRect(mx,mix(kRollBg,kButton,0.20f));
+        ov.addText("MIN",mn.x+10.0f,mn.y+9.0f,
+            0.64f,overlayColor(kMuted));
+        ov.addText("MAX",mx.x+10.0f,mx.y+9.0f,
+            0.64f,overlayColor(kMuted));
         ov.addText(
             shortValue(s.min),
-            mn.x+10.0f,mn.y+31.0f,
+            mn.x+10.0f,mn.y+45.0f,
             0.82f,overlayColor(kWhite));
         ov.addText(
             shortValue(s.max),
-            mx.x+10.0f,mx.y+31.0f,
+            mx.x+10.0f,mx.y+45.0f,
             0.82f,overlayColor(kWhite));
 
         drawButton(del,false,kRed);
@@ -1336,6 +1340,21 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
         default:
             return false;
     }
+}
+
+std::optional<NativeEditor::ModLinkValueHit> NativeEditor::hitModLinkValue(
+    float x,float y) const noexcept {
+    // Only active, visible M/V numeric fields can open the Android editor.
+    if(!viewportRect().contains(x,y)||scrollGutterRect().contains(x,y))
+        return std::nullopt;
+    const auto hit=hitFx(x,y);
+    if(!hit||(hit->kind!=HitKind::ModMin&&hit->kind!=HitKind::ModMax))
+        return std::nullopt;
+    const auto slot=ProjectCore::instance().selectedModSlot(hit->a,linkSource_);
+    if(slot.target==ModTarget::None)return std::nullopt;
+    const bool maximum=hit->kind==HitKind::ModMax;
+    return ModLinkValueHit{
+        hit->a,linkSource_,maximum,slot.target,maximum?slot.max:slot.min};
 }
 
 std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
@@ -1675,14 +1694,10 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
         }
 
         case HitKind::ModMin:
-        case HitKind::ModMax:{
-            const auto s=project.selectedModSlot(hit.a,linkSource_);
-            const auto rr=modRange(s.target);
-            const float v=denormalized(nx,rr);
-            return hit.kind==HitKind::ModMin
-                ?project.setSelectedModSlot(hit.a,s.target,v,s.max,linkSource_)
-                :project.setSelectedModSlot(hit.a,s.target,s.min,v,linkSource_);
-        }
+        case HitKind::ModMax:
+            // Numeric link values are edited with the OS keyboard rather
+            // than an invisible horizontal slider.
+            return false;
 
         case HitKind::ModDelete:
             return project.removeSelectedModSlot(hit.a,linkSource_);
@@ -1748,8 +1763,6 @@ bool NativeEditor::pointerMove(float x,float y){
         case HitKind::Matrix:
         case HitKind::PatchParam:
         case HitKind::RackParameter:
-        case HitKind::ModMin:
-        case HitKind::ModMax:
             changed_=applyHit(*activeHit_,x,y)||changed_;
             return true;
 

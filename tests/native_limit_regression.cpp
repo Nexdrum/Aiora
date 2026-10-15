@@ -405,6 +405,24 @@ int main(){
     // A target belongs to V or M, not both. Legacy M duplicates still load.
     assert(!core.setSelectedModSlot(0,ModTarget::Op1,0.0f,1.0f,LinkSource::Mod));
     assert(core.setSelectedModSlot(0,ModTarget::Cutoff,1300.0f,4700.0f,LinkSource::Mod));
+    // Typed min/max edits must preserve fractional precision and allow
+    // deliberately reversed expression directions without touching V.
+    assert(core.setSelectedModSlot(0,ModTarget::Cutoff,10598.5f,8739.17f,LinkSource::Mod));
+    const auto editedM=core.selectedModSlot(0,LinkSource::Mod);
+    assert(std::fabs(editedM.min-10598.5f)<.02f);
+    assert(std::fabs(editedM.max-8739.17f)<.02f);
+    const auto oldV=core.selectedModSlot(0,LinkSource::Velocity);
+    assert(core.setSelectedModSlot(0,oldV.target,.234567f,.876543f,LinkSource::Velocity));
+    const auto editedV=core.selectedModSlot(0,LinkSource::Velocity);
+    assert(std::fabs(editedV.min-.234567f)<.000001f);
+    assert(std::fabs(editedV.max-.876543f)<.000001f);
+    assert(std::fabs(core.selectedModSlot(0,LinkSource::Mod).min-10598.5f)<.02f);
+    const std::string editedLinks=serializePatchJson(core.selectedPatch());
+    Patch reloadedLinks;
+    std::string linkError;
+    assert(deserializePatchJson(editedLinks,reloadedLinks,&linkError));
+    assert(std::fabs(reloadedLinks.modSlots[0].max-8739.17f)<.02f);
+    assert(std::fabs(reloadedLinks.velocitySlots[0].min-.234567f)<.000001f);
     assert(core.addSelectedModSlot(ModTarget::Op1,LinkSource::Mod));
     assert(core.selectedModSlot(core.selectedModSlotCount()-1).target!=ModTarget::Op1);
     const auto snap=core.makePlaybackSnapshot();
