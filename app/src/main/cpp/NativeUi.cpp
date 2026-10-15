@@ -1204,8 +1204,11 @@ void NativeUi::cycleRollZoom() noexcept {
     // 13 (default) -> 8 (close) -> 25 (overview) -> 13.
     rollZoomIndex_=(rollZoomIndex_+1)%3;
     const int newPitchCells=rollVisiblePitchCells();
+    // The header now changes thickness with zoom, so the time-viewport
+    // height needs to be recomputed before recentering.
+    const float newTimeHeight=std::max(1.0f,viewport.h-rollHeaderPixels());
     const int newTimeCells=std::max(
-        1,static_cast<int>(std::ceil(timeHeight/rollCellPixels())));
+        1,static_cast<int>(std::ceil(newTimeHeight/rollCellPixels())));
     rollPitchOffset_=std::clamp(
         static_cast<int>(std::lround(
             pitchCenter-static_cast<float>(newPitchCells)*0.5f)),
