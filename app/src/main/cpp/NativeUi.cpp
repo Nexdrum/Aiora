@@ -3089,8 +3089,22 @@ bool NativeUi::drumPitchTap(int midi){
 NativeUi::Rect NativeUi::rollDrawController(int kind) const noexcept {
     if(kind!=1&&kind!=2)return {};
     const auto vp=rollViewportRect();
+    // Size the equal-length gestures to fit even the closest zoom level.
+    // Current header/gutter thickness still follows the selected zoom.
+    const float base=rollBaseCellPixels();
+    const float maxGutter=std::clamp(
+        std::clamp(base*1.55f,78.0f,108.0f)*1.20f,56.0f,132.0f);
+    const auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    const bool drums=track>=0&&project.trackIsDrums(track);
+    const float baseHeader=drums
+        ?std::clamp(base*1.95f,104.0f,132.0f)
+        :std::clamp(base*1.32f,72.0f,96.0f);
+    const float maxHeader=std::clamp(
+        baseHeader*1.20f,drums?80.0f:56.0f,160.0f);
     const auto pair=rollControllerPair(
-        vp.x,vp.y,vp.w,vp.h,rollGutterPixels(),rollHeaderPixels());
+        vp.x,vp.y,vp.w,vp.h,rollGutterPixels(),rollHeaderPixels(),
+        maxGutter,maxHeader);
     const auto& r=kind==1?pair.velocity:pair.modulation;
     return {r.x,r.y,r.w,r.h};
 }

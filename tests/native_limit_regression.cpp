@@ -19,8 +19,8 @@ using namespace aiora;
 int main(){
     // V and M are equal-travel controllers anchored at an equal radius from
     // the piano-roll corner. Zoom changes only the transverse dimensions.
-    for(const auto& viewport:std::array<std::array<float,2>,2>{{
-        {{820.0f,1400.0f}},{{1680.0f,540.0f}}
+    for(const auto& viewport:std::array<std::array<float,2>,3>{{
+        {{820.0f,1400.0f}},{{1680.0f,540.0f}},{{1680.0f,503.0f}}
     }}){
         float firstTravel=0.0f;
         float defaultVThickness=0.0f,defaultMThickness=0.0f;
@@ -29,16 +29,23 @@ int main(){
             const float gutter=90.0f*scale;
             const float header=80.0f*scale;
             const auto pair=rollControllerPair(
-                14.0f,320.0f,viewport[0],viewport[1],gutter,header);
+                14.0f,320.0f,viewport[0],viewport[1],gutter,header,
+                90.0f*1.2f,80.0f*1.2f);
             const auto& v=pair.velocity;
             const auto& m=pair.modulation;
             assert(std::fabs(v.w-m.h)<.0001f);
-            assert(std::fabs(v.w-320.0f)<.0001f);
+            // Landscape may shorten the shared travel to keep both fingers
+            // on screen; that length MUST remain identical at every zoom.
+            assert(v.w>=275.0f&&v.w<=320.0f);
             assert(v.x+v.w<=14.0f+viewport[0]);
             assert(m.y+m.h<=320.0f+viewport[1]);
             const float cx=14.0f+gutter*.5f;
             const float cy=320.0f+header*.5f;
             assert(std::fabs((v.x-cx)-(m.y-cy))<.0001f);
+            assert(v.x-cx>=120.0f);
+            assert(m.y-cy>=120.0f);
+            // Starting fingertips are now over 165 px apart diagonally.
+            assert(std::hypot(v.x-cx,m.y-cy)>165.0f);
             assert(std::fabs((v.y+v.h*.5f)-cy)<.0001f);
             assert(std::fabs((m.x+m.w*.5f)-cx)<.0001f);
             assert(std::fabs(v.h-(header-10.0f))<.0001f);
