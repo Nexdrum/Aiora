@@ -16,6 +16,35 @@
 using namespace aiora;
 
 int main(){
+    // Song title belongs to the project JSON, not just the export filename.
+    {
+        auto& core=ProjectCore::instance();
+        core.reset();
+        assert(core.songName()=="Untitled Song");
+        core.setSongName("  Industrial Experiment  ");
+        assert(core.songName()=="Industrial Experiment");
+        Project saved=core.projectCopy();
+        assert(saved.name=="Industrial Experiment");
+        std::string error;
+        Project loaded;
+        const std::string json=serializeProjectJson(saved);
+        assert(json.find("\"name\":\"Industrial Experiment\"")!=std::string::npos);
+        assert(deserializeProjectJson(json,loaded,&error));
+        assert(loaded.name=="Industrial Experiment");
+        assert(core.replaceProject(std::move(loaded),0));
+        assert(core.songName()=="Industrial Experiment");
+        core.reset();
+        assert(core.songName()=="Untitled Song");
+        // Old song JSON did not have a name key.
+        std::string legacy=json;
+        const auto key=legacy.find("\"name\":\"Industrial Experiment\",");
+        assert(key!=std::string::npos);
+        legacy.erase(key,std::string("\"name\":\"Industrial Experiment\",").size());
+        Project recovered;
+        assert(deserializeProjectJson(legacy,recovered,&error));
+        assert(recovered.name=="Untitled Song");
+    }
+
     // Every synth waveform, including Hiss, must appear in the editor's
     // shared dropdown vocabulary and survive patch serialization.
     assert(kWaveformLabels.size()==7);

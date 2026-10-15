@@ -2786,31 +2786,42 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
-            // While recording, auxiliary fingers can hold V and M together.
-            // Their zones are reserved before pitch-header/gutter navigation.
-            if(state.ui.page()==aiora::NativePage::Roll&&
-               state.rollDraw.active&&!state.rollDraw.paused){
+            // Arm V/M on touch-down even if the note does not exist yet.
+            // A stationary finger must be able to define a note's first point.
+            if(state.ui.page()==aiora::NativePage::Roll){
+                auto& arm=state.armedExpression;
                 auto& draw=state.rollDraw;
-                if(state.ui.hitRollDrawController(1,x,y)&&
-                   draw.valuePointer<0){
-                    draw.valuePointer=pointerId;
-                    draw.vTouched=true;
-                    draw.velocity=state.ui.rollDrawControllerValue(1,x,y);
-                    captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
-                    showRollDraw(state);
+                if(state.ui.hitRollDrawController(1,x,y)&&arm.vPointer<0){
+                    arm.vPointer=pointerId;
+                    arm.velocity=state.ui.rollDrawControllerValue(1,x,y);
+                    if(draw.active&&!draw.paused){
+                        draw.valuePointer=pointerId;
+                        draw.vTouched=true;
+                        draw.velocity=arm.velocity;
+                        captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
+                        showRollDraw(state);
+                    }
                     return 1;
                 }
-                if(state.ui.hitRollDrawController(2,x,y)&&
-                   draw.modPointer<0){
-                    draw.modPointer=pointerId;
-                    draw.mTouched=true;
-                    draw.mod=state.ui.rollDrawControllerValue(2,x,y);
-                    captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
-                    showRollDraw(state);
+                if(state.ui.hitRollDrawController(2,x,y)&&arm.mPointer<0){
+                    arm.mPointer=pointerId;
+                    arm.mod=state.ui.rollDrawControllerValue(2,x,y);
+                    if(draw.active&&!draw.paused){
+                        draw.modPointer=pointerId;
+                        draw.mTouched=true;
+                        draw.mod=arm.mod;
+                        captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
+                        showRollDraw(state);
+                    }
                     return 1;
                 }
-                if(action==AMOTION_EVENT_ACTION_POINTER_DOWN)return 1;
             }
+
+            // Ignore additional non-controller contacts during a recording,
+            // preserving the first note finger as the draw-time cursor.
+            if(state.ui.page()==aiora::NativePage::Roll&&
+               state.rollDraw.active&&!state.rollDraw.paused&&
+               action==AMOTION_EVENT_ACTION_POINTER_DOWN)return 1;
             if(state.rollDraw.active&&state.rollDraw.paused&&
                action==AMOTION_EVENT_ACTION_DOWN){
                 const auto resume=state.ui.rollDrawResumeRect();
@@ -3028,6 +3039,37 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
+            // Always sample held controller fingers, regardless of whether
+            // a draw session exists. This also handles finger moves before
+            // the note finger arrives.
+            if(state.ui.page()==aiora::NativePage::Roll){
+                auto& arm=state.armedExpression;
+                auto& draw=state.rollDraw;
+                bool changed=false;
+                const size_t count=AMotionEvent_getPointerCount(event);
+                for(size_t i=0;i<count;++i){
+                    const int32_t id=AMotionEvent_getPointerId(event,i);
+                    if(id==arm.vPointer){
+                        arm.velocity=state.ui.rollDrawControllerValue(
+                            1,AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
+                        if(draw.active&&!draw.paused){
+                            draw.velocity=arm.velocity;draw.vTouched=true;
+                            captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
+                            changed=true;
+                        }
+                    }else if(id==arm.mPointer){
+                        arm.mod=state.ui.rollDrawControllerValue(
+                            2,AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
+                        if(draw.active&&!draw.paused){
+                            draw.mod=arm.mod;draw.mTouched=true;
+                            captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
+                            changed=true;
+                        }
+                    }
+                }
+                if(changed)showRollDraw(state);
+            }
+
             if (state.ui.page() == aiora::NativePage::Roll &&
                 state.rollGesture.pointerId >= 0) {
                 const size_t count = AMotionEvent_getPointerCount(event);
@@ -3040,37 +3082,17 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         break;
                     }
                 }
-                if(state.rollDraw.active&&!state.rollDraw.paused){
-                    auto& draw=state.rollDraw;
-                    bool changed=false;
-                    for(size_t i=0;i<count;++i){
-                        const int32_t id=AMotionEvent_getPointerId(event,i);
-                        if(id==draw.valuePointer){
-                            draw.velocity=state.ui.rollDrawControllerValue(
-                                1,AMotionEvent_getX(event,i),
-                                AMotionEvent_getY(event,i));
-                            captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
-                            changed=true;
-                        }else if(id==draw.modPointer){
-                            draw.mod=state.ui.rollDrawControllerValue(
-                                2,AMotionEvent_getX(event,i),
-                                AMotionEvent_getY(event,i));
-                            captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
-                            changed=true;
-                        }
-                    }
-                    if(changed)showRollDraw(state);
-                }
                 return 1;
             }
 
             const size_t count = AMotionEvent_getPointerCount(event);
             for (size_t i = 0; i < count; ++i) {
+                const int32_t id=AMotionEvent_getPointerId(event,i);
+                if(state.ui.page()==aiora::NativePage::Roll&&
+                   (id==state.armedExpression.vPointer||
+                    id==state.armedExpression.mPointer))continue;
                 handlePointerPosition(
-                    state,
-                    AMotionEvent_getPointerId(event, i),
-                    AMotionEvent_getX(event, i),
-                    AMotionEvent_getY(event, i));
+                    state,id,AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
             }
             return 1;
         }
@@ -3122,12 +3144,15 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
-            if(state.rollDraw.active&&
-               (pointerId==state.rollDraw.valuePointer||
-                pointerId==state.rollDraw.modPointer)){
-                if(pointerId==state.rollDraw.valuePointer)
-                    state.rollDraw.valuePointer=-1;
-                else state.rollDraw.modPointer=-1;
+            if(pointerId==state.armedExpression.vPointer||
+               pointerId==state.armedExpression.mPointer){
+                if(pointerId==state.armedExpression.vPointer){
+                    state.armedExpression.vPointer=-1;
+                    if(state.rollDraw.active)state.rollDraw.valuePointer=-1;
+                }else{
+                    state.armedExpression.mPointer=-1;
+                    if(state.rollDraw.active)state.rollDraw.modPointer=-1;
+                }
                 return 1;
             }
 
