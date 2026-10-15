@@ -645,7 +645,7 @@ bool deserializePatchJson(std::string_view json,Patch& patch,std::string* error)
 
 std::string serializeProjectJson(const Project& project){
     Writer w;
-    w.raw("{\"bpm\":");w.number(project.bpm);w.raw(",\"beats\":");w.number(project.beats);w.raw(",\"div\":");w.number(project.divisions);w.raw(",\"dz\":");w.boolean(project.dozenal);
+    w.raw("{\"name\":");w.string(project.name);w.raw(",\"bpm\":");w.number(project.bpm);w.raw(",\"beats\":");w.number(project.beats);w.raw(",\"div\":");w.number(project.divisions);w.raw(",\"dz\":");w.boolean(project.dozenal);
     w.raw(",\"mvol\":");w.number(project.masterVolume);
     w.raw(",\"mrev\":");w.number(project.masterReverb);
     w.raw(",\"mrevDecay\":");w.number(project.masterReverbDecay);
@@ -680,6 +680,9 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
         const Json* tracks=root.get("tracks");
         if(!tracks||tracks->type!=Json::Type::Array){setError(error,"Missing AIORA tracks array");return false;}
         Project out;
+        out.name=str(root.get("name"),"Untitled Song");
+        if(out.name.empty())out.name="Untitled Song";
+        if(out.name.size()>80)out.name.resize(80);
         out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);out.masterReverb=clampf(num(root.get("mrev"),0),0,1,0);
         out.masterReverbDecay=clampf(num(root.get("mrevDecay"),.8),.2f,12,.8f);
         out.masterReverbRoom=clampf(num(root.get("mrevRoom"),1),.5f,2.5f,1);

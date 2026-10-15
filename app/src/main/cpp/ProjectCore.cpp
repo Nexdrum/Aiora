@@ -207,6 +207,14 @@ const Patch* ProjectCore::selectedPatchUnsafe() const noexcept {
 
 void ProjectCore::reset() {std::scoped_lock lock(mutex_);project_ = {};selectedTrack_ = -1;}
 Project ProjectCore::projectCopy() const {std::scoped_lock lock(mutex_);return project_;}
+std::string ProjectCore::songName() const {std::scoped_lock lock(mutex_);return project_.name;}
+void ProjectCore::setSongName(const std::string& name){
+    std::scoped_lock lock(mutex_);
+    const auto start=name.find_first_not_of(" \t\r\n");
+    if(start==std::string::npos)return;
+    const auto end=name.find_last_not_of(" \t\r\n");
+    project_.name=name.substr(start,std::min<size_t>(end-start+1,80));
+}
 bool ProjectCore::replaceProject(Project project,int selectedTrack){
     std::scoped_lock lock(mutex_);
     

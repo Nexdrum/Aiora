@@ -267,6 +267,7 @@ struct Track {
     std::vector<DrumPad> pads; int32_t selectedPad{0},drumZoneLow{-1},drumZoneHigh{-1}; std::vector<Note> notes;
 };
 struct Project {
+    std::string name{"Untitled Song"};
     float bpm{112}; int32_t beats{4},divisions{4}; bool dozenal{false};
     float masterVolume{0.9f},masterReverb{0};
     float masterReverbDecay{0.8f},masterReverbRoom{1.0f};

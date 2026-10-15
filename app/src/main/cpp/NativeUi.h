@@ -302,6 +302,7 @@ public:
     [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrackName(float x,float y) const noexcept;
+    [[nodiscard]] bool hitSongName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<TrackUtilityAction> hitTrackUtility(float x,float y) const noexcept;
     [[nodiscard]] std::optional<ProjectTransferAction> hitProjectTransfer(float x, float y) const noexcept;
     [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
@@ -349,6 +350,7 @@ private:
     [[nodiscard]] Rect patchPresetRect() const noexcept;
     [[nodiscard]] Rect aiCardRect() const noexcept;
     [[nodiscard]] Rect songCardRect() const noexcept;
+    [[nodiscard]] Rect songNameRect() const noexcept;
     [[nodiscard]] Rect masterCardRect() const noexcept;
     [[nodiscard]] Rect masterFxStageRect(int index) const noexcept;
     [[nodiscard]] Rect masterFxParamRect(int index,int parameter) const noexcept;

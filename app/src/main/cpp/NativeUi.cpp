@@ -795,9 +795,14 @@ NativeUi::Rect NativeUi::aiCardRect() const noexcept {
 NativeUi::Rect NativeUi::songCardRect() const noexcept {
     const auto prev=aiCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
-    return {prev.x,prev.y+prev.h+gap,prev.w,486.0f};
+    return {prev.x,prev.y+prev.h+gap,prev.w,560.0f};
 }
 
+NativeUi::Rect NativeUi::songNameRect() const noexcept {
+    const auto card=songCardRect();
+    const float pad=std::clamp(card.w*.022f,14.0f,20.0f);
+    return {card.x+pad,card.y+64.0f,card.w-2.0f*pad,62.0f};
+}
 NativeUi::Rect NativeUi::masterCardRect() const noexcept {
     const auto prev=songCardRect();
     const float gap=std::clamp(prev.w*0.014f,9.0f,13.0f);
@@ -831,13 +836,13 @@ NativeUi::Rect NativeUi::trackSongSliderRect(int index) const noexcept {
     const auto card=songCardRect();
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     if(index==0){
-        return {card.x+pad,card.y+224.0f,card.w-pad*2.0f,58.0f};
+        return {card.x+pad,card.y+298.0f,card.w-pad*2.0f,58.0f};
     }
     const float gap=12.0f;
     const float w=(card.w-pad*2.0f-gap)*0.5f;
     return {
         card.x+pad+(index-1)*(w+gap),
-        card.y+296.0f,
+        card.y+370.0f,
         w,58.0f
     };
 }
@@ -846,7 +851,7 @@ NativeUi::Rect NativeUi::trackUtilityRect(int index) const noexcept {
     if(index==0){
         const auto card=songCardRect();
         const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
-        return {card.x+pad,card.y+404.0f,card.w-pad*2.0f,56.0f};
+        return {card.x+pad,card.y+478.0f,card.w-pad*2.0f,56.0f};
     }
     if(index==1){
         const auto card=aiCardRect();
@@ -863,8 +868,8 @@ NativeUi::Rect NativeUi::trackUtilityRect(int index) const noexcept {
     const float pad=std::clamp(card.w*0.022f,14.0f,20.0f);
     const float gap=10.0f;
     const float w=(card.w-pad*2.0f-gap*2.0f)/3.0f;
-    const float row1=card.y+64.0f;
-    const float row2=card.y+138.0f;
+    const float row1=card.y+138.0f;
+    const float row2=card.y+212.0f;
 
     switch(index){
         case 2: return {card.x+pad+(w+gap),row1,w,64.0f}; // Clear
@@ -2311,6 +2316,14 @@ void NativeUi::drawTracks() const noexcept {
     // SONG
     const auto song=songCardRect();
     drawCard(song,"SONG");
+    const auto songNameBox=songNameRect();
+    fillRect(songNameBox,kRollBg);
+    overlay.addText(
+        project.songName(),songNameBox.x+14.0f,songNameBox.y+20.0f,
+        1.00f,overlayColor(kWhite));
+    overlay.addText(
+        "EDIT",songNameBox.x+songNameBox.w-58.0f,songNameBox.y+20.0f,
+        0.72f,overlayColor(kCyan));
     const auto fresh=trackUtilityRect(3);
     const auto clear=trackUtilityRect(2);
     const auto save=trackUtilityRect(4);
@@ -2349,7 +2362,7 @@ void NativeUi::drawTracks() const noexcept {
 
     overlay.addText(
         "Beats per measure / notes per beat",
-        song.x+20.0f,song.y+372.0f,
+        song.x+20.0f,song.y+446.0f,
         0.80f,overlayColor(kMuted));
 
     const auto dz=trackUtilityRect(0);
@@ -4482,6 +4495,10 @@ std::optional<int> NativeUi::hitTrackName(float x,float y) const noexcept {
         if(nameRect.contains(x,y))return i;
     }
     return std::nullopt;
+}
+
+bool NativeUi::hitSongName(float x,float y) const noexcept {
+    return page_==NativePage::Tracks&&songNameRect().contains(x,y);
 }
 
 std::optional<TrackUtilityAction> NativeUi::hitTrackUtility(float x,float y) const noexcept {

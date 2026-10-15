@@ -41,6 +41,7 @@ constexpr int kRequestExportPatch = 4105;
 constexpr int kRequestImportPatch = 4106;
 constexpr int kRequestRenameTrack = 4201;
 constexpr int kRequestRenamePad = 4202;
+constexpr int kRequestRenameSong = 4206;
 constexpr int kRequestOperatorRatio = 4203;
 constexpr int kRequestNewProject = 4204;
 constexpr int kRequestOperatorSemitone = 4205;
@@ -136,6 +137,13 @@ struct RollDrawSession {
     void clear() noexcept { *this={}; }
 };
 
+// V and M fingers can be held before a note begins. Their latest positions
+// belong to the input surface, not the lifetime of a RollDrawSession.
+struct ArmedExpression {
+    int32_t vPointer{-1},mPointer{-1};
+    float velocity{1.0f},mod{0.0f};
+};
+
 struct NativeState {
     android_app* app{};
     EGLDisplay display{EGL_NO_DISPLAY};
@@ -148,6 +156,7 @@ struct NativeState {
     std::array<PointerVoice, kMaxPointers> touches{};
     RollGesture rollGesture{};
     RollDrawSession rollDraw{};
+    ArmedExpression armedExpression{};
     std::vector<RollClipboardTrack> rollClipboard{};
     bool rollClipboardAllTracks{false};
     std::array<GroupAutomationCurve,2> rollGroupAutomation{};
@@ -368,6 +377,33 @@ bool launchCreateDocument(
     return ok;
 }
 
+bool launchCreateNamedDocument(
+    ANativeActivity* activity,int requestCode,
+    const std::string& baseName,const char* mimeType,
+    const std::string& sourcePath){
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+    bool ok=false;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls?env->GetMethodID(cls,"createNamedDocument",
+        "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"):nullptr;
+    jstring name=env->NewStringUTF(baseName.c_str());
+    jstring mime=env->NewStringUTF(mimeType?mimeType:"application/json");
+    jstring path=env->NewStringUTF(sourcePath.c_str());
+    if(method&&name&&mime&&path){
+        env->CallVoidMethod(activity->clazz,method,requestCode,name,mime,path);
+        ok=!env->ExceptionCheck();
+    }
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(path)env->DeleteLocalRef(path);
+    if(mime)env->DeleteLocalRef(mime);
+    if(name)env->DeleteLocalRef(name);
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
 bool launchOpenDocument(
     ANativeActivity* activity,int requestCode,const char* mimeType){
 
@@ -536,6 +572,14 @@ void serviceDocumentResult(NativeState& state){
         __android_log_print(
             ANDROID_LOG_INFO,kTag,
             "created blank AIORA song");
+        return;
+    }
+
+    if(requestCode==kRequestRenameSong){
+        if(success){
+            aiora::ProjectCore::instance().setSongName(fourthLine);
+            scheduleAutosave(state,0);
+        }
         return;
     }
 
@@ -927,6 +971,7 @@ void previewEditorPatch(NativeState& state) {
 
 void releaseAllTouches(NativeState& state) {
     auto& audio = aiora::AudioEngine::instance();
+    state.armedExpression={};
     for (auto& touch : state.touches) {
         if (touch.voiceId >= 0) audio.noteOff(touch.voiceId);
         if (touch.midi >= 0) state.ui.setPitchActive(touch.midi, false);
@@ -1216,9 +1261,20 @@ void beginRollDraw(NativeState& state){
     d.length=1.0f;
     d.cursor=-0.5f;
     d.bend=0.0f;
+    const auto& armed=state.armedExpression;
+    if(state.ui.rollDrawMode(1)&&armed.vPointer>=0){
+        d.valuePointer=armed.vPointer;
+        d.velocity=armed.velocity;
+        d.vTouched=true;
+    }
+    if(state.ui.rollDrawMode(2)&&armed.mPointer>=0){
+        d.modPointer=armed.mPointer;
+        d.mod=armed.mod;
+        d.mTouched=true;
+    }
     captureRollDraw(d.raw[0],-0.5f,0.0f);
-    captureRollDraw(d.raw[1],-0.5f,1.0f);
-    captureRollDraw(d.raw[2],-0.5f,0.0f);
+    captureRollDraw(d.raw[1],-0.5f,d.velocity);
+    captureRollDraw(d.raw[2],-0.5f,d.mod);
     showRollDraw(state);
 }
 
@@ -1847,6 +1903,11 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (state.ui.page() == aiora::NativePage::Tracks) {
+        if(state.ui.hitSongName(x,y)){
+            launchNameEditor(state.app?state.app->activity:nullptr,
+                kRequestRenameSong,0,"Song name",project.songName());
+            return true;
+        }
         if(const auto renameTrack=state.ui.hitTrackName(x,y)){
             project.selectTrack(*renameTrack);
             if(!launchNameEditor(
@@ -1894,10 +1955,10 @@ bool handleUiTap(NativeState& state, float x, float y) {
                     const bool prepared=!state.jsonExportPath.empty()&&
                         aiora::saveProjectFile(
                             state.jsonExportPath,project.projectCopy(),&error);
-                    const bool launched=prepared&&launchCreateDocument(
+                    const bool launched=prepared&&launchCreateNamedDocument(
                         state.app?state.app->activity:nullptr,
                         kRequestSaveJson,
-                        "Aiora Song.json","application/json",
+                        project.songName(),"application/json",
                         state.jsonExportPath);
                     if(!launched){
                         __android_log_print(
@@ -2044,10 +2105,19 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 const bool prepared=!state.patchExportPath.empty()&&
                     aiora::savePatchFile(
                         state.patchExportPath,project.selectedPatch(),&error);
-                const bool launched=prepared&&launchCreateDocument(
+                const int currentTrack=project.selectedTrack();
+                std::string exportName;
+                if(currentTrack>=0){
+                    if(project.trackIsDrums(currentTrack)){
+                        const int pad=project.selectedPad(currentTrack);
+                        if(pad>=0)exportName=project.padName(currentTrack,pad);
+                    }else exportName=project.trackName(currentTrack);
+                }
+                if(exportName.empty())exportName=project.selectedPatch().name;
+                const bool launched=prepared&&launchCreateNamedDocument(
                     state.app?state.app->activity:nullptr,
                     kRequestExportPatch,
-                    "Aiora Patch.patch.json","application/json",
+                    exportName,"application/json",
                     state.patchExportPath);
                 if(!launched){
                     __android_log_print(

@@ -3,6 +3,7 @@ package com.nexdrum.aiora;
 import android.app.NativeActivity;
 import android.content.Intent;
 import android.net.Uri;
+import android.provider.DocumentsContract;
 import android.os.Bundle;
 import android.app.AlertDialog;
 import android.text.InputFilter;
@@ -29,10 +30,12 @@ public class AioraActivity extends NativeActivity {
     public static final int REQUEST_IMPORT_PATCH = 4106;
     public static final int REQUEST_RENAME_TRACK = 4201;
     public static final int REQUEST_RENAME_PAD = 4202;
+    public static final int REQUEST_RENAME_SONG = 4206;
     public static final int REQUEST_OPERATOR_RATIO = 4203;
     public static final int REQUEST_NEW_PROJECT = 4204;
 
     private final Map<Integer, String> pendingSources = new HashMap<>();
+    private final Map<Integer, String> pendingNames = new HashMap<>();
 
     // Called on a successful V/M point snap/free long-press transition.
     // View haptics respect the user's Android feedback settings.
@@ -78,6 +81,39 @@ public class AioraActivity extends NativeActivity {
         });
     }
 
+    // Folder picker prevents editing the required extension in Save As.
+    public void createNamedDocument(
+            int requestCode, String baseName, String mimeType, String sourcePath) {
+        runOnUiThread(() -> {
+            try {
+                pendingSources.put(requestCode,sourcePath==null?"":sourcePath);
+                pendingNames.put(requestCode,baseName==null?"":baseName);
+                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                startActivityForResult(intent,requestCode);
+            } catch(Exception e){
+                pendingSources.remove(requestCode);
+                pendingNames.remove(requestCode);
+                writeResult(requestCode,false,"Could not open save folder");
+            }
+        });
+    }
+
+    private static String namedExportFile(String name,int requestCode) {
+        final String suffix=requestCode==REQUEST_EXPORT_PATCH?".patch.json":".json";
+        String base=name==null?"":name.trim();
+        if(base.toLowerCase(java.util.Locale.ROOT).endsWith(suffix))
+            base=base.substring(0,base.length()-suffix.length()).trim();
+        base=base.replace('/','_').replace(':','_').replace('*','_')
+                 .replace('?','_').replace('|','_').replace('<','_')
+                 .replace('>','_').replace('"','_');
+        while(base.endsWith("."))base=base.substring(0,base.length()-1).trim();
+        if(base.isEmpty())base=requestCode==REQUEST_EXPORT_PATCH?"Instrument":"Untitled Song";
+        if(base.length()>80)base=base.substring(0,80);
+        return base+suffix;
+    }
+
     public void openDocument(int requestCode, String mimeType) {
         runOnUiThread(() -> {
             try {
@@ -112,7 +148,7 @@ public class AioraActivity extends NativeActivity {
                 input.setInputType(
                         InputType.TYPE_CLASS_TEXT |
                         InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-                input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(24)});
+                input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(requestCode==REQUEST_RENAME_SONG?80:24)});
                 input.setText(currentName == null ? "" : currentName);
                 input.setSelectAllOnFocus(true);
                 input.setPadding(36, 18, 36, 18);
@@ -238,6 +274,7 @@ public class AioraActivity extends NativeActivity {
 
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
             pendingSources.remove(requestCode);
+            pendingNames.remove(requestCode);
             writeResult(requestCode, false, "Cancelled");
             return;
         }
@@ -259,14 +296,25 @@ public class AioraActivity extends NativeActivity {
 
             String source = pendingSources.remove(requestCode);
             if (source == null || source.isEmpty()) {
+                pendingNames.remove(requestCode);
                 writeResult(requestCode, false, "Export source file is missing");
                 return;
             }
-
-            copyFileToUri(new File(source), uri);
+            if(requestCode==REQUEST_SAVE_JSON||requestCode==REQUEST_EXPORT_PATCH){
+                String filename=namedExportFile(pendingNames.remove(requestCode),requestCode);
+                Uri parent=DocumentsContract.buildDocumentUriUsingTree(
+                        uri,DocumentsContract.getTreeDocumentId(uri));
+                Uri target=DocumentsContract.createDocument(
+                        getContentResolver(),parent,"application/json",filename);
+                if(target==null)throw new Exception("Could not create file in folder");
+                copyFileToUri(new File(source),target);
+            }else{
+                copyFileToUri(new File(source),uri);
+            }
             writeResult(requestCode, true, "");
         } catch (Exception e) {
             pendingSources.remove(requestCode);
+            pendingNames.remove(requestCode);
             writeResult(
                     requestCode, false,
                     e.getMessage() == null ? "Document operation failed" : e.getMessage());

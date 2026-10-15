@@ -30,6 +30,8 @@ public:
 
     void reset();
     Project projectCopy() const;
+    std::string songName() const;
+    void setSongName(const std::string& name);
     bool replaceProject(Project project, int selectedTrack = 0);
     bool replaceSelectedPatch(Patch patch);
     int addTrack(bool drums = false);
