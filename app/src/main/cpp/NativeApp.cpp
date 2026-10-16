@@ -22,6 +22,7 @@
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
 #include "NativeUi.h"
+#include "RollTouchRouting.h"
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
 #include "ProjectStorage.h"
@@ -1909,6 +1910,8 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 state.ui.setPerformanceFollow(true);
                 break;
             case aiora::HeaderAction::PerformanceView:
+                // A paused drawing belongs to Roll, never the destination page.
+                if(state.rollDraw.active)finishRollDraw(state);
                 releaseAllTouches(state);
                 state.ui.togglePerformancePage();
                 return true;
@@ -1922,6 +1925,9 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (const auto nav = state.ui.hitNav(x, y)) {
+        // Finalize before switching pages so paused V/M input cannot leak
+        // into the scroll/tap gestures of Tracks, Drums, Synth or FX.
+        if(state.rollDraw.active)finishRollDraw(state);
         releaseAllTouches(state);
         if(*nav!=aiora::NativePage::Roll){
             state.ui.setRollSelection(false,0,0);
@@ -2885,30 +2891,35 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             if(state.ui.page()==aiora::NativePage::Roll&&
                state.rollDraw.active&&!state.rollDraw.paused&&
                action==AMOTION_EVENT_ACTION_POINTER_DOWN)return 1;
-            if(state.rollDraw.active&&state.rollDraw.paused&&
-               action==AMOTION_EVENT_ACTION_DOWN){
-                const auto resume=state.ui.rollDrawResumeRect();
-                if(resume.contains(x,y)){
-                    auto& draw=state.rollDraw;
-                    draw.paused=false;
-                    beginRollGesture(state,pointerId,x,y,nowMs(),
-                        RollGestureKind::NoteEdit);
-                    auto& g=state.rollGesture;
-                    g.noteEdit=RollNoteEdit::Create;
-                    g.track=draw.track;g.noteIndex=draw.note;
-                    g.noteMidi=draw.midi;g.noteStart=draw.start;
-                    g.noteLength=draw.length;
-                    draw.timeOffset=draw.cursor-
-                        state.ui.rollDrawRelativeStep(y,draw.start);
-                    draw.pitchOffset=draw.bend-
-                        state.ui.rollDrawBendAtX(x,draw.midi);
-                    draw.edgeSince=0;
-                    showRollDraw(state);
-                }else{
-                    finishRollDraw(state);
-                }
+            // Only a deliberate touch inside the Roll resume rectangle
+            // consumes input. Outside touches finalize the paused draw and
+            // continue through normal scrolling/navigation/note routing.
+            // Paused sessions must never swallow touches on other pages.
+            const bool onRoll=state.ui.page()==aiora::NativePage::Roll;
+            const auto pausedTouch=aiora::routePausedRollTouch(
+                onRoll,state.rollDraw.active,state.rollDraw.paused,
+                action==AMOTION_EVENT_ACTION_DOWN,
+                onRoll&&state.ui.rollDrawResumeRect().contains(x,y));
+            if(pausedTouch==aiora::PausedRollTouch::Resume){
+                auto& draw=state.rollDraw;
+                draw.paused=false;
+                beginRollGesture(state,pointerId,x,y,nowMs(),
+                    RollGestureKind::NoteEdit);
+                auto& g=state.rollGesture;
+                g.noteEdit=RollNoteEdit::Create;
+                g.track=draw.track;g.noteIndex=draw.note;
+                g.noteMidi=draw.midi;g.noteStart=draw.start;
+                g.noteLength=draw.length;
+                draw.timeOffset=draw.cursor-
+                    state.ui.rollDrawRelativeStep(y,draw.start);
+                draw.pitchOffset=draw.bend-
+                    state.ui.rollDrawBendAtX(x,draw.midi);
+                draw.edgeSince=0;
+                showRollDraw(state);
                 return 1;
             }
+            if(pausedTouch==aiora::PausedRollTouch::CompleteAndRoute)
+                finishRollDraw(state);
 
             // The empty C/P square is now the stack-mode switch.
             // All corner actions execute on release so holding P can cancel.

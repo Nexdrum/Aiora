@@ -7,6 +7,7 @@
 #include "SongExport.h"
 #include "FxProcessor.h"
 #include "RollDrawControllers.h"
+#include "RollTouchRouting.h"
 #include <cassert>
 #include <cmath>
 #include <fstream>
@@ -17,6 +18,24 @@
 using namespace aiora;
 
 int main(){
+    // Paused Roll recordings must not steal the first scroll/tap contact.
+    using aiora::PausedRollTouch;
+    using aiora::routePausedRollTouch;
+    assert(routePausedRollTouch(true,true,true,true,true)
+        ==PausedRollTouch::Resume);
+    assert(routePausedRollTouch(true,true,true,true,false)
+        ==PausedRollTouch::CompleteAndRoute);
+    assert(routePausedRollTouch(false,true,true,true,true)
+        ==PausedRollTouch::CompleteAndRoute);
+    assert(routePausedRollTouch(false,true,true,true,false)
+        ==PausedRollTouch::CompleteAndRoute);
+    assert(routePausedRollTouch(true,true,false,true,true)
+        ==PausedRollTouch::Ignore);
+    assert(routePausedRollTouch(true,false,true,true,true)
+        ==PausedRollTouch::Ignore);
+    assert(routePausedRollTouch(true,true,true,false,true)
+        ==PausedRollTouch::Ignore);
+
     // V and M are equal-travel controllers anchored at an equal radius from
     // the piano-roll corner. Zoom changes only the transverse dimensions.
     for(const auto& viewport:std::array<std::array<float,2>,3>{{
