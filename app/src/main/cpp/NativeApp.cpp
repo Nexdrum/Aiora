@@ -1021,6 +1021,8 @@ void releaseAllTouches(NativeState& state) {
     state.editorPointerId=-1;
     state.trackControlPointerId=-1;
     state.drumControlPointerId=-1;
+    state.pageScrollPointerId=-1;
+    state.pageScrollMoved=false;
     state.ui.trackPointerUp();
     state.ui.drumPointerUp();
     if(state.editorPreviewVoice>=0){
@@ -2829,6 +2831,14 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const float x = AMotionEvent_getX(event, index);
             const float y = AMotionEvent_getY(event, index);
 
+            // A new primary DOWN starts a fresh Android pointer stream.
+            // Do not let a scroll ID from an earlier page or canceled
+            // gesture claim the first MOVE of this new gesture.
+            if(action==AMOTION_EVENT_ACTION_DOWN){
+                state.pageScrollPointerId=-1;
+                state.pageScrollMoved=false;
+            }
+
             // Dropdowns are modal: never let a menu tap leak through to
             // sliders, scrolling, notes, or other controls beneath it.
             if(state.ui.dropdownOpen()){
@@ -3065,10 +3075,11 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 for(size_t i=0;i<count;++i){
                     if(AMotionEvent_getPointerId(event,i)==state.trackControlPointerId){
                         state.ui.trackPointerMove(AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
-                        break;
+                        return 1;
                     }
                 }
-                return 1;
+                // The captured ID is not in this motion event. Never
+                // swallow a different finger's move.
             }
 
             if(state.drumControlPointerId>=0){
@@ -3076,10 +3087,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 for(size_t i=0;i<count;++i){
                     if(AMotionEvent_getPointerId(event,i)==state.drumControlPointerId){
                         state.ui.drumPointerMove(AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
-                        break;
+                        return 1;
                     }
                 }
-                return 1;
             }
 
             if(state.pageScrollPointerId>=0){
@@ -3095,10 +3105,13 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                             state.ui.scrollPage(state.pageScrollLastY-y);
                         }
                         state.pageScrollLastY=y;
-                        break;
+                        return 1;
                     }
                 }
-                return 1;
+                // A stale scroll pointer must not block Roll input or
+                // gestures on any other page.
+                state.pageScrollPointerId=-1;
+                state.pageScrollMoved=false;
             }
 
             if(state.editorPointerId>=0){
@@ -3107,10 +3120,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     if(AMotionEvent_getPointerId(event,i)==state.editorPointerId){
                         aiora::NativeEditor::instance().pointerMove(
                             AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
-                        break;
+                        return 1;
                     }
                 }
-                return 1;
             }
 
             // Always sample held controller fingers, regardless of whether
