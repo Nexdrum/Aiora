@@ -2273,6 +2273,7 @@ std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
 
 bool NativeEditor::openDropdownAt(
     EditorPage page,float x,float y,NativeUi& ui) const {
+    if(page==EditorPage::Fx&&filterSurface.open)return false;
     const Patch p=ProjectCore::instance().selectedPatch();
     const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
 
@@ -2817,6 +2818,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 
 std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
     EditorPage page,float x,float y) const noexcept {
+    if(page==EditorPage::Fx&&filterSurface.open)return std::nullopt;
 
     const auto copy=patchTransferRect(page,1);
     if(copy.contains(x,y))return PatchTransferAction::CopyPatch;
