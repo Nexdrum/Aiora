@@ -1730,9 +1730,10 @@ struct FilterSurface {
                 break;
             }
         }
+        c=getCurve(m);
         const Rect r=page==2?graph():pane(lane);
         if(!r.contains(x,y))return true;
-        if(page<2&&staticLine(c=getCurve(m))){
+        if(page<2&&staticLine(c)){
             const float line=outputX(lane,c.points[0].value);
             if(std::fabs(x-line)<22.0f){
                 selected=0;drag=-3;return true;
@@ -1810,6 +1811,266 @@ struct FilterSurface {
     }
 };
 FilterSurface filterSurface;
+
+struct UnisonSurface {
+    using Rect=NativeEditor::Rect;
+    Rect view{};
+    int selected{-1},drag{-1},bend{-1},zoom{2};
+    float scroll{0},downX{0},downY{0};
+    bool moved{false},changed{false};
+    std::chrono::steady_clock::time_point started{};
+    static constexpr std::array<float,6> zooms{{.5f,1,2,4,8,16}};
+    float rate()const{return 320.0f*zooms[zoom];}
+    OperatorCurve curve()const{
+        const auto& p=ProjectCore::instance().selectedPatch();
+        return p.unisonCurve.enabled&&p.unisonCurve.count>=2?
+            p.unisonCurve:initialUnisonCurve(p.unison);
+    }
+    static bool flat(const OperatorCurve& c){
+        return c.count==2&&c.releaseIndex==0&&c.points[1].time>=119.0f&&
+            std::fabs(c.points[0].value-c.points[1].value)<.00001f;
+    }
+    bool save(const OperatorCurve& c){
+        return ProjectCore::instance().setSelectedUnisonCurve(c);
+    }
+    Rect control(int i)const{
+        const float w=view.w-32,gap=6,cw=(w-5*gap)/6;
+        return {view.x+16+i*(cw+gap),view.y+174,cw,54};
+    }
+    Rect graph()const{
+        const float y=view.y+280.0f;
+        return {view.x+75,y,view.w-98,
+            std::max(75.0f,view.y+view.h-83-y)};
+    }
+    std::pair<float,float> at(const OperatorPoint& p)const{
+        const auto r=graph();
+        return {r.x+std::clamp(p.value,0.0f,1.0f)*r.w,
+                r.y+p.time*rate()-scroll};
+    }
+    void scrollBy(float dy){
+        scroll=std::clamp(scroll+dy,0.0f,
+            std::max(0.0f,120.0f*rate()-graph().h));
+    }
+    void draw()const{
+        auto& o=NativeOverlay::instance();
+        const auto c=curve();
+        o.addRect({view.x,view.y,view.w,view.h},overlayColor(kBg));
+        o.addText("Unison - per-note detune strength (0 to 100)",
+            view.x+24,view.y+105,.92f,overlayColor(kCyan));
+        o.addText(flat(c)?
+            "Flat line = constant detune. Drag the line; tap away to add envelope points.":
+            "Envelope follows time and releases on note-off.",
+            view.x+24,view.y+140,.82f,overlayColor(kMuted));
+        const char* label[6]={"D","R",c.sustain?"S Hold":"Dynamic","-",
+                             "Zoom","+"};
+        for(int i=0;i<6;++i){
+            const auto r=control(i);
+            const bool on=i==2&&c.sustain;
+            o.addRect({r.x,r.y,r.w,r.h},overlayColor(on?kCyan:kButton));
+            const std::string v=i==4?(zooms[zoom]<1.0f?"0.5x":
+                std::to_string(static_cast<int>(zooms[zoom]))+"x"):label[i];
+            o.addTextCentered(v,{r.x,r.y,r.w,r.h},.84f,
+                overlayColor(on?kBg:kWhite));
+        }
+        const auto r=graph();
+        o.addRect({r.x-6,r.y-6,r.w+12,r.h+12},overlayColor(kRollBg));
+        for(int i=0;i<=4;++i){
+            const float x=r.x+i*r.w*.25f;
+            o.addLine(x,r.y,x,r.y+r.h,1,overlayColor(kMuted,.45f));
+            o.addText(std::to_string(i*25),
+                x-9,r.y-23,.76f,overlayColor(kCyan));
+        }
+        o.setClip({r.x,r.y,r.w,r.h});
+        for(int i=1;i<c.count;++i){
+            for(int k=1;k<=28;++k){
+                const float a=c.points[i-1].time+
+                    (c.points[i].time-c.points[i-1].time)*(k-1)/28.0f;
+                const float b=c.points[i-1].time+
+                    (c.points[i].time-c.points[i-1].time)*k/28.0f;
+                const auto va=at({a,operatorCurveValue(c.points.data()+i-1,2,a)});
+                const auto vb=at({b,operatorCurveValue(c.points.data()+i-1,2,b)});
+                o.addLine(va.first,va.second,vb.first,vb.second,3,
+                    overlayColor(kCyan));
+            }
+        }
+        o.clearClip();
+        if(!flat(c)){
+            for(int i=1;i<c.count;++i){
+                const float t=c.points[i-1].time+
+                    (c.points[i].time-c.points[i-1].time)*
+                    std::clamp(c.points[i].midpoint,.05f,.95f);
+                const auto xy=at({t,operatorCurveValue(c.points.data()+i-1,2,t)});
+                if(xy.second<r.y||xy.second>r.y+r.h)continue;
+                o.addLine(xy.first-6,xy.second-6,xy.first+6,xy.second+6,2,
+                    overlayColor(kOrange));
+                o.addLine(xy.first-6,xy.second+6,xy.first+6,xy.second-6,2,
+                    overlayColor(kOrange));
+            }
+            for(int i=0;i<c.count;++i){
+                const auto xy=at(c.points[i]);
+                if(xy.second<r.y||xy.second>r.y+r.h)continue;
+                o.addFilledCircle(xy.first,xy.second,selected==i?9:6,
+                    overlayColor(selected==i?kWhite:kCyan));
+                if(i==c.decayIndex)o.addText("D",xy.first+8,xy.second+10,
+                    .78f,overlayColor(kCyan));
+                if(i==c.releaseIndex)o.addText(c.sustain?"S":"R",
+                    xy.first+8,xy.second-19,.82f,overlayColor(kOrange));
+            }
+        }
+        static constexpr std::array<float,14> ticks{{
+            .001f,.002f,.005f,.01f,.02f,.05f,.1f,.2f,
+            .5f,1,2,5,10,20}};
+        float interval=ticks.back();
+        for(float t:ticks)if(t*rate()>=65){interval=t;break;}
+        const int first=std::max(0,static_cast<int>(std::floor(
+            scroll/(rate()*interval))));
+        const int last=std::min(static_cast<int>(120.0f/interval),
+            static_cast<int>(std::ceil((scroll+r.h)/(rate()*interval))));
+        for(int i=first;i<=last;++i){
+            const float t=i*interval,y=r.y+t*rate()-scroll;
+            if(y<r.y||y>r.y+r.h)continue;
+            o.addLine(r.x,y,r.x+r.w,y,1,overlayColor(kMuted,.25f));
+            char label[24];std::snprintf(label,sizeof(label),
+                t<1?"%.3fs":t<10?"%.2fs":"%.1fs",static_cast<double>(t));
+            o.addText(label,r.x-62,y-8,.75f,overlayColor(kWhite));
+        }
+    }
+    bool setControl(int i){
+        auto c=curve();
+        if(i==0&&selected>=0&&selected<c.count-1)c.decayIndex=selected;
+        else if(i==1&&selected>=0&&selected<c.count-1)c.releaseIndex=selected;
+        else if(i==2)c.sustain=!c.sustain;
+        else if(i==3||i==5){
+            const float top=scroll/rate();
+            zoom=std::clamp(zoom+(i==3?-1:1),0,5);
+            scroll=std::clamp(top*rate(),0.0f,
+                std::max(0.0f,120.0f*rate()-graph().h));
+            return false;
+        }else return false;
+        return save(c);
+    }
+    bool update(float x,float y){
+        auto c=curve();const auto r=graph();
+        if(drag==-3&&flat(c)){
+            const float value=std::clamp((x-r.x)/r.w,0.0f,1.0f);
+            c.points[0].value=c.points[1].value=value;
+            return save(c);
+        }
+        const int index=bend>=0?bend:drag;
+        if(index<0||index>=c.count)return false;
+        const float time=std::clamp((y-r.y+scroll)/rate(),0.0f,120.0f);
+        const float value=std::clamp((x-r.x)/r.w,0.0f,1.0f);
+        auto& p=c.points[index];
+        if(bend>=1){
+            const auto& a=c.points[index-1];
+            p.midpoint=std::clamp((time-a.time)/
+                std::max(.000001f,p.time-a.time),.05f,.95f);
+            p.handleValue=std::clamp(value,std::min(a.value,p.value),
+                std::max(a.value,p.value));
+            p.handleActive=true;
+        }else{
+            const float min=index?c.points[index-1].time+.0001f:0;
+            const float max=index+1<c.count?
+                c.points[index+1].time-.0001f:120;
+            p.time=std::clamp(time,min,std::max(min,max));
+            p.value=value;
+        }
+        return save(c);
+    }
+    bool addPoint(float x,float y){
+        auto c=curve();if(c.count>=kMaxOperatorPoints)return false;
+        const auto r=graph();
+        const float t=std::clamp((y-r.y+scroll)/rate(),.005f,119.65f);
+        const float v=std::clamp((x-r.x)/r.w,0.0f,1.0f);
+        if(flat(c)){
+            const float previous=c.points[0].value;
+            c.count=3;c.sustain=false;c.decayIndex=1;c.releaseIndex=1;
+            c.points[0]={0,previous};
+            c.points[1]={t,v};
+            c.points[2]={t+.35f,previous};
+            selected=1;return save(c);
+        }
+        int pos=0;while(pos<c.count&&c.points[pos].time<t)++pos;
+        if(pos==0||pos==c.count||t-c.points[pos-1].time<.0002f||
+           c.points[pos].time-t<.0002f)return false;
+        for(int i=c.count;i>pos;--i)c.points[i]=c.points[i-1];
+        c.points[pos]={t,v};++c.count;
+        if(c.decayIndex>=pos)++c.decayIndex;
+        if(c.releaseIndex>=pos)++c.releaseIndex;
+        selected=pos;return save(c);
+    }
+    bool down(float x,float y){
+        moved=changed=false;drag=bend=-1;downX=x;downY=y;
+        started=std::chrono::steady_clock::now();
+        for(int i=0;i<6;++i)if(control(i).contains(x,y)){
+            changed=setControl(i);return true;
+        }
+        const auto r=graph();
+        if(!r.contains(x,y))return true;
+        const auto c=curve();
+        if(flat(c)){
+            const float px=at(c.points[0]).first;
+            drag=std::fabs(x-px)<23.0f?-3:-2;
+            if(drag==-3)selected=0;
+            return true;
+        }
+        float nearestDistance=24*24;int nearest=-1;
+        for(int i=0;i<c.count;++i){
+            const auto atPoint=at(c.points[i]);
+            const float distance=(x-atPoint.first)*(x-atPoint.first)+
+                (y-atPoint.second)*(y-atPoint.second);
+            if(distance<nearestDistance){nearestDistance=distance;nearest=i;}
+        }
+        float nearestBend=20*20;int bendIndex=-1;
+        for(int i=1;i<c.count;++i){
+            const float t=c.points[i-1].time+
+                (c.points[i].time-c.points[i-1].time)*
+                c.points[i].midpoint;
+            const auto xy=at({t,operatorCurveValue(c.points.data()+i-1,2,t)});
+            const float distance=(x-xy.first)*(x-xy.first)+
+                (y-xy.second)*(y-xy.second);
+            if(distance<nearestBend){nearestBend=distance;bendIndex=i;}
+        }
+        if(bendIndex>=0&&(nearest<0||nearestBend<=nearestDistance)){
+            bend=bendIndex;return true;
+        }
+        if(nearest>=0){selected=drag=nearest;return true;}
+        drag=-2;return true;
+    }
+    void move(float x,float y){
+        if(drag>=0||drag==-3||bend>=0){
+            if(std::fabs(x-downX)+std::fabs(y-downY)>6){
+                changed=update(x,y)||changed;moved=true;
+            }
+        }else if(drag==-2&&
+                 std::fabs(x-downX)+std::fabs(y-downY)>12)moved=true;
+    }
+    bool up(){
+        if(drag==-2&&!moved)changed=addPoint(downX,downY)||changed;
+        if(drag>0&&!moved){
+            const auto millis=std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now()-started).count();
+            if(millis>=500){
+                auto c=curve();
+                if(c.count==3&&drag==1){
+                    c=initialUnisonCurve(c.points[0].value);
+                    selected=-1;changed=save(c)||changed;
+                }else if(c.count>3&&drag<c.count-1){
+                    for(int i=drag;i<c.count-1;++i)c.points[i]=c.points[i+1];
+                    --c.count;
+                    if(c.decayIndex>=drag&&c.decayIndex>0)--c.decayIndex;
+                    if(c.releaseIndex>=drag&&c.releaseIndex>0)--c.releaseIndex;
+                    c.decayIndex=std::min<int>(c.decayIndex,c.count-2);
+                    c.releaseIndex=std::min<int>(c.releaseIndex,c.count-2);
+                    selected=-1;changed=save(c)||changed;
+                }
+            }
+        }
+        drag=bend=-1;
+        const bool result=changed;changed=false;return result;
+    }
+};
+UnisonSurface unisonSurface;
 } // namespace
 
 void NativeEditor::renderSynth() const noexcept {
