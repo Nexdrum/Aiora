@@ -1049,6 +1049,75 @@ int main(){
         if(sample>1000)unisonDifference+=std::fabs(a-b);
     }
     assert(unisonDifference>0.001f);
+    // Frequency Key Track, three distinct editable response curves, and
+    // the independent master amplitude envelope must round-trip.
+    Patch customResponse=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    for(auto& op:customResponse.ops){op.enabled=false;op.level=0;}
+    customResponse.ops[0].enabled=true;
+    customResponse.ops[0].level=.8f;
+    customResponse.ops[0].wave=Wave::Saw;
+    customResponse.filter.evolving=initialEvolvingFilter();
+    auto& evolving=customResponse.filter.evolving;
+    evolving.keyTrack=true;
+    evolving.slopes[2]=initialFilterSlope(2);
+    evolving.slopes[2].enabled=true;
+    evolving.lanes[2].shape[0]=FilterShape::HighShelf;
+    evolving.lanes[2].shape[1]=FilterShape::HighShelf;
+    evolving.lanes[1].curve.points[0].value=0;
+    evolving.lanes[1].curve.points[1].value=0;
+    // Custom lowpass-like profile has zero gain past the cutoff, instead
+    // of retaining a finite -24 dB high-shelf plateau.
+    assert(evolving.slopes[2].profile.points[4].value==0);
+    customResponse.masterAmpCurve=legacyOperatorVolume(
+        Envelope{.001f,.04f,.5f,.07f});
+    const auto responseJson=serializePatchJson(customResponse);
+    Patch responseDecoded;
+    assert(deserializePatchJson(responseJson,responseDecoded));
+    assert(responseDecoded.filter.evolving.keyTrack);
+    assert(responseDecoded.filter.evolving.slopes[2].enabled);
+    assert(responseDecoded.filter.evolving.slopes[2].profile.count==5);
+    assert(responseDecoded.masterAmpCurve.enabled);
+    assert(responseDecoded.masterAmpCurve.releaseIndex==2);
+    // Type and response are restored without changing the saved legacy EQ.
+    assert(responseDecoded.peak.enabled==customResponse.peak.enabled);
+    assert(responseDecoded.filter.type==customResponse.filter.type);
+    SpectrachordVoice followedC,followedA,flatC;
+    followedC.prepare(48000);followedA.prepare(48000);flatC.prepare(48000);
+    followedC.start(1730,toDspPatch(responseDecoded),48,.8f,0,4800);
+    followedA.start(1730,toDspPatch(responseDecoded),69,.8f,0,4800);
+    Patch fixedCutoff=responseDecoded;fixedCutoff.filter.evolving.keyTrack=false;
+    flatC.start(1730,toDspPatch(fixedCutoff),48,.8f,0,4800);
+    float frequencyDifference=0;
+    float trackedNoteDifference=0;
+    for(int i=0;i<6000;++i){
+        const float a=followedC.render(),b=followedA.render(),c=flatC.render();
+        assert(std::isfinite(a)&&std::isfinite(b)&&std::isfinite(c));
+        assert(std::fabs(a)<50&&std::fabs(b)<50&&std::fabs(c)<50);
+        frequencyDifference+=std::fabs(a-c);
+        trackedNoteDifference+=std::fabs(a-b);
+    }
+    assert(frequencyDifference>1.0f);
+    assert(trackedNoteDifference>1.0f);
+    // The master envelope multiplies the combined output after operators,
+    // even if they use individually authored volume envelopes.
+    Patch masterOn=responseDecoded,masterOff=responseDecoded;
+    masterOn.filter.evolving=EvolvingFilter{};
+    masterOff.filter.evolving=EvolvingFilter{};
+    masterOn.ops[0].volumeCurve=legacyOperatorVolume(
+        Envelope{.001f,.03f,1.0f,.08f});
+    masterOff.ops[0].volumeCurve=masterOn.ops[0].volumeCurve;
+    masterOn.masterAmpCurve=initialUnisonCurve(0.0f);
+    masterOff.masterAmpCurve={};
+    SpectrachordVoice masterMuted,masterNormal;
+    masterMuted.prepare(48000);masterNormal.prepare(48000);
+    masterMuted.start(1790,toDspPatch(masterOn),57,.8f,0,4800);
+    masterNormal.start(1790,toDspPatch(masterOff),57,.8f,0,4800);
+    float silentPower=0,normalPower=0;
+    for(int i=0;i<3000;++i){
+        const float s=masterMuted.render(),n=masterNormal.render();
+        silentPower+=s*s;normalPower+=n*n;
+    }
+    assert(silentPower<1e-9f&&normalPower>1e-5f);
     // Default volume and pitch envelopes must place decay at the second
     // anchor and the release/sustain gate at the second-to-last anchor.
     const auto defaults=legacyOperatorVolume(Envelope{});
