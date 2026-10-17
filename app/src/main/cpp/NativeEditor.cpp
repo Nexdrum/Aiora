@@ -738,9 +738,23 @@ struct OpSurface {
             case 6: return {x+(w-8)*.5f+8,y+132,(w-8)*.5f,45}; // fine cents
             case 7: {const int n=custom?4:3;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
             case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
-            case 9: return {x,y+301,w,std::max(120.0f,view.y+view.h-y-164)}; // graph stays above the patch footer
+            case 9: {
+                // Bound the graph from its ACTUAL top, not the preceding
+                // control row. The old height overran the viewport by 301px
+                // and drew Mod endpoints into Android's navigation region.
+                const float graphTop=y+301.0f;
+                const float footerStart=view.y+view.h-63.0f;
+                // Keep the patch-file label and buttons clear of the graph,
+                // while preserving as much vertical editing space as fits.
+                const float graphBottom=footerStart-72.0f;
+                return {x,graphTop,w,std::max(0.0f,graphBottom-graphTop)};
+            } // graph ends inside editor, above its fixed patch footer
             case 10:{auto r=rect(9);const float ww=(r.w-22)/4;return {r.x+4+index*(ww+6),r.y+3,ww,43};}
-            case 11:{auto r=rect(9);return {r.x+42,r.y+57,r.w-67,r.h-78};}
+            case 11:{
+                auto r=rect(9);
+                return {r.x+42,r.y+57,std::max(0.0f,r.w-67),
+                    std::max(0.0f,r.h-78)};
+            }
         }
         return {};
     }
@@ -905,8 +919,22 @@ struct OpSurface {
             for(int i=0;i<c.count;++i){
                 auto xy=position(c.points[i]);
                 ov.addFilledCircle(xy.first,xy.second,i==selected?9:7,overlayColor(i==selected?kOrange:kWhite));
-                if(i==c.decayIndex)ov.addText("D",xy.first+12,xy.second+5,.8f,overlayColor(kCyan));
-                if(i==c.releaseIndex)ov.addText(c.sustain?"S":"R",xy.first+12,xy.second-12,.8f,overlayColor(kOrange));
+                // Marker text must remain visible at 0% and 100% volume
+                // (and at +/-12 ST). Flip it left of right-edge points.
+                // Distinct offsets also distinguish D and S/R if both
+                // happen to share one point in an older saved patch.
+                const float labelX=std::clamp(
+                    xy.first>(plot.x+plot.w-35.0f)?xy.first-23.0f:xy.first+12.0f,
+                    plot.x+4.0f,plot.x+plot.w-18.0f);
+                const auto labelY=[&](float offset){
+                    return std::clamp(xy.second+offset,
+                        plot.y+5.0f,plot.y+plot.h-18.0f);
+                };
+                if(i==c.decayIndex)
+                    ov.addText("D",labelX,labelY(8.0f),.82f,overlayColor(kCyan));
+                if(i==c.releaseIndex)
+                    ov.addText(c.sustain?"S":"R",labelX,labelY(-22.0f),
+                        .82f,overlayColor(kOrange));
                 if(page==1&&c.points[i].free)ov.addCircle(xy.first,xy.second,12,1.5f,overlayColor(kPurple));
             }
         }else if(page==2){
