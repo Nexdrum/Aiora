@@ -285,6 +285,7 @@ struct DspPatch {
     std::shared_ptr<const std::vector<ModSlot>> modSlots{}; size_t modSlotCount{0};
     std::shared_ptr<const std::vector<ModSlot>> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
+    OperatorCurve unisonCurve{};
     bool timpaniMembrane{false};
     float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
     uint8_t cymbalModel{0}; // 0=normal, 1=crash, 2=ride
