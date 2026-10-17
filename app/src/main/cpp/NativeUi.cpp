@@ -2058,6 +2058,19 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
                 }
             }
         }
+        // The Bend, V and M buttons are in the track-switch strip above
+        // bodyContentRect().  Indicators drawn by drawRoll() were clipped out
+        // because that page only permits overlay geometry in its body.
+        // Draw the armed-state dots here before the body clip is applied.
+        for(int kind=0;kind<3;++kind){
+            if(!rollDrawMode(kind))continue;
+            const auto button=rollModeRect(kind);
+            const float cx=button.x+button.w-13.0f;
+            const float cy=button.y+12.0f;
+            // Dark rim keeps the blue dot distinct from a cyan active button.
+            ov.addFilledCircle(cx,cy,11.5f,overlayColor(kRollBg,0.98f));
+            ov.addFilledCircle(cx,cy,8.0f,overlayColor(kCyan,1.0f));
+        }
     }
 }
 
@@ -3396,21 +3409,6 @@ void NativeUi::drawRoll() const noexcept {
     }
 
     auto& rollOverlay=NativeOverlay::instance();
-    for(int kind=0;kind<3;++kind){
-        if(!rollDrawMode(kind))continue;
-        const auto button=rollModeRect(kind);
-        rollOverlay.addRect(
-            {button.x+2.0f,button.y+2.0f,
-             button.w-4.0f,button.h-4.0f},
-            overlayColor(kCyan,0.95f));
-        // Visible armed state on each Bend / V / M button.
-        // Position this small D at the top-right, away from the icon.
-        const float bx=button.x+button.w-19.0f;
-        const float by=button.y+5.0f;
-        rollOverlay.addFilledCircle(
-            bx+6.0f,by+8.0f,11.0f,overlayColor(kCyan,0.96f));
-        rollOverlay.addText("D",bx,by,0.93f,overlayColor(kRollBg));
-    }
     // Only active draw controller boxes cover the pitch header or time gutter.
     for(int kind=1;kind<=2;++kind){
         if(!rollDrawMode(kind))continue;
