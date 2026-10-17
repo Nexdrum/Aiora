@@ -1330,7 +1330,7 @@ struct FilterSurface {
     using Rect=NativeEditor::Rect;
     Rect view{};
     bool open{false},moved{false},changed{false};
-    int page{0},lane{0},slot{0},selected{-1},drag{-1},bend{-1},transition{-1};
+    int page{0},lane{0},slot{0},slopeShape{2},selected{-1},drag{-1},bend{-1},transition{-1};
     float downX{},downY{},scroll{0};
     int zoom{2};
     std::chrono::steady_clock::time_point started{};
@@ -1377,7 +1377,7 @@ struct FilterSurface {
         return {r.x+std::clamp(p.value,0.0f,1.0f)*r.w,
             r.y+p.time*rate()-scroll};
     }
-    bool qCurve()const{return page==2?
+    bool qCurve()const{return page==3?false:page==2?
         getModel().mods[slot].destination==2:lane==2;}
     EvolvingFilter getModel()const{
         const auto m=ProjectCore::instance().selectedPatch().filter.evolving;
@@ -1435,11 +1435,14 @@ struct FilterSurface {
         };
         cell(bar(0,0,2),"Frequency / Amount / Q",true,kCyan,.78f);
         cell(bar(0,1,2),model.configured?"Filter active":"Enable filter",model.configured,kGreen,.86f);
-        for(int i=0;i<3;++i)cell(bar(1,i,3),
-            i==0?"Envelope":i==1?"Morph":"Mod",page==i,kPurple,.88f);
+        static const char* subTabs[4]={"Envelope","Morph","Mod","Slope"};
+        for(int i=0;i<4;++i)cell(bar(1,i,4),subTabs[i],page==i,kPurple,.80f);
         if(page<2){
-            o.addText("All three lines editable - tap a column to edit its points",
-                view.x+20,bar(2,0,3).y+15,.76f,overlayColor(kMuted));
+            cell(bar(2,0,3),model.keyTrack?"Key Track ON":"Key Track OFF",
+                model.keyTrack,kGreen,.78f);
+            cell(bar(2,1,3),model.keyTrack?"Frequency locked":"Frequency editable",
+                model.keyTrack,kCyan,.71f);
+            cell(bar(2,2,3),"Tap any curve to edit",false,kPurple,.70f);
             const auto c=getCurve(model);
             cell(bar(3,0,6),"D",selected==c.decayIndex,kCyan,1);
             cell(bar(3,1,6),"R",selected==c.releaseIndex,kOrange,1);
@@ -1453,7 +1456,63 @@ struct FilterSurface {
             cell(bar(2,4,6),m.response.source?"Src M":"Src V",m.response.source==1,kCyan,.7f);
             cell(bar(2,5,6),m.enabled?"On":"Off",m.enabled,kGreen,.8f);
             static const char* dests[6]={"Freq","Amount","Q","F Morph","A Morph","Q Morph"};
-            for(int i=0;i<6;++i)cell(bar(3,i,6),dests[i],i==m.destination,kPurple,.73f);
+            for(int i=0;i<6;++i)cell(bar(3,i,6),
+                i==0&&model.keyTrack?"F locked":dests[i],
+                i==m.destination,kPurple,.73f);
+        }
+        if(page==3){
+            const auto& slope=model.slopes[slopeShape];
+            for(int i=0;i<3;++i)
+                cell(bar(2,i,3),i==0?"Low shelf":i==1?"Bell":"High shelf",
+                    slopeShape==i,kOrange,.81f);
+            for(int i=0;i<4;++i)
+                cell(bar(3,i,4),i==0?(slope.enabled?"Custom ON":"Custom OFF"):
+                    i==1?"Shelf":i==2?"Pass":"Flat",i==0&&slope.enabled,
+                    i==0?kGreen:kCyan,.85f);
+            const auto r=graph();
+            o.addRect({r.x-5,r.y-7,r.w+10,r.h+14},overlayColor(kRollBg));
+            o.addText("Relative frequency: cutoff-centered octaves",
+                r.x,r.y-35,.83f,overlayColor(kWhite));
+            for(int i=0;i<=8;++i){
+                const float x=r.x+r.w*i/8.0f;
+                o.addLine(x,r.y,x,r.y+r.h,1,overlayColor(kMuted,.25f));
+                if(i%2==0)o.addText(std::to_string(i-4)+" oct",
+                    x-12,r.y+r.h+9,.74f,overlayColor(kMuted));
+            }
+            for(int i=0;i<=4;++i){
+                const float y=r.y+r.h*i/4.0f;
+                o.addLine(r.x,y,r.x+r.w,y,1,overlayColor(kMuted,.25f));
+                o.addText(std::to_string(100-i*25)+"%",
+                    r.x-51,y-7,.75f,overlayColor(kWhite));
+            }
+            const auto& c=slope.profile;
+            auto pos=[&](OperatorPoint p){
+                return std::pair<float,float>{
+                    r.x+r.w*p.time,r.y+r.h*(1.0f-p.value)};
+            };
+            for(int j=1;j<c.count;++j){
+                const auto& a=c.points[j-1];const auto& b=c.points[j];
+                for(int k=1;k<=30;++k){
+                    const float t0=a.time+(b.time-a.time)*(k-1)/30.0f;
+                    const float t1=a.time+(b.time-a.time)*k/30.0f;
+                    const auto v0=pos({t0,operatorCurveValue(c.points.data()+j-1,2,t0)});
+                    const auto v1=pos({t1,operatorCurveValue(c.points.data()+j-1,2,t1)});
+                    o.addLine(v0.first,v0.second,v1.first,v1.second,3,
+                        overlayColor(kCyan));
+                }
+                const float t=a.time+(b.time-a.time)*b.midpoint;
+                const auto mid=pos({t,operatorCurveValue(c.points.data()+j-1,2,t)});
+                o.addLine(mid.first-6,mid.second-6,mid.first+6,mid.second+6,2,overlayColor(kOrange));
+                o.addLine(mid.first-6,mid.second+6,mid.first+6,mid.second-6,2,overlayColor(kOrange));
+            }
+            for(int j=0;j<c.count;++j){
+                const auto p=pos(c.points[j]);
+                o.addFilledCircle(p.first,p.second,selected==j?9:6,
+                    overlayColor(selected==j?kWhite:kCyan));
+            }
+            o.addText("100% = unchanged  |  0% = full cut at Amount -100",
+                view.x+20,view.y+view.h-35,.78f,overlayColor(kMuted));
+            return;
         }
         if(page<2){
             const auto r=graph();
@@ -1599,6 +1658,32 @@ struct FilterSurface {
         }
     }
     bool update(float x,float y){
+        if(page==3){
+            auto m=getModel();
+            auto& c=m.slopes[slopeShape].profile;
+            const int i=bend>=0?bend:drag;
+            if(i<0||i>=c.count)return false;
+            const auto r=graph();
+            const float t=std::clamp((x-r.x)/r.w,0.0f,1.0f);
+            const float v=std::clamp(1.0f-(y-r.y)/r.h,0.0f,1.0f);
+            if(bend>=1){
+                const auto& a=c.points[bend-1];
+                c.points[bend].midpoint=std::clamp((t-a.time)/
+                    std::max(.000001f,c.points[bend].time-a.time),.05f,.95f);
+                c.points[bend].handleValue=std::clamp(v,
+                    std::min(a.value,c.points[bend].value),
+                    std::max(a.value,c.points[bend].value));
+                c.points[bend].handleActive=true;
+            }else{
+                const float lo=i==0?0:c.points[i-1].time+.0001f;
+                const float hi=i==c.count-1?1:c.points[i+1].time-.0001f;
+                c.points[i].time=(i==0?0:i==c.count-1?1:
+                    std::clamp(t,lo,std::max(lo,hi)));
+                c.points[i].value=v;
+            }
+            m.slopes[slopeShape].enabled=true;
+            return ProjectCore::instance().setSelectedEvolvingFilter(m);
+        }
         auto model=getModel();auto curve=getCurve(model);
         const Rect r=page==2?graph():pane(lane);
         if(page<2&&drag==-3&&staticLine(curve)){
@@ -1654,6 +1739,20 @@ struct FilterSurface {
         return save(model,curve);
     }
     bool addPoint(float x,float y){
+        if(page==3){
+            auto m=getModel();auto& c=m.slopes[slopeShape].profile;
+            if(c.count>=kMaxOperatorPoints)return false;
+            const auto r=graph();
+            const float t=std::clamp((x-r.x)/r.w,.0001f,.9999f);
+            const float v=std::clamp(1.0f-(y-r.y)/r.h,0.0f,1.0f);
+            int pos=0;while(pos<c.count&&c.points[pos].time<t)++pos;
+            if(pos==0||pos==c.count||t-c.points[pos-1].time<.0001f||
+                c.points[pos].time-t<.0001f)return false;
+            for(int i=c.count;i>pos;--i)c.points[i]=c.points[i-1];
+            c.points[pos]={t,v};++c.count;
+            selected=pos;m.slopes[slopeShape].enabled=true;
+            return ProjectCore::instance().setSelectedEvolvingFilter(m);
+        }
         auto m=getModel();auto c=getCurve(m);
         if(c.count>=kMaxOperatorPoints)return false;
         const auto r=page==2?graph():pane(lane);
@@ -1704,10 +1803,64 @@ struct FilterSurface {
             changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
             return true;
         }
-        for(int i=0;i<3;++i)if(bar(1,i,3).contains(x,y)){
+        for(int i=0;i<4;++i)if(bar(1,i,4).contains(x,y)){
             page=i;selected=-1;return true;
         }
+        if(page==3){
+            auto m=getModel();
+            for(int i=0;i<3;++i)if(bar(2,i,3).contains(x,y)){
+                slopeShape=i;selected=-1;return true;
+            }
+            for(int i=0;i<4;++i)if(bar(3,i,4).contains(x,y)){
+                auto& slope=m.slopes[slopeShape];
+                if(i==0)slope.enabled=!slope.enabled;
+                else if(i==3){
+                    slope.profile=initialFilterSlope(slopeShape).profile;
+                    for(int j=0;j<slope.profile.count;++j)slope.profile.points[j].value=1.0f;
+                    slope.enabled=true;
+                }else{
+                    slope=initialFilterSlope(slopeShape);
+                    if(i==1){
+                        // A shelf retains a finite -24 dB plateau.
+                        for(int j=0;j<slope.profile.count;++j)
+                            slope.profile.points[j].value=.0630957f+
+                                .9369043f*slope.profile.points[j].value;
+                    }
+                    slope.enabled=true;
+                }
+                changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
+                return true;
+            }
+            const auto r=graph();
+            if(!r.contains(x,y))return true;
+            const auto& c=m.slopes[slopeShape].profile;
+            float best=24.0f*24.0f;int near=-1;
+            for(int i=0;i<c.count;++i){
+                const float px=r.x+r.w*c.points[i].time;
+                const float py=r.y+r.h*(1.0f-c.points[i].value);
+                const float d=(x-px)*(x-px)+(y-py)*(y-py);
+                if(d<best){best=d;near=i;}
+            }
+            float bestBend=20.0f*20.0f;int nearBend=-1;
+            for(int i=1;i<c.count;++i){
+                const auto& a=c.points[i-1],&b=c.points[i];
+                const float t=a.time+(b.time-a.time)*b.midpoint;
+                const float v=operatorCurveValue(c.points.data()+i-1,2,t);
+                const float px=r.x+r.w*t,py=r.y+r.h*(1-v);
+                const float d=(x-px)*(x-px)+(y-py)*(y-py);
+                if(d<bestBend){bestBend=d;nearBend=i;}
+            }
+            if(nearBend>=0&&(near<0||bestBend<best)){bend=nearBend;return true;}
+            if(near>=0){selected=drag=near;return true;}
+            drag=-2;return true;
+        }
         if(page<2){
+            if(bar(2,0,3).contains(x,y)){
+                auto m=getModel();m.keyTrack=!m.keyTrack;
+                changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
+                return true;
+            }
+            if(bar(2,1,3).contains(x,y)||bar(2,2,3).contains(x,y))return true;
             // Each visible lane selects itself by touch; there is no
             // separate frequency / amount / Q focus switch.
             for(int i=0;i<6;++i)if(bar(3,i,6).contains(x,y)){
@@ -1736,6 +1889,7 @@ struct FilterSurface {
             }
             for(int i=0;i<6;++i)if(bar(3,i,6).contains(x,y)){
                 auto m=getModel();
+                if(i==0&&m.keyTrack)return true;
                 m.mods[slot].destination=static_cast<uint8_t>(i);
                 m.mods[slot].enabled=true;
                 selected=-1;
@@ -1811,6 +1965,14 @@ struct FilterSurface {
             const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now()-started).count();
             if(ms>=500){
+                if(page==3){
+                    auto m=getModel();auto& c=m.slopes[slopeShape].profile;
+                    if(c.count>2&&drag<c.count-1){
+                        for(int i=drag;i<c.count-1;++i)c.points[i]=c.points[i+1];
+                        --c.count;selected=-1;
+                        changed=ProjectCore::instance().setSelectedEvolvingFilter(m)||changed;
+                    }
+                }else{
                 auto m=getModel();auto c=getCurve(m);
                 if(c.count>2&&drag<c.count-1){
                     for(int i=drag;i<c.count-1;++i){
@@ -1826,6 +1988,7 @@ struct FilterSurface {
                         c.releaseIndex=std::min<int>(c.releaseIndex,c.count-2);
                     }
                     selected=-1;changed=save(m,c)||changed;
+                }
                 }
             }
         }
