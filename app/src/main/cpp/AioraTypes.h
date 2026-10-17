@@ -40,7 +40,7 @@ struct OperatorPoint {
 };
 struct OperatorCurve {
     std::array<OperatorPoint,kMaxOperatorPoints> points{};
-    uint8_t count{0},releaseIndex{0};
+    uint8_t count{0},releaseIndex{0},decayIndex{1};
     bool enabled{false},sustain{true};
 };
 struct OperatorResponse {
@@ -67,7 +67,7 @@ inline float operatorCurveValue(const OperatorPoint* points,size_t count,float x
     return points[count-1].value;
 }
 inline OperatorCurve legacyOperatorVolume(const Envelope& e) noexcept {
-    OperatorCurve c; c.enabled=true;c.sustain=true;c.count=4;c.releaseIndex=2;
+    OperatorCurve c; c.enabled=true;c.sustain=true;c.count=4;c.releaseIndex=2;c.decayIndex=2;
     c.points[0]={0,0};c.points[1]={std::max(.0005f,e.attack),1};
     c.points[2]={c.points[1].time+std::max(.0005f,e.decay),std::clamp(e.sustain,0.0f,1.0f)};
     c.points[3]={c.points[2].time+std::max(.0005f,e.release),0};

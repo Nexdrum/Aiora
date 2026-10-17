@@ -400,6 +400,7 @@ void writeOperatorCurve(Writer& w,const OperatorCurve& c){
     w.raw("{\"enabled\":");w.boolean(c.enabled);
     w.raw(",\"sustain\":");w.boolean(c.sustain);
     w.raw(",\"releaseIndex\":");w.number(c.releaseIndex);
+    w.raw(",\"decayIndex\":");w.number(c.decayIndex);
     w.raw(",\"points\":[");
     for(size_t i=0;i<c.count;++i){
         if(i)w.raw(",");const auto& p=c.points[i];
@@ -527,6 +528,7 @@ void readOperatorCurve(const Json* j,OperatorCurve& out,float lo,float hi){
     for(size_t i=1;i<out.count;++i)
         out.points[i].time=std::max(out.points[i].time,out.points[i-1].time+.0001f);
     out.releaseIndex=static_cast<uint8_t>(clampi(num(j->get("releaseIndex"),out.count-2),0,out.count-2,out.count-2));
+    out.decayIndex=static_cast<uint8_t>(clampi(num(j->get("decayIndex"),1),0,out.count-2,1));
     out.sustain=boolean(j->get("sustain"),true);
     out.enabled=boolean(j->get("enabled"),true);
 }

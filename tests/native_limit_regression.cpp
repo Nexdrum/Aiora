@@ -731,5 +731,60 @@ int main(){
         assert(peak>0.005f && energy>0.005f);
         assert(peak<8.0f);
     }
+    // Custom operator envelopes remain sample-accurate and survive a patch
+    // round-trip without modifying legacy ADSR settings.
+    Patch pointPatch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    for(auto& op:pointPatch.ops){op.enabled=false;op.level=0.0f;}
+    auto& pointOp=pointPatch.ops[0];
+    pointOp.enabled=true;pointOp.level=.8f;
+    pointOp.wave=Wave::Sine;pointOp.env={.001f,.2f,.7f,.1f};
+    pointOp.volumeCurve=legacyOperatorVolume(pointOp.env);
+    pointOp.volumeCurve.sustain=false;
+    pointOp.volumeCurve.releaseIndex=2;
+    pointOp.volumeCurve.points[0]={0.0f,0.0f};
+    pointOp.volumeCurve.points[1]={.002f,1.0f};
+    pointOp.volumeCurve.points[2]={.045f,.4f};
+    pointOp.volumeCurve.points[3]={.095f,0.0f};
+    pointOp.pitchCurve=initialOperatorPitch();
+    pointOp.pitchCurve.points[0].value=2.0f;
+    pointOp.pitchCurve.points[1].value=0.0f;
+    pointOp.expressionCurve=initialOperatorResponse();
+    pointOp.expressionCurve.points[1].handleActive=true;
+    pointOp.expressionCurve.points[1].handleValue=.2f;
+    const auto json=serializePatchJson(pointPatch);
+    Patch decoded;assert(deserializePatchJson(json,decoded));
+    assert(decoded.ops[0].volumeCurve.enabled);
+    assert(decoded.ops[0].volumeCurve.count==4);
+    assert(decoded.ops[0].volumeCurve.sustain==false);
+    assert(decoded.ops[0].pitchCurve.points[0].value==2);
+    assert(decoded.ops[0].expressionCurve.points[1].handleActive);
+    assert(decoded.ops[0].volumeCurve.decayIndex==2);
+    assert(operatorCurveValue(decoded.ops[0].pitchCurve.points.data(),
+        decoded.ops[0].pitchCurve.count,0.0f)==2.0f);
+    SpectrachordVoice shortVoice;shortVoice.prepare(48000.0f);
+    shortVoice.start(801,toDspPatch(pointPatch),62,.85f,48000u,48000.0f);
+    float earlyEnergy=0,lateEnergy=0;
+    for(int k=0;k<12000;++k){
+        const float sample=shortVoice.render();assert(std::isfinite(sample));
+        if(k>150&&k<1000)earlyEnergy+=sample*sample;
+        if(k>9500)lateEnergy+=sample*sample;
+    }
+    assert(earlyEnergy>.0001f);
+    assert(lateEnergy<earlyEnergy*.0001f);
+    // A held sustain must remain audible after the same free-running envelope
+    // would have completed, then follow its release at note-off.
+    pointPatch.ops[0].volumeCurve.sustain=true;
+    SpectrachordVoice held;held.prepare(48000.0f);
+    held.start(802,toDspPatch(pointPatch),62,.85f,14000u,48000.0f);
+    float sustainEnergy=0;
+    for(int k=0;k<11000;++k){
+        const float sample=held.render();assert(std::isfinite(sample));
+        if(k>9000)sustainEnergy+=sample*sample;
+    }
+    assert(sustainEnergy>.0001f);
+    // Midpoint and handle-based shapes follow authored response values.
+    auto r=initialOperatorResponse();
+    r.points[1].handleActive=true;r.points[1].handleValue=0;
+    assert(operatorCurveValue(r.points.data(),r.count,.5f)<.3f);
     return 0;
 }
