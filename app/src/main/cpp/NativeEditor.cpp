@@ -1601,7 +1601,7 @@ struct FilterSurface {
         return save(model,curve);
     }
     bool addPoint(float x,float y){
-        auto m=getModel(),c=getCurve(m);
+        auto m=getModel();auto c=getCurve(m);
         if(c.count>=kMaxOperatorPoints)return false;
         const auto r=page==2?graph():pane(lane);
         OperatorPoint p;
@@ -2118,7 +2118,6 @@ void NativeEditor::renderFx() const noexcept {
         ov.addDownChevron(
             {field.x+field.w-38.0f,field.y,38.0f,field.h},
             overlayColor(kWhite));
-    }
     static constexpr const char* filterLabels[7]={
         "Cutoff","Reso","Env→Cut","A","D","S","R"};
     for(int i=0;i<7;++i)
