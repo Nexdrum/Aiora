@@ -722,7 +722,7 @@ struct OpSurface {
     unsigned shadows{0};
     float downX{0},downY{0},lastY{0};
     bool moved{false},panning{false},changed{false};
-    std::array<std::array<float,2>,6> scroll{};
+    std::array<std::array<float,2>,6> scroll{},harmonicScroll{};
     std::chrono::steady_clock::time_point started{};
     Rect view{};
     Rect rect(int row,int index=0) const {
@@ -738,11 +738,22 @@ struct OpSurface {
             case 6: return {x+(w-8)*.5f+8,y+132,(w-8)*.5f,45}; // fine cents
             case 7: {const int n=custom?4:3;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
             case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
-            case 9: return {x,y+301,w,std::max(120.0f,view.y+view.h-y-76)}; // graph
+            case 9: return {x,y+301,w,std::max(120.0f,view.y+view.h-y-164)}; // graph stays above the patch footer
             case 10:{auto r=rect(9);const float ww=(r.w-22)/4;return {r.x+4+index*(ww+6),r.y+3,ww,43};}
             case 11:{auto r=rect(9);return {r.x+42,r.y+57,r.w-67,r.h-78};}
         }
         return {};
+    }
+    float harmonicRowHeight()const{return std::max(245.0f,rect(11).h*.62f);}
+    void scrollBy(float dy){
+        if(page<2){
+            auto& amount=scroll[op][page];
+            amount=std::clamp(amount+dy,0.0f,std::max(0.0f,120.0f*320.0f-rect(11).h));
+        }else if(page==3){
+            auto& amount=harmonicScroll[op][harmonicView==2?1:0];
+            amount=std::clamp(amount+dy,0.0f,
+                std::max(0.0f,2.0f*harmonicRowHeight()-rect(11).h+10.0f));
+        }
     }
     OperatorCurve env(const Operator&o) const {
         return page==1?(o.pitchCurve.enabled?o.pitchCurve:initialOperatorPitch())
@@ -837,8 +848,9 @@ struct OpSurface {
             const auto& harm=harmonicView==2?o.harmMute:o.harm;
             for(int i=0;i<16;++i){
                 const int col=i%8,row=i/8;
-                const float w=plot.w/8.0f,h=plot.h/2.0f;
-                const float x=plot.x+col*w,y=plot.y+row*h;
+                const float w=plot.w/8.0f,h=harmonicRowHeight();
+                const float x=plot.x+col*w,
+                    y=plot.y+row*h-harmonicScroll[op][harmonicView==2?1:0];
                 const float v=std::clamp(harm[static_cast<size_t>(i)],0.0f,1.0f);
                 ov.addRect({x+3,y+4,w-6,h-8},overlayColor(kButton));
                 ov.addRect({x+w*.26f,y+h-8-(h-38)*v,w*.48f,(h-38)*v},
@@ -868,6 +880,19 @@ struct OpSurface {
                     overlayColor(ghost?kPurple:(page==2?kPurple:page==1?kCyan:kGreen),ghost?.32f:1.0f));
             }
         };
+        auto paintHandles=[&](const OperatorPoint* pts,int count){
+            for(int i=1;i<count;++i){
+                const auto&prev=pts[i-1],&cur=pts[i];
+                const float middle=prev.time+(cur.time-prev.time)*
+                    std::clamp(cur.midpoint,.05f,.95f);
+                const OperatorPoint handle{
+                    middle,operatorCurveValue(pts+i-1,2,middle,prev.value)};
+                const auto xy=position(handle);
+                constexpr float d=6.5f;
+                ov.addLine(xy.first-d,xy.second-d,xy.first+d,xy.second+d,2.3f,overlayColor(kOrange));
+                ov.addLine(xy.first-d,xy.second+d,xy.first+d,xy.second-d,2.3f,overlayColor(kOrange));
+            }
+        };
         if(page<2){
             for(int i=0;i<6;++i)if(i!=op&&(shadows&(1u<<i))){
                 const auto&so=p.ops[i];
@@ -876,6 +901,7 @@ struct OpSurface {
                 paint(c.points.data(),c.count,true);
             }
             auto c=env(o);paint(c.points.data(),c.count,false);
+            paintHandles(c.points.data(),c.count);
             for(int i=0;i<c.count;++i){
                 auto xy=position(c.points[i]);
                 ov.addFilledCircle(xy.first,xy.second,i==selected?9:7,overlayColor(i==selected?kOrange:kWhite));
@@ -885,6 +911,7 @@ struct OpSurface {
             }
         }else if(page==2){
             auto c=response(o);paint(c.points.data(),c.count,false);
+            paintHandles(c.points.data(),c.count);
             for(int i=0;i<c.count;++i){
                 auto xy=position(c.points[i]);
                 ov.addFilledCircle(xy.first,xy.second,i==selected?9:7,overlayColor(i==selected?kOrange:kWhite));
@@ -900,8 +927,15 @@ struct OpSurface {
         if(page==2){
             auto c=response(o);if(idx<0||idx>=c.count)return false;
             auto&pt=c.points[idx];
-            if(handle){pt.handleActive=true;pt.handleValue=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);}
-            else{
+            if(handle){
+                if(idx<1)return false;
+                const auto&before=c.points[idx-1];
+                pt.midpoint=std::clamp((x-r.x-r.w*before.time)/
+                    std::max(.00001f,r.w*(pt.time-before.time)),.05f,.95f);
+                pt.handleActive=true;
+                pt.handleValue=std::clamp(1-(y-r.y)/r.h,
+                    std::min(before.value,pt.value),std::max(before.value,pt.value));
+            }else{
                 pt.time=std::clamp(xval,idx?c.points[idx-1].time+.0001f:0.0f,
                     idx+1<c.count?c.points[idx+1].time-.0001f:1.0f);
                 pt.value=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);
@@ -911,8 +945,17 @@ struct OpSurface {
         auto c=env(o);if(idx<0||idx>=c.count)return false;
         auto&pt=c.points[idx];
         float val=page==1?-12+24*xval:xval;
-        if(handle){pt.handleActive=true;pt.handleValue=val;}
-        else{
+        if(handle){
+            if(idx<1)return false;
+            const auto&before=c.points[idx-1];
+            const float time=(y-r.y+scroll[op][page])/320.0f;
+            pt.midpoint=std::clamp(
+                (time-before.time)/std::max(.00001f,pt.time-before.time),
+                .05f,.95f);
+            pt.handleActive=true;
+            pt.handleValue=std::clamp(val,
+                std::min(before.value,pt.value),std::max(before.value,pt.value));
+        }else{
             float time=std::max(0.0f,(y-r.y+scroll[op][page])/320.0f);
             pt.time=idx==0?0:std::clamp(time,c.points[idx-1].time+.0001f,
                 idx+1<c.count?c.points[idx+1].time-.0001f:120.0f);
@@ -996,7 +1039,8 @@ struct OpSurface {
             if(rect(11).contains(x,y)){
                 auto plot=rect(11);
                 const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
-                const int row=std::clamp(static_cast<int>((y-plot.y)/plot.h*2),0,1);
+                const float relativeY=y-plot.y+harmonicScroll[op][harmonicView==2?1:0];
+                const int row=std::clamp(static_cast<int>(relativeY/harmonicRowHeight()),0,1);
                 drag=-50-(row*8+col);return move(x,y);
             }
         }
@@ -1012,25 +1056,26 @@ struct OpSurface {
         }
         if(candidate>=0){selected=drag=candidate;return true;}
         for(int i=1;i<count;++i){
-            float t=(pts[i-1].time+pts[i].time)*.5f;
+            const float t=pts[i-1].time+(pts[i].time-pts[i-1].time)*
+                std::clamp(pts[i].midpoint,.05f,.95f);
             auto at=position({t,operatorCurveValue(pts+i-1,2,t)});
-            if(std::fabs(x-at.first)+std::fabs(y-at.second)<25){bend=i;return true;}
+            const float dx=x-at.first,dy=y-at.second;
+            if(dx*dx+dy*dy<17.0f*17.0f){bend=i;return true;}
         }
         drag=-2;return true;
     }
     bool move(float x,float y){
         if(drag==-2){
-            if(page<2&&(std::fabs(y-downY)>13||panning)){
-                panning=moved=true;
-                scroll[op][page]=std::clamp(scroll[op][page]+lastY-y,0.0f,120.0f*320.0f);
-                lastY=y;
-            }else if(std::fabs(x-downX)+std::fabs(y-downY)>13)moved=true;
+            // Graph gestures edit points and X handles only. Vertical
+            // scrolling belongs exclusively to the colored side gutter.
+            if(std::fabs(x-downX)+std::fabs(y-downY)>13)moved=true;
             return true;
         }
         if(drag<=-50){
             const int i=-drag-50,row=i/8;auto r=rect(11);
-            const float top=r.y+row*r.h*.5f;
-            const float amount=std::clamp(1-(y-top)/(r.h*.5f),0.0f,1.0f);
+            const float h=harmonicRowHeight();
+            const float top=r.y+row*h-harmonicScroll[op][harmonicView==2?1:0];
+            const float amount=std::clamp(1-(y-top)/h,0.0f,1.0f);
             changed=ProjectCore::instance().setSelectedHarmonic(op,i,amount,harmonicView==2)||changed;
             return true;
         }
@@ -1050,13 +1095,40 @@ struct OpSurface {
     }
     bool up(){
         if(drag==-2&&!moved)changed=addPoint(downX,downY)||changed;
-        if(drag>=0&&!moved&&page==1&&
-           std::chrono::duration_cast<std::chrono::milliseconds>(
-             std::chrono::steady_clock::now()-started).count()>=450){
-            auto&core=ProjectCore::instance();auto o=core.selectedPatch().ops[op];auto c=env(o);
-            c.points[drag].free=!c.points[drag].free;
-            if(!c.points[drag].free)c.points[drag].value=std::round(c.points[drag].value);
-            changed=core.setSelectedOperatorCurve(op,1,c)||changed;
+        // A tap on an X inserts a point; dragging its X changes the curve.
+        if(bend>=1&&!moved)changed=addPoint(downX,downY)||changed;
+        if(drag>=0&&!moved){
+            auto&core=ProjectCore::instance();
+            const auto o=core.selectedPatch().ops[op];
+            const bool longPress=std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now()-started).count()>=450;
+            if(page==1&&longPress){
+                auto c=env(o);
+                if(drag<c.count){
+                    c.points[drag].free=!c.points[drag].free;
+                    if(!c.points[drag].free)c.points[drag].value=std::round(c.points[drag].value);
+                    changed=core.setSelectedOperatorCurve(op,1,c)||changed;
+                }
+            }else if(!longPress&&page==2){
+                auto c=response(o);
+                if(drag>0&&drag<c.count-1){
+                    for(int i=drag;i<c.count-1;++i)c.points[i]=c.points[i+1];
+                    --c.count;selected=-1;
+                    changed=core.setSelectedOperatorResponse(op,c)||changed;
+                }
+            }else if(!longPress&&page<2){
+                auto c=env(o);
+                if(drag>0&&drag<c.count-1){
+                    for(int i=drag;i<c.count-1;++i)c.points[i]=c.points[i+1];
+                    --c.count;
+                    if(c.decayIndex>=drag&&c.decayIndex>0)--c.decayIndex;
+                    if(c.releaseIndex>=drag&&c.releaseIndex>0)--c.releaseIndex;
+                    c.decayIndex=std::min<int>(c.decayIndex,c.count-2);
+                    c.releaseIndex=std::min<int>(c.releaseIndex,c.count-2);
+                    selected=-1;
+                    changed=core.setSelectedOperatorCurve(op,page,c)||changed;
+                }
+            }
         }
         drag=bend=-1;
         const bool result=changed;changed=false;return result;
@@ -2134,7 +2206,11 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
 
 bool NativeEditor::pointerMove(float x,float y){
     if(scrolling_){
-        scrollEditor(activePage_,scrollLastY_-y);
+        if(activePage_==EditorPage::Synth&&!matrixMode_){
+            opSurface.scrollBy(scrollLastY_-y);
+        }else{
+            scrollEditor(activePage_,scrollLastY_-y);
+        }
         scrollLastY_=y;
         return true;
     }
