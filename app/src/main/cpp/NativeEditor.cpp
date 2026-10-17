@@ -1978,6 +1978,11 @@ void NativeEditor::renderSynth() const noexcept {
 
 void NativeEditor::renderFx() const noexcept {
     drawPadReservedBackground();
+    if(filterSurface.open){
+        filterSurface.view=bodyRect();
+        filterSurface.draw();
+        return;
+    }
     const Patch p=ProjectCore::instance().selectedPatch();
     auto& ov=NativeOverlay::instance();
 
@@ -2081,9 +2086,21 @@ void NativeEditor::renderFx() const noexcept {
     ov.addDownChevron({pick.x+pick.w-37,pick.y,37,pick.h},overlayColor(kWhite));
     ov.addTextCentered("+ Add FX",{rackAdd.x,rackAdd.y,rackAdd.w,rackAdd.h},.90f,overlayColor(kWhite));
 
-    // Filter
+    // Filter. Old sliders remain accessible on legacy patches; the new
+    // three-lane filter opens in a dedicated full-screen point editor.
     drawSection(0);
     {
+        const auto card=fxGroupRect(0);
+        const Rect editButton{card.x+card.w-200,card.y+12,180,52};
+        drawButton(editButton,true,kCyan);
+        ov.addTextCentered("Edit filter",
+            {editButton.x,editButton.y,editButton.w,editButton.h},
+            .87f,overlayColor(kBg));
+        if(p.filter.evolving.configured)
+            ov.addText("Evolving filter active - edit F / Amount / Q",
+                card.x+20,card.y+70,.82f,overlayColor(kGreen));
+    }
+    if(!p.filter.evolving.configured){
         const auto card=fxGroupRect(0);
         ov.addText(
             "Type",
@@ -2108,6 +2125,18 @@ void NativeEditor::renderFx() const noexcept {
         drawParam(0,i,filterLabels[i],
             kFilterParams[static_cast<size_t>(i)],
             i<3?kCyan:kOrange);
+
+    }else{
+        const auto card=fxGroupRect(0);
+        ov.addText("The three synchronized curves replace the legacy filter controls.",
+            card.x+22,card.y+194,.84f,overlayColor(kMuted));
+        ov.addText("Open Edit filter to draw Frequency, Amount and Q.",
+            card.x+22,card.y+241,.82f,overlayColor(kCyan));
+        ov.addText("Morph between alternate curves or override them with V / M.",
+            card.x+22,card.y+288,.82f,overlayColor(kPurple));
+        ov.addText("Low shelf / Bell / High shelf on each Q point.",
+            card.x+22,card.y+335,.82f,overlayColor(kOrange));
+    }
 
     // A distinct per-note peaking EQ precedes the existing filter.
     // A two-state control keeps Follow Note and Fixed Hz equally accessible.
@@ -2405,8 +2434,9 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
 
 std::optional<NativeEditor::ModLinkValueHit> NativeEditor::hitModLinkValue(
     float x,float y) const noexcept {
+    if(filterSurface.open)return std::nullopt;
     // Only active, visible M/V numeric fields can open the Android editor.
-    if(!viewportRect().contains(x,y)||scrollGutterRect().contains(x,y))
+    if(filterSurface.open||!viewportRect().contains(x,y)||scrollGutterRect().contains(x,y))
         return std::nullopt;
     const auto hit=hitFx(x,y);
     if(!hit||(hit->kind!=HitKind::ModMin&&hit->kind!=HitKind::ModMax))
@@ -2508,11 +2538,17 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
     }
     if(const auto r=fxRackAddRect(true);r.contains(x,y))
         return Hit{HitKind::RackAdd,-1,-1,r};
+    const auto card=fxGroupRect(0);
+    const Rect editFilter{card.x+card.w-200,card.y+12,180,52};
+    if(editFilter.contains(x,y))
+        return Hit{HitKind::FilterOpen,0,-1,editFilter};
     const auto filterType=filterTypeRect(0);
-    if(filterType.contains(x,y))
+    if(!ProjectCore::instance().selectedPatch().filter.evolving.configured&&
+        filterType.contains(x,y))
         return Hit{HitKind::FilterType,0,-1,filterType};
 
-    for(int i=0;i<static_cast<int>(kFilterParams.size());++i){
+    for(int i=0;i<static_cast<int>(kFilterParams.size())&&
+        !ProjectCore::instance().selectedPatch().filter.evolving.configured;++i){
         const auto rr=fxSectionParamRect(0,i);
         if(rr.contains(x,y))
             return Hit{
@@ -2696,6 +2732,10 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             fxGroup_=std::clamp(hit.a,0,3);
             return false;
 
+        case HitKind::FilterOpen:
+            filterSurface.open=true;
+            filterSurface.view=bodyRect();
+            return false;
         case HitKind::FilterType:{
             const auto p=project.selectedPatch();
             const int current=std::clamp(
@@ -2794,6 +2834,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     activeHit_.reset();
 
     opSurface.view=bodyRect();
+    filterSurface.view=bodyRect();
     // The spectrum lane is the dedicated vertical scroll control.
     if(scrollGutterRect().contains(x,y)){
         scrolling_=true;
@@ -2801,6 +2842,13 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
         return true;
     }
 
+    if(page==EditorPage::Fx&&filterSurface.open){
+        if(filterSurface.down(x,y)){
+            activeHit_=Hit{HitKind::FilterEditor,-1,-1,{}};
+            return true;
+        }
+        return true;
+    }
     if(page==EditorPage::Synth&&!matrixMode_){
         for(int i=0;i<2;++i){
             const auto tab=synthTabRect(i);
@@ -2827,6 +2875,8 @@ bool NativeEditor::pointerMove(float x,float y){
     if(scrolling_){
         if(activePage_==EditorPage::Synth&&!matrixMode_){
             opSurface.scrollBy(scrollLastY_-y);
+        }else if(activePage_==EditorPage::Fx&&filterSurface.open){
+            filterSurface.scrollBy(scrollLastY_-y);
         }else{
             scrollEditor(activePage_,scrollLastY_-y);
         }
@@ -2835,6 +2885,10 @@ bool NativeEditor::pointerMove(float x,float y){
     }
 
     if(!activeHit_)return false;
+    if(activePage_==EditorPage::Fx&&
+       activeHit_->kind==HitKind::FilterEditor){
+        filterSurface.move(x,y);return true;
+    }
     if(activePage_==EditorPage::Synth&&!matrixMode_&&
        activeHit_->kind==HitKind::OperatorSelect){
         opSurface.move(x,y);return true;
@@ -2854,6 +2908,9 @@ bool NativeEditor::pointerMove(float x,float y){
 }
 
 bool NativeEditor::pointerUp(){
+    if(activePage_==EditorPage::Fx&&activeHit_&&
+       activeHit_->kind==HitKind::FilterEditor)
+        changed_=filterSurface.up()||changed_;
     if(activePage_==EditorPage::Synth&&!matrixMode_&&activeHit_&&
        activeHit_->kind==HitKind::OperatorSelect)
         changed_=opSurface.up()||changed_;

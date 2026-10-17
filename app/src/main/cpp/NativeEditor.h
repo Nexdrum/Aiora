@@ -58,7 +58,7 @@ private:
         None,
         SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
-        FxGroup, FilterType, PeakToggle, PeakMode, LfoTarget, PatchParam,
+        FxGroup, FilterType, FilterOpen, FilterEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         LinkSourceV, LinkSourceM, ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
     };
