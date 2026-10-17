@@ -2617,9 +2617,19 @@ void NativeEditor::renderFx() const noexcept {
     for(int i=0;i<5;++i){
         const auto r=fxWorkspaceTabRect(i);
         const bool active=workspace==i;
-        drawButton(r,active,i==3?kPurple:kCyan);
-        ov.addTextCentered(names[i],{r.x,r.y,r.w,r.h},1.02f,
-            overlayColor(active?kBg:kWhite));
+        const Rgb accent=i==3?kPurple:kCyan;
+        // Filter/Amp/Unison enqueue opaque overlay backgrounds, so their
+        // tabs must use the SAME overlay layer. Immediate glClear-based
+        // drawButton() would be painted over when the overlay flushes.
+        // Draw every tab consistently; inactive labels stay bright, and
+        // selected tabs use light text on a clearly highlighted surface.
+        ov.addRect({r.x,r.y,r.w,r.h},
+            overlayColor(active?accent:kButton));
+        const float inset=active?3.0f:2.0f;
+        ov.addRect({r.x+inset,r.y+inset,r.w-2.0f*inset,r.h-2.0f*inset},
+            overlayColor(active?mix(kPanel,accent,0.34f):kPanel));
+        ov.addTextCentered(names[i],{r.x,r.y,r.w,r.h},1.06f,
+            overlayColor(kWhite));
     }
     return;
     } // New four-view FX workspace; legacy markup below remains dormant.
