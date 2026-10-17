@@ -723,25 +723,35 @@ struct OpSurface {
     float downX{0},downY{0},lastY{0};
     bool moved{false},panning{false},changed{false};
     std::array<std::array<float,2>,6> scroll{},harmonicScroll{};
-    // Each operator's Vol/Pitch timeline has its own viewing scale.
-    // Start at 8x the previous 320 px/s scale for precise attacks.
+    // Independent volume and pitch timelines for each operator.
+    // The scale factors are relative to the original 320 px per second.
+    // Default to 8x for fine transient editing.
     std::array<std::array<uint8_t,2>,6> zoom{{
-        {{1,1}},{{1,1}},{{1,1}},{{1,1}},{{1,1}},{{1,1}}
+        {{4,4}},{{4,4}},{{4,4}},{{4,4}},{{4,4}},{{4,4}}
     }};
-    static constexpr std::array<float,3> kTimePixelsPerSecond{
-        320.0f,2560.0f,10240.0f
+    static constexpr std::array<float,6> kTimeZoomFactors{
+        0.5f,1.0f,2.0f,4.0f,8.0f,16.0f
     };
+    float zoomFactor()const{
+        return kTimeZoomFactors[zoom[op][page==1?1:0]];
+    }
     float pixelsPerSecond()const{
-        return kTimePixelsPerSecond[zoom[op][page==1?1:0]];
+        return 320.0f*zoomFactor();
     }
-    int zoomFactor()const{
-        return static_cast<int>(pixelsPerSecond()/kTimePixelsPerSecond[0]);
+    std::string zoomLabel()const{
+        const float factor=zoomFactor();
+        return factor<1.0f?"0.5x":std::to_string(static_cast<int>(factor))+"x";
     }
-    void cycleTimeZoom(){
-        if(page>=2)return;
+    // Zoom in or out one level, keeping the visible top time unchanged.
+    // Boundaries do not wrap around to the opposite magnification.
+    void adjustTimeZoom(int direction){
+        if(page>=2||direction==0)return;
         auto& index=zoom[op][page];
+        const int next=std::clamp(static_cast<int>(index)+direction,0,
+            static_cast<int>(kTimeZoomFactors.size())-1);
+        if(next==index)return;
         const float topSeconds=scroll[op][page]/pixelsPerSecond();
-        index=static_cast<uint8_t>((index+1)%kTimePixelsPerSecond.size());
+        index=static_cast<uint8_t>(next);
         const float maxScroll=std::max(0.0f,120.0f*pixelsPerSecond()-rect(11).h);
         scroll[op][page]=std::clamp(topSeconds*pixelsPerSecond(),0.0f,maxScroll);
     }
@@ -858,13 +868,28 @@ struct OpSurface {
         ov.addRect({graph.x,graph.y,graph.w,graph.h},overlayColor(kRollBg));
         if(page<2){
             const auto c=env(o);
-            for(int i=0;i<4;++i){
-                auto r=rect(10,i);button(r,i==2&&c.sustain);
-                const std::string caption=i==0?"Decay":i==1?"Release":
-                    i==2?(c.sustain?"Sustain":"Free run"):
-                    ("Time "+std::to_string(zoomFactor())+"x");
-                text(caption,r,.76f);
+            for(int i=0;i<3;++i){
+                const auto r=rect(10,i);
+                button(r,i==2&&c.sustain);
+                text(i==0?"Decay":i==1?"Release":
+                    (c.sustain?"Sustain":"Free run"),r,.76f);
             }
+            // The old Delete slot is a three-part time zoom control:
+            // [−] [current magnification] [+]. Both directions are
+            // independently tappable and disabled at their limits.
+            const auto r=rect(10,3);
+            const float side=r.w*.29f;
+            const Rect minus{r.x,r.y,side,r.h};
+            const Rect plus{r.x+r.w-side,r.y,side,r.h};
+            const Rect value{r.x+side+2.0f,r.y,
+                std::max(0.0f,r.w-2.0f*side-4.0f),r.h};
+            const int zoomIndex=zoom[op][page];
+            button(minus,zoomIndex>0);
+            button(plus,zoomIndex+1<static_cast<int>(kTimeZoomFactors.size()));
+            button(value,false);
+            text("-",minus,1.2f);
+            text(zoomLabel(),value,.85f);
+            text("+",plus,1.2f);
             ov.addText(page==1?"-12          0           +12 ST":"0              Volume            100%",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }else if(page==2){
@@ -1095,9 +1120,16 @@ struct OpSurface {
             return true;
         }
         if(page<2)for(int i=0;i<4;++i)if(rect(10,i).contains(x,y)){
-            // Former Delete slot is now a non-destructive time zoom.
-            // Deletion uses quick-tap gestures on interior points.
-            if(i==3){cycleTimeZoom();return true;}
+            // Two dedicated zoom targets; tapping the central readout
+            // leaves the time scale unchanged. Point deletion remains
+            // the quick-tap gesture used by the piano-roll curves.
+            if(i==3){
+                const auto r=rect(10,3);
+                const float side=r.w*.29f;
+                if(x<r.x+side)adjustTimeZoom(-1);
+                else if(x>=r.x+r.w-side)adjustTimeZoom(1);
+                return true;
+            }
             auto c=env(o);
             if(i==2)c.sustain=!c.sustain;
             else if(selected>=0&&selected<c.count-1){
