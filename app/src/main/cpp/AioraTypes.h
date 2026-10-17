@@ -120,11 +120,12 @@ struct FilterLane {
 };
 inline FilterLane initialFilterLane(int lane) noexcept {
     FilterLane l;
-    l.curve.enabled=true;l.curve.sustain=true;l.curve.count=4;
-    l.curve.decayIndex=1;l.curve.releaseIndex=2;
+    // Two equal-valued endpoints mean one draggable static line.
+    // The first inserted point converts it to a timed envelope.
+    l.curve.enabled=true;l.curve.sustain=true;l.curve.count=2;
+    l.curve.decayIndex=0;l.curve.releaseIndex=0;
     const float v=lane%3==0?0.53f:0.5f;
-    l.curve.points[0]={0,v};l.curve.points[1]={.015f,v};
-    l.curve.points[2]={.12f,v};l.curve.points[3]={.25f,v};
+    l.curve.points[0]={0,v};l.curve.points[1]={120.0f,v};
     l.shape.fill(FilterShape::Bell);
     l.transition.fill(.65f);
     return l;
@@ -256,6 +257,13 @@ inline Fx legacyMasterFx(float mix,float decay,float room) noexcept {
 struct ModSlot { ModTarget target{ModTarget::None}; float min{0},max{1}; };
 enum class LinkSource : uint8_t { Mod, Velocity };
 
+inline OperatorCurve initialUnisonCurve(float base=0.0f) noexcept {
+    OperatorCurve c;c.enabled=true;c.sustain=true;c.count=2;
+    c.releaseIndex=0;c.decayIndex=0;
+    c.points[0]={0,std::clamp(base,0.0f,1.0f)};
+    c.points[1]={120.0f,std::clamp(base,0.0f,1.0f)};
+    return c;
+}
 struct Patch {
     std::string name{"Spectrachord Init"};
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
@@ -263,6 +271,7 @@ struct Patch {
     std::vector<ModSlot> modSlots{}; size_t modSlotCount{0};
     std::vector<ModSlot> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
+    OperatorCurve unisonCurve{};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
     bool timpaniMembrane{false};
     float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
@@ -289,7 +298,7 @@ inline DspPatch toDspPatch(const Patch& p) {
     d.modSlotCount=p.modSlotCount;
     if(!p.velocitySlots.empty())d.velocitySlots=std::make_shared<const std::vector<ModSlot>>(p.velocitySlots);
     d.velocitySlotCount=p.velocitySlotCount;
-    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
+    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.unisonCurve=p.unisonCurve;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
     d.timpaniMembrane=p.timpaniMembrane;
     d.drumPitchDrop=p.drumPitchDrop;d.drumPitchDropSeconds=p.drumPitchDropSeconds;
     d.cymbalModel=p.cymbalModel;return d;

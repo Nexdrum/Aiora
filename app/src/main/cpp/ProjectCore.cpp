@@ -930,6 +930,23 @@ bool ProjectCore::setSelectedEvolvingFilter(const EvolvingFilter& model){
     p->filter.evolving=clean;
     return true;
 }
+bool ProjectCore::setSelectedUnisonCurve(const OperatorCurve& curve){
+    std::scoped_lock lock(mutex_);auto* patch=selectedPatchUnsafe();
+    if(!patch||curve.count<2||curve.count>kMaxOperatorPoints)return false;
+    auto clean=curve;
+    clean.enabled=true;
+    clean.releaseIndex=static_cast<uint8_t>(std::clamp<int>(clean.releaseIndex,0,clean.count-2));
+    clean.decayIndex=static_cast<uint8_t>(std::clamp<int>(clean.decayIndex,0,clean.count-2));
+    for(int i=0;i<clean.count;++i){
+        auto& p=clean.points[i];
+        if(!std::isfinite(p.time)||!std::isfinite(p.value))return false;
+        p.time=std::clamp(p.time,0.0f,120.0f);
+        p.value=std::clamp(p.value,0.0f,1.0f);
+        if(i>0&&p.time<=clean.points[i-1].time)return false;
+    }
+    patch->unisonCurve=clean;
+    return true;
+}
 bool ProjectCore::setSelectedFilterType(FilterType type){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->filter.type=type;return true;
 }

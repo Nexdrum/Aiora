@@ -82,6 +82,8 @@ private:
     std::array<EnvState,6> opEnv_{};
     std::array<PointEnvState,6> opVolume_{},opPitch_{},opMorphVolume_{},opMorphPitch_{};
     std::array<PointEnvState,6> filterTimeline_{};
+    PointEnvState unisonTimeline_{};
+    float unisonSmoothed_{0};
     std::array<Biquad,3> evolvingFilterBiquads_{};
     float filterFrequencySmoothed_{1000.0f},filterGainSmoothed_{0.0f},filterQSmoothed_{.5f};
     std::array<float,3> filterShapeSmoothed_{{0,1,0}};

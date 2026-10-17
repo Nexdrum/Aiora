@@ -554,7 +554,9 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"reverbRoom\":");w.number(p.fx.reverbRoom);
     w.raw("}");
     w.raw(",\"fxChain\":");writeFxRack(w,p.fx);
-    w.raw(",\"unison\":");w.number(p.unison);w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
+    w.raw(",\"unison\":");w.number(p.unison);
+    if(p.unisonCurve.enabled){w.raw(",\"unisonCurve\":");writeOperatorCurve(w,p.unisonCurve);}
+    w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
     if(p.timpaniMembrane)w.raw(",\"timpaniMembrane\":true");
     if(p.drumPitchDrop>0.0f&&p.drumPitchDropSeconds>0.0f){w.raw(",\"drumPitchDrop\":");w.number(p.drumPitchDrop);w.raw(",\"drumPitchDropSeconds\":");w.number(p.drumPitchDropSeconds);}
     if(p.cymbalModel>0){w.raw(",\"cymbalModel\":");w.number(p.cymbalModel);}
@@ -808,7 +810,9 @@ bool readPatch(const Json& src,Patch& p){
         p.fx.reverbRoom=clampf(num(x->get("reverbRoom"),1),.5f,2.5f,1);
     }
     readFxRack(src.get("fxChain"),p.fx);
-    p.unison=clampf(num(src.get("unison"),0),0,1,0);p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
+    p.unison=clampf(num(src.get("unison"),0),0,1,0);
+    readOperatorCurve(src.get("unisonCurve"),p.unisonCurve,0,1);
+    p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
     p.timpaniMembrane=boolean(src.get("timpaniMembrane"),false);
     p.drumPitchDrop=clampf(num(src.get("drumPitchDrop"),0),0,36,0);
     p.drumPitchDropSeconds=clampf(num(src.get("drumPitchDropSeconds"),0),0,0.2f,0);

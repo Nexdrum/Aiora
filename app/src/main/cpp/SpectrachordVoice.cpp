@@ -238,6 +238,10 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     const float vEnd=automation_.velocity.count?clamp01(automation_.velocity.points[automation_.velocity.count-1].value):velocity_;
     modValue_=m0;timpaniRingGain_=1.0f;
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
+    if(patch_.unisonCurve.enabled&&patch_.unisonCurve.count>=2){
+        unisonTimeline_.reset(patch_.unisonCurve,true);
+        unisonSmoothed_=std::clamp(patch_.unisonCurve.points[0].value,0.0f,1.0f);
+    }else unisonSmoothed_=fixedUnison_;
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();peak_.reset();peakReady_=false;
     if(patch_.filter.evolving.configured){
@@ -322,6 +326,8 @@ void SpectrachordVoice::release() noexcept {
     }
     if(patch_.filter.evolving.configured)
         for(auto& env:filterTimeline_)env.noteOff();
+    if(patch_.unisonCurve.enabled&&patch_.unisonCurve.count>=2)
+        unisonTimeline_.noteOff();
     ampEnv_.noteOff(sampleRate_);filterEnv_.noteOff(sampleRate_);
 }
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
@@ -384,7 +390,14 @@ float SpectrachordVoice::render() noexcept {
     lfoAge_+=1/sampleRate_;const float lfoFade=P.lfo.attack<=0?1:std::min(1.0f,lfoAge_/P.lfo.attack);const float lfoVel=(1-P.lfo.velocitySensitivity)+P.lfo.velocitySensitivity*pressure;
     const float lfoAmount=std::max(0.0f,slotValue(ModTarget::LfoAmount,expressionV,m,P.lfo.amount))*lfoFade*lfoVel;const float pitchLfoCents=P.lfo.target==LfoTarget::Pitch?lfo*lfoAmount*60:0;
 
-    const float baseMidi=static_cast<float>(midi_)+P.octave*12+bend;const float unison=clamp01(fixedUnison_);const int uniCount=unison>0.0001f?2:1;
+    const bool dynamicUnison=P.unisonCurve.enabled&&P.unisonCurve.count>=2;
+    const float unisonTarget=dynamicUnison?
+        clamp01(unisonTimeline_.next(sampleRate_)):clamp01(fixedUnison_);
+    const float smoothing=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+    unisonSmoothed_+=(unisonTarget-unisonSmoothed_)*smoothing;
+    const float baseMidi=static_cast<float>(midi_)+P.octave*12+bend;
+    const float unison=clamp01(unisonSmoothed_);
+    const int uniCount=unison>0.0001f?2:1;
     // A brief beater-driven membrane sweep settles at the unchanged note fundamental.
     const float pitchDrop=(P.drumPitchDrop>0.0f&&P.drumPitchDropSeconds>0.0f)
         ?P.drumPitchDrop*std::exp(-static_cast<float>(elapsedSamples_)/(sampleRate_*P.drumPitchDropSeconds)):0.0f;
@@ -456,13 +469,14 @@ float SpectrachordVoice::render() noexcept {
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
-            opSum+=op.wave==Wave::Hiss
+            const float sample=op.wave==Wave::Hiss
                 ?hissSample(i,u,f)
                 :waveSample(op,ph,morphValue(i,expressionV,m));
+            opSum+=dynamicUnison&&u==1?sample*unison:sample;
             ph+=kTwoPi*f/sampleRate_;
             if(ph>=kTwoPi)ph-=kTwoPi;
         }
-        now[i]=opSum/static_cast<float>(uniCount)*level;
+        now[i]=opSum/(dynamicUnison?1.0f+unison:static_cast<float>(uniCount))*level;
     }
     lastOp_=now;float sum=0;for(float v:now)sum+=v;
     if(P.cymbalModel){
