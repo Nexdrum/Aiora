@@ -926,6 +926,83 @@ int main(){
         const float a=meanVoice.render(),b=halfVoice.render();
         assert(std::fabs(a-b)<2.0e-6f);
     }
+    // Evolving parametric filter: six independent time curves, four V/M
+    // response channels, and per-Q-node shelf/bell/high-shelf transitions
+    // must survive JSON roundtrips, including adjustable T positions.
+    Patch evolvingPatch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    for(auto& op:evolvingPatch.ops){op.enabled=false;op.level=0;}
+    evolvingPatch.ops[0].enabled=true;evolvingPatch.ops[0].level=.8f;
+    evolvingPatch.ops[0].wave=Wave::Sine;
+    evolvingPatch.filter.evolving=initialEvolvingFilter();
+    auto& filterModel=evolvingPatch.filter.evolving;
+    assert(filterModel.configured);
+    assert(filterModel.lanes[0].curve.releaseIndex==2);
+    filterModel.lanes[2].shape[0]=FilterShape::LowShelf;
+    filterModel.lanes[2].shape[1]=FilterShape::Bell;
+    filterModel.lanes[2].shape[2]=FilterShape::HighShelf;
+    filterModel.lanes[2].transition[1]=.38f;
+    filterModel.lanes[2].transition[2]=.75f;
+    filterModel.lanes[4].curve.sustain=false;
+    filterModel.lanes[3].curve.points[0].value=.83f;
+    filterModel.mods[0]=initialFilterModChannel();
+    filterModel.mods[0].enabled=true;
+    filterModel.mods[0].destination=0; // Frequency directly overridden by M.
+    filterModel.mods[0].response.source=1;
+    filterModel.mods[0].response.points[0].value=.33f;
+    filterModel.mods[0].response.points[1].value=.33f;
+    filterModel.mods[1]=initialFilterModChannel();
+    filterModel.mods[1].enabled=true;
+    filterModel.mods[1].destination=5; // Q Morph.
+    filterModel.mods[1].response.source=0;
+    filterModel.mods[2]=initialFilterModChannel();
+    filterModel.mods[2].enabled=true;
+    filterModel.mods[2].destination=2; // Direct Q, typed per-node.
+    filterModel.mods[2].shape[0]=FilterShape::LowShelf;
+    filterModel.mods[2].shape[1]=FilterShape::Bell;
+    filterModel.mods[2].transition[1]=.25f;
+    const auto evolvingJson=serializePatchJson(evolvingPatch);
+    Patch evolvingDecoded;
+    assert(deserializePatchJson(evolvingJson,evolvingDecoded));
+    assert(evolvingDecoded.filter.evolving.configured);
+    assert(evolvingDecoded.filter.evolving.lanes[2].shape[0]==FilterShape::LowShelf);
+    assert(evolvingDecoded.filter.evolving.lanes[2].shape[2]==FilterShape::HighShelf);
+    assert(std::fabs(evolvingDecoded.filter.evolving.lanes[2].transition[1]-.38f)<.00001f);
+    assert(!evolvingDecoded.filter.evolving.lanes[4].curve.sustain);
+    assert(evolvingDecoded.filter.evolving.mods[0].destination==0);
+    assert(evolvingDecoded.filter.evolving.mods[0].response.source==1);
+    assert(evolvingDecoded.filter.evolving.mods[1].destination==5);
+    assert(evolvingDecoded.filter.evolving.mods[2].shape[1]==FilterShape::Bell);
+    assert(std::fabs(evolvingDecoded.filter.evolving.mods[2].transition[1]-.25f)<.00001f);
+    // The Q shape transitions are normalized, not cascaded. Exercise a
+    // sustained voice across Q type changes, including live M changes.
+    SpectrachordVoice smoothFilter;smoothFilter.prepare(48000.0f);
+    smoothFilter.start(1101,toDspPatch(evolvingDecoded),62,.8f,0,4800.0f);
+    for(int i=0;i<16000;++i){
+        if(i==4000)smoothFilter.setModValue(1);
+        if(i==9000)smoothFilter.setModValue(0);
+        const float v=smoothFilter.render();
+        assert(std::isfinite(v));
+        assert(std::fabs(v)<100);
+    }
+    // A direct frequency Mod channel owns the parameter and bypasses both
+    // time envelopes. After the smooth-in, unrelated envelope edits cannot
+    // change its audio samples.
+    Patch evolvingOther=evolvingDecoded;
+    for(auto& point:evolvingOther.filter.evolving.lanes[0].curve.points)
+        point.value=.91f;
+    for(auto& point:evolvingOther.filter.evolving.lanes[3].curve.points)
+        point.value=.03f;
+    SpectrachordVoice directA,directB;
+    directA.prepare(48000.0f);directB.prepare(48000.0f);
+    directA.start(1102,toDspPatch(evolvingDecoded),62,.8f,0,4800.0f);
+    directB.start(1102,toDspPatch(evolvingOther),62,.8f,0,4800.0f);
+    float lateDelta=0;
+    for(int i=0;i<15000;++i){
+        const float a=directA.render(),b=directB.render();
+        assert(std::isfinite(a)&&std::isfinite(b));
+        if(i>12000)lateDelta+=std::fabs(a-b);
+    }
+    assert(lateDelta<.05f);
     // Default volume and pitch envelopes must place decay at the second
     // anchor and the release/sustain gate at the second-to-last anchor.
     const auto defaults=legacyOperatorVolume(Envelope{});
