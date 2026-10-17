@@ -152,6 +152,7 @@ public:
     bool setSelectedFilterType(FilterType type);
     bool setSelectedEvolvingFilter(const EvolvingFilter& model);
     bool setSelectedUnisonCurve(const OperatorCurve& curve);
+    bool setSelectedMasterAmpCurve(const OperatorCurve& curve);
     bool setSelectedPeakEnabled(bool enabled);
     bool setSelectedPeakFollowNote(bool followNote);
     bool setSelectedLfoTarget(LfoTarget target);

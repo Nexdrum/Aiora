@@ -82,9 +82,12 @@ private:
     std::array<EnvState,6> opEnv_{};
     std::array<PointEnvState,6> opVolume_{},opPitch_{},opMorphVolume_{},opMorphPitch_{};
     std::array<PointEnvState,6> filterTimeline_{};
-    PointEnvState unisonTimeline_{};
+    PointEnvState unisonTimeline_{},masterAmpTimeline_{};
     float unisonSmoothed_{0};
     std::array<Biquad,3> evolvingFilterBiquads_{};
+    std::array<std::array<Biquad,2>,8> slopeLowpasses_{};
+    std::array<float,9> slopeGainSmoothed_{},slopeGainTarget_{};
+    uint32_t slopeUpdateCounter_{0};
     float filterFrequencySmoothed_{1000.0f},filterGainSmoothed_{0.0f},filterQSmoothed_{.5f};
     std::array<float,3> filterShapeSmoothed_{{0,1,0}};
     bool anyCustomVolume_{false};

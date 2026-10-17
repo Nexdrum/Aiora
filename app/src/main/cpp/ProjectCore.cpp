@@ -915,6 +915,17 @@ bool ProjectCore::setSelectedEvolvingFilter(const EvolvingFilter& model){
             clean.lanes[lane].transition[i]=std::clamp(clean.lanes[lane].transition[i],0.0f,.95f);
         }
     }
+    for(auto& slope:clean.slopes){
+        auto& q=slope.profile;
+        if(q.count<2||q.count>kMaxOperatorPoints)return false;
+        for(int i=0;i<q.count;++i){
+            auto& pt=q.points[i];
+            if(!std::isfinite(pt.time)||!std::isfinite(pt.value))return false;
+            pt.value=std::clamp(pt.value,0.0f,1.0f);
+            pt.time=std::clamp(pt.time,0.0f,1.0f);
+            if(i&&pt.time<=q.points[i-1].time)return false;
+        }
+    }
     for(auto& m:clean.mods){
         if(m.destination>=6||m.response.count<2||
            m.response.count>kMaxOperatorPoints)return false;
@@ -929,6 +940,21 @@ bool ProjectCore::setSelectedEvolvingFilter(const EvolvingFilter& model){
     }
     p->filter.evolving=clean;
     return true;
+}
+bool ProjectCore::setSelectedMasterAmpCurve(const OperatorCurve& curve){
+    std::scoped_lock lock(mutex_);auto* patch=selectedPatchUnsafe();
+    if(!patch||curve.count<2||curve.count>kMaxOperatorPoints)return false;
+    auto clean=curve;clean.enabled=true;
+    clean.releaseIndex=static_cast<uint8_t>(std::clamp<int>(clean.releaseIndex,0,clean.count-2));
+    clean.decayIndex=static_cast<uint8_t>(std::clamp<int>(clean.decayIndex,0,clean.count-2));
+    for(int i=0;i<clean.count;++i){
+        auto& p=clean.points[i];
+        if(!std::isfinite(p.time)||!std::isfinite(p.value))return false;
+        p.time=std::clamp(p.time,0.0f,120.0f);
+        p.value=std::clamp(p.value,0.0f,1.0f);
+        if(i>0&&p.time<=clean.points[i-1].time)return false;
+    }
+    patch->masterAmpCurve=clean;return true;
 }
 bool ProjectCore::setSelectedUnisonCurve(const OperatorCurve& curve){
     std::scoped_lock lock(mutex_);auto* patch=selectedPatchUnsafe();

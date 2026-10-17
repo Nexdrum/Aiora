@@ -143,15 +143,35 @@ inline FilterModChannel initialFilterModChannel() noexcept {
     m.shape.fill(FilterShape::Bell);m.transition.fill(.65f);
     return m;
 }
+// Magnitude response drawn against relative octaves (-4 .. +4).
+// The new response replaces, rather than cascades with, its legacy shape.
+struct FilterSlope {
+    bool enabled{false};
+    OperatorResponse profile{};
+};
+inline FilterSlope initialFilterSlope(int shape) noexcept {
+    FilterSlope f;f.profile.enabled=true;f.profile.count=5;
+    constexpr std::array<float,5> x{{0,.25f,.5f,.75f,1}};
+    for(int i=0;i<5;++i) {
+        const float y=shape==0?(i<2?0:(i==2?.5f:1)):
+            shape==2?(i<2?1:(i==2?.5f:0)):
+            (i==2?0:1);
+        f.profile.points[i]={x[i],y};
+    }
+    return f;
+}
 struct EvolvingFilter {
     bool configured{false};
     std::array<FilterLane,6> lanes{};
     std::array<FilterModChannel,4> mods{};
+    bool keyTrack{false};
+    std::array<FilterSlope,3> slopes{};
 };
 inline EvolvingFilter initialEvolvingFilter() noexcept {
     EvolvingFilter e;e.configured=true;
     for(int i=0;i<6;++i)e.lanes[i]=initialFilterLane(i);
     for(auto& mod:e.mods)mod=initialFilterModChannel();
+    for(int i=0;i<3;++i)e.slopes[i]=initialFilterSlope(i);
     return e;
 }
 struct Filter {
@@ -272,6 +292,7 @@ struct Patch {
     std::vector<ModSlot> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
     OperatorCurve unisonCurve{};
+    OperatorCurve masterAmpCurve{};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
     bool timpaniMembrane{false};
     float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
@@ -286,6 +307,7 @@ struct DspPatch {
     std::shared_ptr<const std::vector<ModSlot>> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
     float unison{0},glide{0},octave{0},volume{0.8f};
     OperatorCurve unisonCurve{};
+    OperatorCurve masterAmpCurve{};
     bool timpaniMembrane{false};
     float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
     uint8_t cymbalModel{0}; // 0=normal, 1=crash, 2=ride
@@ -299,7 +321,7 @@ inline DspPatch toDspPatch(const Patch& p) {
     d.modSlotCount=p.modSlotCount;
     if(!p.velocitySlots.empty())d.velocitySlots=std::make_shared<const std::vector<ModSlot>>(p.velocitySlots);
     d.velocitySlotCount=p.velocitySlotCount;
-    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.unisonCurve=p.unisonCurve;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
+    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.unisonCurve=p.unisonCurve;d.masterAmpCurve=p.masterAmpCurve;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
     d.timpaniMembrane=p.timpaniMembrane;
     d.drumPitchDrop=p.drumPitchDrop;d.drumPitchDropSeconds=p.drumPitchDropSeconds;
     d.cymbalModel=p.cymbalModel;return d;

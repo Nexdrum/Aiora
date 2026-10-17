@@ -432,12 +432,22 @@ void writeFilterLane(Writer& w,const FilterLane& lane){
     }
     w.raw("]}");
 }
+void writeOperatorResponse(Writer& w,const OperatorResponse& c);
 void writeEvolvingFilter(Writer& w,const EvolvingFilter& filter){
     if(!filter.configured){w.raw("null");return;}
     w.raw("{\"lanes\":[");
     for(size_t i=0;i<filter.lanes.size();++i){
         if(i)w.raw(",");
         writeFilterLane(w,filter.lanes[i]);
+    }
+    w.raw("],\"keyTrack\":");w.boolean(filter.keyTrack);
+    w.raw(",\"slopes\":[");
+    for(int i=0;i<3;++i){
+        if(i)w.raw(",");
+        const auto& s=filter.slopes[i];
+        w.raw("{\"enabled\":");w.boolean(s.enabled);
+        w.raw(",\"response\":");writeOperatorResponse(w,s.profile);
+        w.raw("}");
     }
     w.raw("],\"mods\":[");
     for(size_t j=0;j<filter.mods.size();++j){
@@ -520,6 +530,7 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"frequency\":");w.number(p.peak.frequency);
     w.raw(",\"q\":");w.number(p.peak.q);
     w.raw(",\"gainDb\":");w.number(p.peak.gainDb);w.raw("}");
+    if(p.masterAmpCurve.enabled){w.raw(",\"masterAmpCurve\":");writeOperatorCurve(w,p.masterAmpCurve);}
     w.raw(",\"amp\":{\"attack\":");w.number(p.amp.attack);w.raw(",\"decay\":");w.number(p.amp.decay);w.raw(",\"sustain\":");w.number(p.amp.sustain);w.raw(",\"release\":");w.number(p.amp.release);w.raw("}");
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
     w.raw(",\"vel\":{\"amp\":");w.number(p.velocityAmp);w.raw(",\"filter\":");w.number(p.velocityFilter);
@@ -619,6 +630,17 @@ void readOperatorResponse(const Json* j,OperatorResponse& out){
 void readEvolvingFilter(const Json* j,EvolvingFilter& e){
     if(!j||j->type!=Json::Type::Object)return;
     e=initialEvolvingFilter();
+    e.keyTrack=boolean(j->get("keyTrack"),false);
+    if(const auto* slopeArr=j->get("slopes");
+       slopeArr&&slopeArr->type==Json::Type::Array){
+        for(size_t i=0;i<std::min<size_t>(3,slopeArr->array.size());++i){
+            const auto& raw=slopeArr->array[i];
+            if(raw.type!=Json::Type::Object)continue;
+            auto& s=e.slopes[i];
+            s.enabled=boolean(raw.get("enabled"),false);
+            readOperatorResponse(raw.get("response"),s.profile);
+        }
+    }
     auto shapeOf=[](const Json* p){
         return static_cast<FilterShape>(clampi(num(p?p->get("shape"):nullptr,1),0,2,1));
     };
@@ -810,6 +832,7 @@ bool readPatch(const Json& src,Patch& p){
         p.fx.reverbRoom=clampf(num(x->get("reverbRoom"),1),.5f,2.5f,1);
     }
     readFxRack(src.get("fxChain"),p.fx);
+    readOperatorCurve(src.get("masterAmpCurve"),p.masterAmpCurve,0,1);
     p.unison=clampf(num(src.get("unison"),0),0,1,0);
     readOperatorCurve(src.get("unisonCurve"),p.unisonCurve,0,1);
     p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
