@@ -758,7 +758,11 @@ int main(){
     assert(decoded.ops[0].volumeCurve.sustain==false);
     assert(decoded.ops[0].pitchCurve.points[0].value==2);
     assert(decoded.ops[0].expressionCurve.points[1].handleActive);
-    assert(decoded.ops[0].volumeCurve.decayIndex==2);
+    assert(decoded.ops[0].volumeCurve.decayIndex==1);
+    assert(decoded.ops[0].volumeCurve.releaseIndex==2);
+    assert(initialOperatorPitch().count==4);
+    assert(initialOperatorPitch().decayIndex==1);
+    assert(initialOperatorPitch().releaseIndex==2);
     assert(operatorCurveValue(decoded.ops[0].pitchCurve.points.data(),
         decoded.ops[0].pitchCurve.count,0.0f)==2.0f);
     SpectrachordVoice shortVoice;shortVoice.prepare(48000.0f);
@@ -785,6 +789,19 @@ int main(){
     // Midpoint and handle-based shapes follow authored response values.
     auto r=initialOperatorResponse();
     r.points[1].handleActive=true;r.points[1].handleValue=0;
-    assert(operatorCurveValue(r.points.data(),r.count,.5f)<.3f);
+    assert(std::fabs(operatorCurveValue(r.points.data(),r.count,.5f))<.00001f);
+    r.points[1].handleValue=.28f;
+    r.points[1].midpoint=.35f;
+    assert(std::fabs(operatorCurveValue(r.points.data(),r.count,.35f)-.28f)<.00001f);
+    for(int i=0;i<=100;++i){
+        const float t=static_cast<float>(i)/100;
+        const float y=operatorCurveValue(r.points.data(),r.count,t);
+        assert(y>=-.00001f&&y<=1.00001f);
+    }
+    // Default volume and pitch envelopes must place decay at the second
+    // anchor and the release/sustain gate at the second-to-last anchor.
+    const auto defaults=legacyOperatorVolume(Envelope{});
+    assert(defaults.count==4&&defaults.decayIndex==1&&
+        defaults.releaseIndex==defaults.count-2);
     return 0;
 }
