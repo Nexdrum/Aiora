@@ -2057,11 +2057,12 @@ struct UnisonSurface {
             view.x+24,view.y+105,.92f,overlayColor(kCyan));
         if(ampMode){
             const auto a=ampToggle();
+            const bool active=ProjectCore::instance().selectedPatch().masterAmpCurve.enabled;
             o.addRect({a.x,a.y,a.w,a.h},
-                overlayColor(c.enabled?kGreen:kButton));
-            o.addTextCentered(c.enabled?"Enabled":"Enable Amp",
+                overlayColor(active?kGreen:kButton));
+            o.addTextCentered(active?"Enabled":"Enable Amp",
                 {a.x,a.y,a.w,a.h},.88f,
-                overlayColor(c.enabled?kBg:kWhite));
+                overlayColor(active?kBg:kWhite));
         }
         o.addText(flat(c)?
             (ampMode?"Flat level. Tap away from line to add envelope points.":
@@ -2211,7 +2212,9 @@ struct UnisonSurface {
         moved=changed=false;drag=bend=-1;downX=x;downY=y;
         started=std::chrono::steady_clock::now();
         if(ampMode&&ampToggle().contains(x,y)){
-            auto c=curve();c.enabled=!c.enabled;
+            auto c=curve();
+            const bool current=ProjectCore::instance().selectedPatch().masterAmpCurve.enabled;
+            c.enabled=!current;
             changed=ProjectCore::instance().setSelectedMasterAmpCurve(c);
             return true;
         }
