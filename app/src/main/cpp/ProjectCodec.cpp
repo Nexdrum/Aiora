@@ -396,6 +396,34 @@ bool readFxRack(const Json* source,Fx& fx){
 void writeFloatArray(Writer& w,const std::array<float,16>& a){
     w.raw("[");for(size_t i=0;i<a.size();++i){if(i)w.raw(",");w.number(a[i]);}w.raw("]");
 }
+void writeOperatorCurve(Writer& w,const OperatorCurve& c){
+    w.raw("{\"enabled\":");w.boolean(c.enabled);
+    w.raw(",\"sustain\":");w.boolean(c.sustain);
+    w.raw(",\"releaseIndex\":");w.number(c.releaseIndex);
+    w.raw(",\"points\":[");
+    for(size_t i=0;i<c.count;++i){
+        if(i)w.raw(",");const auto& p=c.points[i];
+        w.raw("{\"t\":");w.number(p.time);w.raw(",\"v\":");w.number(p.value);
+        w.raw(",\"mid\":");w.number(p.midpoint);
+        if(p.free)w.raw(",\"free\":true");
+        if(p.handleActive){w.raw(",\"handle\":");w.number(p.handleValue);}
+        w.raw("}");
+    }
+    w.raw("]}");
+}
+void writeOperatorResponse(Writer& w,const OperatorResponse& c){
+    w.raw("{\"enabled\":");w.boolean(c.enabled);
+    w.raw(",\"source\":");w.string(c.source?"M":"V");
+    w.raw(",\"points\":[");
+    for(size_t i=0;i<c.count;++i){
+        if(i)w.raw(",");const auto& p=c.points[i];
+        w.raw("{\"t\":");w.number(p.time);w.raw(",\"v\":");w.number(p.value);
+        w.raw(",\"mid\":");w.number(p.midpoint);
+        if(p.handleActive){w.raw(",\"handle\":");w.number(p.handleValue);}
+        w.raw("}");
+    }
+    w.raw("]}");
+}
 void writePatch(Writer& w,const Patch& p){
     w.raw("{\"name\":");w.string(p.name);
     w.raw(",\"ops\":[");
@@ -407,6 +435,9 @@ void writePatch(Writer& w,const Patch& p){
         w.raw(",\"detune\":");w.number(o.detuneCents);
         w.raw(",\"level\":");w.number(o.level);
         w.raw(",\"attack\":");w.number(o.env.attack);w.raw(",\"decay\":");w.number(o.env.decay);w.raw(",\"sustain\":");w.number(o.env.sustain);w.raw(",\"release\":");w.number(o.env.release);
+        if(o.volumeCurve.enabled){w.raw(",\"volumeCurve\":");writeOperatorCurve(w,o.volumeCurve);}
+        if(o.pitchCurve.enabled){w.raw(",\"pitchCurve\":");writeOperatorCurve(w,o.pitchCurve);}
+        if(o.expressionCurve.enabled){w.raw(",\"expressionCurve\":");writeOperatorResponse(w,o.expressionCurve);}
         w.raw(",\"harm\":");if(o.hasHarm)writeFloatArray(w,o.harm);else w.raw("null");
         if(o.hasHarmMute){w.raw(",\"harmMute\":");writeFloatArray(w,o.harmMute);}
         w.raw("}");
@@ -471,6 +502,50 @@ bool readFloatArray(const Json* j,std::array<float,16>& dst){
     for(size_t i=0;i<std::min<size_t>(16,j->array.size());++i)dst[i]=clampf(num(&j->array[i],0),0,1,0);
     return true;
 }
+OperatorPoint readOperatorPoint(const Json& j,float maxTime,float lo,float hi){
+    OperatorPoint p;
+    p.time=clampf(num(j.get("t"),0),0,maxTime,0);
+    p.value=clampf(num(j.get("v"),0),lo,hi,0);
+    p.midpoint=clampf(num(j.get("mid"),.5),.02f,.98f,.5f);
+    p.free=boolean(j.get("free"),false);
+    if(j.get("handle")){p.handleActive=true;p.handleValue=clampf(num(j.get("handle"),0),lo,hi,0);}
+    return p;
+}
+void readOperatorCurve(const Json* j,OperatorCurve& out,float lo,float hi){
+    if(!j||j->type!=Json::Type::Object)return;
+    const auto* points=j->get("points");
+    if(!points||points->type!=Json::Type::Array||points->array.size()<2)return;
+    out={};
+    for(const auto& raw:points->array){
+        if(out.count>=kMaxOperatorPoints)break;
+        if(raw.type==Json::Type::Object)
+            out.points[out.count++]=readOperatorPoint(raw,120.0f,lo,hi);
+    }
+    if(out.count<2){out={};return;}
+    std::stable_sort(out.points.begin(),out.points.begin()+out.count,
+        [](const OperatorPoint&a,const OperatorPoint&b){return a.time<b.time;});
+    for(size_t i=1;i<out.count;++i)
+        out.points[i].time=std::max(out.points[i].time,out.points[i-1].time+.0001f);
+    out.releaseIndex=static_cast<uint8_t>(clampi(num(j->get("releaseIndex"),out.count-2),0,out.count-2,out.count-2));
+    out.sustain=boolean(j->get("sustain"),true);
+    out.enabled=boolean(j->get("enabled"),true);
+}
+void readOperatorResponse(const Json* j,OperatorResponse& out){
+    if(!j||j->type!=Json::Type::Object)return;
+    const auto* points=j->get("points");
+    if(!points||points->type!=Json::Type::Array||points->array.size()<2)return;
+    out={};
+    for(const auto& raw:points->array){
+        if(out.count>=kMaxOperatorPoints)break;
+        if(raw.type==Json::Type::Object)
+            out.points[out.count++]=readOperatorPoint(raw,1.0f,0,1);
+    }
+    if(out.count<2){out={};return;}
+    std::stable_sort(out.points.begin(),out.points.begin()+out.count,
+        [](const OperatorPoint&a,const OperatorPoint&b){return a.time<b.time;});
+    out.source=str(j->get("source"),"V")=="M"?1:0;
+    out.enabled=boolean(j->get("enabled"),true);
+}
 bool readPatch(const Json& src,Patch& p){
     if(src.type!=Json::Type::Object)return false;
     const Json* ops=src.get("ops");
@@ -506,6 +581,9 @@ bool readPatch(const Json& src,Patch& p){
             std::clamp(fine,-50.0f,50.0f));
         o.level=clampf(num(jo.get("level"),o.level),0,1,o.level);
         o.env.attack=clampf(num(jo.get("attack"),o.env.attack),.0005f,2,o.env.attack);o.env.decay=clampf(num(jo.get("decay"),o.env.decay),.005f,3,o.env.decay);o.env.sustain=clampf(num(jo.get("sustain"),o.env.sustain),0,1,o.env.sustain);o.env.release=clampf(num(jo.get("release"),o.env.release),.02f,3,o.env.release);
+        readOperatorCurve(jo.get("volumeCurve"),o.volumeCurve,0,1);
+        readOperatorCurve(jo.get("pitchCurve"),o.pitchCurve,-12,12);
+        readOperatorResponse(jo.get("expressionCurve"),o.expressionCurve);
         o.hasHarm=readFloatArray(jo.get("harm"),o.harm);o.hasHarmMute=readFloatArray(jo.get("harmMute"),o.harmMute);
     }
     if(const Json* matrix=src.get("matrix");matrix&&matrix->type==Json::Type::Array){

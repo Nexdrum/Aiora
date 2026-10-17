@@ -40,6 +40,14 @@ private:
         float next(float sr) noexcept;
         bool done() const noexcept { return stage == EnvStage::Off; }
     };
+    struct PointEnvState {
+        OperatorCurve curve{};
+        float age{0},releaseAge{0},releaseStart{0},value{0};
+        bool releasing{false},done{false};
+        void reset(const OperatorCurve& c) noexcept;
+        void noteOff() noexcept;
+        float next(float sampleRate) noexcept;
+    };
     struct Biquad {
         float b0{1},b1{0},b2{0},a1{0},a2{0};
         float z1{0},z2{0};
@@ -71,6 +79,8 @@ private:
     DspPatch patch_{};
     VoiceAutomation automation_{};
     std::array<EnvState,6> opEnv_{};
+    std::array<PointEnvState,6> opVolume_{},opPitch_{};
+    bool anyCustomVolume_{false};
     EnvState ampEnv_{};
     EnvState filterEnv_{};
     std::array<std::array<float,2>,6> phase_{};

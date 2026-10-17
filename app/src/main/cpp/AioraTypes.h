@@ -31,6 +31,56 @@ enum class ModTarget : uint8_t {
 };
 
 struct Envelope { float attack{0.008f}, decay{0.12f}, sustain{0.85f}, release{0.25f}; };
+// Fixed-capacity curves: no allocation during synthesis or note scheduling.
+// Time envelopes use seconds; response curves use input fractions (0..1).
+constexpr size_t kMaxOperatorPoints=24;
+struct OperatorPoint {
+    float time{0},value{0},midpoint{0.5f},handleValue{0};
+    bool free{false},handleActive{false};
+};
+struct OperatorCurve {
+    std::array<OperatorPoint,kMaxOperatorPoints> points{};
+    uint8_t count{0},releaseIndex{0};
+    bool enabled{false},sustain{true};
+};
+struct OperatorResponse {
+    std::array<OperatorPoint,kMaxOperatorPoints> points{};
+    uint8_t count{0};
+    uint8_t source{0}; // 0=velocity, 1=modulation
+    bool enabled{false};
+};
+// Interpolates warped/curved segments without allocating on the audio thread.
+inline float operatorCurveValue(const OperatorPoint* points,size_t count,float x,float fallback=0) noexcept {
+    if(!count)return fallback;
+    if(x<=points[0].time)return points[0].value;
+    for(size_t i=1;i<count;++i){
+        if(x<=points[i].time){
+            const auto&a=points[i-1];const auto&b=points[i];
+            const float t=std::clamp((x-a.time)/std::max(.000001f,b.time-a.time),0.0f,1.0f);
+            const float mid=std::clamp(b.midpoint,.02f,.98f);
+            const float u=t<mid?0.5f*t/mid:0.5f+0.5f*(t-mid)/(1.0f-mid);
+            if(b.handleActive)
+                return (1-u)*(1-u)*a.value+2*u*(1-u)*b.handleValue+u*u*b.value;
+            return a.value+(b.value-a.value)*u;
+        }
+    }
+    return points[count-1].value;
+}
+inline OperatorCurve legacyOperatorVolume(const Envelope& e) noexcept {
+    OperatorCurve c; c.enabled=true;c.sustain=true;c.count=4;c.releaseIndex=2;
+    c.points[0]={0,0};c.points[1]={std::max(.0005f,e.attack),1};
+    c.points[2]={c.points[1].time+std::max(.0005f,e.decay),std::clamp(e.sustain,0.0f,1.0f)};
+    c.points[3]={c.points[2].time+std::max(.0005f,e.release),0};
+    return c;
+}
+inline OperatorCurve initialOperatorPitch() noexcept {
+    OperatorCurve c;c.enabled=true;c.sustain=true;c.count=3;c.releaseIndex=1;
+    c.points[0]={0,0};c.points[1]={.1f,0};c.points[2]={.25f,0};
+    return c;
+}
+inline OperatorResponse initialOperatorResponse() noexcept {
+    OperatorResponse c;c.enabled=true;c.count=2;c.points[0]={0,0};c.points[1]={1,1};return c;
+}
 struct Operator {
     bool enabled{true};
     Wave wave{Wave::Sine};
@@ -39,6 +89,8 @@ struct Operator {
     float detuneCents{0.0f};
     float level{0.0f};
     Envelope env{0.005f,0.1f,0.8f,0.15f};
+    OperatorCurve volumeCurve{},pitchCurve{};
+    OperatorResponse expressionCurve{};
     std::array<float,16> harm{}; std::array<float,16> harmMute{};
     bool hasHarm{false},hasHarmMute{false};
 };

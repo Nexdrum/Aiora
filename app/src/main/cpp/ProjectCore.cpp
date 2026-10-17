@@ -234,6 +234,22 @@ bool ProjectCore::replaceSelectedPatch(Patch patch){
     *target=std::move(patch);return true;
 }
 
+bool ProjectCore::setSelectedOperatorCurve(int opIndex,int kind,const OperatorCurve& curve){
+    if(opIndex<0||opIndex>=6||kind<0||kind>1||curve.count>kMaxOperatorPoints)return false;
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();if(!p)return false;
+    auto& op=p->ops[static_cast<size_t>(opIndex)];
+    (kind==0?op.volumeCurve:op.pitchCurve)=curve;
+    return true;
+}
+bool ProjectCore::setSelectedOperatorResponse(int opIndex,const OperatorResponse& response){
+    if(opIndex<0||opIndex>=6||response.count>kMaxOperatorPoints)return false;
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();if(!p)return false;
+    p->ops[static_cast<size_t>(opIndex)].expressionCurve=response;
+    return true;
+}
+
 int ProjectCore::addTrack(bool drums) {
     std::scoped_lock lock(mutex_);
     

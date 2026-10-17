@@ -44,6 +44,46 @@ float SpectrachordVoice::EnvState::next(float sr) noexcept {
     return value;
 }
 
+void SpectrachordVoice::PointEnvState::reset(const OperatorCurve& c) noexcept {
+    curve=c;age=0;releaseAge=0;releaseStart=0;value=0;releasing=false;done=false;
+}
+void SpectrachordVoice::PointEnvState::noteOff() noexcept {
+    if(releasing||done||!curve.enabled||!curve.count)return;
+    releaseStart=value;releaseAge=0;releasing=true;
+}
+float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
+    if(done||!curve.enabled||!curve.count)return 0;
+    const auto* pts=curve.points.data();
+    const int last=static_cast<int>(curve.count)-1;
+    const int pivot=std::clamp(static_cast<int>(curve.releaseIndex),0,last);
+    const float dt=1.0f/std::max(8000.0f,sr);
+    if(releasing){
+        const float total=pts[last].time-pts[pivot].time;
+        if(total<=0||releaseAge>=total){done=true;value=0;return 0;}
+        // Release is relative to note-off: the current value replaces the
+        // drawn release start point, and the remaining segment timings survive.
+        OperatorPoint start=pts[pivot];start.time=0;start.value=releaseStart;
+        value=releaseStart;
+        for(int i=pivot+1;i<=last;++i){
+            const float endT=std::max(0.0f,pts[i].time-pts[pivot].time);
+            if(releaseAge<=endT){
+                OperatorPoint end=pts[i];end.time=endT;
+                const float beginT=i==pivot+1?0.0f:pts[i-1].time-pts[pivot].time;
+                if(i>pivot+1){start=pts[i-1];start.time=beginT;}
+                OperatorPoint segment[2]{start,end};
+                value=operatorCurveValue(segment,2,releaseAge,releaseStart);
+                break;
+            }
+        }
+        releaseAge+=dt;
+    }else{
+        const float limit=curve.sustain?pts[pivot].time:pts[last].time;
+        value=operatorCurveValue(pts,curve.count,std::min(age,limit),0);
+        if(!curve.sustain&&age>=pts[last].time){value=0;done=true;}
+        age+=dt;
+    }
+    return value;
+}
 void SpectrachordVoice::Biquad::configure(FilterType type,float freq,float q,float sr) noexcept {
     freq=std::clamp(freq,20.0f,sr*0.45f);q=std::max(0.05f,q);
     const float w0=kTwoPi*freq/sr,c=std::cos(w0),s=std::sin(w0),alpha=s/(2*q);
@@ -156,7 +196,11 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
             plateDecay_[i]=std::exp(-1.0f/(sampleRate_*seconds));
         }
     }
+    anyCustomVolume_=false;
     for(size_t i=0;i<6;++i){
+        opVolume_[i].reset(patch_.ops[i].volumeCurve);
+        opPitch_[i].reset(patch_.ops[i].pitchCurve);
+        anyCustomVolume_|=patch_.ops[i].enabled&&patch_.ops[i].volumeCurve.enabled&&patch_.ops[i].volumeCurve.count>1;
         Envelope shape=patch_.ops[i].env;
         // Per-operator decay links are the editable replacement for the
         // old crash-only velocity envelope. Sample at note-on as with ADSR.
@@ -175,7 +219,12 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     f.release=std::max(0.0005f,slotValue(ModTarget::FilterRelease,vEnd,mEnd,f.release));
     ampEnv_.reset(a,sampleRate_);filterEnv_.reset(f,sampleRate_);
 }
-void SpectrachordVoice::release() noexcept {if(!active_)return;autoRelease_=false;for(auto&e:opEnv_)e.noteOff(sampleRate_);ampEnv_.noteOff(sampleRate_);filterEnv_.noteOff(sampleRate_);}
+void SpectrachordVoice::release() noexcept {
+    if(!active_)return;
+    autoRelease_=false;
+    for(size_t i=0;i<6;++i){opEnv_[i].noteOff(sampleRate_);opVolume_[i].noteOff();opPitch_[i].noteOff();}
+    ampEnv_.noteOff(sampleRate_);filterEnv_.noteOff(sampleRate_);
+}
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
 
 float SpectrachordVoice::noise() noexcept {uint32_t x=rng_;x^=x<<13;x^=x>>17;x^=x<<5;rng_=x;return static_cast<float>(x)/2147483648.0f-1.0f;}
@@ -243,13 +292,28 @@ float SpectrachordVoice::render() noexcept {
     std::array<float,6>now{};
     for(size_t i=0;i<6;++i){
         const auto&op=P.ops[i];if(!op.enabled){opEnv_[i].next(sampleRate_);continue;}
-        const float env=opEnv_[i].next(sampleRate_),level=opLevel(i,expressionV,m)*env;
+        const float oldEnv=opEnv_[i].next(sampleRate_);
+        const float env=op.volumeCurve.enabled&&op.volumeCurve.count>1
+            ?opVolume_[i].next(sampleRate_):oldEnv;
+        const float pitchEnv=op.pitchCurve.enabled&&op.pitchCurve.count>1
+            ?opPitch_[i].next(sampleRate_):0.0f;
+        float response=1.0f;
+        const auto&expr=op.expressionCurve;
+        if(expr.enabled&&expr.count>1){
+            const bool supplied=expr.source==0?velocityCurveActive_||velocity_>=0:modActive_;
+            if(supplied){
+                const float in=expr.source==0?expressionV:m;
+                response=std::clamp(operatorCurveValue(expr.points.data(),expr.count,
+                    std::clamp(in,0.0f,1.0f),1),0.0f,1.0f);
+            }
+        }
+        const float level=opLevel(i,expressionV,m)*env*response;
         if(level<=0.000001f)continue;
         const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
         float fmHz=0;
         // Bend has no artificial semitone ceiling. The physical output
         // oscillator must still remain finite and below Nyquist.
-        const float unboundedBase=midiHz(baseMidi+(i<2?pitchDrop:0.0f))*op.ratio*semitoneScale;
+        const float unboundedBase=midiHz(baseMidi+(i<2?pitchDrop:0.0f)+pitchEnv)*op.ratio*semitoneScale;
         const float maxHz=sampleRate_*0.49f;
         const float baseF=std::isfinite(unboundedBase)
             ?std::clamp(unboundedBase,0.001f,maxHz):maxHz;
@@ -321,7 +385,17 @@ float SpectrachordVoice::render() noexcept {
     }
     const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,expressionV,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
     if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,expressionV,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
-    const float amp=ampEnv_.next(sampleRate_)*lvlScale;if(ampEnv_.done()){active_=false;return 0;}float gain=std::max(0.0f,slotValue(ModTarget::Volume,expressionV,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);
+    const float ampLegacy=ampEnv_.next(sampleRate_)*lvlScale;
+    if(!anyCustomVolume_&&ampEnv_.done()){active_=false;return 0;}
+    bool anyOperatorAlive=false;
+    for(size_t i=0;i<6;++i){
+        if(!P.ops[i].enabled||P.ops[i].level<=0)continue;
+        anyOperatorAlive|=(P.ops[i].volumeCurve.enabled&&P.ops[i].volumeCurve.count>1)
+            ?!opVolume_[i].done:!opEnv_[i].done();
+    }
+    if(anyCustomVolume_&&!anyOperatorAlive){active_=false;return 0;}
+    const float amp=anyCustomVolume_?1.0f:ampLegacy;
+    float gain=std::max(0.0f,slotValue(ModTarget::Volume,expressionV,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);
     ++elapsedSamples_;return filtered*amp*gain*P.volume*velocityGain*(P.timpaniMembrane?timpaniRingGain_:1.0f)*(P.cymbalModel?cymbalTailGain_:1.0f);
 }
 
