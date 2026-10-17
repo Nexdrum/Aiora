@@ -751,8 +751,8 @@ int main(){
     pointOp.expressionCurve=initialOperatorResponse();
     pointOp.expressionCurve.points[1].handleActive=true;
     pointOp.expressionCurve.points[1].handleValue=.2f;
-    const auto json=serializePatchJson(pointPatch);
-    Patch decoded;assert(deserializePatchJson(json,decoded));
+    const auto pointJson=serializePatchJson(pointPatch);
+    Patch decoded;assert(deserializePatchJson(pointJson,decoded));
     assert(decoded.ops[0].volumeCurve.enabled);
     assert(decoded.ops[0].volumeCurve.count==4);
     assert(decoded.ops[0].volumeCurve.sustain==false);
