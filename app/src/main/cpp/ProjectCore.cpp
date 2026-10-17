@@ -944,7 +944,7 @@ bool ProjectCore::setSelectedEvolvingFilter(const EvolvingFilter& model){
 bool ProjectCore::setSelectedMasterAmpCurve(const OperatorCurve& curve){
     std::scoped_lock lock(mutex_);auto* patch=selectedPatchUnsafe();
     if(!patch||curve.count<2||curve.count>kMaxOperatorPoints)return false;
-    auto clean=curve;clean.enabled=true;
+    auto clean=curve;
     clean.releaseIndex=static_cast<uint8_t>(std::clamp<int>(clean.releaseIndex,0,clean.count-2));
     clean.decayIndex=static_cast<uint8_t>(std::clamp<int>(clean.decayIndex,0,clean.count-2));
     for(int i=0;i<clean.count;++i){

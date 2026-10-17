@@ -2011,7 +2011,7 @@ struct UnisonSurface {
     float rate()const{return 320.0f*zooms[zoom];}
     OperatorCurve curve()const{
         const auto& p=ProjectCore::instance().selectedPatch();
-        if(ampMode)return p.masterAmpCurve.enabled&&p.masterAmpCurve.count>=2?
+        if(ampMode)return p.masterAmpCurve.count>=2?
             p.masterAmpCurve:legacyOperatorVolume(p.amp);
         return p.unisonCurve.enabled&&p.unisonCurve.count>=2?
             p.unisonCurve:initialUnisonCurve(p.unison);
@@ -2021,8 +2021,14 @@ struct UnisonSurface {
             std::fabs(c.points[0].value-c.points[1].value)<.00001f;
     }
     bool save(const OperatorCurve& c){
-        return ampMode?ProjectCore::instance().setSelectedMasterAmpCurve(c):
-            ProjectCore::instance().setSelectedUnisonCurve(c);
+        if(ampMode){
+            auto enabledCurve=c;enabledCurve.enabled=true;
+            return ProjectCore::instance().setSelectedMasterAmpCurve(enabledCurve);
+        }
+        return ProjectCore::instance().setSelectedUnisonCurve(c);
+    }
+    Rect ampToggle()const{
+        return {view.x+view.w-165,view.y+90,140,54};
     }
     Rect control(int i)const{
         const float w=view.w-32,gap=6,cw=(w-5*gap)/6;
@@ -2046,9 +2052,17 @@ struct UnisonSurface {
         auto& o=NativeOverlay::instance();
         const auto c=curve();
         o.addRect({view.x,view.y,view.w,view.h},overlayColor(kBg));
-        o.addText(ampMode?"Master Amp - combined output envelope (0 to 100)":
+        o.addText(ampMode?"Master Amp":
             "Unison - per-note detune strength (0 to 100)",
             view.x+24,view.y+105,.92f,overlayColor(kCyan));
+        if(ampMode){
+            const auto a=ampToggle();
+            o.addRect({a.x,a.y,a.w,a.h},
+                overlayColor(c.enabled?kGreen:kButton));
+            o.addTextCentered(c.enabled?"Enabled":"Enable Amp",
+                {a.x,a.y,a.w,a.h},.88f,
+                overlayColor(c.enabled?kBg:kWhite));
+        }
         o.addText(flat(c)?
             (ampMode?"Flat level. Tap away from line to add envelope points.":
                 "Flat detune. Drag the line; tap away to add envelope points."):
@@ -2196,6 +2210,11 @@ struct UnisonSurface {
     bool down(float x,float y){
         moved=changed=false;drag=bend=-1;downX=x;downY=y;
         started=std::chrono::steady_clock::now();
+        if(ampMode&&ampToggle().contains(x,y)){
+            auto c=curve();c.enabled=!c.enabled;
+            changed=ProjectCore::instance().setSelectedMasterAmpCurve(c);
+            return true;
+        }
         for(int i=0;i<6;++i)if(control(i).contains(x,y)){
             changed=setControl(i);return true;
         }
