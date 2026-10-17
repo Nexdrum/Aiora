@@ -2319,6 +2319,7 @@ void NativeEditor::renderSynth() const noexcept {
 
 void NativeEditor::renderFx() const noexcept {
     drawPadReservedBackground();
+    {
     auto& ov=NativeOverlay::instance();
     const auto b=bodyRect();
     const auto workspace=std::clamp(fxWorkspace_,0,3);
@@ -2427,6 +2428,7 @@ void NativeEditor::renderFx() const noexcept {
             overlayColor(active?kBg:kWhite));
     }
     return;
+    } // New four-view FX workspace; legacy markup below remains dormant.
 
     const Patch p=ProjectCore::instance().selectedPatch();
     auto& ov=NativeOverlay::instance();
