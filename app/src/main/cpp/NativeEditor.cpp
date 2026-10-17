@@ -317,12 +317,27 @@ NativeEditor::Rect NativeEditor::matrixRect(int modulator,int carrier) const noe
     };
 }
 
+NativeEditor::Rect NativeEditor::fxWorkspaceTabRect(int index) const noexcept {
+    const auto b=bodyRect();
+    const float gap=7.0f;
+    const float x=b.x+16;
+    const float w=(b.w-32-3*gap)/4.0f;
+    return {x+index*(w+gap),b.y+12,w,61};
+}
+NativeEditor::Rect NativeEditor::lfoWorkspaceRow(int row) const noexcept {
+    const auto b=bodyRect();
+    return {b.x+22,b.y+186.0f+row*91.0f,b.w-44,77};
+}
+NativeEditor::Rect NativeEditor::lfoWorkspaceTargetRect() const noexcept {
+    const auto b=bodyRect();
+    return {b.x+b.w*.53f,b.y+105,b.w*.41f,66};
+}
 NativeEditor::Rect NativeEditor::fxRackRect() const noexcept {
     const auto b=bodyRect();const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
     const Fx rack=ProjectCore::instance().fxRack(false);
     float height=175;
     for(int i=0;i<rack.count;++i){height+=82;if(i==fxRackExpanded_)height+=64.0f*fxParamCount(rack.chain[i].type);}
-    return {b.x+gap,b.y+gap-fxScrollY_,b.w-2*gap,height};
+    return {b.x+gap,b.y+104.0f-fxScrollY_,b.w-2*gap,height};
 }
 NativeEditor::Rect NativeEditor::fxRackStageRect(int index) const noexcept {
     const auto c=fxRackRect();const Fx rack=ProjectCore::instance().fxRack(false);
@@ -604,6 +619,10 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     const auto b=bodyRect();
     if(page==EditorPage::Synth)return 0.0f;
 
+    if(page==EditorPage::Fx&&fxWorkspace_==3){
+        const auto rack=fxRackRect();
+        return std::max(0.0f,rack.h+135.0f-b.h);
+    }
     const auto footer=patchTransferRect(page,1);
     const float scroll=
         page==EditorPage::Synth?synthScrollY_:fxScrollY_;
@@ -2295,11 +2314,115 @@ void NativeEditor::renderSynth() const noexcept {
 
 void NativeEditor::renderFx() const noexcept {
     drawPadReservedBackground();
-    if(filterSurface.open){
-        filterSurface.view=bodyRect();
-        filterSurface.draw();
-        return;
+    auto& ov=NativeOverlay::instance();
+    const auto b=bodyRect();
+    const auto workspace=std::clamp(fxWorkspace_,0,3);
+    if(workspace==0){
+        filterSurface.view=b;filterSurface.draw();
+    }else if(workspace==1){
+        unisonSurface.view=b;unisonSurface.draw();
+    }else if(workspace==2){
+        const auto p=ProjectCore::instance().selectedPatch();
+        ov.addText("LFO - existing modulation controls",
+            b.x+24,b.y+109,1.0f,overlayColor(kCyan));
+        const auto target=lfoWorkspaceTargetRect();
+        drawButton(target,true,kPurple);
+        const char* labels[4]={"None","Pitch","Filter","Amp"};
+        ov.addTextCentered(
+            std::string("Target: ")+labels[std::clamp(static_cast<int>(p.lfo.target),0,3)],
+            {target.x,target.y,target.w,target.h},.85f,overlayColor(kBg));
+        static constexpr std::array<PatchParam,4> keys{
+            PatchParam::LfoRate,PatchParam::LfoAmount,
+            PatchParam::LfoAttack,PatchParam::LfoVelocity};
+        static constexpr const char* labels4[4]{
+            "Rate","Amount","Attack","Velocity"};
+        for(int i=0;i<4;++i){
+            const auto r=lfoWorkspaceRow(i);
+            const auto range=patchRange(keys[i]);
+            const float value=patchValue(p,keys[i]);
+            const float normalizedValue=normalized(value,range);
+            const float lw=std::clamp(r.w*.25f,104.0f,160.0f);
+            const float vw=70;
+            const float x=r.x+lw;
+            const float width=std::max(24.0f,r.w-lw-vw-8.0f);
+            const float y=r.y+r.h*.52f;
+            ov.addText(labels4[i],r.x,r.y+23,.89f,overlayColor(kWhite));
+            fillRect({x,y-3,width,6},kTrack);
+            fillRect({x,y-3,width*normalizedValue,6},kPurple);
+            fillRect({x+width*normalizedValue-10,y-10,20,20},
+                mix(kWhite,kPurple,.22f));
+            char shown[28];std::snprintf(shown,sizeof(shown),"%.3g",
+                static_cast<double>(value));
+            ov.addText(shown,r.x+r.w-vw,r.y+24,.85f,overlayColor(kCyan));
+        }
+    }else{
+        const Fx rack=ProjectCore::instance().fxRack(false);
+        const auto rackRect=fxRackRect();
+        ov.setClip({b.x,b.y+85,b.w,std::max(0.0f,b.h-85)});
+        fillRect(rackRect,kButton);
+        fillRect({rackRect.x+2,rackRect.y+2,rackRect.w-4,rackRect.h-4},kPanel);
+        ov.addText("Instrument / Pad post-processing FX",
+            rackRect.x+20,rackRect.y+18,1.02f,overlayColor(kCyan));
+        for(int i=0;i<rack.count;++i){
+            const auto& module=rack.chain[i];
+            const auto r=fxRackStageRect(i);
+            fillRect(r,mix(kPanel,kButton,.45f));
+            const float bw=std::clamp(r.w*.10f,39.0f,67.0f);
+            const float right=r.x+r.w;
+            ov.addText(std::to_string(i+1)+". "+fxTypeName(module.type)+
+                (i==fxRackExpanded_?"   -":"   +"),
+                r.x+12,r.y+25,.89f,
+                overlayColor(module.enabled?kWhite:kMuted));
+            const char* labels[4]={"^","v",module.enabled?"On":"Off","X"};
+            const Rgb colors[4]={kCyan,kCyan,module.enabled?kGreen:kMuted,kRed};
+            for(int j=0;j<4;++j){
+                const Rect cell{right-(4-j)*bw,r.y+5,bw-3,r.h-10};
+                drawButton(cell,false,colors[j]);
+                ov.addTextCentered(labels[j],{cell.x,cell.y,cell.w,cell.h},
+                    .85f,overlayColor(kWhite));
+            }
+            if(i==fxRackExpanded_){
+                for(size_t k=0;k<fxParamCount(module.type);++k){
+                    const auto pr=fxRackParamRect(i,static_cast<int>(k));
+                    const auto d=fxParamDesc(module.type,k);
+                    const float n=normalized(module.params[k],{d.lo,d.hi});
+                    const float lw=std::clamp(pr.w*.27f,115.0f,182.0f),vw=71.0f;
+                    const float x=pr.x+lw,w=std::max(24.0f,pr.w-lw-vw-9.0f);
+                    const float y=pr.y+pr.h*.52f;
+                    ov.addText(d.name,pr.x,pr.y+pr.h*.26f,
+                        .74f,overlayColor(kMuted));
+                    fillRect({x,y-3,w,6},kTrack);
+                    fillRect({x,y-3,w*n,6},kPurple);
+                    fillRect({x+w*n-10,y-10,20,20},mix(kWhite,kPurple,.28f));
+                    char shown[30];std::snprintf(shown,sizeof(shown),"%.4g",
+                        static_cast<double>(module.params[k]));
+                    ov.addText(shown,pr.x+pr.w-vw+3,
+                        pr.y+pr.h*.26f,.77f,overlayColor(kWhite));
+                }
+            }
+        }
+        const auto select=fxRackAddRect(false),add=fxRackAddRect(true);
+        drawButton(select,false,kCyan);drawButton(add,true,kGreen);
+        ov.addTextCentered(std::string(fxTypeName(fxRackNewType_)),
+            {select.x,select.y,select.w,select.h},.82f,overlayColor(kWhite));
+        ov.addDownChevron({select.x+select.w-37,select.y,37,select.h},
+            overlayColor(kWhite));
+        ov.addTextCentered("+ Add FX",{add.x,add.y,add.w,add.h},
+            .90f,overlayColor(kWhite));
+        ov.clearClip();
     }
+    // A fixed navigation strip; no Glide or legacy expression-link page.
+    fillRect({b.x,b.y,b.w,87},kPanel);
+    static constexpr const char* names[4]={"Filter","Unison","LFO","FX"};
+    for(int i=0;i<4;++i){
+        const auto r=fxWorkspaceTabRect(i);
+        const bool active=workspace==i;
+        drawButton(r,active,i==3?kPurple:kCyan);
+        ov.addTextCentered(names[i],{r.x,r.y,r.w,r.h},1.02f,
+            overlayColor(active?kBg:kWhite));
+    }
+    return;
+
     const Patch p=ProjectCore::instance().selectedPatch();
     auto& ov=NativeOverlay::instance();
 
@@ -2589,7 +2712,29 @@ std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
 
 bool NativeEditor::openDropdownAt(
     EditorPage page,float x,float y,NativeUi& ui) const {
-    if(page==EditorPage::Fx&&filterSurface.open)return false;
+    if(page==EditorPage::Fx){
+        const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
+        const auto& p=ProjectCore::instance().selectedPatch();
+        if(fxWorkspace_==3){
+            const auto rr=fxRackAddRect(false);
+            if(rr.contains(x,y)){
+                static const std::vector<std::string> names{
+                    "Saturation","Metal Amp","Cabinet","5-Band EQ","Delay","Reverb"};
+                ui.openDropdown(DropdownKind::FxType,0,anchor(rr),
+                    static_cast<int>(fxRackNewType_),names);
+                return true;
+            }
+        }else if(fxWorkspace_==2){
+            const auto rr=lfoWorkspaceTargetRect();
+            if(rr.contains(x,y)){
+                ui.openDropdown(DropdownKind::LfoTarget,0,anchor(rr),
+                    static_cast<int>(p.lfo.target),
+                    {"none","pitch","filter","amp"});
+                return true;
+            }
+        }
+        return false;
+    }
     const Patch p=ProjectCore::instance().selectedPatch();
     const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
 
@@ -2751,9 +2896,10 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
 
 std::optional<NativeEditor::ModLinkValueHit> NativeEditor::hitModLinkValue(
     float x,float y) const noexcept {
-    if(filterSurface.open)return std::nullopt;
+    // Old numerical link controls are no longer part of this workspace.
+    return std::nullopt;
     // Only active, visible M/V numeric fields can open the Android editor.
-    if(filterSurface.open||!viewportRect().contains(x,y)||scrollGutterRect().contains(x,y))
+    if(!viewportRect().contains(x,y)||scrollGutterRect().contains(x,y))
         return std::nullopt;
     const auto hit=hitFx(x,y);
     if(!hit||(hit->kind!=HitKind::ModMin&&hit->kind!=HitKind::ModMax))
@@ -2855,6 +3001,8 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
     }
     if(const auto r=fxRackAddRect(true);r.contains(x,y))
         return Hit{HitKind::RackAdd,-1,-1,r};
+    // The addable FX view does not expose retired filter / link controls.
+    if(fxWorkspace_==3)return std::nullopt;
     const auto card=fxGroupRect(0);
     const Rect editFilter{card.x+card.w-200,card.y+12,180,52};
     if(editFilter.contains(x,y))
@@ -3134,7 +3282,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 
 std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
     EditorPage page,float x,float y) const noexcept {
-    if(page==EditorPage::Fx&&filterSurface.open)return std::nullopt;
+    if(page==EditorPage::Fx)return std::nullopt;
 
     const auto copy=patchTransferRect(page,1);
     if(copy.contains(x,y))return PatchTransferAction::CopyPatch;
@@ -3153,6 +3301,42 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
 
     opSurface.view=bodyRect();
     filterSurface.view=bodyRect();
+    unisonSurface.view=bodyRect();
+    if(page==EditorPage::Fx){
+        for(int i=0;i<4;++i)if(fxWorkspaceTabRect(i).contains(x,y)){
+            fxWorkspace_=i;fxScrollY_=0;return true;
+        }
+        if(fxWorkspace_==0||fxWorkspace_==1){
+            if(scrollGutterRect().contains(x,y)){
+                scrolling_=true;scrollLastY_=y;return true;
+            }
+            const bool hit=fxWorkspace_==0?
+                filterSurface.down(x,y):unisonSurface.down(x,y);
+            if(hit){
+                activeHit_=Hit{fxWorkspace_==0?HitKind::FilterEditor:
+                    HitKind::UnisonEditor,-1,-1,{}};
+                return true;
+            }
+            return true;
+        }
+        if(fxWorkspace_==2){
+            const auto target=lfoWorkspaceTargetRect();
+            if(target.contains(x,y)){
+                const auto p=ProjectCore::instance().selectedPatch();
+                changed_=ProjectCore::instance().setSelectedLfoTarget(
+                    static_cast<LfoTarget>((static_cast<int>(p.lfo.target)+1)%4));
+                return true;
+            }
+            for(int i=0;i<4;++i)if(lfoWorkspaceRow(i).contains(x,y)){
+                activeHit_=Hit{HitKind::PatchParam,
+                    static_cast<int>(kLfoParams[static_cast<size_t>(i)]),
+                    -1,lfoWorkspaceRow(i)};
+                changed_=applyHit(*activeHit_,x,y);
+                return true;
+            }
+            return true;
+        }
+    }
     // The spectrum lane is the dedicated vertical scroll control.
     if(scrollGutterRect().contains(x,y)){
         scrolling_=true;
@@ -3160,14 +3344,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
         return true;
     }
 
-    if(page==EditorPage::Fx&&filterSurface.open){
-        if(filterSurface.down(x,y)){
-            activeHit_=Hit{HitKind::FilterEditor,-1,-1,{}};
-            return true;
-        }
-        return true;
-    }
-    if(page==EditorPage::Synth&&!matrixMode_){
+     if(page==EditorPage::Synth&&!matrixMode_){
         for(int i=0;i<2;++i){
             const auto tab=synthTabRect(i);
             if(tab.contains(x,y)){matrixMode_=i==1;return true;}
@@ -3193,8 +3370,10 @@ bool NativeEditor::pointerMove(float x,float y){
     if(scrolling_){
         if(activePage_==EditorPage::Synth&&!matrixMode_){
             opSurface.scrollBy(scrollLastY_-y);
-        }else if(activePage_==EditorPage::Fx&&filterSurface.open){
+        }else if(activePage_==EditorPage::Fx&&fxWorkspace_==0){
             filterSurface.scrollBy(scrollLastY_-y);
+        }else if(activePage_==EditorPage::Fx&&fxWorkspace_==1){
+            unisonSurface.scrollBy(scrollLastY_-y);
         }else{
             scrollEditor(activePage_,scrollLastY_-y);
         }
@@ -3206,6 +3385,10 @@ bool NativeEditor::pointerMove(float x,float y){
     if(activePage_==EditorPage::Fx&&
        activeHit_->kind==HitKind::FilterEditor){
         filterSurface.move(x,y);return true;
+    }
+    if(activePage_==EditorPage::Fx&&
+       activeHit_->kind==HitKind::UnisonEditor){
+        unisonSurface.move(x,y);return true;
     }
     if(activePage_==EditorPage::Synth&&!matrixMode_&&
        activeHit_->kind==HitKind::OperatorSelect){
@@ -3229,6 +3412,9 @@ bool NativeEditor::pointerUp(){
     if(activePage_==EditorPage::Fx&&activeHit_&&
        activeHit_->kind==HitKind::FilterEditor)
         changed_=filterSurface.up()||changed_;
+    if(activePage_==EditorPage::Fx&&activeHit_&&
+       activeHit_->kind==HitKind::UnisonEditor)
+        changed_=unisonSurface.up()||changed_;
     if(activePage_==EditorPage::Synth&&!matrixMode_&&activeHit_&&
        activeHit_->kind==HitKind::OperatorSelect)
         changed_=opSurface.up()||changed_;

@@ -58,7 +58,7 @@ private:
         None,
         SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
-        FxGroup, FilterType, FilterOpen, FilterEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
+        FxGroup, FilterType, FilterOpen, FilterEditor, UnisonEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         LinkSourceV, LinkSourceM, ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
     };
@@ -92,6 +92,9 @@ private:
     [[nodiscard]] Rect harmonicRect(int index) const noexcept;
     [[nodiscard]] Rect matrixRect(int modulator,int carrier) const noexcept;
 
+    [[nodiscard]] Rect fxWorkspaceTabRect(int index) const noexcept;
+    [[nodiscard]] Rect lfoWorkspaceRow(int row) const noexcept;
+    [[nodiscard]] Rect lfoWorkspaceTargetRect() const noexcept;
     [[nodiscard]] Rect fxRackRect() const noexcept;
     [[nodiscard]] Rect fxRackStageRect(int index) const noexcept;
     [[nodiscard]] Rect fxRackParamRect(int index,int parameter) const noexcept;
@@ -138,6 +141,7 @@ private:
     int safeBottom_{0};
     int selectedOperator_{0};
     bool matrixMode_{false};
+    int fxWorkspace_{0}; // Filter / Unison / LFO / Addable FX
     int fxGroup_{0};
     int fxRackExpanded_{-1};
     FxType fxRackNewType_{FxType::MetalAmp};

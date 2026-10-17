@@ -11,8 +11,8 @@ android {
         applicationId = "com.nexdrum.aiora"
         minSdk = 26
         targetSdk = 36
-        versionCode = 89
-        versionName = "0.7.62-beta"
+        versionCode = 90
+        versionName = "0.7.63-beta"
 
         externalNativeBuild {
             cmake {
