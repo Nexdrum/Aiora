@@ -717,7 +717,8 @@ void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
 namespace {
 struct OpSurface {
     using Rect=NativeEditor::Rect;
-    int op{0},page{0},selected{-1},drag{-1},bend{-1},harmonicView{0};
+    int op{0},page{0},selected{-1},drag{-1},bend{-1},harmonicView{1};
+    bool custom{false};
     unsigned shadows{0};
     float downX{0},downY{0},lastY{0};
     bool moved{false},panning{false},changed{false};
@@ -735,7 +736,7 @@ struct OpSurface {
             case 4: return {x+w*.80f+6,y+64,w*.20f-6,60}; // operator on/off
             case 5: return {x,y+132,(w-8)*.5f,45}; // level
             case 6: return {x+(w-8)*.5f+8,y+132,(w-8)*.5f,45}; // fine cents
-            case 7: {const float ww=(w-12)/3;return {x+index*(ww+6),y+184,ww,52};}
+            case 7: {const int n=custom?4:3;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
             case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
             case 9: return {x,y+301,w,std::max(120.0f,view.y+view.h-y-76)}; // graph
             case 10:{auto r=rect(9);const float ww=(r.w-22)/4;return {r.x+4+index*(ww+6),r.y+3,ww,43};}
@@ -792,16 +793,18 @@ struct OpSurface {
             ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f,5},overlayColor(kMuted));
             ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f*std::clamp(v,0.0f,1.0f),5},overlayColor(kCyan));
         }
-        for(int i=0;i<3;++i){
-            auto r=rect(7,i);button(r,i==page,i==2);
-            text(i==0?"Vol":i==1?"Pitch":"Mod",r,1.03f,overlayColor(i==page?kBg:kWhite));
+        for(int i=0;i<(custom?4:3);++i){
+            auto r=rect(7,i);button(r,i==page,i>=2);
+            text(i==0?"Vol":i==1?"Pitch":i==2?"Mod":"Harm",r,1.0f,overlayColor(i==page?kBg:kWhite));
         }
         for(int i=0;i<6;++i){
             auto r=rect(8,i);
-            if(page==2&&i>1)continue;
-            const bool active=page==2?response(o).source==i:(i!=op&&(shadows&(1u<<i)));
+            if((page==2||page==3)&&i>1)continue;
+            const bool active=page==3?(harmonicView==i+1):
+                page==2?(response(o).source==i):(i!=op&&(shadows&(1u<<i)));
             button(r,active,true);
-            text(page==2?(i?"M":"V"):("OP"+std::to_string(i+1)),r,.83f,
+            text(page==3?(i?"Muted":"Harmonics"):
+                 page==2?(i?"M":"V"):("OP"+std::to_string(i+1)),r,.79f,
                  overlayColor(active?kBg:kWhite));
         }
         auto graph=rect(9),plot=rect(11);
@@ -814,13 +817,12 @@ struct OpSurface {
             }
             ov.addText(page==1?"-12          0           +12 ST":"0              Volume            100%",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
+        }else if(page==2){
+            ov.addText("Output 100%  /  Input 0 -> 100%",
+                plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }else{
-            if(o.wave==Wave::Custom)for(int i=0;i<3;++i){
-                auto r=rect(10,i);button(r,harmonicView==i,true);
-                text(i==0?"Curve":i==1?"Harmonics":"Mute partials",r,.76f);
-            }
-            ov.addText(harmonicView?"Harmonic partials (drag bars)":
-                "Output 100%  /  Input 0 -> 100%",plot.x,plot.y-18,.8f,overlayColor(kMuted));
+            ov.addText(harmonicView==2?"Muted partials - drag bars":"Custom harmonics - drag bars",
+                plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }
         ov.setClip({plot.x-11,plot.y-9,plot.w+22,plot.h+18});
         for(int i=0;i<=4;++i){
@@ -831,7 +833,7 @@ struct OpSurface {
                 ov.addLine(plot.x,y,plot.x+plot.w,y,1,overlayColor(kMuted,.5f));
             }
         }
-        if(page==2&&o.wave==Wave::Custom&&harmonicView){
+        if(page==3&&o.wave==Wave::Custom){
             const auto& harm=harmonicView==2?o.harmMute:o.harm;
             for(int i=0;i<16;++i){
                 const int col=i%8,row=i/8;
@@ -881,7 +883,7 @@ struct OpSurface {
                 if(i==c.releaseIndex)ov.addText(c.sustain?"S":"R",xy.first+12,xy.second-12,.8f,overlayColor(kOrange));
                 if(page==1&&c.points[i].free)ov.addCircle(xy.first,xy.second,12,1.5f,overlayColor(kPurple));
             }
-        }else{
+        }else if(page==2){
             auto c=response(o);paint(c.points.data(),c.count,false);
             for(int i=0;i<c.count;++i){
                 auto xy=position(c.points[i]);
@@ -958,11 +960,19 @@ struct OpSurface {
         for(int i=0;i<6;++i)if(rect(0,i).contains(x,y)){op=i;selected=-1;return true;}
         auto&core=ProjectCore::instance();
         const auto o=core.selectedPatch().ops[op];
+        custom=o.wave==Wave::Custom;
+        if(!custom&&page==3)page=2;
         if(rect(4).contains(x,y)){changed=core.setSelectedOperatorEnabled(op,!o.enabled);return true;}
         for(int i=0;i<2;++i)if(rect(5+i).contains(x,y)){drag=-10-i;return move(x,y);}
-        for(int i=0;i<3;++i)if(rect(7,i).contains(x,y)){page=i;selected=-1;return true;}
+        for(int i=0;i<(custom?4:3);++i)if(rect(7,i).contains(x,y)){
+            page=i;selected=-1;
+            if(page==3)harmonicView=1;
+            return true;
+        }
         for(int i=0;i<6;++i)if(rect(8,i).contains(x,y)){
-            if(page==2){
+            if(page==3){
+                if(i<2)harmonicView=i+1;
+            }else if(page==2){
                 if(i<2){auto c=response(o);c.source=i;changed=core.setSelectedOperatorResponse(op,c);}
             }else if(i!=op)shadows^=1u<<i;
             return true;
@@ -982,11 +992,8 @@ struct OpSurface {
             }else return true;
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
-        if(page==2&&o.wave==Wave::Custom){
-            for(int i=0;i<3;++i)if(rect(10,i).contains(x,y)){
-                harmonicView=i;return true;
-            }
-            if(harmonicView&&rect(11).contains(x,y)){
+        if(page==3&&o.wave==Wave::Custom){
+            if(rect(11).contains(x,y)){
                 auto plot=rect(11);
                 const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
                 const int row=std::clamp(static_cast<int>((y-plot.y)/plot.h*2),0,1);
@@ -1061,7 +1068,11 @@ OpSurface opSurface;
 void NativeEditor::renderSynth() const noexcept {
     if(!matrixMode_){
         drawPadReservedBackground();
-        opSurface.view=bodyRect();opSurface.draw();
+        opSurface.view=bodyRect();
+        const auto currentOperator=ProjectCore::instance().selectedPatch().ops[static_cast<size_t>(opSurface.op)];
+        opSurface.custom=currentOperator.wave==Wave::Custom;
+        if(!opSurface.custom&&opSurface.page==3)opSurface.page=2;
+        opSurface.draw();
         drawPatchTransfer(EditorPage::Synth);
         auto& ov=NativeOverlay::instance();auto b=bodyRect();
         auto tab=synthTabRect(0);
@@ -1717,19 +1728,20 @@ std::optional<NativeEditor::ModLinkValueHit> NativeEditor::hitModLinkValue(
 }
 
 std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
-    if(!matrixMode_&&opSurface.hitRatio(x,y))return opSurface.op;
-    const auto hit=hitSynth(x,y);
-    if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=0)
-        return std::nullopt;
-    return std::clamp(hit->a,0,5);
+    if(matrixMode_)return std::nullopt;
+    opSurface.view=bodyRect();
+    // Do not fall through to retired six-card geometry.
+    if(opSurface.hitRatio(x,y))return opSurface.op;
+    return std::nullopt;
 }
 
 std::optional<int> NativeEditor::hitOperatorSemitone(float x,float y) const noexcept {
-    if(!matrixMode_&&opSurface.hitSemi(x,y))return opSurface.op;
-    const auto hit=hitSynth(x,y);
-    if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=1)
-        return std::nullopt;
-    return std::clamp(hit->a,0,5);
+    if(matrixMode_)return std::nullopt;
+    opSurface.view=bodyRect();
+    // Only the visible Base ST field can open the semitone editor.
+    // Legacy semitone rows overlap the new Mod and shadow controls.
+    if(opSurface.hitSemi(x,y))return opSurface.op;
+    return std::nullopt;
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
@@ -2104,6 +2116,9 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
             if(tab.contains(x,y)){matrixMode_=i==1;return true;}
         }
         if(opSurface.down(x,y)){activeHit_=Hit{HitKind::OperatorSelect,-1,-1,{}};return true;}
+        // The hidden six-card controls must never receive touches in the
+        // new operator editor viewport.
+        if(bodyRect().contains(x,y))return true;
     }
     activeHit_=page==EditorPage::Synth
         ?hitSynth(x,y)
