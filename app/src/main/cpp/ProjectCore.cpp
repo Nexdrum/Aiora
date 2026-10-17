@@ -235,11 +235,33 @@ bool ProjectCore::replaceSelectedPatch(Patch patch){
 }
 
 bool ProjectCore::setSelectedOperatorCurve(int opIndex,int kind,const OperatorCurve& curve){
-    if(opIndex<0||opIndex>=6||kind<0||kind>1||curve.count>kMaxOperatorPoints)return false;
+    if(opIndex<0||opIndex>=6||kind<0||kind>3||curve.count>kMaxOperatorPoints)return false;
     std::scoped_lock lock(mutex_);
     auto* p=selectedPatchUnsafe();if(!p)return false;
     auto& op=p->ops[static_cast<size_t>(opIndex)];
-    (kind==0?op.volumeCurve:op.pitchCurve)=curve;
+    if(kind==0)op.volumeCurve=curve;
+    else if(kind==1)op.pitchCurve=curve;
+    else if(kind==2)op.volumeMorphCurve=curve;
+    else op.pitchMorphCurve=curve;
+    return true;
+}
+bool ProjectCore::setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel){
+    if(opIndex<0||opIndex>=6||slot<0||slot>=4||
+       channel.response.count>kMaxOperatorPoints||
+       static_cast<int>(channel.destination)>3||channel.response.source>1)
+        return false;
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();if(!p)return false;
+    auto& op=p->ops[static_cast<size_t>(opIndex)];
+    if(!op.modChannelsConfigured){
+        for(auto& c:op.modChannels)c=initialOperatorModChannel();
+        if(op.expressionCurve.enabled&&op.expressionCurve.count>=2){
+            op.modChannels[0].response=op.expressionCurve;
+            op.modChannels[0].enabled=true;
+        }
+    }
+    op.modChannels[static_cast<size_t>(slot)]=channel;
+    op.modChannelsConfigured=true;
     return true;
 }
 bool ProjectCore::setSelectedOperatorResponse(int opIndex,const OperatorResponse& response){

@@ -438,7 +438,21 @@ void writePatch(Writer& w,const Patch& p){
         w.raw(",\"attack\":");w.number(o.env.attack);w.raw(",\"decay\":");w.number(o.env.decay);w.raw(",\"sustain\":");w.number(o.env.sustain);w.raw(",\"release\":");w.number(o.env.release);
         if(o.volumeCurve.enabled){w.raw(",\"volumeCurve\":");writeOperatorCurve(w,o.volumeCurve);}
         if(o.pitchCurve.enabled){w.raw(",\"pitchCurve\":");writeOperatorCurve(w,o.pitchCurve);}
+        if(o.volumeMorphCurve.enabled){w.raw(",\"volumeMorphCurve\":");writeOperatorCurve(w,o.volumeMorphCurve);}
+        if(o.pitchMorphCurve.enabled){w.raw(",\"pitchMorphCurve\":");writeOperatorCurve(w,o.pitchMorphCurve);}
         if(o.expressionCurve.enabled){w.raw(",\"expressionCurve\":");writeOperatorResponse(w,o.expressionCurve);}
+        if(o.modChannelsConfigured){
+            w.raw(",\"operatorMods\":[");
+            for(size_t m=0;m<o.modChannels.size();++m){
+                if(m)w.raw(",");
+                const auto& channel=o.modChannels[m];
+                w.raw("{\"enabled\":");w.boolean(channel.enabled);
+                w.raw(",\"destination\":");w.number(static_cast<int>(channel.destination));
+                w.raw(",\"response\":");writeOperatorResponse(w,channel.response);
+                w.raw("}");
+            }
+            w.raw("]");
+        }
         w.raw(",\"harm\":");if(o.hasHarm)writeFloatArray(w,o.harm);else w.raw("null");
         if(o.hasHarmMute){w.raw(",\"harmMute\":");writeFloatArray(w,o.harmMute);}
         w.raw("}");
@@ -585,7 +599,23 @@ bool readPatch(const Json& src,Patch& p){
         o.env.attack=clampf(num(jo.get("attack"),o.env.attack),.0005f,2,o.env.attack);o.env.decay=clampf(num(jo.get("decay"),o.env.decay),.005f,3,o.env.decay);o.env.sustain=clampf(num(jo.get("sustain"),o.env.sustain),0,1,o.env.sustain);o.env.release=clampf(num(jo.get("release"),o.env.release),.02f,3,o.env.release);
         readOperatorCurve(jo.get("volumeCurve"),o.volumeCurve,0,1);
         readOperatorCurve(jo.get("pitchCurve"),o.pitchCurve,-12,12);
+        readOperatorCurve(jo.get("volumeMorphCurve"),o.volumeMorphCurve,0,1);
+        readOperatorCurve(jo.get("pitchMorphCurve"),o.pitchMorphCurve,-12,12);
         readOperatorResponse(jo.get("expressionCurve"),o.expressionCurve);
+        if(const auto* mods=jo.get("operatorMods");
+           mods&&mods->type==Json::Type::Array){
+            o.modChannelsConfigured=true;
+            for(auto& channel:o.modChannels)channel=initialOperatorModChannel();
+            for(size_t m=0;m<std::min<size_t>(4,mods->array.size());++m){
+                const auto& raw=mods->array[m];
+                if(raw.type!=Json::Type::Object)continue;
+                auto& channel=o.modChannels[m];
+                channel.enabled=boolean(raw.get("enabled"),false);
+                channel.destination=static_cast<OperatorModDestination>(
+                    clampi(num(raw.get("destination"),0),0,3,0));
+                readOperatorResponse(raw.get("response"),channel.response);
+            }
+        }
         o.hasHarm=readFloatArray(jo.get("harm"),o.harm);o.hasHarmMute=readFloatArray(jo.get("harmMute"),o.harmMute);
     }
     if(const Json* matrix=src.get("matrix");matrix&&matrix->type==Json::Type::Array){

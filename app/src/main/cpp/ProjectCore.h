@@ -144,6 +144,7 @@ public:
     bool setSelectedOperatorEnabled(int opIndex, bool enabled);
     bool setSelectedOperatorCurve(int opIndex,int kind,const OperatorCurve& curve);
     bool setSelectedOperatorResponse(int opIndex,const OperatorResponse& response);
+    bool setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel);
     bool setSelectedOperatorWave(int opIndex, Wave wave);
     bool setSelectedOperatorParam(int opIndex, OperatorParam param, float value);
     bool setSelectedHarmonic(int opIndex, int partialIndex, float value, bool muted = false);

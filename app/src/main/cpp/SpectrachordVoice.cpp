@@ -48,7 +48,7 @@ void SpectrachordVoice::PointEnvState::reset(const OperatorCurve& c) noexcept {
     curve=c;age=0;releaseAge=0;releaseStart=0;value=0;releasing=false;done=false;
 }
 void SpectrachordVoice::PointEnvState::noteOff() noexcept {
-    if(releasing||done||!curve.enabled||!curve.count)return;
+    if(releasing||done||!curve.enabled||!curve.count||!curve.sustain)return;
     releaseStart=value;releaseAge=0;releasing=true;
 }
 float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
@@ -136,7 +136,7 @@ bool SpectrachordVoice::velocityOwns(ModTarget target) const noexcept {
 }
 float SpectrachordVoice::slotValue(ModTarget target,float v,float m,float fallback) const noexcept {
     // Existing M routes retain priority if malformed input assigns both sources.
-    if(modActive_ && patch_.modSlots)
+    if(patch_.modSlots)
         for(size_t i=0;i<patch_.modSlotCount&&i<patch_.modSlots->size();++i)
             if((*patch_.modSlots)[i].target==target)return mappedValue(target,m,fallback);
     if(patch_.velocitySlots)
@@ -150,7 +150,9 @@ float SpectrachordVoice::slotValue(ModTarget target,float v,float m,float fallba
 void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
     id_=id;patch_=patch;midi_=midi;velocity_=clamp01(pressure);active_=true;automation_=automation;
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
-    modActive_=automation_.mod.count>0;velocityCurveActive_=automation_.velocity.count>0;
+    // M is always supplied; an unedited line is explicitly M=0, never
+    // a request to bypass an operator or FX modulation route.
+    modActive_=true;velocityCurveActive_=automation_.velocity.count>0;
     const float m0=curveValue(automation_.mod,0,0),mEnd=automation_.mod.count?automation_.mod.points[automation_.mod.count-1].value:0,mMean=curveMean(automation_.mod,0);
     const float v0=clamp01(curveValue(automation_.velocity,0,velocity_));
     const float vMean=clamp01(curveMean(automation_.velocity,velocity_));
@@ -200,7 +202,11 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     for(size_t i=0;i<6;++i){
         opVolume_[i].reset(patch_.ops[i].volumeCurve);
         opPitch_[i].reset(patch_.ops[i].pitchCurve);
-        anyCustomVolume_|=patch_.ops[i].enabled&&patch_.ops[i].volumeCurve.enabled&&patch_.ops[i].volumeCurve.count>1;
+        opMorphVolume_[i].reset(patch_.ops[i].volumeMorphCurve);
+        opMorphPitch_[i].reset(patch_.ops[i].pitchMorphCurve);
+        anyCustomVolume_|=patch_.ops[i].enabled&&
+            ((patch_.ops[i].volumeCurve.enabled&&patch_.ops[i].volumeCurve.count>1)||
+            (patch_.ops[i].volumeMorphCurve.enabled&&patch_.ops[i].volumeMorphCurve.count>1));
         Envelope shape=patch_.ops[i].env;
         // Per-operator decay links are the editable replacement for the
         // old crash-only velocity envelope. Sample at note-on as with ADSR.
@@ -222,7 +228,10 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
 void SpectrachordVoice::release() noexcept {
     if(!active_)return;
     autoRelease_=false;
-    for(size_t i=0;i<6;++i){opEnv_[i].noteOff(sampleRate_);opVolume_[i].noteOff();opPitch_[i].noteOff();}
+    for(size_t i=0;i<6;++i){
+        opEnv_[i].noteOff(sampleRate_);opVolume_[i].noteOff();opPitch_[i].noteOff();
+        opMorphVolume_[i].noteOff();opMorphPitch_[i].noteOff();
+    }
     ampEnv_.noteOff(sampleRate_);filterEnv_.noteOff(sampleRate_);
 }
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
@@ -293,20 +302,49 @@ float SpectrachordVoice::render() noexcept {
     for(size_t i=0;i<6;++i){
         const auto&op=P.ops[i];if(!op.enabled){opEnv_[i].next(sampleRate_);continue;}
         const float oldEnv=opEnv_[i].next(sampleRate_);
-        const float env=op.volumeCurve.enabled&&op.volumeCurve.count>1
+        const float primaryVol=op.volumeCurve.enabled&&op.volumeCurve.count>1
             ?opVolume_[i].next(sampleRate_):oldEnv;
-        const float pitchEnv=op.pitchCurve.enabled&&op.pitchCurve.count>1
+        const float primaryPitch=op.pitchCurve.enabled&&op.pitchCurve.count>1
             ?opPitch_[i].next(sampleRate_):0.0f;
-        float response=1.0f;
-        const auto&expr=op.expressionCurve;
-        if(expr.enabled&&expr.count>1){
-            const bool supplied=expr.source==0?velocityCurveActive_||velocity_>=0:modActive_;
-            if(supplied){
-                const float in=expr.source==0?expressionV:m;
-                response=std::clamp(operatorCurveValue(expr.points.data(),expr.count,
-                    std::clamp(in,0.0f,1.0f),1),0.0f,1.0f);
+        // All four envelope timelines advance independently. A change to M
+        // never retriggers either envelope; only the mix at this instant moves.
+        const float secondaryVol=op.volumeMorphCurve.enabled&&op.volumeMorphCurve.count>1
+            ?opMorphVolume_[i].next(sampleRate_):primaryVol;
+        const float secondaryPitch=op.pitchMorphCurve.enabled&&op.pitchMorphCurve.count>1
+            ?opMorphPitch_[i].next(sampleRate_):primaryPitch;
+        std::array<float,4> totals{};
+        std::array<int,4> counts{};
+        if(op.modChannelsConfigured){
+            for(const auto& channel:op.modChannels){
+                if(!channel.enabled)continue;
+                const int dest=static_cast<int>(channel.destination);
+                if(dest<0||dest>=4)continue;
+                const auto& c=channel.response;
+                const float input=c.source==1?m:expressionV;
+                const float output=c.enabled&&c.count>=2?
+                    operatorCurveValue(c.points.data(),c.count,clamp01(input),input):clamp01(input);
+                totals[static_cast<size_t>(dest)]+=clamp01(output);
+                ++counts[static_cast<size_t>(dest)];
+            }
+        }else{
+            const auto& c=op.expressionCurve;
+            if(c.enabled&&c.count>=2){
+                const float input=c.source==1?m:expressionV;
+                totals[0]=clamp01(operatorCurveValue(c.points.data(),c.count,clamp01(input),input));
+                counts[0]=1;
             }
         }
+        // Averaging prevents multiple channels on one destination from
+        // multiplying its intensity; destinations with no route are neutral.
+        const auto routed=[&](int dest,float neutral){
+            return counts[dest]>0?totals[dest]/static_cast<float>(counts[dest]):neutral;
+        };
+        const float response=routed(0,1.0f);
+        const float pitchDepth=routed(1,1.0f);
+        const float volMorph=clamp01(routed(2,0.0f));
+        const float pitchMorph=clamp01(routed(3,0.0f));
+        const float env=primaryVol+(secondaryVol-primaryVol)*volMorph;
+        const float pitchEnv=(primaryPitch+(secondaryPitch-primaryPitch)*pitchMorph)*pitchDepth;
         const float level=opLevel(i,expressionV,m)*env*response;
         if(level<=0.000001f)continue;
         const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
@@ -390,8 +428,10 @@ float SpectrachordVoice::render() noexcept {
     bool anyOperatorAlive=false;
     for(size_t i=0;i<6;++i){
         if(!P.ops[i].enabled||P.ops[i].level<=0)continue;
-        anyOperatorAlive|=(P.ops[i].volumeCurve.enabled&&P.ops[i].volumeCurve.count>1)
-            ?!opVolume_[i].done:!opEnv_[i].done();
+        const bool primaryCustom=P.ops[i].volumeCurve.enabled&&P.ops[i].volumeCurve.count>1;
+        const bool altCustom=P.ops[i].volumeMorphCurve.enabled&&P.ops[i].volumeMorphCurve.count>1;
+        anyOperatorAlive|=(primaryCustom?!opVolume_[i].done:!opEnv_[i].done())||
+            (altCustom&&!opMorphVolume_[i].done);
     }
     if(anyCustomVolume_&&!anyOperatorAlive){active_=false;return 0;}
     const float amp=anyCustomVolume_?1.0f:ampLegacy;

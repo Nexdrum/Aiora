@@ -49,6 +49,18 @@ struct OperatorResponse {
     uint8_t source{0}; // 0=velocity, 1=modulation
     bool enabled{false};
 };
+enum class OperatorModDestination : uint8_t { Vol=0, Pitch=1, Morph=2, PitchMorph=3 };
+struct OperatorModChannel {
+    OperatorResponse response{};
+    OperatorModDestination destination{OperatorModDestination::Vol};
+    bool enabled{false};
+};
+inline OperatorModChannel initialOperatorModChannel() noexcept {
+    OperatorModChannel c;
+    c.response.enabled=true;c.response.count=2;
+    c.response.points[0]={0,0};c.response.points[1]={1,1};
+    return c;
+}
 // Use the same monotone X-handle interpolation as the piano-roll B/V/M curves.
 inline float curveSegment(float fraction,float a,float b,float q,bool shaped,float handleValue) noexcept;
 // Interpolates warped/curved segments without allocating on the audio thread.
@@ -89,7 +101,10 @@ struct Operator {
     float level{0.0f};
     Envelope env{0.005f,0.1f,0.8f,0.15f};
     OperatorCurve volumeCurve{},pitchCurve{};
-    OperatorResponse expressionCurve{};
+    OperatorCurve volumeMorphCurve{},pitchMorphCurve{};
+    OperatorResponse expressionCurve{}; // pre-four-channel patch migration
+    std::array<OperatorModChannel,4> modChannels{};
+    bool modChannelsConfigured{false};
     std::array<float,16> harm{}; std::array<float,16> harmMute{};
     bool hasHarm{false},hasHarmMute{false};
 };

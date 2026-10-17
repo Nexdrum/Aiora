@@ -79,7 +79,7 @@ private:
     DspPatch patch_{};
     VoiceAutomation automation_{};
     std::array<EnvState,6> opEnv_{};
-    std::array<PointEnvState,6> opVolume_{},opPitch_{};
+    std::array<PointEnvState,6> opVolume_{},opPitch_{},opMorphVolume_{},opMorphPitch_{};
     bool anyCustomVolume_{false};
     EnvState ampEnv_{};
     EnvState filterEnv_{};
