@@ -717,23 +717,25 @@ void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
 namespace {
 struct OpSurface {
     using Rect=NativeEditor::Rect;
-    int op{0},page{0},selected{-1},drag{-1},bend{-1},harmonicView{1};
+    int op{0},page{0},selected{-1},drag{-1},bend{-1},harmonicView{1},modSlot{0};
     bool custom{false};
     unsigned shadows{0};
     float downX{0},downY{0},lastY{0};
     bool moved{false},panning{false},changed{false};
-    std::array<std::array<float,2>,6> scroll{},harmonicScroll{};
+    std::array<std::array<float,4>,6> scroll{};
+    std::array<std::array<float,2>,6> harmonicScroll{};
     // Independent volume and pitch timelines for each operator.
     // The scale factors are relative to the original 320 px per second.
     // Default to 8x for fine transient editing.
-    std::array<std::array<uint8_t,2>,6> zoom{{
-        {{4,4}},{{4,4}},{{4,4}},{{4,4}},{{4,4}},{{4,4}}
+    std::array<std::array<uint8_t,4>,6> zoom{{
+        {{4,4,4,4}},{{4,4,4,4}},{{4,4,4,4}},
+        {{4,4,4,4}},{{4,4,4,4}},{{4,4,4,4}}
     }};
     static constexpr std::array<float,6> kTimeZoomFactors{
         0.5f,1.0f,2.0f,4.0f,8.0f,16.0f
     };
     float zoomFactor()const{
-        return kTimeZoomFactors[zoom[op][page==1?1:0]];
+        return kTimeZoomFactors[zoom[op][page]];
     }
     float pixelsPerSecond()const{
         return 320.0f*zoomFactor();
@@ -745,7 +747,7 @@ struct OpSurface {
     // Zoom in or out one level, keeping the visible top time unchanged.
     // Boundaries do not wrap around to the opposite magnification.
     void adjustTimeZoom(int direction){
-        if(page>=2||direction==0)return;
+        if(page>=4||direction==0)return;
         auto& index=zoom[op][page];
         const int next=std::clamp(static_cast<int>(index)+direction,0,
             static_cast<int>(kTimeZoomFactors.size())-1);
@@ -768,7 +770,7 @@ struct OpSurface {
             case 4: return {x+w*.80f+6,y+64,w*.20f-6,60}; // operator on/off
             case 5: return {x,y+132,(w-8)*.5f,45}; // level
             case 6: return {x+(w-8)*.5f+8,y+132,(w-8)*.5f,45}; // fine cents
-            case 7: {const int n=custom?4:3;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
+            case 7: {const int n=custom?6:5;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
             case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
             case 9: {
                 // Bound the graph from its ACTUAL top, not the preceding
@@ -792,27 +794,44 @@ struct OpSurface {
     }
     float harmonicRowHeight()const{return std::max(245.0f,rect(11).h*.62f);}
     void scrollBy(float dy){
-        if(page<2){
+        if(page<4){
             auto& amount=scroll[op][page];
             amount=std::clamp(amount+dy,0.0f,std::max(0.0f,120.0f*pixelsPerSecond()-rect(11).h));
-        }else if(page==3){
+        }else if(page==5){
             auto& amount=harmonicScroll[op][harmonicView==2?1:0];
             amount=std::clamp(amount+dy,0.0f,
                 std::max(0.0f,2.0f*harmonicRowHeight()-rect(11).h+10.0f));
         }
     }
+    static bool pitchPage(int which){return which==1||which==3;}
     OperatorCurve env(const Operator&o) const {
-        return page==1?(o.pitchCurve.enabled?o.pitchCurve:initialOperatorPitch())
-            :(o.volumeCurve.enabled?o.volumeCurve:legacyOperatorVolume(o.env));
+        if(page==1)return o.pitchCurve.enabled?o.pitchCurve:initialOperatorPitch();
+        if(page==2)return o.volumeMorphCurve.enabled?o.volumeMorphCurve:
+            (o.volumeCurve.enabled?o.volumeCurve:legacyOperatorVolume(o.env));
+        if(page==3)return o.pitchMorphCurve.enabled?o.pitchMorphCurve:
+            (o.pitchCurve.enabled?o.pitchCurve:initialOperatorPitch());
+        return o.volumeCurve.enabled?o.volumeCurve:legacyOperatorVolume(o.env);
+    }
+    OperatorModChannel channel(const Operator&o) const {
+        if(o.modChannelsConfigured)return o.modChannels[modSlot];
+        auto c=initialOperatorModChannel();
+        if(modSlot==0&&o.expressionCurve.enabled&&o.expressionCurve.count>=2){
+            c.response=o.expressionCurve;
+            c.enabled=true;
+        }
+        return c;
     }
     OperatorResponse response(const Operator&o) const {
-        return o.expressionCurve.enabled?o.expressionCurve:initialOperatorResponse();
+        return channel(o).response;
+    }
+    bool setChannel(OperatorModChannel c){
+        return ProjectCore::instance().setSelectedOperatorModChannel(op,modSlot,c);
     }
     std::pair<float,float> position(const OperatorPoint&pt)const{
         auto r=rect(11);
-        if(page==2)return {r.x+std::clamp(pt.time,0.0f,1.0f)*r.w,
+        if(page==4)return {r.x+std::clamp(pt.time,0.0f,1.0f)*r.w,
             r.y+(1.0f-std::clamp(pt.value,0.0f,1.0f))*r.h};
-        const float v=page==1?(pt.value+12)/24:pt.value;
+        const float v=pitchPage(page)?(pt.value+12)/24:pt.value;
         return {r.x+std::clamp(v,0.0f,1.0f)*r.w,
             r.y+pt.time*pixelsPerSecond()-scroll[op][page]};
     }
@@ -850,23 +869,30 @@ struct OpSurface {
             ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f,5},overlayColor(kMuted));
             ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f*std::clamp(v,0.0f,1.0f),5},overlayColor(kCyan));
         }
-        for(int i=0;i<(custom?4:3);++i){
+        for(int i=0;i<(custom?6:5);++i){
             auto r=rect(7,i);button(r,i==page,i>=2);
-            text(i==0?"Vol":i==1?"Pitch":i==2?"Mod":"Harm",r,1.0f,overlayColor(i==page?kBg:kWhite));
+            const char* tab=i==0?"Vol":i==1?"Pitch":i==2?"Morph":
+                i==3?"P Morph":i==4?"Mod":"Harm";
+            text(tab,r,i==3?.77f:.9f,overlayColor(i==page?kBg:kWhite));
         }
         for(int i=0;i<6;++i){
             auto r=rect(8,i);
-            if((page==2||page==3)&&i>1)continue;
-            const bool active=page==3?(harmonicView==i+1):
-                page==2?(response(o).source==i):(i!=op&&(shadows&(1u<<i)));
+            if(page==5&&i>1)continue;
+            const auto c=channel(o);
+            const bool active=page==5?(harmonicView==i+1):
+                page==4?(i<4?modSlot==i:(i==4?c.response.source==1:c.enabled)):
+                (i!=op&&(shadows&(1u<<i)));
             button(r,active,true);
-            text(page==3?(i?"Muted":"Harmonics"):
-                 page==2?(i?"M":"V"):("OP"+std::to_string(i+1)),r,.79f,
-                 overlayColor(active?kBg:kWhite));
+            const std::string name=page==5?(i?"Muted":"Harmonics"):
+                page==4?(i<4?"Mod "+std::to_string(i+1):
+                         i==4?(c.response.source?"Src M":"Src V"):
+                              (c.enabled?"Enabled":"Disabled")):
+                ("OP"+std::to_string(i+1));
+            text(name,r,.74f,overlayColor(active?kBg:kWhite));
         }
         auto graph=rect(9),plot=rect(11);
         ov.addRect({graph.x,graph.y,graph.w,graph.h},overlayColor(kRollBg));
-        if(page<2){
+        if(page<4){
             const auto c=env(o);
             for(int i=0;i<3;++i){
                 const auto r=rect(10,i);
@@ -890,9 +916,16 @@ struct OpSurface {
             text("-",minus,1.2f);
             text(zoomLabel(),value,.85f);
             text("+",plus,1.2f);
-            ov.addText(page==1?"-12          0           +12 ST":"0              Volume            100%",
+            ov.addText(pitchPage(page)?"-12          0           +12 ST":"0              Volume            100%",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
-        }else if(page==2){
+        }else if(page==4){
+            for(int i=0;i<4;++i){
+                auto r=rect(10,i);
+                const bool active=static_cast<int>(channel(o).destination)==i;
+                button(r,active,true);
+                text(i==0?"Vol":i==1?"Pitch":i==2?"Morph":"P Morph",
+                    r,.8f,overlayColor(active?kBg:kWhite));
+            }
             ov.addText("Output 100%  /  Input 0 -> 100%",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }else{
@@ -903,12 +936,12 @@ struct OpSurface {
         for(int i=0;i<=4;++i){
             float x=plot.x+i*plot.w*.25f;
             ov.addLine(x,plot.y,x,plot.y+plot.h,1,overlayColor(kMuted,.5f));
-            if(page==2){
+            if(page==4){
                 float y=plot.y+i*plot.h*.25f;
                 ov.addLine(plot.x,y,plot.x+plot.w,y,1,overlayColor(kMuted,.5f));
             }
         }
-        if(page==3&&o.wave==Wave::Custom){
+        if(page==5&&o.wave==Wave::Custom){
             const auto& harm=harmonicView==2?o.harmMute:o.harm;
             for(int i=0;i<16;++i){
                 const int col=i%8,row=i/8;
@@ -923,7 +956,7 @@ struct OpSurface {
             }
             ov.clearClip();return;
         }
-        if(page<2){
+        if(page<4){
             // Adaptive timeline ticks. Zooming reveals millisecond detail,
             // and grid labels always represent exact seconds (no snapping).
             const float scale=pixelsPerSecond();
@@ -962,7 +995,7 @@ struct OpSurface {
                 OperatorPoint b{t1,operatorCurveValue(pts+i-1,2,t1)};
                 auto x=position(a),y=position(b);
                 ov.addLine(x.first,x.second,y.first,y.second,ghost?2:3.5f,
-                    overlayColor(ghost?kPurple:(page==2?kPurple:page==1?kCyan:kGreen),ghost?.32f:1.0f));
+                    overlayColor(ghost?kPurple:(page==4?kPurple:pitchPage(page)?kCyan:kGreen),ghost?.32f:1.0f));
             }
         };
         auto paintHandles=[&](const OperatorPoint* pts,int count){
@@ -978,11 +1011,10 @@ struct OpSurface {
                 ov.addLine(xy.first-d,xy.second+d,xy.first+d,xy.second-d,2.3f,overlayColor(kOrange));
             }
         };
-        if(page<2){
+        if(page<4){
             for(int i=0;i<6;++i)if(i!=op&&(shadows&(1u<<i))){
                 const auto&so=p.ops[i];
-                const auto c=page==1?(so.pitchCurve.enabled?so.pitchCurve:initialOperatorPitch()):
-                    (so.volumeCurve.enabled?so.volumeCurve:legacyOperatorVolume(so.env));
+                const auto c=env(so);
                 paint(c.points.data(),c.count,true);
             }
             auto c=env(o);paint(c.points.data(),c.count,false);
@@ -1006,9 +1038,9 @@ struct OpSurface {
                 if(i==c.releaseIndex)
                     ov.addText(c.sustain?"S":"R",labelX,labelY(-22.0f),
                         .82f,overlayColor(kOrange));
-                if(page==1&&c.points[i].free)ov.addCircle(xy.first,xy.second,12,1.5f,overlayColor(kPurple));
+                if(pitchPage(page)&&c.points[i].free)ov.addCircle(xy.first,xy.second,12,1.5f,overlayColor(kPurple));
             }
-        }else if(page==2){
+        }else if(page==4){
             auto c=response(o);paint(c.points.data(),c.count,false);
             paintHandles(c.points.data(),c.count);
             for(int i=0;i<c.count;++i){
@@ -1023,8 +1055,10 @@ struct OpSurface {
         const auto o=core.selectedPatch().ops[op];
         auto r=rect(11);
         float xval=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
-        if(page==2){
-            auto c=response(o);if(idx<0||idx>=c.count)return false;
+        if(page==4){
+            auto channelCopy=channel(o);
+            auto& c=channelCopy.response;
+            if(idx<0||idx>=c.count)return false;
             auto&pt=c.points[idx];
             if(handle){
                 if(idx<1)return false;
@@ -1039,11 +1073,13 @@ struct OpSurface {
                     idx+1<c.count?c.points[idx+1].time-.0001f:1.0f);
                 pt.value=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);
             }
-            return core.setSelectedOperatorResponse(op,c);
+            c.enabled=true;
+            channelCopy.enabled=true;
+            return setChannel(channelCopy);
         }
         auto c=env(o);if(idx<0||idx>=c.count)return false;
         auto&pt=c.points[idx];
-        float val=page==1?-12+24*xval:xval;
+        float val=pitchPage(page)?-12+24*xval:xval;
         if(handle){
             if(idx<1)return false;
             const auto&before=c.points[idx-1];
@@ -1058,7 +1094,7 @@ struct OpSurface {
             float time=std::max(0.0f,(y-r.y+scroll[op][page])/pixelsPerSecond());
             pt.time=idx==0?0:std::clamp(time,c.points[idx-1].time+.0001f,
                 idx+1<c.count?c.points[idx+1].time-.0001f:120.0f);
-            pt.value=page==1&&!pt.free?std::round(val):val;
+            pt.value=pitchPage(page)&&!pt.free?std::round(val):val;
         }
         return core.setSelectedOperatorCurve(op,page,c);
     }
@@ -1068,17 +1104,21 @@ struct OpSurface {
         auto r=rect(11);
         float xval=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
         OperatorPoint pt{};
-        if(page==2){
-            auto c=response(o);if(c.count>=kMaxOperatorPoints)return false;
+        if(page==4){
+            auto channelCopy=channel(o);
+            auto& c=channelCopy.response;
+            if(c.count>=kMaxOperatorPoints)return false;
             pt.time=std::clamp(xval,.0001f,.9999f);
             pt.value=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);
             int n=0;while(n<c.count&&c.points[n].time<pt.time)++n;
             for(int k=c.count;k>n;--k)c.points[k]=c.points[k-1];
-            c.points[n]=pt;++c.count;selected=n;return core.setSelectedOperatorResponse(op,c);
+            c.points[n]=pt;++c.count;selected=n;c.enabled=true;
+            channelCopy.enabled=true;
+            return setChannel(channelCopy);
         }
         auto c=env(o);if(c.count>=kMaxOperatorPoints)return false;
         pt.time=std::clamp((y-r.y+scroll[op][page])/pixelsPerSecond(),.0001f,119.999f);
-        pt.value=page==1?std::round(-12+24*xval):xval;
+        pt.value=pitchPage(page)?std::round(-12+24*xval):xval;
         int n=0;while(n<c.count&&c.points[n].time<pt.time)++n;
         // Extending the timeline beyond the last point keeps its silent
         // terminal endpoint, moving it past the new point instead of
@@ -1103,23 +1143,36 @@ struct OpSurface {
         auto&core=ProjectCore::instance();
         const auto o=core.selectedPatch().ops[op];
         custom=o.wave==Wave::Custom;
-        if(!custom&&page==3)page=2;
+        if(!custom&&page==5)page=4;
         if(rect(4).contains(x,y)){changed=core.setSelectedOperatorEnabled(op,!o.enabled);return true;}
         for(int i=0;i<2;++i)if(rect(5+i).contains(x,y)){drag=-10-i;return move(x,y);}
-        for(int i=0;i<(custom?4:3);++i)if(rect(7,i).contains(x,y)){
+        for(int i=0;i<(custom?6:5);++i)if(rect(7,i).contains(x,y)){
             page=i;selected=-1;
-            if(page==3)harmonicView=1;
+            if(page==5)harmonicView=1;
             return true;
         }
         for(int i=0;i<6;++i)if(rect(8,i).contains(x,y)){
-            if(page==3){
+            if(page==5){
                 if(i<2)harmonicView=i+1;
-            }else if(page==2){
-                if(i<2){auto c=response(o);c.source=i;changed=core.setSelectedOperatorResponse(op,c);}
+            }else if(page==4){
+                if(i<4){modSlot=i;selected=-1;}
+                else{
+                    auto c=channel(o);
+                    if(i==4)c.response.source=static_cast<uint8_t>(c.response.source?0:1);
+                    else c.enabled=!c.enabled;
+                    changed=setChannel(c);
+                }
             }else if(i!=op)shadows^=1u<<i;
             return true;
         }
-        if(page<2)for(int i=0;i<4;++i)if(rect(10,i).contains(x,y)){
+        if(page==4)for(int i=0;i<4;++i)if(rect(10,i).contains(x,y)){
+            auto c=channel(o);
+            c.destination=static_cast<OperatorModDestination>(i);
+            c.enabled=true;
+            changed=setChannel(c);
+            return true;
+        }
+        if(page<4)for(int i=0;i<4;++i)if(rect(10,i).contains(x,y)){
             // Two dedicated zoom targets; tapping the central readout
             // leaves the time scale unchanged. Point deletion remains
             // the quick-tap gesture used by the piano-roll curves.
@@ -1138,7 +1191,7 @@ struct OpSurface {
             }else return true;
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
-        if(page==3&&o.wave==Wave::Custom){
+        if(page==5&&o.wave==Wave::Custom){
             if(rect(11).contains(x,y)){
                 auto plot=rect(11);
                 const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
@@ -1150,8 +1203,8 @@ struct OpSurface {
         if(!rect(11).contains(x,y))return false;
         const auto c=env(o);
         const auto e=response(o);
-        const auto*pts=page==2?e.points.data():c.points.data();
-        const int count=page==2?e.count:c.count;
+        const auto*pts=page==4?e.points.data():c.points.data();
+        const int count=page==4?e.count:c.count;
         float best=29*29;int candidate=-1;
         for(int i=0;i<count;++i){
             auto at=position(pts[i]);float dx=x-at.first,dy=y-at.second;
@@ -1205,21 +1258,22 @@ struct OpSurface {
             const auto o=core.selectedPatch().ops[op];
             const bool longPress=std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now()-started).count()>=450;
-            if(page==1&&longPress){
+            if(pitchPage(page)&&longPress){
                 auto c=env(o);
                 if(drag<c.count){
                     c.points[drag].free=!c.points[drag].free;
                     if(!c.points[drag].free)c.points[drag].value=std::round(c.points[drag].value);
-                    changed=core.setSelectedOperatorCurve(op,1,c)||changed;
+                    changed=core.setSelectedOperatorCurve(op,page,c)||changed;
                 }
-            }else if(!longPress&&page==2){
-                auto c=response(o);
+            }else if(!longPress&&page==4){
+                auto channelCopy=channel(o);
+                auto& c=channelCopy.response;
                 if(drag>0&&drag<c.count-1){
                     for(int i=drag;i<c.count-1;++i)c.points[i]=c.points[i+1];
                     --c.count;selected=-1;
-                    changed=core.setSelectedOperatorResponse(op,c)||changed;
+                    changed=setChannel(channelCopy)||changed;
                 }
-            }else if(!longPress&&page<2){
+            }else if(!longPress&&page<4){
                 auto c=env(o);
                 if(drag>0&&drag<c.count-1){
                     for(int i=drag;i<c.count-1;++i)c.points[i]=c.points[i+1];
@@ -1246,7 +1300,7 @@ void NativeEditor::renderSynth() const noexcept {
         opSurface.view=bodyRect();
         const auto currentOperator=ProjectCore::instance().selectedPatch().ops[static_cast<size_t>(opSurface.op)];
         opSurface.custom=currentOperator.wave==Wave::Custom;
-        if(!opSurface.custom&&opSurface.page==3)opSurface.page=2;
+        if(!opSurface.custom&&opSurface.page==5)opSurface.page=4;
         opSurface.draw();
         drawPatchTransfer(EditorPage::Synth);
         auto& ov=NativeOverlay::instance();auto b=bodyRect();
