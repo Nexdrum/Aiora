@@ -898,6 +898,38 @@ bool ProjectCore::setSelectedMatrixAmount(int modulator,int carrier,float value)
     if(!p||modulator<0||modulator>=6||carrier<0||carrier>=6)return false;
     p->matrix[modulator][carrier]=std::clamp(value,0.0f,1.0f);return true;
 }
+bool ProjectCore::setSelectedEvolvingFilter(const EvolvingFilter& model){
+    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;
+    auto clean=model;
+    for(int lane=0;lane<6;++lane){
+        auto& c=clean.lanes[lane].curve;
+        if(c.count<2||c.count>kMaxOperatorPoints)return false;
+        c.releaseIndex=static_cast<uint8_t>(std::clamp<int>(c.releaseIndex,0,c.count-2));
+        c.decayIndex=static_cast<uint8_t>(std::clamp<int>(c.decayIndex,0,c.count-2));
+        for(int i=0;i<c.count;++i){
+            auto& pt=c.points[i];
+            if(!std::isfinite(pt.time)||!std::isfinite(pt.value))return false;
+            pt.value=std::clamp(pt.value,0.0f,1.0f);
+            pt.time=std::clamp(pt.time,0.0f,120.0f);
+            if(i>0&&pt.time<=c.points[i-1].time)return false;
+            clean.lanes[lane].transition[i]=std::clamp(clean.lanes[lane].transition[i],0.0f,.95f);
+        }
+    }
+    for(auto& m:clean.mods){
+        if(m.destination>=6||m.response.count<2||
+           m.response.count>kMaxOperatorPoints)return false;
+        for(int i=0;i<m.response.count;++i){
+            auto& pt=m.response.points[i];
+            if(!std::isfinite(pt.time)||!std::isfinite(pt.value))return false;
+            pt.time=std::clamp(pt.time,0.0f,1.0f);
+            pt.value=std::clamp(pt.value,0.0f,1.0f);
+            if(i>0&&pt.time<=m.response.points[i-1].time)return false;
+            m.transition[i]=std::clamp(m.transition[i],0.0f,.95f);
+        }
+    }
+    p->filter.evolving=clean;
+    return true;
+}
 bool ProjectCore::setSelectedFilterType(FilterType type){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->filter.type=type;return true;
 }

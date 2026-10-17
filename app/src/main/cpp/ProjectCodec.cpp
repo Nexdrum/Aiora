@@ -412,6 +412,56 @@ void writeOperatorCurve(Writer& w,const OperatorCurve& c){
     }
     w.raw("]}");
 }
+void writeFilterLane(Writer& w,const FilterLane& lane){
+    const auto& c=lane.curve;
+    w.raw("{\"enabled\":");w.boolean(c.enabled);
+    w.raw(",\"sustain\":");w.boolean(c.sustain);
+    w.raw(",\"releaseIndex\":");w.number(c.releaseIndex);
+    w.raw(",\"decayIndex\":");w.number(c.decayIndex);
+    w.raw(",\"points\":[");
+    for(size_t i=0;i<c.count;++i){
+        if(i)w.raw(",");
+        const auto& p=c.points[i];
+        w.raw("{\"t\":");w.number(p.time);
+        w.raw(",\"v\":");w.number(p.value);
+        w.raw(",\"mid\":");w.number(p.midpoint);
+        if(p.handleActive){w.raw(",\"handle\":");w.number(p.handleValue);}
+        w.raw(",\"shape\":");w.number(static_cast<int>(lane.shape[i]));
+        w.raw(",\"transition\":");w.number(lane.transition[i]);
+        w.raw("}");
+    }
+    w.raw("]}");
+}
+void writeEvolvingFilter(Writer& w,const EvolvingFilter& filter){
+    if(!filter.configured){w.raw("null");return;}
+    w.raw("{\"lanes\":[");
+    for(size_t i=0;i<filter.lanes.size();++i){
+        if(i)w.raw(",");
+        writeFilterLane(w,filter.lanes[i]);
+    }
+    w.raw("],\"mods\":[");
+    for(size_t j=0;j<filter.mods.size();++j){
+        if(j)w.raw(",");
+        const auto& m=filter.mods[j];
+        w.raw("{\"enabled\":");w.boolean(m.enabled);
+        w.raw(",\"dest\":");w.number(m.destination);
+        w.raw(",\"source\":");w.string(m.response.source?"M":"V");
+        w.raw(",\"points\":[");
+        for(int i=0;i<m.response.count;++i){
+            if(i)w.raw(",");
+            const auto& p=m.response.points[i];
+            w.raw("{\"t\":");w.number(p.time);
+            w.raw(",\"v\":");w.number(p.value);
+            w.raw(",\"mid\":");w.number(p.midpoint);
+            if(p.handleActive){w.raw(",\"handle\":");w.number(p.handleValue);}
+            w.raw(",\"shape\":");w.number(static_cast<int>(m.shape[i]));
+            w.raw(",\"transition\":");w.number(m.transition[i]);
+            w.raw("}");
+        }
+        w.raw("]}");
+    }
+    w.raw("]}");
+}
 void writeOperatorResponse(Writer& w,const OperatorResponse& c){
     w.raw("{\"enabled\":");w.boolean(c.enabled);
     w.raw(",\"source\":");w.string(c.source?"M":"V");
@@ -461,7 +511,9 @@ void writePatch(Writer& w,const Patch& p){
     for(size_t r=0;r<6;++r){if(r)w.raw(",");w.raw("[");for(size_t c=0;c<6;++c){if(c)w.raw(",");w.number(p.matrix[r][c]);}w.raw("]");}
     w.raw("],\"filter\":{\"type\":");w.string(filterName(p.filter.type));
     w.raw(",\"cutoff\":");w.number(p.filter.cutoff);w.raw(",\"resonance\":");w.number(p.filter.resonance);w.raw(",\"envAmt\":");w.number(p.filter.envAmount);
-    w.raw(",\"attack\":");w.number(p.filter.env.attack);w.raw(",\"decay\":");w.number(p.filter.env.decay);w.raw(",\"sustain\":");w.number(p.filter.env.sustain);w.raw(",\"release\":");w.number(p.filter.env.release);w.raw("}");
+    w.raw(",\"attack\":");w.number(p.filter.env.attack);w.raw(",\"decay\":");w.number(p.filter.env.decay);w.raw(",\"sustain\":");w.number(p.filter.env.sustain);w.raw(",\"release\":");w.number(p.filter.env.release);
+    if(p.filter.evolving.configured){w.raw(",\"evolving\":");writeEvolvingFilter(w,p.filter.evolving);}
+    w.raw("}");
     w.raw(",\"peak\":{\"enabled\":");w.boolean(p.peak.enabled);
     w.raw(",\"followNote\":");w.boolean(p.peak.followNote);
     w.raw(",\"ratio\":");w.number(p.peak.ratio);
@@ -562,6 +614,63 @@ void readOperatorResponse(const Json* j,OperatorResponse& out){
     out.source=str(j->get("source"),"V")=="M"?1:0;
     out.enabled=boolean(j->get("enabled"),true);
 }
+void readEvolvingFilter(const Json* j,EvolvingFilter& e){
+    if(!j||j->type!=Json::Type::Object)return;
+    e=initialEvolvingFilter();
+    auto shapeOf=[](const Json* p){
+        return static_cast<FilterShape>(clampi(num(p?p->get("shape"):nullptr,1),0,2,1));
+    };
+    if(const auto* lanes=j->get("lanes");
+       lanes&&lanes->type==Json::Type::Array){
+        for(size_t k=0;k<std::min<size_t>(6,lanes->array.size());++k){
+            const auto& raw=lanes->array[k];
+            const auto* points=raw.get("points");
+            if(!points||points->type!=Json::Type::Array||points->array.size()<2)continue;
+            FilterLane lane=initialFilterLane(static_cast<int>(k));
+            lane.curve.count=0;
+            for(const auto& item:points->array){
+                if(item.type!=Json::Type::Object||lane.curve.count>=kMaxOperatorPoints)continue;
+                const size_t i=lane.curve.count++;
+                lane.curve.points[i]=readOperatorPoint(item,120.0f,0,1);
+                lane.shape[i]=shapeOf(&item);
+                lane.transition[i]=clampf(num(item.get("transition"),.65f),0,.95f,.65f);
+            }
+            if(lane.curve.count<2)continue;
+            // Invalid or unsorted files cannot create backward time segments.
+            for(int i=1;i<lane.curve.count;++i)
+                lane.curve.points[i].time=std::max(
+                    lane.curve.points[i].time,lane.curve.points[i-1].time+.0001f);
+            lane.curve.sustain=boolean(raw.get("sustain"),true);
+            lane.curve.enabled=boolean(raw.get("enabled"),true);
+            lane.curve.releaseIndex=static_cast<uint8_t>(clampi(num(raw.get("releaseIndex"),lane.curve.count-2),0,lane.curve.count-2,lane.curve.count-2));
+            lane.curve.decayIndex=static_cast<uint8_t>(clampi(num(raw.get("decayIndex"),1),0,lane.curve.count-2,1));
+            e.lanes[k]=lane;
+        }
+    }
+    if(const auto* mods=j->get("mods");mods&&mods->type==Json::Type::Array){
+        for(size_t k=0;k<std::min<size_t>(4,mods->array.size());++k){
+            const auto& raw=mods->array[k];
+            if(raw.type!=Json::Type::Object)continue;
+            auto& m=e.mods[k];m.enabled=boolean(raw.get("enabled"),false);
+            m.destination=static_cast<uint8_t>(clampi(num(raw.get("dest"),0),0,5,0));
+            m.response.source=str(raw.get("source"),"V")=="M"?1:0;
+            if(const auto* points=raw.get("points");
+               points&&points->type==Json::Type::Array&&points->array.size()>=2){
+                m.response.count=0;
+                for(const auto& item:points->array){
+                    if(item.type!=Json::Type::Object||m.response.count>=kMaxOperatorPoints)continue;
+                    const size_t i=m.response.count++;
+                    m.response.points[i]=readOperatorPoint(item,1,0,1);
+                    m.shape[i]=shapeOf(&item);
+                    m.transition[i]=clampf(num(item.get("transition"),.65f),0,.95f,.65f);
+                }
+                for(int i=1;i<m.response.count;++i)
+                    m.response.points[i].time=std::max(
+                        m.response.points[i].time,m.response.points[i-1].time+.0001f);
+            }
+        }
+    }
+}
 bool readPatch(const Json& src,Patch& p){
     if(src.type!=Json::Type::Object)return false;
     const Json* ops=src.get("ops");
@@ -625,6 +734,7 @@ bool readPatch(const Json& src,Patch& p){
     if(const Json* f=src.get("filter");f&&f->type==Json::Type::Object){
         p.filter.type=parseFilter(str(f->get("type"),"lowpass"));p.filter.cutoff=clampf(num(f->get("cutoff"),4000),40,18000,4000);p.filter.resonance=clampf(num(f->get("resonance"),1),.1f,18,1);p.filter.envAmount=clampf(num(f->get("envAmt"),0),0,1,0);
         p.filter.env.attack=clampf(num(f->get("attack"),.01),.005f,2,.01f);p.filter.env.decay=clampf(num(f->get("decay"),.15),.01f,3,.15f);p.filter.env.sustain=clampf(num(f->get("sustain"),.7),0,1,.7f);p.filter.env.release=clampf(num(f->get("release"),.2),.02f,3,.2f);
+        readEvolvingFilter(f->get("evolving"),p.filter.evolving);
     }
     // Old patches have no peak key and therefore keep it disabled.
     if(const Json* pk=src.get("peak");pk&&pk->type==Json::Type::Object){

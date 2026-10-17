@@ -108,7 +108,57 @@ struct Operator {
     std::array<float,16> harm{}; std::array<float,16> harmMute{};
     bool hasHarm{false},hasHarmMute{false};
 };
-struct Filter { FilterType type{FilterType::Lowpass}; float cutoff{6500},resonance{0.7f},envAmount{0}; Envelope env{0.01f,0.15f,0.7f,0.2f}; };
+// Evolving filter uses six synchronized envelopes: frequency, gain and Q,
+// each with primary / morph variants. Values are normalized 0..1; amount
+// uses 0.5 as neutral. Q points carry a type and an adjustable transition
+// start fraction before a subsequent node with a different type.
+enum class FilterShape : uint8_t { LowShelf=0, Bell=1, HighShelf=2 };
+struct FilterLane {
+    OperatorCurve curve{};
+    std::array<FilterShape,kMaxOperatorPoints> shape{};
+    std::array<float,kMaxOperatorPoints> transition{};
+};
+inline FilterLane initialFilterLane(int lane) noexcept {
+    FilterLane l;
+    l.curve.enabled=true;l.curve.sustain=true;l.curve.count=4;
+    l.curve.decayIndex=1;l.curve.releaseIndex=2;
+    const float v=lane%3==0?0.53f:0.5f;
+    l.curve.points[0]={0,v};l.curve.points[1]={.015f,v};
+    l.curve.points[2]={.12f,v};l.curve.points[3]={.25f,v};
+    l.shape.fill(FilterShape::Bell);
+    l.transition.fill(.65f);
+    return l;
+}
+struct FilterModChannel {
+    OperatorResponse response{};
+    std::array<FilterShape,kMaxOperatorPoints> shape{};
+    std::array<float,kMaxOperatorPoints> transition{};
+    uint8_t destination{0}; // F, A, Q, F Morph, A Morph, Q Morph
+    bool enabled{false};
+};
+inline FilterModChannel initialFilterModChannel() noexcept {
+    FilterModChannel m;
+    m.response=initialOperatorResponse();
+    m.shape.fill(FilterShape::Bell);m.transition.fill(.65f);
+    return m;
+}
+struct EvolvingFilter {
+    bool configured{false};
+    std::array<FilterLane,6> lanes{};
+    std::array<FilterModChannel,4> mods{};
+};
+inline EvolvingFilter initialEvolvingFilter() noexcept {
+    EvolvingFilter e;e.configured=true;
+    for(int i=0;i<6;++i)e.lanes[i]=initialFilterLane(i);
+    for(auto& mod:e.mods)mod=initialFilterModChannel();
+    return e;
+}
+struct Filter {
+    FilterType type{FilterType::Lowpass};
+    float cutoff{6500},resonance{0.7f},envAmount{0};
+    Envelope env{0.01f,0.15f,0.7f,0.2f};
+    EvolvingFilter evolving{};
+};
 // Optional per-voice bell EQ before the main filter. Center follows the played
 // fundamental times ratio, or stays at frequency when followNote is false.
 struct PeakFilter {
