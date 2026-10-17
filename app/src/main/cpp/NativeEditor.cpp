@@ -1331,13 +1331,18 @@ struct FilterSurface {
     }
     Rect graph()const{
         const float y=view.y+405;
-        return {view.x+25,y,view.w-50,
+        return {view.x+70,y,view.w-88,
             std::max(70.0f,view.y+view.h-82-y)};
     }
     Rect pane(int i)const{
         Rect r=graph();
         const float w=(r.w-12)/3;
         return {r.x+i*(w+6),r.y,w,r.h};
+    }
+    static bool staticLine(const OperatorCurve& c){
+        return c.count==2&&c.releaseIndex==0&&
+            c.points[1].time>=119.0f&&
+            std::fabs(c.points[0].value-c.points[1].value)<.00001f;
     }
     float outputX(int lane,float value)const{
         const auto r=pane(lane);
@@ -1409,13 +1414,13 @@ struct FilterSurface {
             o.addTextCentered(label,{r.x,r.y,r.w,r.h},size,
                 overlayColor(active?kBg:kWhite));
         };
-        cell(bar(0,0,2),"Back to FX",false);
-        cell(bar(0,1,2),model.configured?"Evolving: ON":"Enable evolving",model.configured,kGreen,.9f);
+        cell(bar(0,0,2),"Frequency / Amount / Q",true,kCyan,.78f);
+        cell(bar(0,1,2),model.configured?"Filter active":"Enable filter",model.configured,kGreen,.86f);
         for(int i=0;i<3;++i)cell(bar(1,i,3),
             i==0?"Envelope":i==1?"Morph":"Mod",page==i,kPurple,.88f);
         if(page<2){
-            for(int i=0;i<3;++i)cell(bar(2,i,3),laneName(i),lane==i,
-                i==0?kCyan:i==1?kPurple:kOrange,.87f);
+            o.addText("All three lines editable - tap a column to edit its points",
+                view.x+20,bar(2,0,3).y+15,.76f,overlayColor(kMuted));
             const auto c=getCurve(model);
             cell(bar(3,0,6),"D",selected==c.decayIndex,kCyan,1);
             cell(bar(3,1,6),"R",selected==c.releaseIndex,kOrange,1);
@@ -1462,6 +1467,7 @@ struct FilterSurface {
                 }
                 o.clearClip();
                 for(int j=1;j<curve.count;++j){
+                    if(staticLine(curve))break;
                     const float time=curve.points[j-1].time+
                         (curve.points[j].time-curve.points[j-1].time)*
                         std::clamp(curve.points[j].midpoint,.05f,.95f);
@@ -1481,6 +1487,7 @@ struct FilterSurface {
                     }
                 }
                 for(int j=0;j<curve.count;++j){
+                    if(staticLine(curve))break;
                     auto x=location(curve.points[j],i);
                     if(x.second<paneRect.y||x.second>paneRect.y+paneRect.h)continue;
                     o.addFilledCircle(x.first,x.second,(i==lane&&j==selected)?8:6,
@@ -1494,12 +1501,24 @@ struct FilterSurface {
                             .8f,overlayColor(kOrange));
                 }
             }
-            for(int k=0;k<=4;++k){
-                const float t=k*.25f;
-                const float y=r.y+t*rate()-scroll;
-                if(y>=r.y&&y<=r.y+r.h){
-                    o.addLine(r.x,y,r.x+r.w,y,1,overlayColor(kMuted,.22f));
-                }
+            // Visible time labels use the same zoom / scrolling as operators.
+            static constexpr std::array<float,14> tickSizes{
+                .001f,.002f,.005f,.01f,.02f,.05f,.1f,.2f,
+                .5f,1,2,5,10,20};
+            float step=tickSizes.back();
+            for(float t:tickSizes)if(t*rate()>=60.0f){step=t;break;}
+            const int first=std::max(0,static_cast<int>(std::floor(
+                scroll/(rate()*step))));
+            const int last=std::min(static_cast<int>(120.0f/step),
+                static_cast<int>(std::ceil((scroll+r.h)/(rate()*step))));
+            for(int k=first;k<=last;++k){
+                const float t=k*step,y=r.y+t*rate()-scroll;
+                if(y<r.y||y>r.y+r.h)continue;
+                o.addLine(r.x,y,r.x+r.w,y,1,overlayColor(kMuted,.22f));
+                char label[30];std::snprintf(label,sizeof(label),
+                    t<1.0f?"%.3fs":t<10.0f?"%.2fs":"%.1fs",
+                    static_cast<double>(t));
+                o.addText(label,r.x-60,y-9,.76f,overlayColor(kWhite));
             }
         }else{
             auto r=graph();const auto& m=model.mods[slot];
@@ -1558,6 +1577,12 @@ struct FilterSurface {
     bool update(float x,float y){
         auto model=getModel();auto curve=getCurve(model);
         const Rect r=page==2?graph():pane(lane);
+        if(page<2&&drag==-3&&staticLine(curve)){
+            const auto r=pane(lane);
+            const float value=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+            curve.points[0].value=curve.points[1].value=value;
+            return save(model,curve);
+        }
         const int idx=transition>=0?transition:(bend>=0?bend:drag);
         if(idx<0||idx>=curve.count)return false;
         if(transition>=1){
@@ -1596,14 +1621,32 @@ struct FilterSurface {
     bool changeShape(int which){
         auto model=getModel();const auto curve=getCurve(model);
         if(!qCurve()||curve.count==0)return false;
-        setShape(model,std::clamp(selected,0,static_cast<int>(curve.count)-1),
-            static_cast<FilterShape>(which));
+        const int index=std::clamp(selected,0,static_cast<int>(curve.count)-1);
+        setShape(model,index,static_cast<FilterShape>(which));
+        if(page!=2&&staticLine(curve)){
+            setShape(model,0,static_cast<FilterShape>(which));
+            setShape(model,1,static_cast<FilterShape>(which));
+        }
         return save(model,curve);
     }
     bool addPoint(float x,float y){
         auto m=getModel();auto c=getCurve(m);
         if(c.count>=kMaxOperatorPoints)return false;
         const auto r=page==2?graph():pane(lane);
+        if(page!=2&&staticLine(c)){
+            const float t=std::clamp((y-r.y+scroll)/rate(),.005f,119.65f);
+            const float value=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+            const float original=c.points[0].value;
+            // First tap off the static line creates the starting, selected
+            // and finishing nodes. Release is now an editable timed stage.
+            c.count=3;c.sustain=false;c.decayIndex=1;c.releaseIndex=1;
+            c.points[0]={0.0f,original};
+            c.points[1]={t,value};
+            c.points[2]={std::min(120.0f,t+.35f),original};
+            setShape(m,1,currentShape(m,0));
+            setShape(m,2,currentShape(m,0));
+            selected=1;return save(m,c);
+        }
         OperatorPoint p;
         p.time=page==2?
             std::clamp((x-r.x)/std::max(1.0f,r.w),.0001f,.9999f):
@@ -1631,7 +1674,7 @@ struct FilterSurface {
     bool down(float x,float y){
         moved=changed=false;drag=bend=transition=-1;
         downX=x;downY=y;started=std::chrono::steady_clock::now();
-        if(bar(0,0,2).contains(x,y)){open=false;return true;}
+        if(bar(0,0,2).contains(x,y))return true;
         if(bar(0,1,2).contains(x,y)){
             auto m=getModel();m.configured=!ProjectCore::instance().selectedPatch().filter.evolving.configured;
             changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
@@ -1641,9 +1684,8 @@ struct FilterSurface {
             page=i;selected=-1;return true;
         }
         if(page<2){
-            for(int i=0;i<3;++i)if(bar(2,i,3).contains(x,y)){
-                lane=i;selected=-1;return true;
-            }
+            // Each visible lane selects itself by touch; there is no
+            // separate frequency / amount / Q focus switch.
             for(int i=0;i<6;++i)if(bar(3,i,6).contains(x,y)){
                 auto m=getModel();auto c=getCurve(m);
                 if(i==0&&selected>=0&&selected<c.count-1)c.decayIndex=selected;
@@ -1681,8 +1723,22 @@ struct FilterSurface {
             changed=changeShape(i);return true;
         }
         auto m=getModel();auto c=getCurve(m);
+        if(page<2){
+            const auto gr=graph();
+            for(int i=0;i<3;++i)if(pane(i).contains(x,y)){
+                if(lane!=i){lane=i;selected=-1;}
+                break;
+            }
+        }
         const Rect r=page==2?graph():pane(lane);
         if(!r.contains(x,y))return true;
+        if(page<2&&staticLine(c=getCurve(m))){
+            const float line=outputX(lane,c.points[0].value);
+            if(std::fabs(x-line)<22.0f){
+                selected=0;drag=-3;return true;
+            }
+            drag=-2;return true;
+        }
         float pointDistance=24*24;int nearest=-1;
         for(int i=0;i<c.count;++i){
             const auto xy=location(c.points[i],lane);
@@ -1715,7 +1771,7 @@ struct FilterSurface {
         drag=-2;return true;
     }
     bool move(float x,float y){
-        if(drag>=0||bend>=0||transition>=0){
+        if(drag>=0||drag==-3||bend>=0||transition>=0){
             if(std::fabs(x-downX)+std::fabs(y-downY)>8.0f){
                 moved=true;changed=update(x,y)||changed;
             }
