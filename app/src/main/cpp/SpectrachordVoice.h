@@ -43,8 +43,8 @@ private:
     struct PointEnvState {
         OperatorCurve curve{};
         float age{0},releaseAge{0},releaseStart{0},value{0};
-        bool releasing{false},done{false};
-        void reset(const OperatorCurve& c) noexcept;
+        bool releasing{false},done{false},holdLast{false};
+        void reset(const OperatorCurve& c,bool retainFinal=false) noexcept;
         void noteOff() noexcept;
         float next(float sampleRate) noexcept;
     };
@@ -54,6 +54,7 @@ private:
         void reset() noexcept { z1=z2=0; }
         void configure(FilterType type, float freq, float q, float sr) noexcept;
         void configurePeak(float freq,float q,float gainDb,float sr) noexcept;
+        void configureEvolving(FilterShape shape,float freq,float qNorm,float gainDb,float sr) noexcept;
         float process(float x) noexcept;
     };
 
@@ -80,6 +81,10 @@ private:
     VoiceAutomation automation_{};
     std::array<EnvState,6> opEnv_{};
     std::array<PointEnvState,6> opVolume_{},opPitch_{},opMorphVolume_{},opMorphPitch_{};
+    std::array<PointEnvState,6> filterTimeline_{};
+    std::array<Biquad,3> evolvingFilterBiquads_{};
+    float filterFrequencySmoothed_{1000.0f},filterGainSmoothed_{0.0f},filterQSmoothed_{.5f};
+    std::array<float,3> filterShapeSmoothed_{{0,1,0}};
     bool anyCustomVolume_{false};
     EnvState ampEnv_{};
     EnvState filterEnv_{};

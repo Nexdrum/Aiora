@@ -10,6 +10,37 @@ constexpr float kEps=1.0e-6f;
 float secondsToSamples(float seconds,float sr) noexcept { return std::max(1.0f,seconds*sr); }
 }
 
+// Morphing a filter type means CROSSFADE, not running two effects
+// serially or summing two full-volume outputs.
+std::array<float,3> evolvingShapeWeights(
+    const std::array<FilterShape,kMaxOperatorPoints>& shapes,
+    const std::array<float,kMaxOperatorPoints>& transitions,
+    const OperatorPoint* points,int count,float position) noexcept {
+    std::array<float,3> weights{};
+    if(count<1){weights[1]=1;return weights;}
+    const auto shapeIndex=[&](int i){
+        return std::clamp(static_cast<int>(shapes[static_cast<size_t>(i)]),0,2);
+    };
+    if(position<=points[0].time){
+        weights[shapeIndex(0)]=1;return weights;
+    }
+    for(int i=1;i<count;++i){
+        if(position<=points[i].time){
+            const int a=shapeIndex(i-1),b=shapeIndex(i);
+            if(a==b){weights[a]=1;return weights;}
+            const float begin=points[i-1].time+
+                (points[i].time-points[i-1].time)*
+                std::clamp(transitions[static_cast<size_t>(i)],0.0f,.95f);
+            const float f=std::clamp((position-begin)/
+                std::max(.000001f,points[i].time-begin),0.0f,1.0f);
+            weights[a]=1-f;weights[b]=f;return weights;
+        }
+    }
+    weights[shapeIndex(count-1)]=1;return weights;
+}
+float evolvingFrequency(float norm) noexcept {
+    return 40.0f*std::pow(450.0f,std::clamp(norm,0.0f,1.0f));
+}
 void SpectrachordVoice::EnvState::reset(const Envelope& e,float sr) noexcept {
     shape=e;stage=EnvStage::Attack;value=0;releaseStart=0;pos=0;
     stageSamples=static_cast<uint32_t>(secondsToSamples(std::max(0.0005f,e.attack)+0.001f,sr));
@@ -44,8 +75,9 @@ float SpectrachordVoice::EnvState::next(float sr) noexcept {
     return value;
 }
 
-void SpectrachordVoice::PointEnvState::reset(const OperatorCurve& c) noexcept {
+void SpectrachordVoice::PointEnvState::reset(const OperatorCurve& c,bool retainFinal) noexcept {
     curve=c;age=0;releaseAge=0;releaseStart=0;value=0;releasing=false;done=false;
+    holdLast=retainFinal;
 }
 void SpectrachordVoice::PointEnvState::noteOff() noexcept {
     // Note-off always begins release, whether sustain is infinite
@@ -54,7 +86,8 @@ void SpectrachordVoice::PointEnvState::noteOff() noexcept {
     releaseStart=value;releaseAge=0;releasing=true;
 }
 float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
-    if(done||!curve.enabled||!curve.count)return 0;
+    if(done||!curve.enabled||!curve.count)
+        return holdLast&&curve.count?curve.points[curve.count-1].value:0.0f;
     const auto* pts=curve.points.data();
     const int last=static_cast<int>(curve.count)-1;
     const int pivot=std::clamp(static_cast<int>(curve.releaseIndex),0,last);
@@ -68,7 +101,10 @@ float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
     }
     if(releasing){
         const float total=pts[last].time-pts[pivot].time;
-        if(total<=0||releaseAge>=total){done=true;value=0;return 0;}
+        if(total<=0||releaseAge>=total){
+            done=true;value=holdLast?pts[last].value:0;
+            return value;
+        }
         // Evaluate the complete authored release curve (including X
         // handles and intermediate points), then smoothly offset it
         // from its authored start to this note's actual release value.
@@ -108,6 +144,46 @@ void SpectrachordVoice::Biquad::configurePeak(float freq,float q,float gainDb,fl
     b2=(1.0f-alpha*a)*inv;
     a1=(-2.0f*c)*inv;
     a2=(1.0f-alpha/a)*inv;
+}
+// RBJ bell/low-shelf/high-shelf filters. Q means bell bandwidth for Bell,
+// or slope for the two shelving types. All three paths use the same sampled
+// input and are crossfaded with normalized weights; they never cascade.
+void SpectrachordVoice::Biquad::configureEvolving(
+    FilterShape shape,float freq,float qNorm,float gainDb,float sr) noexcept {
+    freq=std::clamp(freq,20.0f,sr*.45f);
+    qNorm=std::clamp(qNorm,0.0f,1.0f);
+    gainDb=std::clamp(gainDb,-24.0f,24.0f);
+    const float A=std::pow(10.0f,gainDb/40.0f);
+    const float w=kTwoPi*freq/sr,c=std::cos(w),sn=std::sin(w);
+    float nb0=1,nb1=0,nb2=0,na0=1,na1=0,na2=0;
+    if(shape==FilterShape::Bell){
+        const float Q=.3f*std::pow(40.0f,qNorm);
+        const float alpha=sn/(2.0f*Q);
+        nb0=1+alpha*A;nb1=-2*c;nb2=1-alpha*A;
+        na0=1+alpha/A;na1=-2*c;na2=1-alpha/A;
+    }else{
+        const float S=.15f+.85f*qNorm;
+        const float alpha=sn*.5f*std::sqrt(std::max(.0001f,(A+1/A)*(1/S-1)+2));
+        const float root=2*std::sqrt(A)*alpha;
+        if(shape==FilterShape::LowShelf){
+            nb0=A*((A+1)-(A-1)*c+root);
+            nb1=2*A*((A-1)-(A+1)*c);
+            nb2=A*((A+1)-(A-1)*c-root);
+            na0=(A+1)+(A-1)*c+root;
+            na1=-2*((A-1)+(A+1)*c);
+            na2=(A+1)+(A-1)*c-root;
+        }else{
+            nb0=A*((A+1)+(A-1)*c+root);
+            nb1=-2*A*((A-1)+(A+1)*c);
+            nb2=A*((A+1)+(A-1)*c-root);
+            na0=(A+1)-(A-1)*c+root;
+            na1=2*((A-1)-(A+1)*c);
+            na2=(A+1)-(A-1)*c-root;
+        }
+    }
+    const float inv=1.0f/std::max(1e-9f,na0);
+    b0=nb0*inv;b1=nb1*inv;b2=nb2*inv;
+    a1=na1*inv;a2=na2*inv;
 }
 float SpectrachordVoice::Biquad::process(float x) noexcept {const float y=b0*x+z1;z1=b1*x-a1*y+z2;z2=b2*x-a2*y;return y;}
 
@@ -164,6 +240,15 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();peak_.reset();peakReady_=false;
+    if(patch_.filter.evolving.configured){
+        for(int k=0;k<6;++k)
+            filterTimeline_[k].reset(patch_.filter.evolving.lanes[k].curve,true);
+        for(auto& b:evolvingFilterBiquads_)b.reset();
+        filterFrequencySmoothed_=evolvingFrequency(patch_.filter.evolving.lanes[0].curve.points[0].value);
+        filterGainSmoothed_=(patch_.filter.evolving.lanes[1].curve.points[0].value*2-1)*24;
+        filterQSmoothed_=patch_.filter.evolving.lanes[2].curve.points[0].value;
+        filterShapeSmoothed_={0,1,0};
+    }
     // Every operator can select Hiss. Its pitch-responsive noise filter
     // has independent state; ordinary Noise always remains raw white noise.
     for(auto& pair:hissState_)pair.fill(0.0f);
@@ -235,6 +320,8 @@ void SpectrachordVoice::release() noexcept {
         opEnv_[i].noteOff(sampleRate_);opVolume_[i].noteOff();opPitch_[i].noteOff();
         opMorphVolume_[i].noteOff();opMorphPitch_[i].noteOff();
     }
+    if(patch_.filter.evolving.configured)
+        for(auto& env:filterTimeline_)env.noteOff();
     ampEnv_.noteOff(sampleRate_);filterEnv_.noteOff(sampleRate_);
 }
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
@@ -424,8 +511,89 @@ float SpectrachordVoice::render() noexcept {
         peak_.configurePeak(peakCenterSmoothed_,peakQSmoothed_,peakGainSmoothed_,sampleRate_);
         sum=peak_.process(sum);
     }
-    const float fEnv=filterEnv_.next(sampleRate_);float cutoff=slotValue(ModTarget::Cutoff,expressionV,m,P.filter.cutoff)*cutScale+fEnv*fixedFilterEnvAmount_*8000;
-    if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;const float q=std::max(0.05f,slotValue(ModTarget::Resonance,expressionV,m,P.filter.resonance));filter_.configure(P.filter.type,cutoff,q,sampleRate_);const float filtered=filter_.process(sum);
+    float filtered=0;
+    if(P.filter.evolving.configured){
+        const auto& model=P.filter.evolving;
+        std::array<float,6> timeline{};
+        for(int i=0;i<6;++i)timeline[i]=clamp01(filterTimeline_[i].next(sampleRate_));
+        std::array<float,6> modTotal{};
+        std::array<int,6> modCount{};
+        std::array<float,3> qDirectWeights{};
+        for(const auto& route:model.mods){
+            if(!route.enabled||route.destination>=6)continue;
+            const float input=clamp01(route.response.source==1?m:expressionV);
+            const auto& response=route.response;
+            const float value=clamp01(response.enabled&&response.count>=2?
+                operatorCurveValue(response.points.data(),response.count,input,input):input);
+            modTotal[route.destination]+=value;
+            ++modCount[route.destination];
+            if(route.destination==2){
+                const auto w=evolvingShapeWeights(route.shape,route.transition,
+                    response.points.data(),response.count,input);
+                for(int s=0;s<3;++s)qDirectWeights[s]+=w[s];
+            }
+        }
+        const auto modded=[&](int dest,float fallback){
+            return modCount[dest]?clamp01(modTotal[dest]/modCount[dest]):fallback;
+        };
+        const float freqNorm=modded(0,timeline[0]+
+            (timeline[3]-timeline[0])*modded(3,0));
+        const float gainNorm=modded(1,timeline[1]+
+            (timeline[4]-timeline[1])*modded(4,0));
+        const float qNorm=modded(2,timeline[2]+
+            (timeline[5]-timeline[2])*modded(5,0));
+        std::array<float,3> weights{};
+        if(modCount[2]>0){
+            for(int s=0;s<3;++s)weights[s]=qDirectWeights[s]/modCount[2];
+        }else{
+            const auto readQ=[&](int index){
+                const auto& lane=model.lanes[index];
+                const auto& state=filterTimeline_[index];
+                const auto& curve=lane.curve;
+                const float position=state.releasing?
+                    curve.points[curve.releaseIndex].time+state.releaseAge:
+                    std::min(state.age,curve.points[curve.releaseIndex].time);
+                return evolvingShapeWeights(lane.shape,lane.transition,
+                    curve.points.data(),curve.count,position);
+            };
+            const auto primary=readQ(2),alt=readQ(5);
+            const float morph=modded(5,0);
+            for(int s=0;s<3;++s)
+                weights[s]=primary[s]*(1-morph)+alt[s]*morph;
+        }
+        const float smoothing=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+        // Smoothing prevents live V/M jumps from clicking and also
+        // brings dormant filter paths into transitions continuously.
+        filterFrequencySmoothed_+=(evolvingFrequency(freqNorm)-
+            filterFrequencySmoothed_)*smoothing;
+        filterGainSmoothed_+=((gainNorm*2-1)*24-filterGainSmoothed_)*smoothing;
+        filterQSmoothed_+=(qNorm-filterQSmoothed_)*smoothing;
+        float weightSum=0;
+        for(int s=0;s<3;++s){
+            filterShapeSmoothed_[s]+=(weights[s]-filterShapeSmoothed_[s])*smoothing;
+            weightSum+=filterShapeSmoothed_[s];
+        }
+        const float freq=std::clamp(filterFrequencySmoothed_+
+            (P.lfo.target==LfoTarget::Filter?lfo*lfoAmount*3000:0.0f),
+            20.0f,sampleRate_*.45f);
+        for(int s=0;s<3;++s){
+            evolvingFilterBiquads_[s].configureEvolving(
+                static_cast<FilterShape>(s),freq,filterQSmoothed_,
+                filterGainSmoothed_,sampleRate_);
+            const float out=evolvingFilterBiquads_[s].process(sum);
+            filtered+=out*filterShapeSmoothed_[s]/
+                std::max(.00001f,weightSum);
+        }
+    }else{
+        const float fEnv=filterEnv_.next(sampleRate_);
+        float cutoff=slotValue(ModTarget::Cutoff,expressionV,m,P.filter.cutoff)*
+            cutScale+fEnv*fixedFilterEnvAmount_*8000;
+        if(P.lfo.target==LfoTarget::Filter)cutoff+=lfo*lfoAmount*3000;
+        const float q=std::max(0.05f,slotValue(
+            ModTarget::Resonance,expressionV,m,P.filter.resonance));
+        filter_.configure(P.filter.type,cutoff,q,sampleRate_);
+        filtered=filter_.process(sum);
+    }
     const float ampLegacy=ampEnv_.next(sampleRate_)*lvlScale;
     if(!anyCustomVolume_&&ampEnv_.done()){active_=false;return 0;}
     bool anyOperatorAlive=false;
