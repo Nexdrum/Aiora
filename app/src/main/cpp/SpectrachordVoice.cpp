@@ -48,7 +48,9 @@ void SpectrachordVoice::PointEnvState::reset(const OperatorCurve& c) noexcept {
     curve=c;age=0;releaseAge=0;releaseStart=0;value=0;releasing=false;done=false;
 }
 void SpectrachordVoice::PointEnvState::noteOff() noexcept {
-    if(releasing||done||!curve.enabled||!curve.count||!curve.sustain)return;
+    // Note-off always begins release, whether sustain is infinite
+    // or the timeline is still advancing toward its timed release gate.
+    if(releasing||done||!curve.enabled||!curve.count)return;
     releaseStart=value;releaseAge=0;releasing=true;
 }
 float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
@@ -57,29 +59,30 @@ float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
     const int last=static_cast<int>(curve.count)-1;
     const int pivot=std::clamp(static_cast<int>(curve.releaseIndex),0,last);
     const float dt=1.0f/std::max(8000.0f,sr);
+    // Infinite sustain pauses the timeline at the S marker. Dynamic
+    // sustain follows the authored shape up to R, then automatically
+    // enters the very same release used by an early note-off.
+    if(!releasing&&!curve.sustain&&age>=pts[pivot].time){
+        value=operatorCurveValue(pts,curve.count,pts[pivot].time,0);
+        noteOff();
+    }
     if(releasing){
         const float total=pts[last].time-pts[pivot].time;
         if(total<=0||releaseAge>=total){done=true;value=0;return 0;}
-        // Release is relative to note-off: the current value replaces the
-        // drawn release start point, and the remaining segment timings survive.
-        OperatorPoint start=pts[pivot];start.time=0;start.value=releaseStart;
-        value=releaseStart;
-        for(int i=pivot+1;i<=last;++i){
-            const float endT=std::max(0.0f,pts[i].time-pts[pivot].time);
-            if(releaseAge<=endT){
-                OperatorPoint end=pts[i];end.time=endT;
-                const float beginT=i==pivot+1?0.0f:pts[i-1].time-pts[pivot].time;
-                if(i>pivot+1){start=pts[i-1];start.time=beginT;}
-                OperatorPoint segment[2]{start,end};
-                value=operatorCurveValue(segment,2,releaseAge,releaseStart);
-                break;
-            }
-        }
+        // Evaluate the complete authored release curve (including X
+        // handles and intermediate points), then smoothly offset it
+        // from its authored start to this note's actual release value.
+        // The offset fades to zero at the terminal point: early
+        // note-off cannot jump toward a later node's absolute value.
+        const float authoredTime=pts[pivot].time+releaseAge;
+        const float authored=operatorCurveValue(pts+pivot,
+            static_cast<size_t>(last-pivot+1),authoredTime,pts[pivot].value);
+        const float remaining=1.0f-releaseAge/total;
+        value=authored+(releaseStart-pts[pivot].value)*remaining;
         releaseAge+=dt;
     }else{
-        const float limit=curve.sustain?pts[pivot].time:pts[last].time;
-        value=operatorCurveValue(pts,curve.count,std::min(age,limit),0);
-        if(!curve.sustain&&age>=pts[last].time){value=0;done=true;}
+        value=operatorCurveValue(pts,curve.count,
+            std::min(age,pts[pivot].time),0);
         age+=dt;
     }
     return value;

@@ -786,6 +786,51 @@ int main(){
         if(k>9000)sustainEnergy+=sample*sample;
     }
     assert(sustainEnergy>.0001f);
+    // Dynamic sustain must enter its authored release when it reaches R,
+    // while an early note-off must release immediately in both modes.
+    Patch dynamicPatch=pointPatch;
+    dynamicPatch.ops[0].volumeCurve=legacyOperatorVolume(
+        {.01f,.02f,.65f,.05f});
+    dynamicPatch.ops[0].volumeCurve.points[1].time=.01f;
+    dynamicPatch.ops[0].volumeCurve.points[2].time=.04f;
+    dynamicPatch.ops[0].volumeCurve.points[3].time=.10f;
+    dynamicPatch.ops[0].volumeCurve.sustain=false;
+    dynamicPatch.ops[0].modChannelsConfigured=false;
+    dynamicPatch.ops[0].expressionCurve={};
+    dynamicPatch.ops[0].pitchCurve={};
+    SpectrachordVoice timed,earlyDynamic,earlyInfinite;
+    timed.prepare(48000.0f);earlyDynamic.prepare(48000.0f);
+    earlyInfinite.prepare(48000.0f);
+    timed.start(911,toDspPatch(dynamicPatch),62,1,0,4800.0f);
+    earlyDynamic.start(911,toDspPatch(dynamicPatch),62,1,0,4800.0f);
+    dynamicPatch.ops[0].volumeCurve.sustain=true;
+    earlyInfinite.start(911,toDspPatch(dynamicPatch),62,1,0,4800.0f);
+    float earlyDifference=0,afterReleaseEnergy=0;
+    for(int sample=0;sample<6500;++sample){
+        if(sample==240){
+            earlyDynamic.release();
+            earlyInfinite.release();
+        }
+        const float t=timed.render(),d=earlyDynamic.render(),s=earlyInfinite.render();
+        assert(std::isfinite(t)&&std::isfinite(d)&&std::isfinite(s));
+        if(sample>=240&&sample<1700)earlyDifference+=std::fabs(d-s);
+        if(sample>=5600)afterReleaseEnergy+=t*t;
+        if(sample>5400)assert(std::fabs(d)<1e-5f&&std::fabs(s)<1e-5f);
+    }
+    assert(earlyDifference<.0001f);
+    assert(afterReleaseEnergy<1e-6f);
+    // Dynamic sustain retains its programmed timeline before R; it
+    // must not launch the release tail early during a held note.
+    dynamicPatch.ops[0].volumeCurve.sustain=false;
+    SpectrachordVoice heldDynamic,heldInfinite;
+    heldDynamic.prepare(48000.0f);heldInfinite.prepare(48000.0f);
+    heldDynamic.start(912,toDspPatch(dynamicPatch),62,1,0,4800.0f);
+    dynamicPatch.ops[0].volumeCurve.sustain=true;
+    heldInfinite.start(912,toDspPatch(dynamicPatch),62,1,0,4800.0f);
+    for(int sample=0;sample<1700;++sample){
+        const float t=heldDynamic.render(),h=heldInfinite.render();
+        assert(std::fabs(t-h)<1e-6f);
+    }
     // Midpoint and handle-based shapes follow authored response values.
     auto r=initialOperatorResponse();
     r.points[1].handleActive=true;r.points[1].handleValue=0;

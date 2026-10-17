@@ -898,7 +898,7 @@ struct OpSurface {
                 const auto r=rect(10,i);
                 button(r,i==2&&c.sustain);
                 text(i==0?"Decay":i==1?"Release":
-                    (c.sustain?"Sustain":"Free run"),r,.76f);
+                    (c.sustain?"Sustain":"Dynamic"),r,.76f);
             }
             // The old Delete slot is a three-part time zoom control:
             // [−] [current magnification] [+]. Both directions are
@@ -1205,19 +1205,33 @@ struct OpSurface {
         const auto e=response(o);
         const auto*pts=page==4?e.points.data():c.points.data();
         const int count=page==4?e.count:c.count;
-        float best=29*29;int candidate=-1;
+        // Every visible orange X is independently draggable without
+        // selecting an endpoint first. Pick the closest eligible target
+        // rather than letting a 29 px node hitbox mask its curve handle.
+        float pointDistance=25.0f*25.0f;
+        int pointCandidate=-1;
         for(int i=0;i<count;++i){
-            auto at=position(pts[i]);float dx=x-at.first,dy=y-at.second;
-            if(dx*dx+dy*dy<best){best=dx*dx+dy*dy;candidate=i;}
+            const auto at=position(pts[i]);
+            const float dx=x-at.first,dy=y-at.second;
+            const float d2=dx*dx+dy*dy;
+            if(d2<pointDistance){pointDistance=d2;pointCandidate=i;}
         }
-        if(candidate>=0){selected=drag=candidate;return true;}
+        float handleDistance=22.0f*22.0f;
+        int handleCandidate=-1;
         for(int i=1;i<count;++i){
             const float t=pts[i-1].time+(pts[i].time-pts[i-1].time)*
                 std::clamp(pts[i].midpoint,.05f,.95f);
-            auto at=position({t,operatorCurveValue(pts+i-1,2,t)});
+            const auto at=position({t,operatorCurveValue(pts+i-1,2,t)});
             const float dx=x-at.first,dy=y-at.second;
-            if(dx*dx+dy*dy<17.0f*17.0f){bend=i;return true;}
+            const float d2=dx*dx+dy*dy;
+            if(d2<handleDistance){handleDistance=d2;handleCandidate=i;}
         }
+        if(handleCandidate>=0&&
+           (pointCandidate<0||handleDistance<=pointDistance)){
+            bend=handleCandidate;
+            return true;
+        }
+        if(pointCandidate>=0){selected=drag=pointCandidate;return true;}
         drag=-2;return true;
     }
     bool move(float x,float y){
