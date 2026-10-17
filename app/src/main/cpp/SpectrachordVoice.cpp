@@ -237,6 +237,8 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     const float vMean=clamp01(curveMean(automation_.velocity,velocity_));
     const float vEnd=automation_.velocity.count?clamp01(automation_.velocity.points[automation_.velocity.count-1].value):velocity_;
     modValue_=m0;timpaniRingGain_=1.0f;
+    if(patch_.masterAmpCurve.enabled&&patch_.masterAmpCurve.count>=2)
+        masterAmpTimeline_.reset(patch_.masterAmpCurve,false);
     fixedUnison_=clamp01(slotValue(ModTarget::Unison,vMean,mMean,patch_.unison));
     if(patch_.unisonCurve.enabled&&patch_.unisonCurve.count>=2){
         unisonTimeline_.reset(patch_.unisonCurve,true);
@@ -248,6 +250,9 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
         for(int k=0;k<6;++k)
             filterTimeline_[k].reset(patch_.filter.evolving.lanes[k].curve,true);
         for(auto& b:evolvingFilterBiquads_)b.reset();
+        for(auto& bank:slopeLowpasses_)for(auto& b:bank)b.reset();
+        slopeGainSmoothed_.fill(1.0f);slopeGainTarget_.fill(1.0f);
+        slopeUpdateCounter_=0;
         filterFrequencySmoothed_=evolvingFrequency(patch_.filter.evolving.lanes[0].curve.points[0].value);
         filterGainSmoothed_=(patch_.filter.evolving.lanes[1].curve.points[0].value*2-1)*24;
         filterQSmoothed_=patch_.filter.evolving.lanes[2].curve.points[0].value;
@@ -328,6 +333,8 @@ void SpectrachordVoice::release() noexcept {
         for(auto& env:filterTimeline_)env.noteOff();
     if(patch_.unisonCurve.enabled&&patch_.unisonCurve.count>=2)
         unisonTimeline_.noteOff();
+    if(patch_.masterAmpCurve.enabled&&patch_.masterAmpCurve.count>=2)
+        masterAmpTimeline_.noteOff();
     ampEnv_.noteOff(sampleRate_);filterEnv_.noteOff(sampleRate_);
 }
 void SpectrachordVoice::kill() noexcept {active_=false;id_=-1;autoRelease_=false;for(auto&e:opEnv_)e.stage=EnvStage::Off;ampEnv_.stage=EnvStage::Off;}
@@ -578,7 +585,11 @@ float SpectrachordVoice::render() noexcept {
         const float smoothing=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
         // Smoothing prevents live V/M jumps from clicking and also
         // brings dormant filter paths into transitions continuously.
-        filterFrequencySmoothed_+=(evolvingFrequency(freqNorm)-
+        // Key Track owns the frequency destination, including its morph
+        // and V/M routes, and follows the oscillator's bent MIDI note.
+        const float targetHz=model.keyTrack?
+            midiHz(baseMidi):evolvingFrequency(freqNorm);
+        filterFrequencySmoothed_+=(targetHz-
             filterFrequencySmoothed_)*smoothing;
         filterGainSmoothed_+=((gainNorm*2-1)*24-filterGainSmoothed_)*smoothing;
         filterQSmoothed_+=(qNorm-filterQSmoothed_)*smoothing;
@@ -588,15 +599,79 @@ float SpectrachordVoice::render() noexcept {
             weightSum+=filterShapeSmoothed_[s];
         }
         const float freq=std::clamp(filterFrequencySmoothed_+
-            (P.lfo.target==LfoTarget::Filter?lfo*lfoAmount*3000:0.0f),
+            (!model.keyTrack&&P.lfo.target==LfoTarget::Filter?
+                lfo*lfoAmount*3000:0.0f),
             20.0f,sampleRate_*.45f);
+        float customWeight=0.0f;
         for(int s=0;s<3;++s){
+            const float weight=filterShapeSmoothed_[s]/
+                std::max(.00001f,weightSum);
             evolvingFilterBiquads_[s].configureEvolving(
                 static_cast<FilterShape>(s),freq,filterQSmoothed_,
                 filterGainSmoothed_,sampleRate_);
             const float out=evolvingFilterBiquads_[s].process(sum);
-            filtered+=out*filterShapeSmoothed_[s]/
-                std::max(.00001f,weightSum);
+            // Weighted alternatives, never effects connected in series.
+            if(model.slopes[s].enabled)customWeight+=weight;
+            else filtered+=out*weight;
+        }
+        const bool profilesEnabled=model.slopes[0].enabled||
+            model.slopes[1].enabled||model.slopes[2].enabled;
+        if(profilesEnabled){
+            // Eight octave-spaced fourth-order lowpasses produce nine
+            // complementary logarithmic bands. A weighted band sum gives
+            // an actual magnitude-shaping DSP response; unity weights
+            // telescope precisely back to the original dry input.
+            // Coefficients and magnitude targets refresh every 32 samples,
+            // while the gains themselves smooth every sample.
+            if((slopeUpdateCounter_++ & 31u)==0){
+                constexpr float edges[8]={-3.5f,-2.5f,-1.5f,-.5f,
+                                            .5f,1.5f,2.5f,3.5f};
+                for(int i=0;i<8;++i){
+                    const float cutoff=std::clamp(
+                        freq*std::exp2(edges[i]),20.0f,sampleRate_*.45f);
+                    for(auto& b:slopeLowpasses_[i])
+                        b.configure(FilterType::Lowpass,cutoff,.70710678f,sampleRate_);
+                }
+                const float gainDb=filterGainSmoothed_;
+                const float depth=std::clamp(std::fabs(gainDb)/24.0f,0.0f,1.0f);
+                const float bandwidth=1.65f-1.25f*filterQSmoothed_;
+                for(int i=0;i<9;++i){
+                    const float octaves=static_cast<float>(i)-4.0f;
+                    const float position=std::clamp(
+                        .5f+octaves/(8.0f*bandwidth),0.0f,1.0f);
+                    float weightedMagnitude=0,normalizedWeight=0;
+                    for(int s=0;s<3;++s){
+                        if(!model.slopes[s].enabled)continue;
+                        const auto& curve=model.slopes[s].profile;
+                        const float value=std::clamp(operatorCurveValue(
+                            curve.points.data(),curve.count,position,1.0f),
+                            0.0f,1.0f);
+                        const float mask=1.0f-value;
+                        const float target=gainDb<0?
+                            1.0f-depth*mask:
+                            1.0f+depth*(15.84893f-1.0f)*mask;
+                        const float weight=std::max(0.0f,filterShapeSmoothed_[s]);
+                        weightedMagnitude+=weight*target;
+                        normalizedWeight+=weight;
+                    }
+                    slopeGainTarget_[i]=normalizedWeight>1e-6f?
+                        weightedMagnitude/normalizedWeight:1.0f;
+                }
+            }
+            float lowpass[8]{};
+            for(int i=0;i<8;++i){
+                lowpass[i]=sum;
+                for(auto& b:slopeLowpasses_[i])lowpass[i]=b.process(lowpass[i]);
+            }
+            const float gainSlew=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+            for(int i=0;i<9;++i)
+                slopeGainSmoothed_[i]+=(slopeGainTarget_[i]-
+                    slopeGainSmoothed_[i])*gainSlew;
+            float custom=sum*slopeGainSmoothed_[8];
+            for(int i=0;i<8;++i)
+                custom+=lowpass[i]*(slopeGainSmoothed_[i]-
+                    slopeGainSmoothed_[i+1]);
+            filtered+=custom*customWeight;
         }
     }else{
         const float fEnv=filterEnv_.next(sampleRate_);
@@ -609,7 +684,13 @@ float SpectrachordVoice::render() noexcept {
         filtered=filter_.process(sum);
     }
     const float ampLegacy=ampEnv_.next(sampleRate_)*lvlScale;
-    if(!anyCustomVolume_&&ampEnv_.done()){active_=false;return 0;}
+    const bool masterEnabled=P.masterAmpCurve.enabled&&P.masterAmpCurve.count>=2;
+    const float masterLevel=masterEnabled?
+        clamp01(masterAmpTimeline_.next(sampleRate_))*lvlScale:1.0f;
+    if((masterEnabled&&masterAmpTimeline_.done)||
+       (!masterEnabled&&!anyCustomVolume_&&ampEnv_.done())){
+        active_=false;return 0;
+    }
     bool anyOperatorAlive=false;
     for(size_t i=0;i<6;++i){
         if(!P.ops[i].enabled||P.ops[i].level<=0)continue;
@@ -619,7 +700,7 @@ float SpectrachordVoice::render() noexcept {
             (altCustom&&!opMorphVolume_[i].done);
     }
     if(anyCustomVolume_&&!anyOperatorAlive){active_=false;return 0;}
-    const float amp=anyCustomVolume_?1.0f:ampLegacy;
+    const float amp=masterEnabled?masterLevel:(anyCustomVolume_?1.0f:ampLegacy);
     float gain=std::max(0.0f,slotValue(ModTarget::Volume,expressionV,m,1));if(P.lfo.target==LfoTarget::Amp)gain*=std::max(0.0f,1+lfo*lfoAmount*0.5f);
     ++elapsedSamples_;return filtered*amp*gain*P.volume*velocityGain*(P.timpaniMembrane?timpaniRingGain_:1.0f)*(P.cymbalModel?cymbalTailGain_:1.0f);
 }
