@@ -434,18 +434,61 @@ void NativeOverlay::addRect(Rect r,Color c){
 void NativeOverlay::addQuad(
     float x0,float y0,float x1,float y1,
     float x2,float y2,float x3,float y3,Color c){
-    auto vtx=[&](float x,float y){
+    struct XY { float x,y; };
+    const auto vertex=[&](XY v){
         return Vertex{
-            x/static_cast<float>(width_)*2.0f-1.0f,
-            1.0f-y/static_cast<float>(height_)*2.0f,
-            c.r,c.g,c.b,c.a
-        };
+            v.x/static_cast<float>(width_)*2.0f-1.0f,
+            1.0f-v.y/static_cast<float>(height_)*2.0f,
+            c.r,c.g,c.b,c.a};
     };
-    const Vertex a=vtx(x0,y0);
-    const Vertex b=vtx(x1,y1);
-    const Vertex d=vtx(x3,y3);
-    const Vertex e=vtx(x2,y2);
-    vertices_.insert(vertices_.end(),{a,d,b,b,d,e});
+    const auto triangle=[&](XY a,XY b,XY d){
+        if(!clipEnabled_){
+            vertices_.insert(vertices_.end(),{vertex(a),vertex(b),vertex(d)});
+            return;
+        }
+        // Filled circles are assembled from triangles. Clip each one before
+        // emitting vertices so scrolling anchors never bleed over fixed tabs
+        // or beneath the Android navigation bar.
+        std::array<XY,9> polygon{};
+        std::array<XY,9> nextPolygon{};
+        polygon[0]=a;polygon[1]=b;polygon[2]=d;
+        int count=3;
+        for(int edge=0;edge<4;++edge){
+            if(!count)break;
+            const float boundary=edge==0?clip_.x:edge==1?clip_.x+clip_.w:
+                edge==2?clip_.y:clip_.y+clip_.h;
+            const auto inside=[&](XY p){
+                const float v=edge<2?p.x:p.y;
+                return edge==0||edge==2?v>=boundary:v<=boundary;
+            };
+            const auto intersect=[&](XY p,XY q){
+                const float a0=edge<2?p.x:p.y,a1=edge<2?q.x:q.y;
+                const float t=std::clamp((boundary-a0)/
+                    (std::fabs(a1-a0)<1.0e-8f?1.0f:a1-a0),0.0f,1.0f);
+                return XY{p.x+(q.x-p.x)*t,p.y+(q.y-p.y)*t};
+            };
+            int added=0;
+            XY prev=polygon[count-1];
+            bool prevIn=inside(prev);
+            for(int i=0;i<count;++i){
+                const XY cur=polygon[i];const bool in=inside(cur);
+                if(in!=prevIn)nextPolygon[added++]=intersect(prev,cur);
+                if(in)nextPolygon[added++]=cur;
+                prev=cur;prevIn=in;
+            }
+            count=added;
+            for(int i=0;i<count;++i)polygon[i]=nextPolygon[i];
+        }
+        if(count<3)return;
+        for(int i=1;i<count-1;++i){
+            vertices_.insert(vertices_.end(),{
+                vertex(polygon[0]),vertex(polygon[i]),vertex(polygon[i+1])});
+        }
+    };
+    // Preserve original quad triangulation, including filled-circle fans.
+    const XY a{x0,y0},b{x1,y1},d{x3,y3},e{x2,y2};
+    triangle(a,d,b);
+    triangle(b,d,e);
 }
 
 void NativeOverlay::addGradientQuad(

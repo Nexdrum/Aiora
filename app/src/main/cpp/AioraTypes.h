@@ -49,6 +49,8 @@ struct OperatorResponse {
     uint8_t source{0}; // 0=velocity, 1=modulation
     bool enabled{false};
 };
+// Use the same monotone X-handle interpolation as the piano-roll B/V/M curves.
+inline float curveSegment(float fraction,float a,float b,float q,bool shaped,float handleValue) noexcept;
 // Interpolates warped/curved segments without allocating on the audio thread.
 inline float operatorCurveValue(const OperatorPoint* points,size_t count,float x,float fallback=0) noexcept {
     if(!count)return fallback;
@@ -57,25 +59,22 @@ inline float operatorCurveValue(const OperatorPoint* points,size_t count,float x
         if(x<=points[i].time){
             const auto&a=points[i-1];const auto&b=points[i];
             const float t=std::clamp((x-a.time)/std::max(.000001f,b.time-a.time),0.0f,1.0f);
-            const float mid=std::clamp(b.midpoint,.02f,.98f);
-            const float u=t<mid?0.5f*t/mid:0.5f+0.5f*(t-mid)/(1.0f-mid);
-            if(b.handleActive)
-                return (1-u)*(1-u)*a.value+2*u*(1-u)*b.handleValue+u*u*b.value;
-            return a.value+(b.value-a.value)*u;
+            return curveSegment(t,a.value,b.value,b.midpoint,b.handleActive,b.handleValue);
         }
     }
     return points[count-1].value;
 }
 inline OperatorCurve legacyOperatorVolume(const Envelope& e) noexcept {
-    OperatorCurve c; c.enabled=true;c.sustain=true;c.count=4;c.releaseIndex=2;c.decayIndex=2;
+    OperatorCurve c; c.enabled=true;c.sustain=true;c.count=4;c.releaseIndex=2;c.decayIndex=1;
     c.points[0]={0,0};c.points[1]={std::max(.0005f,e.attack),1};
     c.points[2]={c.points[1].time+std::max(.0005f,e.decay),std::clamp(e.sustain,0.0f,1.0f)};
     c.points[3]={c.points[2].time+std::max(.0005f,e.release),0};
     return c;
 }
 inline OperatorCurve initialOperatorPitch() noexcept {
-    OperatorCurve c;c.enabled=true;c.sustain=true;c.count=3;c.releaseIndex=1;
-    c.points[0]={0,0};c.points[1]={.1f,0};c.points[2]={.25f,0};
+    OperatorCurve c;c.enabled=true;c.sustain=true;c.count=4;c.decayIndex=1;c.releaseIndex=2;
+    c.points[0]={0,0};c.points[1]={.02f,0};c.points[2]={.1f,0};
+    c.points[3]={.25f,0};
     return c;
 }
 inline OperatorResponse initialOperatorResponse() noexcept {
