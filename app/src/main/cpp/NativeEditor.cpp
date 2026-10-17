@@ -723,6 +723,28 @@ struct OpSurface {
     float downX{0},downY{0},lastY{0};
     bool moved{false},panning{false},changed{false};
     std::array<std::array<float,2>,6> scroll{},harmonicScroll{};
+    // Each operator's Vol/Pitch timeline has its own viewing scale.
+    // Start at 8x the previous 320 px/s scale for precise attacks.
+    std::array<std::array<uint8_t,2>,6> zoom{{
+        {{1,1}},{{1,1}},{{1,1}},{{1,1}},{{1,1}},{{1,1}}
+    }};
+    static constexpr std::array<float,3> kTimePixelsPerSecond{
+        320.0f,2560.0f,10240.0f
+    };
+    float pixelsPerSecond()const{
+        return kTimePixelsPerSecond[zoom[op][page==1?1:0]];
+    }
+    int zoomFactor()const{
+        return static_cast<int>(pixelsPerSecond()/kTimePixelsPerSecond[0]);
+    }
+    void cycleTimeZoom(){
+        if(page>=2)return;
+        auto& index=zoom[op][page];
+        const float topSeconds=scroll[op][page]/pixelsPerSecond();
+        index=static_cast<uint8_t>((index+1)%kTimePixelsPerSecond.size());
+        const float maxScroll=std::max(0.0f,120.0f*pixelsPerSecond()-rect(11).h);
+        scroll[op][page]=std::clamp(topSeconds*pixelsPerSecond(),0.0f,maxScroll);
+    }
     std::chrono::steady_clock::time_point started{};
     Rect view{};
     Rect rect(int row,int index=0) const {
@@ -762,7 +784,7 @@ struct OpSurface {
     void scrollBy(float dy){
         if(page<2){
             auto& amount=scroll[op][page];
-            amount=std::clamp(amount+dy,0.0f,std::max(0.0f,120.0f*320.0f-rect(11).h));
+            amount=std::clamp(amount+dy,0.0f,std::max(0.0f,120.0f*pixelsPerSecond()-rect(11).h));
         }else if(page==3){
             auto& amount=harmonicScroll[op][harmonicView==2?1:0];
             amount=std::clamp(amount+dy,0.0f,
@@ -782,7 +804,7 @@ struct OpSurface {
             r.y+(1.0f-std::clamp(pt.value,0.0f,1.0f))*r.h};
         const float v=page==1?(pt.value+12)/24:pt.value;
         return {r.x+std::clamp(v,0.0f,1.0f)*r.w,
-            r.y+pt.time*320-scroll[op][page]};
+            r.y+pt.time*pixelsPerSecond()-scroll[op][page]};
     }
     bool hitRatio(float x,float y) const {return rect(2).contains(x,y);}
     bool hitSemi(float x,float y) const {return rect(3).contains(x,y);}
@@ -838,7 +860,10 @@ struct OpSurface {
             const auto c=env(o);
             for(int i=0;i<4;++i){
                 auto r=rect(10,i);button(r,i==2&&c.sustain);
-                text(i==0?"Decay":i==1?"Release":i==2?(c.sustain?"Sustain":"Free run"):"Delete",r,.76f);
+                const std::string caption=i==0?"Decay":i==1?"Release":
+                    i==2?(c.sustain?"Sustain":"Free run"):
+                    ("Time "+std::to_string(zoomFactor())+"x");
+                text(caption,r,.76f);
             }
             ov.addText(page==1?"-12          0           +12 ST":"0              Volume            100%",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
@@ -874,11 +899,32 @@ struct OpSurface {
             ov.clearClip();return;
         }
         if(page<2){
-            for(int i=0;i<=240;++i){
-                float y=plot.y+i*160.0f-scroll[op][page];
+            // Adaptive timeline ticks. Zooming reveals millisecond detail,
+            // and grid labels always represent exact seconds (no snapping).
+            const float scale=pixelsPerSecond();
+            constexpr std::array<float,14> steps{
+                .001f,.002f,.005f,.01f,.02f,.05f,.1f,.2f,
+                .5f,1.0f,2.0f,5.0f,10.0f,20.0f
+            };
+            float tick=steps.back();
+            for(float candidate:steps){
+                if(candidate*scale>=78.0f){tick=candidate;break;}
+            }
+            const float scrollStart=scroll[op][page];
+            const int first=std::max(0,static_cast<int>(
+                std::floor(scrollStart/(scale*tick))));
+            const int last=std::min(static_cast<int>(120.0f/tick),
+                static_cast<int>(std::ceil((scrollStart+plot.h)/(scale*tick))));
+            for(int i=first;i<=last;++i){
+                const float seconds=i*tick;
+                const float y=plot.y+seconds*scale-scrollStart;
                 if(y<plot.y||y>plot.y+plot.h)continue;
                 ov.addLine(plot.x,y,plot.x+plot.w,y,1,overlayColor(kMuted,.3f));
-                std::snprintf(buff,sizeof(buff),"%.1fs",i*.5f);
+                if(seconds<1.0f){
+                    std::snprintf(buff,sizeof(buff),"%.0fms",seconds*1000.0f);
+                }else{
+                    std::snprintf(buff,sizeof(buff),"%.2gs",static_cast<double>(seconds));
+                }
                 ov.addText(buff,plot.x+3,y+4,.65f,overlayColor(kMuted));
             }
         }
@@ -976,7 +1022,7 @@ struct OpSurface {
         if(handle){
             if(idx<1)return false;
             const auto&before=c.points[idx-1];
-            const float time=(y-r.y+scroll[op][page])/320.0f;
+            const float time=(y-r.y+scroll[op][page])/pixelsPerSecond();
             pt.midpoint=std::clamp(
                 (time-before.time)/std::max(.00001f,pt.time-before.time),
                 .05f,.95f);
@@ -984,7 +1030,7 @@ struct OpSurface {
             pt.handleValue=std::clamp(val,
                 std::min(before.value,pt.value),std::max(before.value,pt.value));
         }else{
-            float time=std::max(0.0f,(y-r.y+scroll[op][page])/320.0f);
+            float time=std::max(0.0f,(y-r.y+scroll[op][page])/pixelsPerSecond());
             pt.time=idx==0?0:std::clamp(time,c.points[idx-1].time+.0001f,
                 idx+1<c.count?c.points[idx+1].time-.0001f:120.0f);
             pt.value=page==1&&!pt.free?std::round(val):val;
@@ -1006,7 +1052,7 @@ struct OpSurface {
             c.points[n]=pt;++c.count;selected=n;return core.setSelectedOperatorResponse(op,c);
         }
         auto c=env(o);if(c.count>=kMaxOperatorPoints)return false;
-        pt.time=std::clamp((y-r.y+scroll[op][page])/320.0f,.0001f,119.999f);
+        pt.time=std::clamp((y-r.y+scroll[op][page])/pixelsPerSecond(),.0001f,119.999f);
         pt.value=page==1?std::round(-12+24*xval):xval;
         int n=0;while(n<c.count&&c.points[n].time<pt.time)++n;
         // Extending the timeline beyond the last point keeps its silent
@@ -1049,15 +1095,12 @@ struct OpSurface {
             return true;
         }
         if(page<2)for(int i=0;i<4;++i)if(rect(10,i).contains(x,y)){
+            // Former Delete slot is now a non-destructive time zoom.
+            // Deletion uses quick-tap gestures on interior points.
+            if(i==3){cycleTimeZoom();return true;}
             auto c=env(o);
             if(i==2)c.sustain=!c.sustain;
-            else if(i==3){
-                if(selected<=0||selected>=c.count-1)return true;
-                for(int k=selected;k+1<c.count;++k)c.points[k]=c.points[k+1];
-                --c.count;if(c.decayIndex>=selected&&c.decayIndex>0)--c.decayIndex;
-                if(c.releaseIndex>=selected&&c.releaseIndex>0)--c.releaseIndex;
-                c.releaseIndex=std::min<int>(c.releaseIndex,c.count-2);selected=-1;
-            }else if(selected>=0&&selected<c.count-1){
+            else if(selected>=0&&selected<c.count-1){
                 if(i==0)c.decayIndex=selected;
                 else c.releaseIndex=selected;
             }else return true;
