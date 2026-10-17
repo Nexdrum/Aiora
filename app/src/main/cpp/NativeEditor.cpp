@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstdio>
 #include <cmath>
 #include <string>
 
@@ -187,13 +189,12 @@ NativeEditor::Rect NativeEditor::patchTransferRect(EditorPage page,int index) co
     if(index==0)return {};
     const auto e=editorRect();
     const float gap=std::clamp(e.w*0.014f,9.0f,13.0f);
-    const float h=70.0f;
+    const float h=page==EditorPage::Synth?52.0f:70.0f;
     const float w=(e.w-gap*3.0f)*0.5f;
 
     float top=e.y+gap;
     if(page==EditorPage::Synth){
-        const auto last=operatorCardRect(5);
-        top=last.y+last.h+gap+46.0f;
+        top=e.y+e.h-63.0f;
     }else{
         const auto last=fxGroupRect(3);
         top=last.y+last.h+gap+46.0f;
@@ -601,7 +602,7 @@ ModTarget NativeEditor::cycleModTarget(ModTarget current,int direction) noexcept
 
 float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     const auto b=bodyRect();
-    if(page==EditorPage::Synth&&matrixMode_)return 0.0f;
+    if(page==EditorPage::Synth)return 0.0f;
 
     const auto footer=patchTransferRect(page,1);
     const float scroll=
@@ -710,7 +711,314 @@ void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
         overlayColor(kWhite));
 }
 
+
+// Dedicated point-envelope surface. The existing FM matrix and FX editor
+// remain independent, so neither is affected by operator editing gestures.
+namespace {
+struct OpSurface {
+    using Rect=NativeEditor::Rect;
+    int op{0},page{0},selected{-1},drag{-1},bend{-1};
+    unsigned shadows{0};
+    float downX{0},downY{0},lastY{0};
+    bool moved{false},panning{false},changed{false};
+    std::array<std::array<float,2>,6> scroll{};
+    std::chrono::steady_clock::time_point started{};
+    Rect view{};
+    Rect rect(int row,int index=0) const {
+        const float x=view.x+10,w=view.w-20;
+        const float y=view.y+88;
+        switch(row){
+            case 0: {const float ww=(w-25)/6;return {x+index*(ww+5),y,ww,54};}
+            case 1: return {x,y+64,w*.38f,60}; // waveform
+            case 2: return {x+w*.38f+6,y+64,w*.23f-6,60}; // ratio
+            case 3: return {x+w*.61f+6,y+64,w*.19f-6,60}; // semitone
+            case 4: return {x+w*.80f+6,y+64,w*.20f-6,60}; // operator on/off
+            case 5: return {x,y+132,(w-8)*.5f,45}; // level
+            case 6: return {x+(w-8)*.5f+8,y+132,(w-8)*.5f,45}; // fine cents
+            case 7: {const float ww=(w-12)/3;return {x+index*(ww+6),y+184,ww,52};}
+            case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
+            case 9: return {x,y+301,w,std::max(120.0f,view.y+view.h-y-365)}; // graph
+            case 10:{auto r=rect(9);const float ww=(r.w-22)/4;return {r.x+4+index*(ww+6),r.y+3,ww,43};}
+            case 11:{auto r=rect(9);return {r.x+42,r.y+57,r.w-67,r.h-78};}
+        }
+        return {};
+    }
+    OperatorCurve env(const Operator&o) const {
+        return page==1?(o.pitchCurve.enabled?o.pitchCurve:initialOperatorPitch())
+            :(o.volumeCurve.enabled?o.volumeCurve:legacyOperatorVolume(o.env));
+    }
+    OperatorResponse response(const Operator&o) const {
+        return o.expressionCurve.enabled?o.expressionCurve:initialOperatorResponse();
+    }
+    std::pair<float,float> position(const OperatorPoint&pt)const{
+        auto r=rect(11);
+        if(page==2)return {r.x+std::clamp(pt.time,0.0f,1.0f)*r.w,
+            r.y+(1.0f-std::clamp(pt.value,0.0f,1.0f))*r.h};
+        const float v=page==1?(pt.value+12)/24:pt.value;
+        return {r.x+std::clamp(v,0.0f,1.0f)*r.w,
+            r.y+pt.time*320-scroll[op][page]};
+    }
+    bool hitRatio(float x,float y) const {return rect(2).contains(x,y);}
+    bool hitSemi(float x,float y) const {return rect(3).contains(x,y);}
+    bool hitWave(float x,float y) const {return rect(1).contains(x,y);}
+    void draw() const {
+        const Patch p=ProjectCore::instance().selectedPatch();
+        const auto&o=p.ops[op];
+        auto&ov=NativeOverlay::instance();
+        auto text=[&](std::string_view label,Rect r,float scale=.87f,NativeOverlay::Color color=overlayColor(kWhite)){
+            ov.addTextCentered(label,{r.x,r.y,r.w,r.h},scale,color);
+        };
+        auto button=[&](Rect r,bool active,bool purple=false){
+            ov.addRect({r.x,r.y,r.w,r.h},overlayColor(active?(purple?kPurple:kCyan):kButton));
+        };
+        for(int i=0;i<6;++i){
+            auto r=rect(0,i);button(r,i==op);
+            text("OP"+std::to_string(i+1),r,.84f,overlayColor(i==op?kBg:kWhite));
+        }
+        auto field=[&](Rect r,std::string_view label,std::string value){
+            ov.addRect({r.x,r.y,r.w,r.h},overlayColor(kButton));
+            ov.addText(label,r.x+7,r.y+5,.7f,overlayColor(kMuted));
+            ov.addText(value,r.x+7,r.y+26,.91f,overlayColor(kWhite));
+        };
+        char buff[32];
+        field(rect(1),"Wave",kWaveformLabels[std::clamp(static_cast<int>(o.wave),0,6)]);
+        std::snprintf(buff,sizeof(buff),"%.4g",static_cast<double>(o.ratio));field(rect(2),"Ratio",buff);
+        std::snprintf(buff,sizeof(buff),"%+.0f",static_cast<double>(o.semitoneOffset));field(rect(3),"Base ST",buff);
+        button(rect(4),o.enabled);text(o.enabled?"ON":"OFF",rect(4),.85f);
+        for(int i=0;i<2;++i){
+            auto r=rect(5+i);button(r,false);
+            const float v=i?((o.detuneCents+50)/100):o.level;
+            ov.addText(i?"Fine":"Level",r.x+7,r.y+9,.8f,overlayColor(kWhite));
+            ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f,5},overlayColor(kMuted));
+            ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f*std::clamp(v,0.0f,1.0f),5},overlayColor(kCyan));
+        }
+        for(int i=0;i<3;++i){
+            auto r=rect(7,i);button(r,i==page,i==2);
+            text(i==0?"Vol":i==1?"Pitch":"Mod",r,1.03f,overlayColor(i==page?kBg:kWhite));
+        }
+        for(int i=0;i<6;++i){
+            auto r=rect(8,i);
+            if(page==2&&i>1)continue;
+            const bool active=page==2?response(o).source==i:(i!=op&&(shadows&(1u<<i)));
+            button(r,active,true);
+            text(page==2?(i?"M":"V"):("OP"+std::to_string(i+1)),r,.83f,
+                 overlayColor(active?kBg:kWhite));
+        }
+        auto graph=rect(9),plot=rect(11);
+        ov.addRect({graph.x,graph.y,graph.w,graph.h},overlayColor(kRollBg));
+        if(page<2){
+            const auto c=env(o);
+            for(int i=0;i<4;++i){
+                auto r=rect(10,i);button(r,i==2&&c.sustain);
+                text(i==0?"Decay":i==1?"Release":i==2?(c.sustain?"Sustain":"Free run"):"Delete",r,.76f);
+            }
+            ov.addText(page==1?"-12          0           +12 ST":"0              Volume            100%",
+                plot.x,plot.y-18,.8f,overlayColor(kMuted));
+        }else ov.addText("Output 100%  /  Input 0 -> 100%",plot.x,plot.y-18,.8f,overlayColor(kMuted));
+        ov.setClip({plot.x-11,plot.y-9,plot.w+22,plot.h+18});
+        for(int i=0;i<=4;++i){
+            float x=plot.x+i*plot.w*.25f;
+            ov.addLine(x,plot.y,x,plot.y+plot.h,1,overlayColor(kMuted,.5f));
+            if(page==2){
+                float y=plot.y+i*plot.h*.25f;
+                ov.addLine(plot.x,y,plot.x+plot.w,y,1,overlayColor(kMuted,.5f));
+            }
+        }
+        if(page<2){
+            for(int i=0;i<=240;++i){
+                float y=plot.y+i*160.0f-scroll[op][page];
+                if(y<plot.y||y>plot.y+plot.h)continue;
+                ov.addLine(plot.x,y,plot.x+plot.w,y,1,overlayColor(kMuted,.3f));
+                std::snprintf(buff,sizeof(buff),"%.1fs",i*.5f);
+                ov.addText(buff,plot.x+3,y+4,.65f,overlayColor(kMuted));
+            }
+        }
+        auto paint=[&](const OperatorPoint*pts,int count,bool ghost){
+            if(count<2)return;
+            for(int i=1;i<count;++i)for(int k=1;k<=24;++k){
+                float t0=pts[i-1].time+(pts[i].time-pts[i-1].time)*(k-1)/24.0f;
+                float t1=pts[i-1].time+(pts[i].time-pts[i-1].time)*k/24.0f;
+                OperatorPoint a{t0,operatorCurveValue(pts+i-1,2,t0)};
+                OperatorPoint b{t1,operatorCurveValue(pts+i-1,2,t1)};
+                auto x=position(a),y=position(b);
+                ov.addLine(x.first,x.second,y.first,y.second,ghost?2:3.5f,
+                    overlayColor(ghost?kPurple:(page==2?kPurple:page==1?kCyan:kGreen),ghost?.32f:1.0f));
+            }
+        };
+        if(page<2){
+            for(int i=0;i<6;++i)if(i!=op&&(shadows&(1u<<i))){
+                const auto&so=p.ops[i];
+                const auto c=page==1?(so.pitchCurve.enabled?so.pitchCurve:initialOperatorPitch()):
+                    (so.volumeCurve.enabled?so.volumeCurve:legacyOperatorVolume(so.env));
+                paint(c.points.data(),c.count,true);
+            }
+            auto c=env(o);paint(c.points.data(),c.count,false);
+            for(int i=0;i<c.count;++i){
+                auto xy=position(c.points[i]);
+                ov.addFilledCircle(xy.first,xy.second,i==selected?9:7,overlayColor(i==selected?kOrange:kWhite));
+                if(i==c.decayIndex)ov.addText("D",xy.first+12,xy.second+5,.8f,overlayColor(kCyan));
+                if(i==c.releaseIndex)ov.addText(c.sustain?"S":"R",xy.first+12,xy.second-12,.8f,overlayColor(kOrange));
+                if(page==1&&c.points[i].free)ov.addCircle(xy.first,xy.second,12,1.5f,overlayColor(kPurple));
+            }
+        }else{
+            auto c=response(o);paint(c.points.data(),c.count,false);
+            for(int i=0;i<c.count;++i){
+                auto xy=position(c.points[i]);
+                ov.addFilledCircle(xy.first,xy.second,i==selected?9:7,overlayColor(i==selected?kOrange:kWhite));
+            }
+        }
+        ov.clearClip();
+    }
+    bool updatePoint(int idx,float x,float y,bool handle){
+        auto& core=ProjectCore::instance();
+        const auto o=core.selectedPatch().ops[op];
+        auto r=rect(11);
+        float xval=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+        if(page==2){
+            auto c=response(o);if(idx<0||idx>=c.count)return false;
+            auto&pt=c.points[idx];
+            if(handle){pt.handleActive=true;pt.handleValue=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);}
+            else{
+                pt.time=std::clamp(xval,idx?c.points[idx-1].time+.0001f:0.0f,
+                    idx+1<c.count?c.points[idx+1].time-.0001f:1.0f);
+                pt.value=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);
+            }
+            return core.setSelectedOperatorResponse(op,c);
+        }
+        auto c=env(o);if(idx<0||idx>=c.count)return false;
+        auto&pt=c.points[idx];
+        float val=page==1?-12+24*xval:xval;
+        if(handle){pt.handleActive=true;pt.handleValue=val;}
+        else{
+            float time=std::max(0.0f,(y-r.y+scroll[op][page])/320.0f);
+            pt.time=idx==0?0:std::clamp(time,c.points[idx-1].time+.0001f,
+                idx+1<c.count?c.points[idx+1].time-.0001f:120.0f);
+            pt.value=page==1&&!pt.free?std::round(val):val;
+        }
+        return core.setSelectedOperatorCurve(op,page,c);
+    }
+    bool addPoint(float x,float y){
+        auto&core=ProjectCore::instance();
+        const auto o=core.selectedPatch().ops[op];
+        auto r=rect(11);
+        float xval=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+        OperatorPoint pt{};
+        if(page==2){
+            auto c=response(o);if(c.count>=kMaxOperatorPoints)return false;
+            pt.time=std::clamp(xval,.0001f,.9999f);
+            pt.value=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);
+            int n=0;while(n<c.count&&c.points[n].time<pt.time)++n;
+            for(int k=c.count;k>n;--k)c.points[k]=c.points[k-1];
+            c.points[n]=pt;++c.count;selected=n;return core.setSelectedOperatorResponse(op,c);
+        }
+        auto c=env(o);if(c.count>=kMaxOperatorPoints)return false;
+        pt.time=std::clamp((y-r.y+scroll[op][page])/320.0f,.0001f,119.999f);
+        pt.value=page==1?std::round(-12+24*xval):xval;
+        int n=0;while(n<c.count&&c.points[n].time<pt.time)++n;
+        if(n==0||n==c.count||pt.time-c.points[n-1].time<.0001f||c.points[n].time-pt.time<.0001f)return false;
+        for(int k=c.count;k>n;--k)c.points[k]=c.points[k-1];
+        c.points[n]=pt;++c.count;if(c.decayIndex>=n)++c.decayIndex;
+        if(c.releaseIndex>=n)++c.releaseIndex;
+        selected=n;return core.setSelectedOperatorCurve(op,page,c);
+    }
+    bool down(float x,float y){
+        downX=x;downY=lastY=y;started=std::chrono::steady_clock::now();
+        moved=panning=changed=false;drag=-1;bend=-1;
+        for(int i=0;i<6;++i)if(rect(0,i).contains(x,y)){op=i;selected=-1;return true;}
+        auto&core=ProjectCore::instance();
+        const auto o=core.selectedPatch().ops[op];
+        if(rect(4).contains(x,y)){changed=core.setSelectedOperatorEnabled(op,!o.enabled);return true;}
+        for(int i=0;i<2;++i)if(rect(5+i).contains(x,y)){drag=-10-i;return move(x,y);}
+        for(int i=0;i<3;++i)if(rect(7,i).contains(x,y)){page=i;selected=-1;return true;}
+        for(int i=0;i<6;++i)if(rect(8,i).contains(x,y)){
+            if(page==2){
+                if(i<2){auto c=response(o);c.source=i;changed=core.setSelectedOperatorResponse(op,c);}
+            }else if(i!=op)shadows^=1u<<i;
+            return true;
+        }
+        if(page<2)for(int i=0;i<4;++i)if(rect(10,i).contains(x,y)){
+            auto c=env(o);
+            if(i==2)c.sustain=!c.sustain;
+            else if(i==3){
+                if(selected<=0||selected>=c.count-1)return true;
+                for(int k=selected;k+1<c.count;++k)c.points[k]=c.points[k+1];
+                --c.count;if(c.decayIndex>=selected&&c.decayIndex>0)--c.decayIndex;
+                if(c.releaseIndex>=selected&&c.releaseIndex>0)--c.releaseIndex;
+                c.releaseIndex=std::min<int>(c.releaseIndex,c.count-2);selected=-1;
+            }else if(selected>=0&&selected<c.count-1){
+                if(i==0)c.decayIndex=selected;
+                else c.releaseIndex=selected;
+            }else return true;
+            changed=core.setSelectedOperatorCurve(op,page,c);return true;
+        }
+        if(!rect(11).contains(x,y))return false;
+        const auto c=env(o),e=response(o);
+        const auto*pts=page==2?e.points.data():c.points.data();
+        const int count=page==2?e.count:c.count;
+        float best=29*29;int candidate=-1;
+        for(int i=0;i<count;++i){
+            auto at=position(pts[i]);float dx=x-at.first,dy=y-at.second;
+            if(dx*dx+dy*dy<best){best=dx*dx+dy*dy;candidate=i;}
+        }
+        if(candidate>=0){selected=drag=candidate;return true;}
+        for(int i=1;i<count;++i){
+            float t=(pts[i-1].time+pts[i].time)*.5f;
+            auto at=position({t,operatorCurveValue(pts+i-1,2,t)});
+            if(std::fabs(x-at.first)+std::fabs(y-at.second)<25){bend=i;return true;}
+        }
+        drag=-2;return true;
+    }
+    bool move(float x,float y){
+        if(drag==-2){
+            if(page<2&&(std::fabs(y-downY)>13||panning)){
+                panning=moved=true;
+                scroll[op][page]=std::clamp(scroll[op][page]+lastY-y,0.0f,120.0f*320.0f);
+                lastY=y;
+            }else if(std::fabs(x-downX)+std::fabs(y-downY)>13)moved=true;
+            return true;
+        }
+        if(drag<=-10){
+            auto r=rect(drag==-10?5:6);
+            float v=std::clamp((x-r.x-r.w*.34f)/(r.w*.60f),0.0f,1.0f);
+            changed=ProjectCore::instance().setSelectedOperatorParam(op,drag==-10?OperatorParam::Level:OperatorParam::Detune,
+                drag==-10?v:std::round(v*100-50))||changed;
+            return true;
+        }
+        if(drag>=0||bend>=0){
+            if(std::fabs(x-downX)+std::fabs(y-downY)>9){
+                moved=true;changed=updatePoint(bend>=0?bend:drag,x,y,bend>=0)||changed;
+            }
+        }
+        return true;
+    }
+    bool up(){
+        if(drag==-2&&!moved)changed=addPoint(downX,downY)||changed;
+        if(drag>=0&&!moved&&page==1&&
+           std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now()-started).count()>=450){
+            auto&core=ProjectCore::instance();auto o=core.selectedPatch().ops[op];auto c=env(o);
+            c.points[drag].free=!c.points[drag].free;
+            if(!c.points[drag].free)c.points[drag].value=std::round(c.points[drag].value);
+            changed=core.setSelectedOperatorCurve(op,1,c)||changed;
+        }
+        drag=bend=-1;
+        const bool result=changed;changed=false;return result;
+    }
+};
+OpSurface opSurface;
+} // namespace
+
 void NativeEditor::renderSynth() const noexcept {
+    if(!matrixMode_){
+        drawPadReservedBackground();
+        opSurface.view=bodyRect();opSurface.draw();
+        auto& ov=NativeOverlay::instance();auto b=bodyRect();
+        auto tab=synthTabRect(0);
+        fillRect({b.x,b.y,b.w,tab.y+tab.h-b.y+6},kPanel);
+        for(int i=0;i<2;++i){auto r=synthTabRect(i);drawButton(r,i==0,i?kPurple:kCyan);
+            ov.addTextCentered(i?"FM Matrix":"Operators",{r.x,r.y,r.w,r.h},1.04f,overlayColor(i?kWhite:kBg));}
+        return;
+    }
     drawPadReservedBackground();
     const Patch p=ProjectCore::instance().selectedPatch();
     auto& ov=NativeOverlay::instance();
@@ -1202,8 +1510,8 @@ bool NativeEditor::openDropdownAt(
 
         static const std::vector<std::string> waveNames{
             kWaveformLabels.begin(),kWaveformLabels.end()};
-        for(int op=0;op<6;++op){
-            const auto rr=operatorWaveFieldRect(op);
+        for(int op=opSurface.op;op<=opSurface.op;++op){
+            const auto rr=opSurface.rect(1);
             if(!rr.contains(x,y))continue;
             ui.openDropdown(
                 DropdownKind::Wave,op,anchor(rr),
@@ -1358,6 +1666,7 @@ std::optional<NativeEditor::ModLinkValueHit> NativeEditor::hitModLinkValue(
 }
 
 std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
+    if(!matrixMode_&&opSurface.hitRatio(x,y))return opSurface.op;
     const auto hit=hitSynth(x,y);
     if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=0)
         return std::nullopt;
@@ -1365,6 +1674,7 @@ std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcep
 }
 
 std::optional<int> NativeEditor::hitOperatorSemitone(float x,float y) const noexcept {
+    if(!matrixMode_&&opSurface.hitSemi(x,y))return opSurface.op;
     const auto hit=hitSynth(x,y);
     if(!hit||hit->kind!=HitKind::OperatorParam||hit->b!=1)
         return std::nullopt;
@@ -1729,6 +2039,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     scrolling_=false;
     activeHit_.reset();
 
+    opSurface.view=bodyRect();
     // The spectrum lane is the dedicated vertical scroll control.
     if(scrollGutterRect().contains(x,y)){
         scrolling_=true;
@@ -1736,6 +2047,13 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
         return true;
     }
 
+    if(page==EditorPage::Synth&&!matrixMode_){
+        for(int i=0;i<2;++i){
+            const auto tab=synthTabRect(i);
+            if(tab.contains(x,y)){matrixMode_=i==1;return true;}
+        }
+        if(opSurface.down(x,y)){activeHit_=Hit{HitKind::OperatorSelect,-1,-1,{}};return true;}
+    }
     activeHit_=page==EditorPage::Synth
         ?hitSynth(x,y)
         :hitFx(x,y);
@@ -1756,7 +2074,10 @@ bool NativeEditor::pointerMove(float x,float y){
     }
 
     if(!activeHit_)return false;
-
+    if(activePage_==EditorPage::Synth&&!matrixMode_&&
+       activeHit_->kind==HitKind::OperatorSelect){
+        opSurface.move(x,y);return true;
+    }
     switch(activeHit_->kind){
         case HitKind::OperatorParam:
         case HitKind::Harmonic:
@@ -1772,6 +2093,9 @@ bool NativeEditor::pointerMove(float x,float y){
 }
 
 bool NativeEditor::pointerUp(){
+    if(activePage_==EditorPage::Synth&&!matrixMode_&&activeHit_&&
+       activeHit_->kind==HitKind::OperatorSelect)
+        changed_=opSurface.up()||changed_;
     const bool changed=changed_;
     activeHit_.reset();
     scrolling_=false;
