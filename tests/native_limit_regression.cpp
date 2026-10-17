@@ -1003,6 +1003,44 @@ int main(){
         if(i>12000)lateDelta+=std::fabs(a-b);
     }
     assert(lateDelta<.05f);
+    // Newly-authored Filter and Unison start with draggable static lines,
+    // not a fixed ADSR shape. Both preserve zero/neutral values.
+    const auto staticFilter=initialEvolvingFilter();
+    for(const auto& lane:staticFilter.lanes){
+        assert(lane.curve.count==2&&lane.curve.releaseIndex==0);
+        assert(lane.curve.points[0].time==0.0f);
+        assert(lane.curve.points[1].time==120.0f);
+        assert(lane.curve.points[0].value==lane.curve.points[1].value);
+    }
+    const auto staticUnison=initialUnisonCurve();
+    assert(staticUnison.count==2&&staticUnison.releaseIndex==0);
+    assert(staticUnison.points[0].value==0.0f&&
+        staticUnison.points[1].value==0.0f);
+    Patch curvedUnison=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    curvedUnison.unisonCurve=initialUnisonCurve();
+    curvedUnison.unisonCurve.points[0].value=.95f;
+    curvedUnison.unisonCurve.points[1].value=.95f;
+    const auto unisonJson=serializePatchJson(curvedUnison);
+    Patch loadedUnison;
+    assert(deserializePatchJson(unisonJson,loadedUnison));
+    assert(loadedUnison.unisonCurve.enabled);
+    assert(loadedUnison.unisonCurve.count==2);
+    assert(std::fabs(loadedUnison.unisonCurve.points[0].value-.95f)<1e-5f);
+    assert(loadedUnison.glide==curvedUnison.glide);
+    Patch zeroUnison=curvedUnison;
+    zeroUnison.unisonCurve.points[0].value=0.0f;
+    zeroUnison.unisonCurve.points[1].value=0.0f;
+    SpectrachordVoice wideVoice,narrowVoice;
+    wideVoice.prepare(48000);narrowVoice.prepare(48000);
+    wideVoice.start(1444,toDspPatch(loadedUnison),62,.8f,0,4800);
+    narrowVoice.start(1444,toDspPatch(zeroUnison),62,.8f,0,4800);
+    float unisonDifference=0;
+    for(int sample=0;sample<6000;++sample){
+        const float a=wideVoice.render(),b=narrowVoice.render();
+        assert(std::isfinite(a)&&std::isfinite(b));
+        if(sample>1000)unisonDifference+=std::fabs(a-b);
+    }
+    assert(unisonDifference>0.001f);
     // Default volume and pitch envelopes must place decay at the second
     // anchor and the release/sustain gate at the second-to-last anchor.
     const auto defaults=legacyOperatorVolume(Envelope{});

@@ -504,7 +504,7 @@ float SpectrachordVoice::render() noexcept {
     // A separate, optional bell EQ runs once per voice, BEFORE the primary
     // subtractive filter. Pitch tracking uses the known MIDI fundamental,
     // including pitch bend; no audio pitch detection is necessary.
-    if(P.peak.enabled){
+    if(P.peak.enabled&&!P.filter.evolving.configured){
         const float center=P.peak.followNote
             ?midiHz(baseMidi)*std::clamp(slotValue(ModTarget::PeakRatio,expressionV,m,P.peak.ratio),.5f,8.0f)
             :slotValue(ModTarget::PeakFrequency,expressionV,m,P.peak.frequency);

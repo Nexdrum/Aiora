@@ -1473,7 +1473,12 @@ struct FilterSurface {
                         overlayColor(kMuted,.30f));
                 }
                 o.setClip({paneRect.x,paneRect.y,paneRect.w,paneRect.h});
-                for(int j=1;j<curve.count;++j){
+                if(staticLine(curve)){
+                    const float line=outputX(i,curve.points[0].value);
+                    o.addLine(line,paneRect.y,line,paneRect.y+paneRect.h,3,
+                        overlayColor(col));
+                }
+                for(int j=1;j<curve.count&&!staticLine(curve);++j){
                     const auto& a=curve.points[j-1];const auto& b=curve.points[j];
                     for(int k=1;k<=22;++k){
                         const float t0=a.time+(b.time-a.time)*(k-1)/22;
