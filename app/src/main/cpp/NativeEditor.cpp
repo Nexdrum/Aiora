@@ -962,7 +962,8 @@ struct OpSurface {
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
         if(!rect(11).contains(x,y))return false;
-        const auto c=env(o),e=response(o);
+        const auto c=env(o);
+        const auto e=response(o);
         const auto*pts=page==2?e.points.data():c.points.data();
         const int count=page==2?e.count:c.count;
         float best=29*29;int candidate=-1;
