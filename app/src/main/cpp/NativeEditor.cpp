@@ -737,7 +737,7 @@ struct OpSurface {
             case 6: return {x+(w-8)*.5f+8,y+132,(w-8)*.5f,45}; // fine cents
             case 7: {const float ww=(w-12)/3;return {x+index*(ww+6),y+184,ww,52};}
             case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
-            case 9: return {x,y+301,w,std::max(120.0f,view.y+view.h-y-365)}; // graph
+            case 9: return {x,y+301,w,std::max(120.0f,view.y+view.h-y-76)}; // graph
             case 10:{auto r=rect(9);const float ww=(r.w-22)/4;return {r.x+4+index*(ww+6),r.y+3,ww,43};}
             case 11:{auto r=rect(9);return {r.x+42,r.y+57,r.w-67,r.h-78};}
         }
@@ -915,6 +915,16 @@ struct OpSurface {
         pt.time=std::clamp((y-r.y+scroll[op][page])/320.0f,.0001f,119.999f);
         pt.value=page==1?std::round(-12+24*xval):xval;
         int n=0;while(n<c.count&&c.points[n].time<pt.time)++n;
+        // Extending the timeline beyond the last point keeps its silent
+        // terminal endpoint, moving it past the new point instead of
+        // preventing longer percussion or evolving envelopes.
+        if(n==c.count&&c.count<kMaxOperatorPoints){
+            c.points[c.count]=c.points[c.count-1];
+            c.points[c.count].time=std::min(120.0f,pt.time+.25f);
+            c.points[c.count-1]=pt;
+            selected=c.count-1;++c.count;
+            return core.setSelectedOperatorCurve(op,page,c);
+        }
         if(n==0||n==c.count||pt.time-c.points[n-1].time<.0001f||c.points[n].time-pt.time<.0001f)return false;
         for(int k=c.count;k>n;--k)c.points[k]=c.points[k-1];
         c.points[n]=pt;++c.count;if(c.decayIndex>=n)++c.decayIndex;
@@ -1012,6 +1022,7 @@ void NativeEditor::renderSynth() const noexcept {
     if(!matrixMode_){
         drawPadReservedBackground();
         opSurface.view=bodyRect();opSurface.draw();
+        drawPatchTransfer(EditorPage::Synth);
         auto& ov=NativeOverlay::instance();auto b=bodyRect();
         auto tab=synthTabRect(0);
         fillRect({b.x,b.y,b.w,tab.y+tab.h-b.y+6},kPanel);
