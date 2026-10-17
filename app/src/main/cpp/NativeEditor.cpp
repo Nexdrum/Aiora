@@ -717,7 +717,7 @@ void NativeEditor::drawPatchTransfer(EditorPage page) const noexcept {
 namespace {
 struct OpSurface {
     using Rect=NativeEditor::Rect;
-    int op{0},page{0},selected{-1},drag{-1},bend{-1};
+    int op{0},page{0},selected{-1},drag{-1},bend{-1},harmonicView{0};
     unsigned shadows{0};
     float downX{0},downY{0},lastY{0};
     bool moved{false},panning{false},changed{false};
@@ -814,7 +814,14 @@ struct OpSurface {
             }
             ov.addText(page==1?"-12          0           +12 ST":"0              Volume            100%",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
-        }else ov.addText("Output 100%  /  Input 0 -> 100%",plot.x,plot.y-18,.8f,overlayColor(kMuted));
+        }else{
+            if(o.wave==Wave::Custom)for(int i=0;i<3;++i){
+                auto r=rect(10,i);button(r,harmonicView==i,true);
+                text(i==0?"Curve":i==1?"Harmonics":"Mute partials",r,.76f);
+            }
+            ov.addText(harmonicView?"Harmonic partials (drag bars)":
+                "Output 100%  /  Input 0 -> 100%",plot.x,plot.y-18,.8f,overlayColor(kMuted));
+        }
         ov.setClip({plot.x-11,plot.y-9,plot.w+22,plot.h+18});
         for(int i=0;i<=4;++i){
             float x=plot.x+i*plot.w*.25f;
@@ -823,6 +830,20 @@ struct OpSurface {
                 float y=plot.y+i*plot.h*.25f;
                 ov.addLine(plot.x,y,plot.x+plot.w,y,1,overlayColor(kMuted,.5f));
             }
+        }
+        if(page==2&&o.wave==Wave::Custom&&harmonicView){
+            const auto& harm=harmonicView==2?o.harmMute:o.harm;
+            for(int i=0;i<16;++i){
+                const int col=i%8,row=i/8;
+                const float w=plot.w/8.0f,h=plot.h/2.0f;
+                const float x=plot.x+col*w,y=plot.y+row*h;
+                const float v=std::clamp(harm[static_cast<size_t>(i)],0.0f,1.0f);
+                ov.addRect({x+3,y+4,w-6,h-8},overlayColor(kButton));
+                ov.addRect({x+w*.26f,y+h-8-(h-38)*v,w*.48f,(h-38)*v},
+                    overlayColor(harmonicView==2?kPurple:kCyan));
+                ov.addTextCentered(std::to_string(i+1),{x,y+h-34,w,27},.7f,overlayColor(kWhite));
+            }
+            ov.clearClip();return;
         }
         if(page<2){
             for(int i=0;i<=240;++i){
@@ -961,6 +982,17 @@ struct OpSurface {
             }else return true;
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
+        if(page==2&&o.wave==Wave::Custom){
+            for(int i=0;i<3;++i)if(rect(10,i).contains(x,y)){
+                harmonicView=i;return true;
+            }
+            if(harmonicView&&rect(11).contains(x,y)){
+                auto plot=rect(11);
+                const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
+                const int row=std::clamp(static_cast<int>((y-plot.y)/plot.h*2),0,1);
+                drag=-50-(row*8+col);return move(x,y);
+            }
+        }
         if(!rect(11).contains(x,y))return false;
         const auto c=env(o);
         const auto e=response(o);
@@ -986,6 +1018,13 @@ struct OpSurface {
                 scroll[op][page]=std::clamp(scroll[op][page]+lastY-y,0.0f,120.0f*320.0f);
                 lastY=y;
             }else if(std::fabs(x-downX)+std::fabs(y-downY)>13)moved=true;
+            return true;
+        }
+        if(drag<=-50){
+            const int i=-drag-50,row=i/8;auto r=rect(11);
+            const float top=r.y+row*r.h*.5f;
+            const float amount=std::clamp(1-(y-top)/(r.h*.5f),0.0f,1.0f);
+            changed=ProjectCore::instance().setSelectedHarmonic(op,i,amount,harmonicView==2)||changed;
             return true;
         }
         if(drag<=-10){
