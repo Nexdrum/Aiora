@@ -936,7 +936,15 @@ int main(){
     evolvingPatch.filter.evolving=initialEvolvingFilter();
     auto& filterModel=evolvingPatch.filter.evolving;
     assert(filterModel.configured);
-    assert(filterModel.lanes[0].curve.releaseIndex==2);
+    assert(filterModel.lanes[0].curve.releaseIndex==0);
+    // Convert Q from the default static line to a four-point envelope
+    // to exercise multiple type transitions across saved Q nodes.
+    auto& qTime=filterModel.lanes[2].curve;
+    qTime.count=4;qTime.releaseIndex=2;qTime.decayIndex=1;
+    qTime.points[0]={0,.5f};
+    qTime.points[1]={.04f,.5f};
+    qTime.points[2]={.12f,.6f};
+    qTime.points[3]={.3f,.5f};
     filterModel.lanes[2].shape[0]=FilterShape::LowShelf;
     filterModel.lanes[2].shape[1]=FilterShape::Bell;
     filterModel.lanes[2].shape[2]=FilterShape::HighShelf;
