@@ -321,7 +321,7 @@ NativeEditor::Rect NativeEditor::fxWorkspaceTabRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=7.0f;
     const float x=b.x+16;
-    const float w=(b.w-32-3*gap)/4.0f;
+    const float w=(b.w-32-4*gap)/5.0f;
     return {x+index*(w+gap),b.y+12,w,61};
 }
 NativeEditor::Rect NativeEditor::lfoWorkspaceRow(int row) const noexcept {
@@ -619,7 +619,7 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     const auto b=bodyRect();
     if(page==EditorPage::Synth)return 0.0f;
 
-    if(page==EditorPage::Fx&&fxWorkspace_==3){
+    if(page==EditorPage::Fx&&fxWorkspace_==4){
         const auto rack=fxRackRect();
         return std::max(0.0f,rack.h+135.0f-b.h);
     }
@@ -2005,11 +2005,14 @@ struct UnisonSurface {
     int selected{-1},drag{-1},bend{-1},zoom{2};
     float scroll{0},downX{0},downY{0};
     bool moved{false},changed{false};
+    bool ampMode{false};
     std::chrono::steady_clock::time_point started{};
     static constexpr std::array<float,6> zooms{{.5f,1,2,4,8,16}};
     float rate()const{return 320.0f*zooms[zoom];}
     OperatorCurve curve()const{
         const auto& p=ProjectCore::instance().selectedPatch();
+        if(ampMode)return p.masterAmpCurve.enabled&&p.masterAmpCurve.count>=2?
+            p.masterAmpCurve:legacyOperatorVolume(p.amp);
         return p.unisonCurve.enabled&&p.unisonCurve.count>=2?
             p.unisonCurve:initialUnisonCurve(p.unison);
     }
@@ -2018,7 +2021,8 @@ struct UnisonSurface {
             std::fabs(c.points[0].value-c.points[1].value)<.00001f;
     }
     bool save(const OperatorCurve& c){
-        return ProjectCore::instance().setSelectedUnisonCurve(c);
+        return ampMode?ProjectCore::instance().setSelectedMasterAmpCurve(c):
+            ProjectCore::instance().setSelectedUnisonCurve(c);
     }
     Rect control(int i)const{
         const float w=view.w-32,gap=6,cw=(w-5*gap)/6;
@@ -2042,11 +2046,14 @@ struct UnisonSurface {
         auto& o=NativeOverlay::instance();
         const auto c=curve();
         o.addRect({view.x,view.y,view.w,view.h},overlayColor(kBg));
-        o.addText("Unison - per-note detune strength (0 to 100)",
+        o.addText(ampMode?"Master Amp - combined output envelope (0 to 100)":
+            "Unison - per-note detune strength (0 to 100)",
             view.x+24,view.y+105,.92f,overlayColor(kCyan));
         o.addText(flat(c)?
-            "Flat line = constant detune. Drag the line; tap away to add envelope points.":
-            "Envelope follows time and releases on note-off.",
+            (ampMode?"Flat level. Tap away from line to add envelope points.":
+                "Flat detune. Drag the line; tap away to add envelope points."):
+            (ampMode?"Post-synthesis envelope, independent of operator volume.":
+                "Envelope follows time and releases on note-off."),
             view.x+24,view.y+140,.82f,overlayColor(kMuted));
         const char* label[6]={"D","R",c.sustain?"S Hold":"Dynamic","-",
                              "Zoom","+"};
@@ -2240,7 +2247,8 @@ struct UnisonSurface {
             if(millis>=500){
                 auto c=curve();
                 if(c.count==3&&drag==1){
-                    c=initialUnisonCurve(c.points[0].value);
+                    c=ampMode?legacyOperatorVolume(ProjectCore::instance().selectedPatch().amp):
+                        initialUnisonCurve(c.points[0].value);
                     selected=-1;changed=save(c)||changed;
                 }else if(c.count>3&&drag<c.count-1){
                     for(int i=drag;i<c.count-1;++i)c.points[i]=c.points[i+1];
@@ -2485,12 +2493,13 @@ void NativeEditor::renderFx() const noexcept {
     {
     auto& ov=NativeOverlay::instance();
     const auto b=bodyRect();
-    const auto workspace=std::clamp(fxWorkspace_,0,3);
+    const auto workspace=std::clamp(fxWorkspace_,0,4);
     if(workspace==0){
         filterSurface.view=b;filterSurface.draw();
-    }else if(workspace==1){
+    }else if(workspace==1||workspace==2){
+        unisonSurface.ampMode=workspace==1;
         unisonSurface.view=b;unisonSurface.draw();
-    }else if(workspace==2){
+    }else if(workspace==3){
         const auto p=ProjectCore::instance().selectedPatch();
         ov.addText("LFO - existing modulation controls",
             b.x+24,b.y+109,1.0f,overlayColor(kCyan));
@@ -2582,8 +2591,8 @@ void NativeEditor::renderFx() const noexcept {
     }
     // A fixed navigation strip; no Glide or legacy expression-link page.
     fillRect({b.x,b.y,b.w,87},kPanel);
-    static constexpr const char* names[4]={"Filter","Unison","LFO","FX"};
-    for(int i=0;i<4;++i){
+    static constexpr const char* names[5]={"Filter","Amp","Unison","LFO","FX"};
+    for(int i=0;i<5;++i){
         const auto r=fxWorkspaceTabRect(i);
         const bool active=workspace==i;
         drawButton(r,active,i==3?kPurple:kCyan);
@@ -2885,7 +2894,7 @@ bool NativeEditor::openDropdownAt(
     if(page==EditorPage::Fx){
         const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
         const auto& p=ProjectCore::instance().selectedPatch();
-        if(fxWorkspace_==3){
+        if(fxWorkspace_==4){
             const auto rr=fxRackAddRect(false);
             if(rr.contains(x,y)){
                 static const std::vector<std::string> names{
@@ -2894,7 +2903,7 @@ bool NativeEditor::openDropdownAt(
                     static_cast<int>(fxRackNewType_),names);
                 return true;
             }
-        }else if(fxWorkspace_==2){
+        }else if(fxWorkspace_==3){
             const auto rr=lfoWorkspaceTargetRect();
             if(rr.contains(x,y)){
                 ui.openDropdown(DropdownKind::LfoTarget,0,anchor(rr),
@@ -3172,7 +3181,7 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
     if(const auto r=fxRackAddRect(true);r.contains(x,y))
         return Hit{HitKind::RackAdd,-1,-1,r};
     // The addable FX view does not expose retired filter / link controls.
-    if(fxWorkspace_==3)return std::nullopt;
+    if(fxWorkspace_==4)return std::nullopt;
     const auto card=fxGroupRect(0);
     const Rect editFilter{card.x+card.w-200,card.y+12,180,52};
     if(editFilter.contains(x,y))
@@ -3473,13 +3482,14 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     filterSurface.view=bodyRect();
     unisonSurface.view=bodyRect();
     if(page==EditorPage::Fx){
-        for(int i=0;i<4;++i)if(fxWorkspaceTabRect(i).contains(x,y)){
+        for(int i=0;i<5;++i)if(fxWorkspaceTabRect(i).contains(x,y)){
             fxWorkspace_=i;fxScrollY_=0;return true;
         }
-        if(fxWorkspace_==0||fxWorkspace_==1){
+        if(fxWorkspace_<=2){
             if(scrollGutterRect().contains(x,y)){
                 scrolling_=true;scrollLastY_=y;return true;
             }
+            unisonSurface.ampMode=fxWorkspace_==1;
             const bool hit=fxWorkspace_==0?
                 filterSurface.down(x,y):unisonSurface.down(x,y);
             if(hit){
@@ -3489,7 +3499,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
             }
             return true;
         }
-        if(fxWorkspace_==2){
+        if(fxWorkspace_==3){
             const auto target=lfoWorkspaceTargetRect();
             if(target.contains(x,y)){
                 const auto p=ProjectCore::instance().selectedPatch();
@@ -3542,7 +3552,7 @@ bool NativeEditor::pointerMove(float x,float y){
             opSurface.scrollBy(scrollLastY_-y);
         }else if(activePage_==EditorPage::Fx&&fxWorkspace_==0){
             filterSurface.scrollBy(scrollLastY_-y);
-        }else if(activePage_==EditorPage::Fx&&fxWorkspace_==1){
+        }else if(activePage_==EditorPage::Fx&&(fxWorkspace_==1||fxWorkspace_==2)){
             unisonSurface.scrollBy(scrollLastY_-y);
         }else{
             scrollEditor(activePage_,scrollLastY_-y);

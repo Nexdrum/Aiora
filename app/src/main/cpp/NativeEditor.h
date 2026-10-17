@@ -141,7 +141,7 @@ private:
     int safeBottom_{0};
     int selectedOperator_{0};
     bool matrixMode_{false};
-    int fxWorkspace_{0}; // Filter / Unison / LFO / Addable FX
+    int fxWorkspace_{0}; // Filter / Amp / Unison / LFO / Addable FX
     int fxGroup_{0};
     int fxRackExpanded_{-1};
     FxType fxRackNewType_{FxType::MetalAmp};
