@@ -798,6 +798,89 @@ int main(){
         const float y=operatorCurveValue(r.points.data(),r.count,t);
         assert(y>=-.00001f&&y<=1.00001f);
     }
+    // Four independently saved operator modulation channels, with M=0
+    // explicitly equivalent to an unedited M automation line.
+    Patch morphPatch=pointPatch;
+    auto& morphOp=morphPatch.ops[0];
+    morphOp.volumeCurve=legacyOperatorVolume({.002f,.20f,.7f,.1f});
+    morphOp.volumeCurve.sustain=true;
+    morphOp.volumeMorphCurve=legacyOperatorVolume({.18f,.20f,.7f,.1f});
+    morphOp.pitchCurve=initialOperatorPitch();
+    morphOp.pitchCurve.points[0].value=0.0f;
+    morphOp.pitchMorphCurve=initialOperatorPitch();
+    for(int j=0;j<morphOp.pitchMorphCurve.count;++j)
+        morphOp.pitchMorphCurve.points[j].value=12.0f;
+    morphOp.modChannelsConfigured=true;
+    for(auto& c:morphOp.modChannels)c=initialOperatorModChannel();
+    morphOp.modChannels[0].enabled=true;
+    morphOp.modChannels[0].destination=OperatorModDestination::Morph;
+    morphOp.modChannels[0].response.source=1;
+    morphOp.modChannels[1].enabled=true;
+    morphOp.modChannels[1].destination=OperatorModDestination::PitchMorph;
+    morphOp.modChannels[1].response.source=1;
+    morphOp.modChannels[2].enabled=true;
+    morphOp.modChannels[2].destination=OperatorModDestination::Pitch;
+    morphOp.modChannels[2].response.source=1;
+    morphOp.modChannels[3].enabled=true;
+    morphOp.modChannels[3].destination=OperatorModDestination::Vol;
+    morphOp.modChannels[3].response.source=0;
+    // Keep level at 100% in this test to isolate shape changes.
+    morphOp.modChannels[3].response.points[0].value=1.0f;
+    morphOp.modChannels[3].response.points[1].value=1.0f;
+    const auto savedMorph=serializePatchJson(morphPatch);
+    Patch decodedMorph;
+    assert(deserializePatchJson(savedMorph,decodedMorph));
+    assert(decodedMorph.ops[0].volumeMorphCurve.enabled);
+    assert(decodedMorph.ops[0].pitchMorphCurve.enabled);
+    assert(decodedMorph.ops[0].modChannelsConfigured);
+    assert(decodedMorph.ops[0].modChannels[1].response.source==1);
+    assert(decodedMorph.ops[0].modChannels[1].destination==OperatorModDestination::PitchMorph);
+    assert(decodedMorph.ops[0].modChannels[2].destination==OperatorModDestination::Pitch);
+    auto modAutomation=[](float value){
+        VoiceAutomation automation;
+        automation.mod.storage=std::make_shared<std::vector<DspCurvePoint>>();
+        automation.mod.storage->push_back({0,value,.5f,0,false});
+        automation.mod.storage->push_back({8,value,.5f,0,false});
+        automation.mod.points=automation.mod.storage->data();
+        automation.mod.count=2;
+        return automation;
+    };
+    SpectrachordVoice defaultZero,explicitZero,fullyMorphed;
+    defaultZero.prepare(48000.0f);
+    explicitZero.prepare(48000.0f);
+    fullyMorphed.prepare(48000.0f);
+    defaultZero.start(951,toDspPatch(morphPatch),62,.95f,0,4800.0f);
+    explicitZero.start(951,toDspPatch(morphPatch),62,.95f,0,4800.0f,modAutomation(0));
+    fullyMorphed.start(951,toDspPatch(morphPatch),62,.95f,0,4800.0f,modAutomation(1));
+    float earlyNormal=0,earlyMorph=0;
+    for(int i=0;i<2200;++i){
+        const float a=defaultZero.render(),b=explicitZero.render(),c=fullyMorphed.render();
+        assert(std::isfinite(a)&&std::isfinite(b)&&std::isfinite(c));
+        assert(std::fabs(a-b)<1.0e-6f);
+        earlyNormal+=a*a;earlyMorph+=c*c;
+    }
+    assert(earlyNormal>earlyMorph*2.0f);
+    // Equal-destination modulation routes average rather than sum:
+    // (0 + 1) / 2 and a single fixed 0.5 channel produce the same sound.
+    Patch averaging=morphPatch,half=morphPatch;
+    averaging.ops[0].modChannels[0].response.points[0].value=0;
+    averaging.ops[0].modChannels[0].response.points[1].value=0;
+    averaging.ops[0].modChannels[1].destination=OperatorModDestination::Morph;
+    averaging.ops[0].modChannels[1].response.points[0].value=1;
+    averaging.ops[0].modChannels[1].response.points[1].value=1;
+    averaging.ops[0].modChannels[2].enabled=false;
+    half.ops[0].modChannels[0].response.points[0].value=.5f;
+    half.ops[0].modChannels[0].response.points[1].value=.5f;
+    half.ops[0].modChannels[1].enabled=false;
+    half.ops[0].modChannels[2].enabled=false;
+    SpectrachordVoice meanVoice,halfVoice;
+    meanVoice.prepare(48000.0f);halfVoice.prepare(48000.0f);
+    meanVoice.start(952,toDspPatch(averaging),62,.95f,0,4800.0f);
+    halfVoice.start(952,toDspPatch(half),62,.95f,0,4800.0f);
+    for(int i=0;i<3000;++i){
+        const float a=meanVoice.render(),b=halfVoice.render();
+        assert(std::fabs(a-b)<2.0e-6f);
+    }
     // Default volume and pitch envelopes must place decay at the second
     // anchor and the release/sustain gate at the second-to-last anchor.
     const auto defaults=legacyOperatorVolume(Envelope{});
