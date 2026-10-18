@@ -49,6 +49,15 @@ private:
         std::array<std::array<Biquad,6>,2> eq{};
         std::array<float,2> low{},inter{},high{};
         float cutoffA{0},cutoffB{0};
+        // Dedicated, allocation-free 2x-oversampling state for Metal Core.
+        // Existing FX algorithms and their numeric IDs remain unchanged.
+        std::array<std::array<float,33>,2> coreHistory{};
+        std::array<float,33> coreFir{};
+        std::array<size_t,2> corePosition{};
+        std::array<float,2> corePrevious{},coreTightLow{},coreInter{},
+            corePickLow{},coreSubLow{},coreBassBody{},coreDc{};
+        float coreTightPole{0},coreInterPole{0},corePickPole{0},
+            coreSubPole{0},coreBodyPole{0},coreDcPole{0};
         void prepare(float sr,float maxDelay,FxType type,bool allTypes);
         void configure(float sr);
         void reset() noexcept;

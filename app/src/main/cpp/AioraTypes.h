@@ -187,7 +187,8 @@ struct PeakFilter {
     float ratio{4.0f},frequency{220.0f},q{1.0f},gainDb{0.0f};
 };
 struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget target{LfoTarget::None}; };
-enum class FxType : uint8_t { Saturation, MetalAmp, Cabinet, BandEq, Delay, Reverb };
+// Append new types; IDs 0 through 5 are preserved in existing saved patches.
+enum class FxType : uint8_t { Saturation, MetalAmp, Cabinet, BandEq, Delay, Reverb, MetalCore };
 constexpr size_t kMaxFxStages=16;
 struct FxModule {
     FxType type{FxType::Saturation};
@@ -199,6 +200,7 @@ inline const char* fxTypeName(FxType type) noexcept {
     switch(type){
         case FxType::Saturation:return "Saturation";
         case FxType::MetalAmp:return "Metal Amp";
+        case FxType::MetalCore:return "Metal Core";
         case FxType::Cabinet:return "Cabinet";
         case FxType::BandEq:return "5-Band EQ";
         case FxType::Delay:return "Delay";
@@ -210,6 +212,7 @@ inline size_t fxParamCount(FxType type) noexcept {
     switch(type){
         case FxType::Saturation:return 3;
         case FxType::MetalAmp:return 8;
+        case FxType::MetalCore:return 8;
         case FxType::Cabinet:return 5;
         case FxType::BandEq:return 6;
         case FxType::Delay:return 3;
@@ -220,6 +223,8 @@ inline size_t fxParamCount(FxType type) noexcept {
 inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
     static constexpr FxParamDesc saturation[]={{"Input",0,4,1},{"Drive",0,10,3},{"Output",0,4,1}};
     static constexpr FxParamDesc metal[]={{"Input",0,4,1},{"Drive",0,10,6.5f},{"Tight Hz",40,240,115},{"Bass dB",-12,12,0},{"Mid dB",-12,12,2},{"Treble dB",-12,12,0},{"Presence dB",-12,12,1.5f},{"Output",0,4,.6f}};
+    // Recover the short low-frequency impact after pre-clipping bass tightening.
+    static constexpr FxParamDesc metalCore[]={{"Input",0,4,1},{"Drive",0,10,7.5f},{"Tight Hz",40,240,115},{"Punch",0,10,6},{"Mid dB",-12,12,-2.5f},{"Bite dB",-12,12,3},{"Presence dB",-12,12,1.5f},{"Output",0,4,.42f}};
     static constexpr FxParamDesc cabinet[]={{"Low cut",40,200,85},{"High cut",2500,9500,5100},{"Body",0,1,.55f},{"Bite",0,1,.48f},{"Mix",0,1,1}};
     static constexpr FxParamDesc eq[]={{"80 Hz dB",-12,12,0},{"240 Hz dB",-12,12,0},{"750 Hz dB",-12,12,0},{"2.2k dB",-12,12,0},{"6k dB",-12,12,0},{"Output",0,2,1}};
     static constexpr FxParamDesc delay[]={{"Mix",0,1,.18f},{"Time s",.03f,1,.32f},{"Feedback",0,.85f,.32f}};
@@ -228,6 +233,7 @@ inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
     switch(type){
         case FxType::Saturation:return saturation[p];
         case FxType::MetalAmp:return metal[p];
+        case FxType::MetalCore:return metalCore[p];
         case FxType::Cabinet:return cabinet[p];
         case FxType::BandEq:return eq[p];
         case FxType::Delay:return delay[p];

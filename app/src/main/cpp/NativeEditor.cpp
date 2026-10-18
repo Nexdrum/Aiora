@@ -2932,7 +2932,7 @@ bool NativeEditor::openDropdownAt(
             const auto rr=fxRackAddRect(false);
             if(rr.contains(x,y)){
                 static const std::vector<std::string> names{
-                    "Saturation","Metal Amp","Cabinet","5-Band EQ","Delay","Reverb"};
+                    "Saturation","Metal Amp","Cabinet","5-Band EQ","Delay","Reverb","Metal Core"};
                 ui.openDropdown(DropdownKind::FxType,0,anchor(rr),
                     static_cast<int>(fxRackNewType_),names);
                 return true;
@@ -2986,7 +2986,7 @@ bool NativeEditor::openDropdownAt(
         const auto rr=fxRackAddRect(false);
         if(rr.contains(x,y)&&bodyRect().contains(x,y)){
             std::vector<std::string> labels;
-            for(int i=0;i<=static_cast<int>(FxType::Reverb);++i)
+            for(int i=0;i<=static_cast<int>(FxType::MetalCore);++i)
                 labels.emplace_back(fxTypeName(static_cast<FxType>(i)));
             ui.openDropdown(DropdownKind::FxType,-1,anchor(rr),
                 static_cast<int>(fxRackNewType_),std::move(labels));
@@ -3058,7 +3058,7 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
     auto& project=ProjectCore::instance();
     switch(choice.kind){
         case DropdownKind::FxType:
-            if(choice.option<0||choice.option>static_cast<int>(FxType::Reverb))return false;
+            if(choice.option<0||choice.option>static_cast<int>(FxType::MetalCore))return false;
             fxRackNewType_=static_cast<FxType>(choice.option);
             return false;
         case DropdownKind::Wave:

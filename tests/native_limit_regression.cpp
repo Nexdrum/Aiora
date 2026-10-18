@@ -152,6 +152,37 @@ int main(){
         bypassDifference+=std::fabs(c[0]-b[0]);
     }
     assert(orderDifference>.05&&bypassDifference>.05);
+    // A distinct Metal Core ID preserves old distortion patches and adds
+    // testable punch for low-string muted transients.
+    assert(static_cast<int>(FxType::Reverb)==5);
+    assert(static_cast<int>(FxType::MetalCore)==6);
+    assert(fxParamCount(FxType::MetalCore)==8);
+    assert(std::string(fxTypeName(FxType::MetalCore))=="Metal Core");
+    Fx coreRack{};coreRack.rackConfigured=true;coreRack.count=1;
+    coreRack.chain[0]=makeFxModule(FxType::MetalCore);
+    assert(coreRack.chain[0].params[1]>=7.0f);
+    FxProcessor lowPunch,highPunch;
+    lowPunch.prepare(48000);highPunch.prepare(48000);
+    coreRack.chain[0].params[3]=0.0f;lowPunch.set(coreRack);
+    coreRack.chain[0].params[3]=10.0f;highPunch.set(coreRack);
+    double loEnergy=0,hiEnergy=0;
+    for(int n=0;n<12000;++n){
+        const float env=n<4200?.30f:n<8000?.08f:0.0f;
+        const float sample=env*std::sin(2*3.14159265359*110*n/48000.);
+        const auto a=lowPunch.processStereo(sample,sample);
+        const auto b=highPunch.processStereo(sample,sample);
+        assert(std::isfinite(a[0])&&std::isfinite(b[0]));
+        assert(std::isfinite(a[1])&&std::isfinite(b[1]));
+        if(n>=200&&n<4200){loEnergy+=std::fabs(a[0]);hiEnergy+=std::fabs(b[0]);}
+    }
+    assert(hiEnergy>loEnergy*1.03);
+    Patch corePatch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    corePatch.fx=coreRack;
+    Patch loadedCore;
+    assert(deserializePatchJson(serializePatchJson(corePatch),loadedCore));
+    assert(loadedCore.fx.count==1);
+    assert(loadedCore.fx.chain[0].type==FxType::MetalCore);
+    assert(loadedCore.fx.chain[0].params[3]==10.0f);
     Fx duplicates{};duplicates.rackConfigured=true;duplicates.count=2;
     duplicates.chain[0]=makeFxModule(FxType::BandEq);
     duplicates.chain[1]=makeFxModule(FxType::BandEq);

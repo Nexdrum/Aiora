@@ -69,6 +69,35 @@ void FxProcessor::Stage::configure(float sr){
         for(int ch=0;ch<2;++ch)
             for(int i=0;i<4;++i)eq[ch][i].peak(f[i],.85f,p[3+i],sr);
     }
+    if(module.type==FxType::MetalCore){
+        const float osRate=sr*2.0f;
+        coreTightPole=pole(p[2],osRate);
+        coreInterPole=pole(5100.0f,osRate);
+        corePickPole=pole(1700.0f,osRate);
+        coreSubPole=pole(56.0f,osRate);
+        coreBodyPole=pole(210.0f,osRate);
+        coreDcPole=pole(22.0f,sr);
+        // Blackman-windowed 33-tap decimation filter, centered below
+        // the 1x Nyquist limit to reduce hard-clip aliasing.
+        constexpr int taps=33,half=(taps-1)/2;
+        constexpr float fc=.235f;
+        float total=0.0f;
+        for(int i=0;i<taps;++i){
+            const int k=i-half;
+            const float sinc=k==0?2.0f*fc:
+                std::sin(2.0f*pi*fc*k)/(pi*k);
+            const float window=.42f-.5f*std::cos(2.0f*pi*i/(taps-1))+
+                .08f*std::cos(4.0f*pi*i/(taps-1));
+            coreFir[i]=sinc*window;
+            total+=coreFir[i];
+        }
+        for(auto& tap:coreFir)tap/=total;
+        constexpr float frequencies[4]={125.0f,850.0f,2700.0f,5150.0f};
+        const float gains[4]={(p[3]-5.0f)*1.05f,p[4],p[5],p[6]};
+        for(int ch=0;ch<2;++ch)
+            for(int i=0;i<4;++i)
+                eq[ch][i].peak(frequencies[i],.84f,gains[i],sr);
+    }
     if(module.type==FxType::Cabinet){
         cutoffA=pole(p[0],sr);cutoffB=pole(p[1],sr);
         for(int ch=0;ch<2;++ch){
@@ -101,6 +130,12 @@ void FxProcessor::Stage::reset() noexcept {
     for(auto& a:allL)a.reset();for(auto& a:allR)a.reset();
     for(auto& ch:eq)for(auto& q:ch)q.clear();
     low.fill(0);inter.fill(0);high.fill(0);
+    for(auto& h:coreHistory)h.fill(0.0f);
+    corePosition.fill(0);
+    corePrevious.fill(0.0f);coreTightLow.fill(0.0f);
+    coreInter.fill(0.0f);corePickLow.fill(0.0f);
+    coreSubLow.fill(0.0f);coreBassBody.fill(0.0f);
+    coreDc.fill(0.0f);
 }
 std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexcept {
     const auto& p=module.params;
@@ -121,6 +156,58 @@ std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexce
                 return y*p[7];
             };
             return {clip(l,0),clip(r,1)};
+        }
+        case FxType::MetalCore:{
+            const auto pedal=[&](float input,int ch){
+                const float gain=1.0f+p[1]*3.1f;
+                float output=0.0f;
+                for(int subStep=0;subStep<2;++subStep){
+                    const float sample=subStep==0?
+                        .5f*(corePrevious[ch]+input):input;
+                    // Keep bass out of both clipping stages, then mix a
+                    // short low-pitched impact back in after saturation.
+                    coreSubLow[ch]+=coreSubPole*(sample-coreSubLow[ch]);
+                    const float subFree=sample-coreSubLow[ch];
+                    coreBassBody[ch]+=coreBodyPole*(subFree-coreBassBody[ch]);
+                    const float bass=coreBassBody[ch];
+                    coreTightLow[ch]+=coreTightPole*(sample-coreTightLow[ch]);
+                    const float tight=sample-coreTightLow[ch];
+                    corePickLow[ch]+=corePickPole*(tight-corePickLow[ch]);
+                    const float attack=tight-corePickLow[ch];
+                    const float first=std::tanh(
+                        (tight+.18f*attack)*p[0]*gain);
+                    coreInter[ch]+=coreInterPole*(first-coreInter[ch]);
+                    const float drive=(coreInter[ch]+.16f*attack)*
+                        (1.0f+p[1]*.9f);
+                    // Asymmetric hard clipping creates dense metal
+                    // harmonics; the soft blend retains pick nuance.
+                    const float hard=std::clamp(drive+.055f,-.82f,.69f)-.055f;
+                    const float soft=std::tanh(drive*1.35f)/1.35f;
+                    const float core=std::tanh((hard*.79f+soft*.21f)*
+                        (1.15f+.13f*p[1]));
+                    const float punch=std::tanh(bass*3.2f)*
+                        (.055f+.031f*p[3]);
+                    const float pick=.055f*std::tanh(attack*3.0f);
+                    const float shaped=.72f*core+punch+pick;
+                    auto& history=coreHistory[ch];
+                    const size_t at=corePosition[ch];
+                    history[at]=shaped;
+                    corePosition[ch]=(at+1)%history.size();
+                    if(subStep==1){
+                        size_t index=corePosition[ch];
+                        for(size_t tap=0;tap<coreFir.size();++tap){
+                            index=(index+history.size()-1)%history.size();
+                            output+=history[index]*coreFir[tap];
+                        }
+                    }
+                }
+                corePrevious[ch]=input;
+                coreDc[ch]+=coreDcPole*(output-coreDc[ch]);
+                float y=output-coreDc[ch];
+                for(int i=0;i<4;++i)y=eq[ch][i].process(y);
+                return y*p[7];
+            };
+            return {pedal(l,0),pedal(r,1)};
         }
         case FxType::Cabinet:{
             const auto cab=[&](float x,int ch){
