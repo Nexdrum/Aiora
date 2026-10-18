@@ -246,6 +246,19 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     }else unisonSmoothed_=fixedUnison_;
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();peak_.reset();peakReady_=false;
+    // Fixed-phase operators retain their original zero start. When enabled,
+    // draw an independent phase for each tonal operator/unison oscillator.
+    // Noise and Hiss have no meaningful phase and are left untouched.
+    for(size_t i=0;i<6;++i){
+        const auto& o=patch_.ops[i];
+        if(!o.enabled||!o.randomPhase||o.wave==Wave::Noise||o.wave==Wave::Hiss)continue;
+        if(rng_==0)rng_=0x91e10da5u;
+        for(int u=0;u<2;++u){
+            rng_^=rng_<<13;rng_^=rng_>>17;rng_^=rng_<<5;
+            phase_[i][u]=static_cast<float>(rng_>>8)*
+                (kTwoPi/16777216.0f);
+        }
+    }
     if(patch_.filter.evolving.configured){
         for(int k=0;k<6;++k)
             filterTimeline_[k].reset(patch_.filter.evolving.lanes[k].curve,true);
@@ -482,6 +495,15 @@ float SpectrachordVoice::render() noexcept {
             opSum+=dynamicUnison&&u==1?sample*unison:sample;
             ph+=kTwoPi*f/sampleRate_;
             if(ph>=kTwoPi)ph-=kTwoPi;
+        }
+        // A localized 1 ms smoothstep removes the potential discontinuity
+        // of a random nonzero phase at note-on. Existing operators retain
+        // bit-identical onset behavior and their authored envelope shapes.
+        if(op.randomPhase&&op.wave!=Wave::Noise&&op.wave!=Wave::Hiss){
+            const float t=std::clamp(
+                static_cast<float>(elapsedSamples_)/
+                std::max(1.0f,sampleRate_*.001f),0.0f,1.0f);
+            opSum*=t*t*(3.0f-2.0f*t);
         }
         now[i]=opSum/(dynamicUnison?1.0f+unison:static_cast<float>(uniCount))*level;
     }

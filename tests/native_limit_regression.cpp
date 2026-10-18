@@ -354,6 +354,88 @@ int main(){
         const auto dsp=toDspPatch(sine);
         assert(dsp.peak.enabled&&!dsp.peak.followNote&&dsp.peak.gainDb==12.0f);
     }
+    // Per-operator random phase is opt-in. Old patch files stay fixed-phase,
+    // saved toggles survive patch export, and the anti-click fade only
+    // touches tonal operators with phase variation enabled.
+    {
+        Patch phasePatch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+        for(auto& op:phasePatch.ops){
+            op.enabled=false;op.level=0.0f;op.randomPhase=false;
+        }
+        phasePatch.ops[0].enabled=true;
+        phasePatch.ops[0].wave=Wave::Sine;
+        phasePatch.ops[0].level=.85f;
+        phasePatch.ops[0].ratio=1.0f;
+        phasePatch.ops[0].env={.0005f,.01f,1.0f,.04f};
+        phasePatch.amp={.0005f,.01f,1.0f,.04f};
+        phasePatch.filter.evolving.configured=false;
+        phasePatch.filter={FilterType::Lowpass,14000.0f,.707f,0.0f,
+            {.005f,.1f,0,.1f}};
+        phasePatch.velocityAmp=0.0f;
+        phasePatch.modSlots.clear();phasePatch.modSlotCount=0;
+        phasePatch.velocitySlots.clear();phasePatch.velocitySlotCount=0;
+        phasePatch.masterAmpCurve={};
+        phasePatch.unisonCurve={};
+        phasePatch.unison=0.0f;
+        const auto fixedJson=serializePatchJson(phasePatch);
+        assert(fixedJson.find("\"randomPhase\":false")!=std::string::npos);
+        // Drop all new flags to emulate a patch saved by Beta 0.7.68.
+        std::string oldFormat=fixedJson;
+        const std::string oldFlag=",\"randomPhase\":false";
+        for(;;){
+            const auto at=oldFormat.find(oldFlag);
+            if(at==std::string::npos)break;
+            oldFormat.erase(at,oldFlag.size());
+        }
+        Patch oldLoaded;
+        assert(deserializePatchJson(oldFormat,oldLoaded));
+        for(const auto& op:oldLoaded.ops)assert(!op.randomPhase);
+        SpectrachordVoice fixedA,fixedB;
+        fixedA.prepare(48000.0f);fixedB.prepare(48000.0f);
+        fixedA.start(4001,toDspPatch(oldLoaded),57,1.0f,10000u,10000.0f);
+        fixedB.start(4029,toDspPatch(oldLoaded),57,1.0f,10000u,10000.0f);
+        for(int n=0;n<512;++n){
+            const float a=fixedA.render(),b=fixedB.render();
+            assert(std::isfinite(a)&&std::isfinite(b));
+            assert(std::fabs(a-b)<1e-6f);
+        }
+        phasePatch.ops[0].randomPhase=true;
+        phasePatch.ops[2].randomPhase=true; // disabled operators also serialize
+        const auto phaseJson=serializePatchJson(phasePatch);
+        Patch roundTrip;
+        assert(deserializePatchJson(phaseJson,roundTrip));
+        assert(roundTrip.ops[0].randomPhase);
+        assert(!roundTrip.ops[1].randomPhase);
+        assert(roundTrip.ops[2].randomPhase);
+        assert(toDspPatch(roundTrip).ops[0].randomPhase);
+        SpectrachordVoice randomA,randomB;
+        randomA.prepare(48000.0f);randomB.prepare(48000.0f);
+        randomA.start(4001,toDspPatch(roundTrip),57,1.0f,10000u,10000.0f);
+        randomB.start(4029,toDspPatch(roundTrip),57,1.0f,10000u,10000.0f);
+        assert(randomA.render()==0.0f);
+        assert(randomB.render()==0.0f);
+        float phaseDifference=0.0f,signalEnergy=0.0f;
+        for(int n=1;n<512;++n){
+            const float a=randomA.render(),b=randomB.render();
+            assert(std::isfinite(a)&&std::isfinite(b));
+            if(n>100){
+                phaseDifference+=std::fabs(a-b);
+                signalEnergy+=std::fabs(a);
+            }
+        }
+        assert(signalEnergy>.1f);
+        assert(phaseDifference>.1f);
+        // A disabled operator's random toggle cannot affect the output.
+        phasePatch.ops[0].randomPhase=false;
+        SpectrachordVoice inactivePhase;
+        inactivePhase.prepare(48000.0f);
+        inactivePhase.start(4029,toDspPatch(phasePatch),57,1.0f,10000u,10000.0f);
+        SpectrachordVoice reference;
+        reference.prepare(48000.0f);
+        reference.start(4029,toDspPatch(oldLoaded),57,1.0f,10000u,10000.0f);
+        for(int n=0;n<256;++n)
+            assert(std::fabs(inactivePhase.render()-reference.render())<1e-6f);
+    }
     // M selects a palm-muted *note articulation* at its onset.
     // Short amp decay and zero sustain must make the note percussive
     // rather than choking a previously ringing open note.

@@ -811,6 +811,16 @@ struct OpSurface {
         }
         return {};
     }
+    // Share the existing On/Off cell rather than adding a new layout row.
+    // Both targets remain independent and usable for all six operators.
+    Rect powerRect()const{
+        const auto r=rect(4);
+        return {r.x,r.y,r.w,r.h*.5f-2.0f};
+    }
+    Rect phaseRect()const{
+        const auto r=rect(4);
+        return {r.x,r.y+r.h*.5f+2.0f,r.w,r.h*.5f-2.0f};
+    }
     float harmonicRowHeight()const{return std::max(245.0f,rect(11).h*.62f);}
     void scrollBy(float dy){
         if(page<4){
@@ -880,7 +890,11 @@ struct OpSurface {
         field(rect(1),"Wave",kWaveformLabels[std::clamp(static_cast<int>(o.wave),0,6)]);
         std::snprintf(buff,sizeof(buff),"%.4g",static_cast<double>(o.ratio));field(rect(2),"Ratio",buff);
         std::snprintf(buff,sizeof(buff),"%+.0f",static_cast<double>(o.semitoneOffset));field(rect(3),"Base ST",buff);
-        button(rect(4),o.enabled);text(o.enabled?"ON":"OFF",rect(4),.85f);
+        button(powerRect(),o.enabled);
+        text(o.enabled?"OP ON":"OP OFF",powerRect(),.76f);
+        button(phaseRect(),o.randomPhase,true);
+        text(o.randomPhase?"Phase RND":"Phase FIX",phaseRect(),.67f,
+            overlayColor(o.randomPhase?kBg:kWhite));
         for(int i=0;i<2;++i){
             auto r=rect(5+i);button(r,false);
             const float v=i?((o.detuneCents+50)/100):o.level;
@@ -1163,7 +1177,14 @@ struct OpSurface {
         const auto o=core.selectedPatch().ops[op];
         custom=o.wave==Wave::Custom;
         if(!custom&&page==5)page=4;
-        if(rect(4).contains(x,y)){changed=core.setSelectedOperatorEnabled(op,!o.enabled);return true;}
+        if(powerRect().contains(x,y)){
+            changed=core.setSelectedOperatorEnabled(op,!o.enabled);
+            return true;
+        }
+        if(phaseRect().contains(x,y)){
+            changed=core.setSelectedOperatorRandomPhase(op,!o.randomPhase);
+            return true;
+        }
         for(int i=0;i<2;++i)if(rect(5+i).contains(x,y)){drag=-10-i;return move(x,y);}
         for(int i=0;i<(custom?6:5);++i)if(rect(7,i).contains(x,y)){
             page=i;selected=-1;

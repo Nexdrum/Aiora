@@ -860,6 +860,13 @@ Fx ProjectCore::padFx(int t,int p) const {std::scoped_lock lock(mutex_);return v
 bool ProjectCore::setSelectedOperatorEnabled(int opIndex,bool enabled){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||opIndex<0||opIndex>=6)return false;p->ops[opIndex].enabled=enabled;return true;
 }
+bool ProjectCore::setSelectedOperatorRandomPhase(int opIndex,bool enabled){
+    std::scoped_lock lock(mutex_);
+    auto* patch=selectedPatchUnsafe();
+    if(!patch||opIndex<0||opIndex>=6)return false;
+    patch->ops[static_cast<size_t>(opIndex)].randomPhase=enabled;
+    return true;
+}
 bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||opIndex<0||opIndex>=6)return false;
     auto& op=p->ops[opIndex];op.wave=wave;

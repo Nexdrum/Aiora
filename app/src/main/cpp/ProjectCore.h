@@ -142,6 +142,7 @@ public:
     bool setFxStageParameter(bool master,int index,int parameter,float value);
 
     bool setSelectedOperatorEnabled(int opIndex, bool enabled);
+    bool setSelectedOperatorRandomPhase(int opIndex, bool enabled);
     bool setSelectedOperatorCurve(int opIndex,int kind,const OperatorCurve& curve);
     bool setSelectedOperatorResponse(int opIndex,const OperatorResponse& response);
     bool setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel);

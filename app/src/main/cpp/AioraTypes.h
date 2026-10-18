@@ -94,6 +94,8 @@ inline OperatorResponse initialOperatorResponse() noexcept {
 }
 struct Operator {
     bool enabled{true};
+    // Optional phase variation at note-on; legacy patches default to fixed.
+    bool randomPhase{false};
     Wave wave{Wave::Sine};
     float ratio{1.0f};
     float semitoneOffset{0.0f};
