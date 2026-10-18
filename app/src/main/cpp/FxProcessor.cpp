@@ -160,10 +160,12 @@ std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexce
         case FxType::MetalCore:{
             const auto pedal=[&](float input,int ch){
                 const float gain=1.0f+p[1]*3.1f;
+                // Input level governs EVERY branch, including post-clip punch.
+                const float inputSample=input*p[0];
                 float output=0.0f;
                 for(int subStep=0;subStep<2;++subStep){
                     const float sample=subStep==0?
-                        .5f*(corePrevious[ch]+input):input;
+                        .5f*(corePrevious[ch]+inputSample):inputSample;
                     // Keep bass out of both clipping stages, then mix a
                     // short low-pitched impact back in after saturation.
                     coreSubLow[ch]+=coreSubPole*(sample-coreSubLow[ch]);
@@ -175,7 +177,7 @@ std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexce
                     corePickLow[ch]+=corePickPole*(tight-corePickLow[ch]);
                     const float attack=tight-corePickLow[ch];
                     const float first=std::tanh(
-                        (tight+.18f*attack)*p[0]*gain);
+                        (tight+.18f*attack)*gain);
                     coreInter[ch]+=coreInterPole*(first-coreInter[ch]);
                     const float drive=(coreInter[ch]+.16f*attack)*
                         (1.0f+p[1]*.9f);
@@ -201,7 +203,7 @@ std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexce
                         }
                     }
                 }
-                corePrevious[ch]=input;
+                corePrevious[ch]=inputSample;
                 coreDc[ch]+=coreDcPole*(output-coreDc[ch]);
                 float y=output-coreDc[ch];
                 for(int i=0;i<4;++i)y=eq[ch][i].process(y);
