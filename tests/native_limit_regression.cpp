@@ -430,9 +430,11 @@ int main(){
         SpectrachordVoice inactivePhase;
         inactivePhase.prepare(48000.0f);
         inactivePhase.start(4029,toDspPatch(phasePatch),57,1.0f,10000u,10000.0f);
+        Patch samePatch=phasePatch;
+        samePatch.ops[2].randomPhase=false;
         SpectrachordVoice reference;
         reference.prepare(48000.0f);
-        reference.start(4029,toDspPatch(oldLoaded),57,1.0f,10000u,10000.0f);
+        reference.start(4029,toDspPatch(samePatch),57,1.0f,10000u,10000.0f);
         for(int n=0;n<256;++n)
             assert(std::fabs(inactivePhase.render()-reference.render())<1e-6f);
     }
