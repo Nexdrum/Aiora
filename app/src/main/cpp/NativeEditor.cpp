@@ -1450,7 +1450,9 @@ struct FilterSurface {
             cell(bar(3,3,6),"-",false,kCyan,1.3f);
             cell(bar(3,4,6),zooms[zoom]<1?"0.5x":std::to_string(static_cast<int>(zooms[zoom]))+"x",false,kCyan,.77f);
             cell(bar(3,5,6),"+",false,kCyan,1.3f);
-        }else{
+        }else if(page==2){
+            // Mod's controls must not be rendered under the Slope page's
+            // shape/preset buttons (they share the same two rows).
             for(int i=0;i<4;++i)cell(bar(2,i,6),"Mod "+std::to_string(i+1),slot==i,kPurple,.8f);
             const auto& m=model.mods[slot];
             cell(bar(2,4,6),m.response.source?"Src M":"Src V",m.response.source==1,kCyan,.7f);
