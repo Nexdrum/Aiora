@@ -251,12 +251,19 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     // Noise and Hiss have no meaningful phase and are left untouched.
     for(size_t i=0;i<6;++i){
         const auto& o=patch_.ops[i];
-        if(!o.enabled||!o.randomPhase||o.wave==Wave::Noise||o.wave==Wave::Hiss)continue;
+        if(!o.enabled||!o.randomPhase||o.randomPhaseDegrees<=0.0f||
+           o.wave==Wave::Noise||o.wave==Wave::Hiss)continue;
         if(rng_==0)rng_=0x91e10da5u;
         for(int u=0;u<2;++u){
             rng_^=rng_<<13;rng_^=rng_>>17;rng_^=rng_<<5;
-            phase_[i][u]=static_cast<float>(rng_>>8)*
-                (kTwoPi/16777216.0f);
+            // +/-degrees about the previous zero-phase start. Wrap negatives
+            // into [0,2pi), preserving a shared base phase for custom partials.
+            const float unit=static_cast<float>(rng_>>8)/16777216.0f;
+            float angle=(unit*2.0f-1.0f)*
+                (std::clamp(o.randomPhaseDegrees,0.0f,180.0f)*
+                 (kTwoPi/360.0f));
+            if(angle<0.0f)angle+=kTwoPi;
+            phase_[i][u]=angle;
         }
     }
     if(patch_.filter.evolving.configured){
@@ -499,7 +506,8 @@ float SpectrachordVoice::render() noexcept {
         // A localized 1 ms smoothstep removes the potential discontinuity
         // of a random nonzero phase at note-on. Existing operators retain
         // bit-identical onset behavior and their authored envelope shapes.
-        if(op.randomPhase&&op.wave!=Wave::Noise&&op.wave!=Wave::Hiss){
+        if(op.randomPhase&&op.randomPhaseDegrees>0.0f&&
+           op.wave!=Wave::Noise&&op.wave!=Wave::Hiss){
             const float t=std::clamp(
                 static_cast<float>(elapsedSamples_)/
                 std::max(1.0f,sampleRate_*.001f),0.0f,1.0f);

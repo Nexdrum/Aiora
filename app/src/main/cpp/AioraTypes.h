@@ -96,6 +96,8 @@ struct Operator {
     bool enabled{true};
     // Optional phase variation at note-on; legacy patches default to fixed.
     bool randomPhase{false};
+    // Symmetric note-on variation in degrees: 10 = -10..+10, 180 = full circle.
+    float randomPhaseDegrees{10.0f};
     Wave wave{Wave::Sine};
     float ratio{1.0f};
     float semitoneOffset{0.0f};

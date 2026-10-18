@@ -492,6 +492,7 @@ void writePatch(Writer& w,const Patch& p){
         if(i)w.raw(",");const auto& o=p.ops[i];
         w.raw("{\"enabled\":");w.boolean(o.enabled);
         w.raw(",\"randomPhase\":");w.boolean(o.randomPhase);
+        w.raw(",\"randomPhaseDegrees\":");w.number(o.randomPhaseDegrees);
         w.raw(",\"wave\":");w.string(waveName(o.wave));
         w.raw(",\"ratio\":");w.number(o.ratio);
         w.raw(",\"semi\":");w.number(o.semitoneOffset);
@@ -707,6 +708,9 @@ bool readPatch(const Json& src,Patch& p){
         const auto& jo=ops->array[i];if(jo.type!=Json::Type::Object)continue;auto& o=p.ops[i];
         o.enabled=boolean(jo.get("enabled"),o.enabled);
         o.randomPhase=boolean(jo.get("randomPhase"),false);
+        // 0.7.69 toggle-only patches migrate to a subtle +/-10 degree range.
+        o.randomPhaseDegrees=clampf(num(jo.get("randomPhaseDegrees"),10.0f),
+            0.0f,180.0f,10.0f);
         o.wave=parseWave(str(jo.get("wave"),"sine"));
         o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,16.0f,o.ratio);
 

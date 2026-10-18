@@ -783,12 +783,14 @@ struct OpSurface {
         const float y=view.y+88;
         switch(row){
             case 0: {const float ww=(w-25)/6;return {x+index*(ww+5),y,ww,54};}
-            case 1: return {x,y+64,w*.38f,60}; // waveform
-            case 2: return {x+w*.38f+6,y+64,w*.23f-6,60}; // ratio
-            case 3: return {x+w*.61f+6,y+64,w*.19f-6,60}; // semitone
-            case 4: return {x+w*.80f+6,y+64,w*.20f-6,60}; // operator on/off
-            case 5: return {x,y+132,(w-8)*.5f,45}; // level
-            case 6: return {x+(w-8)*.5f+8,y+132,(w-8)*.5f,45}; // fine cents
+            // Wider power/phase region makes both side-by-side buttons legible.
+            case 1: return {x,y+64,w*.31f,60}; // waveform
+            case 2: return {x+w*.31f+6,y+64,w*.20f-6,60}; // ratio
+            case 3: return {x+w*.51f+6,y+64,w*.16f-6,60}; // semitone
+            case 4: return {x+w*.67f+6,y+64,w*.33f-6,60}; // OP / Phase
+            case 5: return {x,y+132,(w-16)/3,45}; // level
+            case 6: return {x+(w-16)/3+8,y+132,(w-16)/3,45}; // fine cents
+            case 12: return {x+2*((w-16)/3+8),y+132,(w-16)/3,45}; // phase degrees
             case 7: {const int n=custom?6:5;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
             case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
             case 9: {
@@ -811,15 +813,14 @@ struct OpSurface {
         }
         return {};
     }
-    // Share the existing On/Off cell rather than adding a new layout row.
-    // Both targets remain independent and usable for all six operators.
+    // Full-height, side-by-side touch targets replace the cramped stack.
     Rect powerRect()const{
         const auto r=rect(4);
-        return {r.x,r.y,r.w,r.h*.5f-2.0f};
+        return {r.x,r.y,(r.w-4.0f)*.5f,r.h};
     }
     Rect phaseRect()const{
         const auto r=rect(4);
-        return {r.x,r.y+r.h*.5f+2.0f,r.w,r.h*.5f-2.0f};
+        return {r.x+(r.w+4.0f)*.5f,r.y,(r.w-4.0f)*.5f,r.h};
     }
     float harmonicRowHeight()const{return std::max(245.0f,rect(11).h*.62f);}
     void scrollBy(float dy){
@@ -891,16 +892,29 @@ struct OpSurface {
         std::snprintf(buff,sizeof(buff),"%.4g",static_cast<double>(o.ratio));field(rect(2),"Ratio",buff);
         std::snprintf(buff,sizeof(buff),"%+.0f",static_cast<double>(o.semitoneOffset));field(rect(3),"Base ST",buff);
         button(powerRect(),o.enabled);
-        text(o.enabled?"OP ON":"OP OFF",powerRect(),.76f);
+        text(o.enabled?"OP ON":"OP OFF",powerRect(),.66f,
+            overlayColor(o.enabled?kBg:kWhite));
         button(phaseRect(),o.randomPhase,true);
-        text(o.randomPhase?"Phase RND":"Phase FIX",phaseRect(),.67f,
+        text(o.randomPhase?"PH RND":"PH FIX",phaseRect(),.66f,
             overlayColor(o.randomPhase?kBg:kWhite));
         for(int i=0;i<2;++i){
             auto r=rect(5+i);button(r,false);
             const float v=i?((o.detuneCents+50)/100):o.level;
-            ov.addText(i?"Fine":"Level",r.x+7,r.y+9,.8f,overlayColor(kWhite));
-            ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f,5},overlayColor(kMuted));
-            ov.addRect({r.x+r.w*.34f,r.y+24,r.w*.60f*std::clamp(v,0.0f,1.0f),5},overlayColor(kCyan));
+            ov.addText(i?"Fine":"Level",r.x+5,r.y+8,.73f,overlayColor(kWhite));
+            ov.addRect({r.x+r.w*.34f,r.y+27,r.w*.60f,5},overlayColor(kMuted));
+            ov.addRect({r.x+r.w*.34f,r.y+27,r.w*.60f*std::clamp(v,0.0f,1.0f),5},overlayColor(kCyan));
+        }
+        // Per-operator symmetric range: fine adjustment near zero, full
+        // 360-degree coverage at +/-180. Tap or drag the third slider.
+        {
+            const auto r=rect(12);
+            button(r,false);
+            const int degrees=static_cast<int>(std::round(o.randomPhaseDegrees));
+            ov.addText("Phase +/-"+std::to_string(degrees),
+                r.x+5,r.y+7,.75f,overlayColor(kWhite));
+            const float amount=std::sqrt(std::clamp(o.randomPhaseDegrees/180.0f,0.0f,1.0f));
+            ov.addRect({r.x+8,r.y+27,r.w-16,5},overlayColor(kMuted));
+            ov.addRect({r.x+8,r.y+27,(r.w-16)*amount,5},overlayColor(kPurple));
         }
         for(int i=0;i<(custom?6:5);++i){
             auto r=rect(7,i);button(r,i==page,i>=2);
@@ -1186,6 +1200,7 @@ struct OpSurface {
             return true;
         }
         for(int i=0;i<2;++i)if(rect(5+i).contains(x,y)){drag=-10-i;return move(x,y);}
+        if(rect(12).contains(x,y)){drag=-12;return move(x,y);}
         for(int i=0;i<(custom?6:5);++i)if(rect(7,i).contains(x,y)){
             page=i;selected=-1;
             if(page==5)harmonicView=1;
@@ -1287,6 +1302,13 @@ struct OpSurface {
             const float top=r.y+row*h-harmonicScroll[op][harmonicView==2?1:0];
             const float amount=std::clamp(1-(y-top)/h,0.0f,1.0f);
             changed=ProjectCore::instance().setSelectedHarmonic(op,i,amount,harmonicView==2)||changed;
+            return true;
+        }
+        if(drag==-12){
+            const auto r=rect(12);
+            const float pos=std::clamp((x-r.x-8.0f)/std::max(1.0f,r.w-16.0f),0.0f,1.0f);
+            const float degrees=std::round(180.0f*pos*pos);
+            changed=ProjectCore::instance().setSelectedOperatorRandomPhaseDegrees(op,degrees)||changed;
             return true;
         }
         if(drag<=-10){

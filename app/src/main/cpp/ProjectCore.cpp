@@ -867,6 +867,14 @@ bool ProjectCore::setSelectedOperatorRandomPhase(int opIndex,bool enabled){
     patch->ops[static_cast<size_t>(opIndex)].randomPhase=enabled;
     return true;
 }
+bool ProjectCore::setSelectedOperatorRandomPhaseDegrees(int opIndex,float degrees){
+    std::scoped_lock lock(mutex_);
+    auto* patch=selectedPatchUnsafe();
+    if(!patch||opIndex<0||opIndex>=6||!std::isfinite(degrees))return false;
+    patch->ops[static_cast<size_t>(opIndex)].randomPhaseDegrees=
+        std::clamp(degrees,0.0f,180.0f);
+    return true;
+}
 bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||opIndex<0||opIndex>=6)return false;
     auto& op=p->ops[opIndex];op.wave=wave;

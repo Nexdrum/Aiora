@@ -143,6 +143,7 @@ public:
 
     bool setSelectedOperatorEnabled(int opIndex, bool enabled);
     bool setSelectedOperatorRandomPhase(int opIndex, bool enabled);
+    bool setSelectedOperatorRandomPhaseDegrees(int opIndex, float degrees);
     bool setSelectedOperatorCurve(int opIndex,int kind,const OperatorCurve& curve);
     bool setSelectedOperatorResponse(int opIndex,const OperatorResponse& response);
     bool setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel);

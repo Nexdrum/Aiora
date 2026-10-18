@@ -379,6 +379,7 @@ int main(){
         phasePatch.unison=0.0f;
         const auto fixedJson=serializePatchJson(phasePatch);
         assert(fixedJson.find("\"randomPhase\":false")!=std::string::npos);
+        assert(fixedJson.find("\"randomPhaseDegrees\":10")!=std::string::npos);
         // Drop all new flags to emulate a patch saved by Beta 0.7.68.
         std::string oldFormat=fixedJson;
         const std::string oldFlag=",\"randomPhase\":false";
@@ -387,9 +388,21 @@ int main(){
             if(at==std::string::npos)break;
             oldFormat.erase(at,oldFlag.size());
         }
+        // Prior beta files also lacked the new per-operator range field.
+        const std::string rangeKey=",\"randomPhaseDegrees\":";
+        for(;;){
+            const auto at=oldFormat.find(rangeKey);
+            if(at==std::string::npos)break;
+            const auto end=oldFormat.find(',',at+rangeKey.size());
+            assert(end!=std::string::npos);
+            oldFormat.erase(at,end-at);
+        }
         Patch oldLoaded;
         assert(deserializePatchJson(oldFormat,oldLoaded));
-        for(const auto& op:oldLoaded.ops)assert(!op.randomPhase);
+        for(const auto& op:oldLoaded.ops){
+            assert(!op.randomPhase);
+            assert(op.randomPhaseDegrees==10.0f);
+        }
         SpectrachordVoice fixedA,fixedB;
         fixedA.prepare(48000.0f);fixedB.prepare(48000.0f);
         fixedA.start(4001,toDspPatch(oldLoaded),57,1.0f,10000u,10000.0f);
@@ -400,14 +413,41 @@ int main(){
             assert(std::fabs(a-b)<1e-6f);
         }
         phasePatch.ops[0].randomPhase=true;
+        phasePatch.ops[0].randomPhaseDegrees=10.0f;
         phasePatch.ops[2].randomPhase=true; // disabled operators also serialize
+        phasePatch.ops[2].randomPhaseDegrees=45.0f;
         const auto phaseJson=serializePatchJson(phasePatch);
         Patch roundTrip;
         assert(deserializePatchJson(phaseJson,roundTrip));
         assert(roundTrip.ops[0].randomPhase);
         assert(!roundTrip.ops[1].randomPhase);
         assert(roundTrip.ops[2].randomPhase);
+        assert(roundTrip.ops[0].randomPhaseDegrees==10.0f);
+        assert(roundTrip.ops[2].randomPhaseDegrees==45.0f);
         assert(toDspPatch(roundTrip).ops[0].randomPhase);
+        assert(toDspPatch(roundTrip).ops[2].randomPhaseDegrees==45.0f);
+        // Every operator retains its own range in complete song JSON too.
+        Project phaseProject;
+        Track phaseTrack;phaseTrack.patch=roundTrip;
+        phaseProject.tracks.push_back(std::move(phaseTrack));
+        Project restoredProject;
+        assert(deserializeProjectJson(serializeProjectJson(phaseProject),restoredProject));
+        assert(restoredProject.tracks[0].patch.ops[0].randomPhaseDegrees==10.0f);
+        assert(restoredProject.tracks[0].patch.ops[2].randomPhaseDegrees==45.0f);
+        // Editor setters cannot silently affect neighboring operators.
+        auto& phaseCore=ProjectCore::instance();
+        assert(phaseCore.replaceProject(phaseProject,0));
+        assert(phaseCore.setSelectedOperatorRandomPhaseDegrees(0,20.0f));
+        assert(phaseCore.setSelectedOperatorRandomPhase(1,true));
+        assert(phaseCore.selectedPatch().ops[0].randomPhaseDegrees==20.0f);
+        assert(phaseCore.selectedPatch().ops[1].randomPhase);
+        assert(phaseCore.selectedPatch().ops[1].randomPhaseDegrees==10.0f);
+        assert(phaseCore.selectedPatch().ops[2].randomPhaseDegrees==45.0f);
+        assert(phaseCore.setSelectedOperatorRandomPhaseDegrees(0,999.0f));
+        assert(phaseCore.selectedPatch().ops[0].randomPhaseDegrees==180.0f);
+        assert(phaseCore.setSelectedOperatorRandomPhaseDegrees(0,-12.0f));
+        assert(phaseCore.selectedPatch().ops[0].randomPhaseDegrees==0.0f);
+        phaseCore.reset();
         SpectrachordVoice randomA,randomB;
         randomA.prepare(48000.0f);randomB.prepare(48000.0f);
         randomA.start(4001,toDspPatch(roundTrip),57,1.0f,10000u,10000.0f);
@@ -437,6 +477,38 @@ int main(){
         reference.start(4029,toDspPatch(samePatch),57,1.0f,10000u,10000.0f);
         for(int n=0;n<256;++n)
             assert(std::fabs(inactivePhase.render()-reference.render())<1e-6f);
+        // A zero-degree range is audibly equivalent to fixed phase, and
+        // bypasses even the opt-in 1 ms fade.
+        Patch zeroAmount=samePatch;
+        zeroAmount.ops[0].randomPhase=true;
+        zeroAmount.ops[0].randomPhaseDegrees=0.0f;
+        SpectrachordVoice zeroRange,fixedRange;
+        zeroRange.prepare(48000.0f);fixedRange.prepare(48000.0f);
+        zeroRange.start(5031,toDspPatch(zeroAmount),57,1.0f,10000u,10000.0f);
+        fixedRange.start(5031,toDspPatch(samePatch),57,1.0f,10000u,10000.0f);
+        for(int n=0;n<256;++n)
+            assert(zeroRange.render()==fixedRange.render());
+        // Even at the maximum +/-180 degrees every sample remains finite.
+        zeroAmount.ops[0].randomPhaseDegrees=180.0f;
+        SpectrachordVoice wideRange;
+        wideRange.prepare(48000.0f);
+        wideRange.start(5031,toDspPatch(zeroAmount),57,1.0f,10000u,10000.0f);
+        assert(wideRange.render()==0.0f);
+        for(int n=0;n<512;++n)assert(std::isfinite(wideRange.render()));
+        // Neither Noise nor Hiss may be affected by changing this control.
+        for(Wave wave:{Wave::Noise,Wave::Hiss}){
+            Patch before=samePatch;
+            before.ops[0].wave=wave;
+            Patch after=before;
+            after.ops[0].randomPhase=true;
+            after.ops[0].randomPhaseDegrees=180.0f;
+            SpectrachordVoice n1,n2;
+            n1.prepare(48000.0f);n2.prepare(48000.0f);
+            n1.start(6201,toDspPatch(before),57,1.0f,10000u,10000.0f);
+            n2.start(6201,toDspPatch(after),57,1.0f,10000u,10000.0f);
+            for(int n=0;n<256;++n)
+                assert(n1.render()==n2.render());
+        }
     }
     // M selects a palm-muted *note articulation* at its onset.
     // Short amp decay and zero sustain must make the note percussive
