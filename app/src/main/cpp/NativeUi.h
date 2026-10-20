@@ -281,6 +281,13 @@ public:
     [[nodiscard]] int rollSelectionEndStep() const noexcept { return rollSelectionEndStep_; }
     void setRollClipboardAvailable(bool available) noexcept { rollClipboardAvailable_=available; }
     void scrollPage(float deltaPixels) noexcept;
+    [[nodiscard]] float currentPageScrollPixels() const noexcept {
+        if(page_==NativePage::Tracks)return trackScrollY_;
+        if(page_==NativePage::Drums)return drumScrollY_;
+        if(page_==NativePage::Performance)
+            return performanceScrollStep_*performanceRowPixels();
+        return 0.0f;
+    }
     [[nodiscard]] bool hitScrollableBody(float x,float y) const noexcept;
     [[nodiscard]] float rollCellPixels() const noexcept;
     [[nodiscard]] float rollColumnPixels() const noexcept;

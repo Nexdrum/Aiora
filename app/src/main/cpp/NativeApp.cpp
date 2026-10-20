@@ -22,6 +22,7 @@
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
 #include "NativeUi.h"
+#include "KineticScroll.h"
 #include "RollTouchRouting.h"
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
@@ -173,6 +174,9 @@ struct NativeState {
     float pageScrollDownY{0.0f};
     float pageScrollLastY{0.0f};
     bool pageScrollMoved{false};
+    aiora::KineticScroll pageKinetic{},rollPitchKinetic{},rollTimeKinetic{};
+    float rollPitchResidual{0.0f},rollTimeResidual{0.0f};
+    std::chrono::steady_clock::time_point lastScrollFrame{};
     int editorPreviewVoice{-1};
     int64_t editorPreviewStopMs{0};
     std::string autosavePath{};
@@ -1007,7 +1011,16 @@ void previewEditorPatch(NativeState& state) {
     if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
 }
 
+void stopAllKineticScroll(NativeState& state) noexcept {
+    state.pageKinetic.stop();
+    state.rollPitchKinetic.stop();
+    state.rollTimeKinetic.stop();
+    state.rollPitchResidual=0.0f;
+    state.rollTimeResidual=0.0f;
+    aiora::NativeEditor::instance().stopKineticScrolling();
+}
 void releaseAllTouches(NativeState& state) {
+    stopAllKineticScroll(state);
     auto& audio = aiora::AudioEngine::instance();
     state.armedExpression={};
     for (auto& touch : state.touches) {
@@ -1495,9 +1508,57 @@ void refreshSurfaceGeometry(NativeState& state) {
     updateSafeInsets(state);
 }
 
+void advanceKineticScrolls(NativeState& state,float dt) noexcept {
+    const auto page=state.ui.page();
+    if(page==aiora::NativePage::Tracks||
+       page==aiora::NativePage::Drums||
+       page==aiora::NativePage::Performance){
+        if(state.pageKinetic.active()){
+            const float delta=state.pageKinetic.advance(dt);
+            const float before=state.ui.currentPageScrollPixels();
+            if(delta!=0.0f)state.ui.scrollPage(delta);
+            if(delta!=0.0f&&
+               std::fabs(before-state.ui.currentPageScrollPixels())<.0001f)
+                state.pageKinetic.stop();
+        }
+    }else state.pageKinetic.stop();
+    if(page==aiora::NativePage::Roll){
+        const float threshold=std::max(16.0f,state.ui.rollCellPixels()*.72f);
+        const auto scroll=[&](aiora::KineticScroll& kinetic,float& residual,bool pitch){
+            if(!kinetic.active())return;
+            residual+=kinetic.advance(dt);
+            while(std::fabs(residual)>=threshold){
+                const bool forward=residual>0.0f;
+                const int before=pitch?state.ui.rollPitchScrollOffset():
+                    state.ui.rollTimeScrollOffset();
+                const int unit=forward?1:-1;
+                state.ui.scrollRoll(pitch?unit:0,pitch?0:unit);
+                const int after=pitch?state.ui.rollPitchScrollOffset():
+                    state.ui.rollTimeScrollOffset();
+                if(before==after){
+                    kinetic.stop();residual=0.0f;break;
+                }
+                residual+=forward?-threshold:threshold;
+            }
+        };
+        scroll(state.rollPitchKinetic,state.rollPitchResidual,true);
+        scroll(state.rollTimeKinetic,state.rollTimeResidual,false);
+    }else{
+        state.rollPitchKinetic.stop();state.rollTimeKinetic.stop();
+        state.rollPitchResidual=state.rollTimeResidual=0.0f;
+    }
+    if(page==aiora::NativePage::Synth||page==aiora::NativePage::Fx)
+        aiora::NativeEditor::instance().advanceKineticScrolling(dt);
+    else aiora::NativeEditor::instance().stopKineticScrolling();
+}
 void drawFrame(NativeState& state) {
     serviceDocumentResult(state);
     if (!state.drawable) return;
+    const auto now=std::chrono::steady_clock::now();
+    const float dt=state.lastScrollFrame.time_since_epoch().count()==0?
+        0.0f:std::chrono::duration<float>(now-state.lastScrollFrame).count();
+    state.lastScrollFrame=now;
+    advanceKineticScrolls(state,dt);
     refreshSurfaceGeometry(state);
     serviceEditorPreview(state);
     serviceAutosave(state);
@@ -2457,6 +2518,10 @@ void beginRollGesture(
     state.rollGesture.lastX = x;
     state.rollGesture.lastY = y;
     state.rollGesture.downTimeMs = timeMs;
+    if(kind==RollGestureKind::PitchScroll)
+        state.rollPitchKinetic.begin(x,timeMs);
+    else if(kind==RollGestureKind::TimeScroll)
+        state.rollTimeKinetic.begin(y,timeMs);
 }
 
 bool beginRollNoteGesture(
@@ -2658,6 +2723,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
     const float threshold = std::max(16.0f, state.ui.rollCellPixels() * 0.72f);
 
     if(g.kind==RollGestureKind::PitchScroll){
+        state.rollPitchKinetic.move(x,nowMs());
         g.accumX+=dx;
         while(std::fabs(g.accumX)>=threshold){
             const int delta=g.accumX<0.0f?1:-1;
@@ -2668,6 +2734,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }
 
     if(g.kind==RollGestureKind::TimeScroll){
+        state.rollTimeKinetic.move(y,nowMs());
         g.accumY+=dy;
         while(std::fabs(g.accumY)>=threshold){
             const int delta=g.accumY<0.0f?1:-1;
@@ -2838,6 +2905,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 state.pageScrollPointerId=-1;
                 state.pageScrollMoved=false;
             }
+            // Any new touch arrests scrolling immediately, even if it is
+            // starting an unrelated edit gesture on the visible surface.
+            stopAllKineticScroll(state);
 
             // Dropdowns are modal: never let a menu tap leak through to
             // sliders, scrolling, notes, or other controls beneath it.
@@ -2862,6 +2932,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 state.pageScrollDownY=y;
                 state.pageScrollLastY=y;
                 state.pageScrollMoved=false;
+                state.pageKinetic.begin(y,nowMs());
                 return 1;
             }
 
@@ -3101,9 +3172,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         const float dx=x-state.pageScrollDownX;
                         const float dy=y-state.pageScrollDownY;
                         if(dx*dx+dy*dy>100.0f)state.pageScrollMoved=true;
-                        if(state.pageScrollMoved){
-                            state.ui.scrollPage(state.pageScrollLastY-y);
-                        }
+                        const float delta=state.pageKinetic.move(y,nowMs());
+                        if(state.pageScrollMoved)state.ui.scrollPage(delta);
                         state.pageScrollLastY=y;
                         return 1;
                     }
@@ -3112,6 +3182,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 // gestures on any other page.
                 state.pageScrollPointerId=-1;
                 state.pageScrollMoved=false;
+                state.pageKinetic.stop();
             }
 
             if(state.editorPointerId>=0){
@@ -3215,6 +3286,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 const bool wasMoved=state.pageScrollMoved;
                 state.pageScrollPointerId=-1;
                 state.pageScrollMoved=false;
+                state.pageKinetic.move(y,nowMs());
+                state.pageKinetic.end(nowMs(),wasMoved);
                 if(!wasMoved)handleUiTap(state,x,y);
                 return 1;
             }
@@ -3245,6 +3318,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             if (state.rollGesture.pointerId == pointerId) {
                 auto& g=state.rollGesture;
                 if(g.kind==RollGestureKind::PitchScroll){
+                    state.rollPitchKinetic.move(x,nowMs());
+                    state.rollPitchKinetic.end(nowMs(),g.moved);
+                    state.rollPitchResidual=-g.accumX;
                     if(!g.moved){
                         if(const auto midi=state.ui.hitRollPitchHeaderMidi(
                             g.downX,g.downY)){
@@ -3252,6 +3328,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         }
                     }
                 }else if(g.kind==RollGestureKind::TimeScroll){
+                    state.rollTimeKinetic.move(y,nowMs());
+                    state.rollTimeKinetic.end(nowMs(),g.moved);
+                    state.rollTimeResidual=-g.accumY;
                     if(!g.moved&&!g.longPressTriggered){
                         handleRollBeatTap(state,g.downX,g.downY,nowMs());
                     }else if(g.moved){
@@ -3441,6 +3520,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             }
             state.pageScrollPointerId=-1;
             state.pageScrollMoved=false;
+            stopAllKineticScroll(state);
             state.ui.cancelRollLasso();
             state.ui.endRollStackCycle(false);
             state.ui.setRollStackMode(false);

@@ -125,6 +125,7 @@ private:
     [[nodiscard]] static ModTarget cycleModTarget(ModTarget current,int direction) noexcept;
     [[nodiscard]] float editorScrollMax(EditorPage page) const noexcept;
     void scrollEditor(EditorPage page,float delta) noexcept;
+    bool applyKineticScrollDelta(float delta) noexcept;
 
     void fillRect(Rect rect,Rgb color) const noexcept;
     void drawScrollGutter() const noexcept;

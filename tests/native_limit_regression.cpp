@@ -8,6 +8,7 @@
 #include "FxProcessor.h"
 #include "RollDrawControllers.h"
 #include "RollTouchRouting.h"
+#include "KineticScroll.h"
 #include <cassert>
 #include <cmath>
 #include <fstream>
@@ -18,6 +19,48 @@
 using namespace aiora;
 
 int main(){
+    // All scroll surfaces use the same time-based fling model; a drag
+    // follows precisely, quick release coasts, slow drag/tap stays still.
+    {
+        KineticScroll quick,slow,paused,frame30,frame120;
+        quick.begin(500.0f,1000);
+        assert(quick.move(400.0f,1020)==100.0f);
+        assert(quick.move(300.0f,1040)==100.0f);
+        quick.end(1042,true);
+        assert(quick.active()&&quick.speed()>180.0f);
+        float travelled=0.0f;
+        for(int i=0;i<200;++i){
+            const float d=quick.advance(.016f);
+            assert(std::isfinite(d)&&d>=0.0f);
+            travelled+=d;
+        }
+        assert(travelled>100.0f&&!quick.active());
+        quick.begin(100.0f,2000);
+        assert(!quick.active());
+        quick.move(95.0f,2200);
+        quick.end(2202,true);
+        assert(!quick.active());
+        slow.begin(100.0f,1000);
+        slow.move(90.0f,1100);
+        slow.end(1101,true);
+        assert(!slow.active());
+        paused.begin(200.0f,1000);
+        paused.move(30.0f,1050);
+        paused.end(1200,true);
+        assert(!paused.active()); // held still before release
+        frame30.begin(300.0f,1000);
+        frame120.begin(300.0f,1000);
+        frame30.move(100.0f,1040);
+        frame120.move(100.0f,1040);
+        frame30.end(1041,true);
+        frame120.end(1041,true);
+        float distance30=0.0f,distance120=0.0f;
+        for(int i=0;i<60;++i)distance30+=frame30.advance(1.0f/30.0f);
+        for(int i=0;i<240;++i)distance120+=frame120.advance(1.0f/120.0f);
+        assert(std::fabs(distance30-distance120)<.01f);
+        frame120.stop();
+        assert(!frame120.active()&&!frame120.tracking());
+    }
     // Paused Roll recordings must not steal the first scroll/tap contact.
     using aiora::PausedRollTouch;
     using aiora::routePausedRollTouch;

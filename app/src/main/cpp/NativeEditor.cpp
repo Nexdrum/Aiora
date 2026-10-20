@@ -25,6 +25,10 @@ constexpr NativeEditor::Rgb kPurple{0.788f,0.557f,1.0f};
 constexpr NativeEditor::Rgb kGreen{0.23f,0.92f,0.45f};
 constexpr NativeEditor::Rgb kRed{0.95f,0.18f,0.18f};
 constexpr NativeEditor::Rgb kWhite{0.91f,0.925f,0.945f};
+int64_t kineticClockMs() noexcept {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 constexpr std::array<NativeEditor::Rgb,12> kSpectrumColors{{
     {0.2275f,1.0000f,0.0000f},
@@ -3550,6 +3554,7 @@ std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
 }
 
 bool NativeEditor::pointerDown(EditorPage page,float x,float y){
+    kineticScroll_.stop();
     activePage_=page;
     changed_=false;
     scrolling_=false;
@@ -3564,7 +3569,8 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
         }
         if(fxWorkspace_<=2){
             if(scrollGutterRect().contains(x,y)){
-                scrolling_=true;scrollLastY_=y;return true;
+                scrolling_=true;scrollLastY_=y;
+                kineticScroll_.begin(y,kineticClockMs());return true;
             }
             unisonSurface.ampMode=fxWorkspace_==1;
             const bool hit=fxWorkspace_==0?
@@ -3598,6 +3604,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     if(scrollGutterRect().contains(x,y)){
         scrolling_=true;
         scrollLastY_=y;
+        kineticScroll_.begin(y,kineticClockMs());
         return true;
     }
 
@@ -3623,17 +3630,45 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     return false;
 }
 
+bool NativeEditor::applyKineticScrollDelta(float delta) noexcept {
+    if(activePage_==EditorPage::Synth&&!matrixMode_){
+        if(opSurface.page<4){
+            const float old=opSurface.scroll[opSurface.op][opSurface.page];
+            opSurface.scrollBy(delta);
+            return old!=opSurface.scroll[opSurface.op][opSurface.page];
+        }
+        if(opSurface.page==5){
+            const int index=opSurface.harmonicView==2?1:0;
+            const float old=opSurface.harmonicScroll[opSurface.op][index];
+            opSurface.scrollBy(delta);
+            return old!=opSurface.harmonicScroll[opSurface.op][index];
+        }
+        return false;
+    }
+    if(activePage_==EditorPage::Fx&&fxWorkspace_==0){
+        const float old=filterSurface.scroll;
+        filterSurface.scrollBy(delta);
+        return old!=filterSurface.scroll;
+    }
+    if(activePage_==EditorPage::Fx&&(fxWorkspace_==1||fxWorkspace_==2)){
+        const float old=unisonSurface.scroll;
+        unisonSurface.scrollBy(delta);
+        return old!=unisonSurface.scroll;
+    }
+    const float old=activePage_==EditorPage::Synth?synthScrollY_:fxScrollY_;
+    scrollEditor(activePage_,delta);
+    return old!=(activePage_==EditorPage::Synth?synthScrollY_:fxScrollY_);
+}
+void NativeEditor::advanceKineticScrolling(float dt) noexcept {
+    if(!kineticScroll_.active())return;
+    const float delta=kineticScroll_.advance(dt);
+    if(delta!=0.0f&&!applyKineticScrollDelta(delta))
+        kineticScroll_.stop();
+}
 bool NativeEditor::pointerMove(float x,float y){
     if(scrolling_){
-        if(activePage_==EditorPage::Synth&&!matrixMode_){
-            opSurface.scrollBy(scrollLastY_-y);
-        }else if(activePage_==EditorPage::Fx&&fxWorkspace_==0){
-            filterSurface.scrollBy(scrollLastY_-y);
-        }else if(activePage_==EditorPage::Fx&&(fxWorkspace_==1||fxWorkspace_==2)){
-            unisonSurface.scrollBy(scrollLastY_-y);
-        }else{
-            scrollEditor(activePage_,scrollLastY_-y);
-        }
+        const float delta=kineticScroll_.move(y,kineticClockMs());
+        applyKineticScrollDelta(delta);
         scrollLastY_=y;
         return true;
     }
@@ -3677,6 +3712,7 @@ bool NativeEditor::pointerUp(){
         changed_=opSurface.up()||changed_;
     const bool changed=changed_;
     activeHit_.reset();
+    if(scrolling_)kineticScroll_.end(kineticClockMs());
     scrolling_=false;
     changed_=false;
     return changed;
@@ -3685,6 +3721,7 @@ bool NativeEditor::pointerUp(){
 void NativeEditor::cancel() noexcept {
     activeHit_.reset();
     scrolling_=false;
+    kineticScroll_.stop();
     changed_=false;
 }
 
