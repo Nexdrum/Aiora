@@ -1,6 +1,7 @@
 #include "SpectrachordVoice.h"
 #include <algorithm>
 #include <cmath>
+#include <complex>
 
 namespace aiora {
 namespace {
@@ -8,6 +9,62 @@ constexpr float kPi=3.14159265358979323846f;
 constexpr float kTwoPi=6.28318530717958647692f;
 constexpr float kEps=1.0e-6f;
 float secondsToSamples(float seconds,float sr) noexcept { return std::max(1.0f,seconds*sr); }
+
+// Iterative inverse FFT: build one oscillator cycle from the 128-partial
+// magnitude/phase spectrum. This only executes when a voice starts, never
+// in the per-sample oscillator loop. No allocations or plan creation.
+void inverseFft(std::array<std::complex<float>,kWaveTableSamples>& values) noexcept {
+    constexpr size_t N=kWaveTableSamples;
+    for(size_t i=1,j=0;i<N;++i){
+        size_t bit=N>>1;
+        for(;j&bit;bit>>=1)j^=bit;
+        j^=bit;
+        if(i<j)std::swap(values[i],values[j]);
+    }
+    for(size_t span=2;span<=N;span<<=1){
+        const float angle=kTwoPi/static_cast<float>(span);
+        const std::complex<float> rotation(std::cos(angle),std::sin(angle));
+        for(size_t start=0;start<N;start+=span){
+            std::complex<float> step(1.0f,0.0f);
+            for(size_t j=0;j<span/2;++j){
+                const auto a=values[start+j];
+                const auto b=values[start+j+span/2]*step;
+                values[start+j]=a+b;
+                values[start+j+span/2]=a-b;
+                step*=rotation;
+            }
+        }
+    }
+}
+
+void buildSpectralTables(SpectralWaveTables& tables,
+    const HarmonicBank& amplitudes,const HarmonicBank& phases) noexcept {
+    std::array<float,kSynthHarmonics> amp{},phase{};
+    extrapolateHarmonics(amplitudes,phases,amp,phase);
+    float normalization=0.0f;
+    for(float value:amp)normalization+=std::fabs(value);
+    normalization=std::max(1.0f,normalization);
+    constexpr size_t N=kWaveTableSamples;
+    constexpr float halfN=static_cast<float>(N)*0.5f;
+    constexpr float invN=1.0f/static_cast<float>(N);
+    for(size_t level=0;level<kWaveTableLevels;++level){
+        std::array<std::complex<float>,N> spectrum{};
+        const size_t limit=kSynthHarmonics>>level;
+        for(size_t n=1;n<=limit;++n){
+            const float amount=amp[n-1]/normalization;
+            if(amount<=0.0f)continue;
+            const float angle=kTwoPi*phase[n-1];
+            const std::complex<float> value(
+                halfN*amount*std::sin(angle),
+                -halfN*amount*std::cos(angle));
+            spectrum[n]=value;
+            spectrum[N-n]=std::conj(value);
+        }
+        inverseFft(spectrum);
+        for(size_t sample=0;sample<N;++sample)
+            tables[level][sample]=spectrum[sample].real()*invN;
+    }
+}
 }
 
 // Morphing a filter type means CROSSFADE, not running two effects
@@ -251,11 +308,24 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     // Noise and Hiss have no meaningful phase and are left untouched.
     for(size_t i=0;i<6;++i){
         const auto& o=patch_.ops[i];
-        wavePartials_[i]=(o.wave==Wave::Custom&&o.hasHarm)
-            ?o.harm:presetWaveHarmonics(o.wave);
         const Wave alternate=effectiveWaveMorph(o);
-        morphPartials_[i]=(alternate==Wave::Custom&&o.hasHarmMute)
-            ?o.harmMute:presetWaveHarmonics(alternate);
+        if(o.enabled&&o.wave!=Wave::Noise&&o.wave!=Wave::Hiss){
+            buildSpectralTables(waveTables_[i],
+                (o.wave==Wave::Custom&&o.hasHarm)
+                    ?o.harm:presetWaveHarmonics(o.wave),
+                (o.wave==Wave::Custom&&o.hasHarm)
+                    ?o.harmPhase:presetWavePhases(o.wave));
+        }
+        if(o.enabled&&alternate!=Wave::Noise&&alternate!=Wave::Hiss){
+            if(alternate==o.wave&&
+                !(alternate==Wave::Custom&&o.hasHarmMute))
+                morphTables_[i]=waveTables_[i];
+            else buildSpectralTables(morphTables_[i],
+                (alternate==Wave::Custom&&o.hasHarmMute)
+                    ?o.harmMute:presetWaveHarmonics(alternate),
+                (alternate==Wave::Custom&&o.hasHarmMute)
+                    ?o.harmMutePhase:presetWavePhases(alternate));
+        }
         if(!o.enabled||!o.randomPhase||o.randomPhaseDegrees<=0.0f||
            o.wave==Wave::Noise||o.wave==Wave::Hiss)continue;
         if(rng_==0)rng_=0x91e10da5u;
@@ -385,27 +455,22 @@ float SpectrachordVoice::morphValue(size_t i,float v,float m) const noexcept {
     return clamp01(slotValue(T[i],v,m,0));
 }
 float SpectrachordVoice::waveSample(
-    Wave wave,const std::array<float,16>& partials,float phase) noexcept {
+    Wave wave,const SpectralWaveTables& tables,float phase,float frequency) noexcept {
     if(wave==Wave::Noise)return noise();
-    // Every tonal preset and Custom share this EXACT oscillator and
-    // normalization. Moving any preset partial into Custom is sound-neutral
-    // until the authored partial weights actually change. The 16 partials
-    // intentionally form a band-limited approximation of ideal hard waves.
-    // Recurrent sin(n*phase) avoids 16 transcendental calls per sample.
-    const float sinBase=std::sin(phase),cosBase=std::cos(phase);
-    float sinPartial=sinBase,cosPartial=cosBase;
-    float sum=0.0f,norm=0.0f;
-    for(size_t n=0;n<partials.size();++n){
-        const float amplitude=partials[n];
-        sum+=amplitude*sinPartial;
-        norm+=std::fabs(amplitude);
-        if(n+1<partials.size()){
-            const float nextSin=sinPartial*cosBase+cosPartial*sinBase;
-            cosPartial=cosPartial*cosBase-sinPartial*sinBase;
-            sinPartial=nextSin;
-        }
-    }
-    return norm>1.0f?sum/norm:sum;
+    // Pick the highest available harmonic-resolution table whose highest
+    // partial remains below Nyquist at the actual post-FM frequency.
+    const float permitted=(sampleRate_*0.48f)/std::max(0.001f,frequency);
+    if(permitted<1.0f)return 0.0f;
+    size_t level=0;
+    while(level+1<kWaveTableLevels&&
+          static_cast<float>(kSynthHarmonics>>level)>permitted)
+        ++level;
+    const auto& cycle=tables[level];
+    const float position=phase*(static_cast<float>(kWaveTableSamples)/kTwoPi);
+    const size_t index=std::min(static_cast<size_t>(position),kWaveTableSamples-1);
+    const float fraction=std::clamp(position-static_cast<float>(index),0.0f,1.0f);
+    const float a=cycle[index],b=cycle[(index+1)&(kWaveTableSamples-1)];
+    return a+(b-a)*fraction;
 }
 
 float SpectrachordVoice::render() noexcept {
@@ -521,18 +586,18 @@ float SpectrachordVoice::render() noexcept {
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
             const auto bankSample=[&](Wave wave,
-                const std::array<float,16>& partials)->float {
+                const SpectralWaveTables& tables)->float {
                 return wave==Wave::Hiss?hissSample(i,u,f):
-                    waveSample(wave,partials,ph);
+                    waveSample(wave,tables,ph,f);
             };
-            float sample=bankSample(op.wave,wavePartials_[i]);
+            float sample=bankSample(op.wave,waveTables_[i]);
             if(waveMorph>0.0f){
                 const Wave alternate=effectiveWaveMorph(op);
                 const bool distinct=alternate!=op.wave||
                     (alternate==Wave::Custom&&op.hasHarmMute);
                 if(distinct){
                     const float alternateSample=bankSample(
-                        alternate,morphPartials_[i]);
+                        alternate,morphTables_[i]);
                     sample+=(alternateSample-sample)*waveMorph;
                 }
             }
