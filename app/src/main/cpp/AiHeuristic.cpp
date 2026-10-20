@@ -45,7 +45,10 @@ void op(
 
 void setHarm(Patch& p,int index,const std::array<float,16>& harm){
     auto& o=p.ops[static_cast<size_t>(index)];
-    o.harm=harm;o.hasHarm=true;
+    o.harm.fill(0.0f);
+    std::copy(harm.begin(),harm.end(),o.harm.begin());
+    o.harmPhase.fill(0.0f);
+    o.hasHarm=true;
 }
 
 void defaultMovement(Patch& p){
