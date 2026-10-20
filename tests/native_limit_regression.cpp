@@ -179,15 +179,23 @@ int main(){
         assert(bank.wave==Wave::Square);
         assert(bank.waveMorph==Wave::Triangle&&bank.waveMorphConfigured);
         assert(!synth.setSelectedHarmonic(1,0,.8f,false)); // Hiss
+        assert(!synth.setSelectedHarmonicPhase(1,0,.7f,false)); // Hiss
         assert(synth.setSelectedHarmonic(0,2,.7f,false));
+        assert(synth.setSelectedHarmonic(0,63,.42f,false));
+        assert(synth.setSelectedHarmonicPhase(0,63,.75f,false));
+        assert(!synth.setSelectedHarmonic(0,64,.4f,false));
         bank=synth.selectedPatch().ops[0];
         assert(bank.wave==Wave::Custom);
         assert(bank.waveMorph==Wave::Triangle);
         assert(bank.hasHarm&&std::fabs(bank.harm[2]-.7f)<.0001f);
+        assert(std::fabs(bank.harm[63]-.42f)<.0001f);
+        assert(std::fabs(bank.harmPhase[63]-.75f)<.0001f);
         assert(synth.setSelectedHarmonic(0,3,.42f,true));
+        assert(synth.setSelectedHarmonicPhase(0,62,.96f,true));
         bank=synth.selectedPatch().ops[0];
         assert(bank.waveMorph==Wave::Custom);
         assert(bank.hasHarmMute&&std::fabs(bank.harmMute[3]-.42f)<.0001f);
+        assert(std::fabs(bank.harmMutePhase[62]-.96f)<.0001f);
         assert(synth.setSelectedOperatorWave(0,Wave::Noise,true));
         assert(!synth.setSelectedHarmonic(0,0,.3f,true));
         assert(synth.setSelectedOperatorWave(0,Wave::Custom,true));
@@ -201,13 +209,15 @@ int main(){
         assert(loaded.ops[0].wave==Wave::Custom);
         assert(loaded.ops[0].waveMorph==Wave::Custom);
         assert(loaded.ops[0].hasHarmMute);
+        assert(std::fabs(loaded.ops[0].harmPhase[63]-.75f)<.0001f);
+        assert(std::fabs(loaded.ops[0].harmMutePhase[62]-.96f)<.0001f);
         assert(loaded.ops[0].modChannels[0].destination==
             OperatorModDestination::WaveMorph);
         assert(loaded.ops[0].modChannels[0].response.source==1);
         synth.reset();
     }
-    // Wave presets must render sample-identically to the 16 editable
-    // partials displayed in the UI, even after the preset becomes Custom.
+    // Wave presets must render sample-identically to their 64 editable
+    // amplitudes and phases, even after the preset becomes Custom.
     // Test both waveform banks; previously Saw/Square/Triangle used an
     // unrelated analytic oscillator, with an audible conversion jump.
     {
@@ -219,6 +229,7 @@ int main(){
             Patch edited=original;
             edited.ops[0].wave=Wave::Custom;
             edited.ops[0].harm=presetWaveHarmonics(preset);
+            edited.ops[0].harmPhase=presetWavePhases(preset);
             edited.ops[0].hasHarm=true;
             SpectrachordVoice reference,converted;
             reference.prepare(48000);converted.prepare(48000);
@@ -246,6 +257,7 @@ int main(){
             Patch convertedAlt=original;
             convertedAlt.ops[0].waveMorph=Wave::Custom;
             convertedAlt.ops[0].harmMute=presetWaveHarmonics(preset);
+            convertedAlt.ops[0].harmMutePhase=presetWavePhases(preset);
             convertedAlt.ops[0].hasHarmMute=true;
             VoiceAutomation fullM;
             fullM.mod.storage=std::make_shared<std::vector<DspCurvePoint>>();
@@ -263,6 +275,23 @@ int main(){
                 assert(std::fabs(x-y)<2e-6f);
             }
         }
+    }
+    // Harmonic extrapolation follows the octave-copy rule, obeys the 1/n
+    // ceiling, and interpolates phase around the shortest circle arc.
+    {
+        HarmonicBank amps{},phases{};
+        amps[32]=1.0f;amps[33]=.75f;
+        phases[32]=.95f;phases[33]=.05f;
+        std::array<float,kSynthHarmonics> spectrum{},angle{};
+        extrapolateHarmonics(amps,phases,spectrum,angle);
+        assert(kEditableHarmonics==64&&kSynthHarmonics==128);
+        assert(std::fabs(spectrum[65]-1.0f/66.0f)<1e-6f);
+        assert(std::fabs(spectrum[67]-1.0f/68.0f)<1e-6f);
+        assert(std::fabs(angle[65]-.95f)<1e-6f);
+        assert(std::fabs(angle[67]-.05f)<1e-6f);
+        assert(std::fabs(angle[66])<1e-6f);
+        assert(spectrum[64]<=1.0f/65.0f);
+        assert(spectrum[127]<=1.0f/128.0f);
     }
     // Rack effects are ordinary, repeatable, ordered modules, not fixed slots.
     Fx rack{};rack.rackConfigured=true;rack.count=2;
