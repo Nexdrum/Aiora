@@ -64,7 +64,7 @@ private:
     static float curveMean(const DspCurve& curve, float fallback) noexcept;
     float noise() noexcept;
     float hissSample(size_t index, int unisonVoice, float pitchHz) noexcept;
-    float waveSample(const Operator& op, float phase, float morph) noexcept;
+    float waveSample(Wave wave,const std::array<float,16>& partials,float phase) noexcept;
     float mappedValue(ModTarget target, float m, float fallback) const noexcept;
     float slotValue(ModTarget target, float v, float m, float fallback) const noexcept;
     bool velocityOwns(ModTarget target) const noexcept;

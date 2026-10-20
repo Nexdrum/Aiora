@@ -248,7 +248,7 @@ bool ProjectCore::setSelectedOperatorCurve(int opIndex,int kind,const OperatorCu
 bool ProjectCore::setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel){
     if(opIndex<0||opIndex>=6||slot<0||slot>=4||
        channel.response.count>kMaxOperatorPoints||
-       static_cast<int>(channel.destination)>3||channel.response.source>1)
+       static_cast<int>(channel.destination)>4||channel.response.source>1)
         return false;
     std::scoped_lock lock(mutex_);
     auto* p=selectedPatchUnsafe();if(!p)return false;
@@ -875,10 +875,26 @@ bool ProjectCore::setSelectedOperatorRandomPhaseDegrees(int opIndex,float degree
         std::clamp(degrees,0.0f,180.0f);
     return true;
 }
-bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave){
-    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p||opIndex<0||opIndex>=6)return false;
-    auto& op=p->ops[opIndex];op.wave=wave;
-    if(wave==Wave::Custom&&!op.hasHarm){op.harm=defaultHarmonics();op.hasHarm=true;}
+bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();
+    if(!p||opIndex<0||opIndex>=6)return false;
+    auto& op=p->ops[static_cast<size_t>(opIndex)];
+    if(morph){
+        const Wave old=effectiveWaveMorph(op);
+        if(wave==Wave::Custom&&!op.hasHarmMute){
+            op.harmMute=presetWaveHarmonics(old);
+            op.hasHarmMute=true;
+        }
+        op.waveMorph=wave;
+        op.waveMorphConfigured=true;
+    }else{
+        if(wave==Wave::Custom&&!op.hasHarm){
+            op.harm=presetWaveHarmonics(op.wave);
+            op.hasHarm=true;
+        }
+        op.wave=wave;
+    }
     return true;
 }
 bool ProjectCore::setSelectedOperatorParam(int opIndex,OperatorParam param,float value){
@@ -904,8 +920,20 @@ bool ProjectCore::setSelectedHarmonic(int opIndex,int partialIndex,float value,b
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
     if(!p||opIndex<0||opIndex>=6||partialIndex<0||partialIndex>=16)return false;
     auto& op=p->ops[opIndex];const float v=std::clamp(value,0.0f,1.0f);
-    if(muted){op.harmMute[partialIndex]=v;op.hasHarmMute=true;}
-    else{op.harm[partialIndex]=v;op.hasHarm=true;}
+    if(muted){
+        if(effectiveWaveMorph(op)==Wave::Noise||
+           effectiveWaveMorph(op)==Wave::Hiss)return false;
+        if(effectiveWaveMorph(op)!=Wave::Custom||!op.hasHarmMute)
+            op.harmMute=presetWaveHarmonics(effectiveWaveMorph(op));
+        op.harmMute[partialIndex]=v;op.hasHarmMute=true;
+        op.waveMorph=Wave::Custom;op.waveMorphConfigured=true;
+    }else{
+        if(op.wave==Wave::Noise||op.wave==Wave::Hiss)return false;
+        if(op.wave!=Wave::Custom||!op.hasHarm)
+            op.harm=presetWaveHarmonics(op.wave);
+        op.harm[partialIndex]=v;op.hasHarm=true;
+        op.wave=Wave::Custom;
+    }
     return true;
 }
 bool ProjectCore::setSelectedMatrixAmount(int modulator,int carrier,float value){

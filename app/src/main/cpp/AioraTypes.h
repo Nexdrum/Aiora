@@ -12,6 +12,20 @@ namespace aiora {
 
 enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise, Hiss };
 // Single source of truth for selectable operator waveforms and their menu names.
+// Harmonic magnitudes shown for tonal waveform presets. Editing a partial
+// turns only that bank into an additive custom waveform.
+inline std::array<float,16> presetWaveHarmonics(Wave wave) noexcept {
+    std::array<float,16> partials{};
+    for(size_t i=0;i<partials.size();++i){
+        const float n=static_cast<float>(i+1);
+        if(wave==Wave::Sine)partials[i]=i==0?1.0f:0.0f;
+        else if(wave==Wave::Saw)partials[i]=1.0f/n;
+        else if(wave==Wave::Square)partials[i]=i%2==0?1.0f/n:0.0f;
+        else if(wave==Wave::Triangle)partials[i]=i%2==0?1.0f/(n*n):0.0f;
+        else if(wave==Wave::Custom)partials[i]=1.0f/n;
+    }
+    return partials;
+}
 inline constexpr std::array<const char*,7> kWaveformLabels{
     "sine","sawtooth","square","triangle","custom","noise","hiss"
 };
@@ -49,7 +63,9 @@ struct OperatorResponse {
     uint8_t source{0}; // 0=velocity, 1=modulation
     bool enabled{false};
 };
-enum class OperatorModDestination : uint8_t { Vol=0, Pitch=1, Morph=2, PitchMorph=3 };
+enum class OperatorModDestination : uint8_t {
+    Vol=0, Pitch=1, Morph=2, PitchMorph=3, WaveMorph=4
+};
 struct OperatorModChannel {
     OperatorResponse response{};
     OperatorModDestination destination{OperatorModDestination::Vol};
@@ -99,6 +115,8 @@ struct Operator {
     // Symmetric note-on variation in degrees: 10 = -10..+10, 180 = full circle.
     float randomPhaseDegrees{10.0f};
     Wave wave{Wave::Sine};
+    Wave waveMorph{Wave::Sine};
+    bool waveMorphConfigured{false};
     float ratio{1.0f};
     float semitoneOffset{0.0f};
     float detuneCents{0.0f};
@@ -112,6 +130,14 @@ struct Operator {
     std::array<float,16> harm{}; std::array<float,16> harmMute{};
     bool hasHarm{false},hasHarmMute{false};
 };
+// Unconfigured alternate banks follow the primary preset, except for old
+// patches with authored alternate additive partials. Existing presets can
+// therefore be rebuilt later without losing their stored harmonic data.
+inline Wave effectiveWaveMorph(const Operator& op) noexcept {
+    if(op.waveMorphConfigured)return op.waveMorph;
+    if(op.wave==Wave::Custom&&op.hasHarmMute)return Wave::Custom;
+    return op.wave;
+}
 // Evolving filter uses six synchronized envelopes: frequency, gain and Q,
 // each with primary / morph variants. Values are normalized 0..1; amount
 // uses 0.5 as neutral. Q points carry a type and an adjustable transition

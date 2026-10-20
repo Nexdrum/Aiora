@@ -172,6 +172,38 @@ int main(){
         std::string parseError;
         assert(deserializePatchJson(serializePatchJson(synth.selectedPatch()),loaded,&parseError));
         for(const auto& op:loaded.ops)assert(op.wave==Wave::Hiss);
+        // Primary and alternate presets are independently selectable.
+        assert(synth.setSelectedOperatorWave(0,Wave::Square));
+        assert(synth.setSelectedOperatorWave(0,Wave::Triangle,true));
+        auto bank=synth.selectedPatch().ops[0];
+        assert(bank.wave==Wave::Square);
+        assert(bank.waveMorph==Wave::Triangle&&bank.waveMorphConfigured);
+        assert(!synth.setSelectedHarmonic(1,0,.8f,false)); // Hiss
+        assert(synth.setSelectedHarmonic(0,2,.7f,false));
+        bank=synth.selectedPatch().ops[0];
+        assert(bank.wave==Wave::Custom);
+        assert(bank.waveMorph==Wave::Triangle);
+        assert(bank.hasHarm&&std::fabs(bank.harm[2]-.7f)<.0001f);
+        assert(synth.setSelectedHarmonic(0,3,.42f,true));
+        bank=synth.selectedPatch().ops[0];
+        assert(bank.waveMorph==Wave::Custom);
+        assert(bank.hasHarmMute&&std::fabs(bank.harmMute[3]-.42f)<.0001f);
+        assert(synth.setSelectedOperatorWave(0,Wave::Noise,true));
+        assert(!synth.setSelectedHarmonic(0,0,.3f,true));
+        assert(synth.setSelectedOperatorWave(0,Wave::Custom,true));
+        OperatorModChannel bankMod=initialOperatorModChannel();
+        bankMod.enabled=true;
+        bankMod.response.source=1; // M
+        bankMod.destination=OperatorModDestination::WaveMorph;
+        assert(synth.setSelectedOperatorModChannel(0,0,bankMod));
+        const auto saved=synth.selectedPatch();
+        assert(deserializePatchJson(serializePatchJson(saved),loaded,&parseError));
+        assert(loaded.ops[0].wave==Wave::Custom);
+        assert(loaded.ops[0].waveMorph==Wave::Custom);
+        assert(loaded.ops[0].hasHarmMute);
+        assert(loaded.ops[0].modChannels[0].destination==
+            OperatorModDestination::WaveMorph);
+        assert(loaded.ops[0].modChannels[0].response.source==1);
         synth.reset();
     }
     // Rack effects are ordinary, repeatable, ordered modules, not fixed slots.
@@ -1447,6 +1479,51 @@ int main(){
         silentPower+=s*s;normalPower+=n*n;
     }
     assert(silentPower<1e-9f&&normalPower>1e-5f);
+    // Wave Morph is a fifth, universal operator V/M destination.
+    // A legacy patch-level Morph1 link alone must no longer morph waves.
+    {
+        Patch raw=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+        raw.ops[0].wave=Wave::Saw;
+        raw.ops[0].waveMorph=Wave::Square;
+        raw.ops[0].waveMorphConfigured=true;
+        raw.modSlots={{ModTarget::Morph1,0.0f,1.0f}};
+        raw.modSlotCount=1;
+        VoiceAutomation fullMod;
+        fullMod.mod.storage=std::make_shared<std::vector<DspCurvePoint>>();
+        fullMod.mod.storage->push_back({0,1,.5f,0,false});
+        fullMod.mod.storage->push_back({8,1,.5f,0,false});
+        fullMod.mod.points=fullMod.mod.storage->data();
+        fullMod.mod.count=2;
+        SpectrachordVoice legacyOff,legacyOn;
+        legacyOff.prepare(48000);legacyOn.prepare(48000);
+        legacyOff.start(2180,toDspPatch(raw),62,.9f,0,4800);
+        legacyOn.start(2180,toDspPatch(raw),62,.9f,0,4800,fullMod);
+        for(int i=0;i<2500;++i)
+            assert(std::fabs(legacyOff.render()-legacyOn.render())<1e-5f);
+        auto& op=raw.ops[0];
+        op.modChannelsConfigured=true;
+        op.modChannels[0]=initialOperatorModChannel();
+        op.modChannels[0].enabled=true;
+        op.modChannels[0].destination=OperatorModDestination::WaveMorph;
+        op.modChannels[0].response.source=1;
+        const std::string json=serializePatchJson(raw);
+        Patch converted;
+        assert(deserializePatchJson(json,converted));
+        assert(converted.ops[0].modChannels[0].destination==
+            OperatorModDestination::WaveMorph);
+        assert(converted.ops[0].waveMorph==Wave::Square);
+        SpectrachordVoice primary,secondary;
+        primary.prepare(48000);secondary.prepare(48000);
+        primary.start(2181,toDspPatch(converted),62,.9f,0,4800);
+        secondary.start(2181,toDspPatch(converted),62,.9f,0,4800,fullMod);
+        float changed=0;
+        for(int i=0;i<2500;++i){
+            const float a=primary.render(),b=secondary.render();
+            assert(std::isfinite(a)&&std::isfinite(b));
+            changed+=std::fabs(a-b);
+        }
+        assert(changed>1.0f);
+    }
     // Default volume and pitch envelopes must place decay at the second
     // anchor and the release/sustain gate at the second-to-last anchor.
     const auto defaults=legacyOperatorVolume(Envelope{});

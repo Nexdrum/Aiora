@@ -379,12 +379,21 @@ float SpectrachordVoice::morphValue(size_t i,float v,float m) const noexcept {
     static constexpr std::array<ModTarget,6>T{ModTarget::Morph1,ModTarget::Morph2,ModTarget::Morph3,ModTarget::Morph4,ModTarget::Morph5,ModTarget::Morph6};
     return clamp01(slotValue(T[i],v,m,0));
 }
-float SpectrachordVoice::waveSample(const Operator& op,float phase,float morph) noexcept {
-    if(op.wave==Wave::Noise)return noise();
-    if(op.wave==Wave::Saw)return phase/kPi-1;
-    if(op.wave==Wave::Square)return phase<kPi?1.0f:-1.0f;
-    if(op.wave==Wave::Triangle)return 2*std::fabs(2*(phase/kTwoPi)-1)-1;
-    if(op.wave==Wave::Custom&&op.hasHarm){float sum=0,norm=0;for(size_t i=0;i<16;++i){const float h=op.harm[i]*(1-morph)+(op.hasHarmMute?op.harmMute[i]:op.harm[i])*morph;sum+=h*std::sin(phase*static_cast<float>(i+1));norm+=std::fabs(h);}return norm>1?sum/norm:sum;}
+float SpectrachordVoice::waveSample(
+    Wave wave,const std::array<float,16>& partials,float phase) noexcept {
+    if(wave==Wave::Noise)return noise();
+    if(wave==Wave::Saw)return phase/kPi-1;
+    if(wave==Wave::Square)return phase<kPi?1.0f:-1.0f;
+    if(wave==Wave::Triangle)return 2*std::fabs(2*(phase/kTwoPi)-1)-1;
+    if(wave==Wave::Custom){
+        float sum=0.0f,norm=0.0f;
+        for(size_t n=0;n<partials.size();++n){
+            const float amplitude=partials[n];
+            sum+=amplitude*std::sin(phase*static_cast<float>(n+1));
+            norm+=std::fabs(amplitude);
+        }
+        return norm>1.0f?sum/norm:(norm>0.0f?sum:std::sin(phase));
+    }
     return std::sin(phase);
 }
 
@@ -442,13 +451,13 @@ float SpectrachordVoice::render() noexcept {
             ?opMorphVolume_[i].next(sampleRate_):primaryVol;
         const float secondaryPitch=op.pitchMorphCurve.enabled&&op.pitchMorphCurve.count>1
             ?opMorphPitch_[i].next(sampleRate_):primaryPitch;
-        std::array<float,4> totals{};
-        std::array<int,4> counts{};
+        std::array<float,5> totals{};
+        std::array<int,5> counts{};
         if(op.modChannelsConfigured){
             for(const auto& channel:op.modChannels){
                 if(!channel.enabled)continue;
                 const int dest=static_cast<int>(channel.destination);
-                if(dest<0||dest>=4)continue;
+                if(dest<0||dest>=5)continue;
                 const auto& c=channel.response;
                 const float input=c.source==1?m:expressionV;
                 const float output=c.enabled&&c.count>=2?
@@ -473,6 +482,10 @@ float SpectrachordVoice::render() noexcept {
         const float pitchDepth=routed(1,1.0f);
         const float volMorph=clamp01(routed(2,0.0f));
         const float pitchMorph=clamp01(routed(3,0.0f));
+        // The fifth, visible operator destination owns waveform morphing.
+        // The retired patch-level MORPH1..6 routes remain stored but no
+        // longer change waveform content invisibly.
+        const float waveMorph=clamp01(routed(4,0.0f));
         const float env=primaryVol+(secondaryVol-primaryVol)*volMorph;
         const float pitchEnv=(primaryPitch+(secondaryPitch-primaryPitch)*pitchMorph)*pitchDepth;
         const float level=opLevel(i,expressionV,m)*env*response;
@@ -496,9 +509,23 @@ float SpectrachordVoice::render() noexcept {
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
-            const float sample=op.wave==Wave::Hiss
-                ?hissSample(i,u,f)
-                :waveSample(op,ph,morphValue(i,expressionV,m));
+            const auto bankSample=[&](Wave wave,
+                const std::array<float,16>& partials)->float {
+                return wave==Wave::Hiss?hissSample(i,u,f):
+                    waveSample(wave,partials,ph);
+            };
+            const auto& primary=op.harm;
+            float sample=bankSample(op.wave,primary);
+            if(waveMorph>0.0f){
+                const Wave alternate=effectiveWaveMorph(op);
+                const bool distinct=alternate!=op.wave||
+                    (alternate==Wave::Custom&&op.hasHarmMute);
+                if(distinct){
+                    const auto& partials=op.hasHarmMute?op.harmMute:primary;
+                    const float alternateSample=bankSample(alternate,partials);
+                    sample+=(alternateSample-sample)*waveMorph;
+                }
+            }
             opSum+=dynamicUnison&&u==1?sample*unison:sample;
             ph+=kTwoPi*f/sampleRate_;
             if(ph>=kTwoPi)ph-=kTwoPi;

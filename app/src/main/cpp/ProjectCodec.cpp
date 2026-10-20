@@ -494,6 +494,9 @@ void writePatch(Writer& w,const Patch& p){
         w.raw(",\"randomPhase\":");w.boolean(o.randomPhase);
         w.raw(",\"randomPhaseDegrees\":");w.number(o.randomPhaseDegrees);
         w.raw(",\"wave\":");w.string(waveName(o.wave));
+        if(o.waveMorphConfigured){
+            w.raw(",\"waveMorph\":");w.string(waveName(o.waveMorph));
+        }
         w.raw(",\"ratio\":");w.number(o.ratio);
         w.raw(",\"semi\":");w.number(o.semitoneOffset);
         w.raw(",\"detune\":");w.number(o.detuneCents);
@@ -712,6 +715,13 @@ bool readPatch(const Json& src,Patch& p){
         o.randomPhaseDegrees=clampf(num(jo.get("randomPhaseDegrees"),10.0f),
             0.0f,180.0f,10.0f);
         o.wave=parseWave(str(jo.get("wave"),"sine"));
+        if(const Json* altWave=jo.get("waveMorph")){
+            o.waveMorph=parseWave(str(altWave,"sine"));
+            o.waveMorphConfigured=true;
+        }else{
+            o.waveMorph=o.wave;
+            o.waveMorphConfigured=false;
+        }
         o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,16.0f,o.ratio);
 
         float semi=clampf(
@@ -752,7 +762,7 @@ bool readPatch(const Json& src,Patch& p){
                 auto& channel=o.modChannels[m];
                 channel.enabled=boolean(raw.get("enabled"),false);
                 channel.destination=static_cast<OperatorModDestination>(
-                    clampi(num(raw.get("destination"),0),0,3,0));
+                    clampi(num(raw.get("destination"),0),0,4,0));
                 readOperatorResponse(raw.get("response"),channel.response);
             }
         }

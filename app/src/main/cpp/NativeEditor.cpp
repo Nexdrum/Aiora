@@ -795,7 +795,7 @@ struct OpSurface {
             case 5: return {x,y+132,(w-16)/3,45}; // level
             case 6: return {x+(w-16)/3+8,y+132,(w-16)/3,45}; // fine cents
             case 12: return {x+2*((w-16)/3+8),y+132,(w-16)/3,45}; // phase degrees
-            case 7: {const int n=custom?6:5;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
+            case 7: {const int n=5;const float ww=(w-(n-1)*6)/n;return {x+index*(ww+6),y+184,ww,52};}
             case 8: {const float ww=(w-30)/6;return {x+index*(ww+6),y+244,ww,48};}
             case 9: {
                 // Bound the graph from its ACTUAL top, not the preceding
@@ -814,6 +814,10 @@ struct OpSurface {
                 return {r.x+42,r.y+57,std::max(0.0f,r.w-67),
                     std::max(0.0f,r.h-78)};
             }
+            case 14:{ // Harmonic waveform preset dropdown
+                const auto r=rect(9);
+                return {r.x+6,r.y+3,r.w-12,43};
+            }
         }
         return {};
     }
@@ -825,6 +829,11 @@ struct OpSurface {
     Rect phaseRect()const{
         const auto r=rect(4);
         return {r.x+(r.w+4.0f)*.5f,r.y,(r.w-4.0f)*.5f,r.h};
+    }
+    Rect modDestinationRect(int index)const {
+        const auto graph=rect(9);
+        const float w=(graph.w-28.0f)/5.0f;
+        return {graph.x+4.0f+index*(w+5.0f),graph.y+3.0f,w,43.0f};
     }
     float harmonicRowHeight()const{return std::max(245.0f,rect(11).h*.62f);}
     void scrollBy(float dy){
@@ -892,7 +901,7 @@ struct OpSurface {
             ov.addText(value,r.x+7,r.y+26,.91f,overlayColor(kWhite));
         };
         char buff[32];
-        field(rect(1),"Wave",kWaveformLabels[std::clamp(static_cast<int>(o.wave),0,6)]);
+        field(rect(1),"Wave / Edit",kWaveformLabels[std::clamp(static_cast<int>(o.wave),0,6)]);
         std::snprintf(buff,sizeof(buff),"%.4g",static_cast<double>(o.ratio));field(rect(2),"Ratio",buff);
         std::snprintf(buff,sizeof(buff),"%+.0f",static_cast<double>(o.semitoneOffset));field(rect(3),"Base ST",buff);
         button(powerRect(),o.enabled);
@@ -920,10 +929,10 @@ struct OpSurface {
             ov.addRect({r.x+8,r.y+27,r.w-16,5},overlayColor(kMuted));
             ov.addRect({r.x+8,r.y+27,(r.w-16)*amount,5},overlayColor(kPurple));
         }
-        for(int i=0;i<(custom?6:5);++i){
+        for(int i=0;i<5;++i){
             auto r=rect(7,i);button(r,i==page,i>=2);
             const char* tab=i==0?"Vol":i==1?"Pitch":i==2?"Morph":
-                i==3?"P Morph":i==4?"Mod":"Harm";
+                i==3?"P Morph":"Mod";
             text(tab,r,i==3?.77f:.9f,overlayColor(i==page?kBg:kWhite));
         }
         for(int i=0;i<6;++i){
@@ -934,7 +943,7 @@ struct OpSurface {
                 page==4?(i<4?modSlot==i:(i==4?c.response.source==1:c.enabled)):
                 (i!=op&&(shadows&(1u<<i)));
             button(r,active,true);
-            const std::string name=page==5?(i?"Muted":"Harmonics"):
+            const std::string name=page==5?(i?"Wave Morph":"Wave"):
                 page==4?(i<4?"Mod "+std::to_string(i+1):
                          i==4?(c.response.source?"Src M":"Src V"):
                               (c.enabled?"Enabled":"Disabled")):
@@ -970,18 +979,27 @@ struct OpSurface {
             ov.addText(pitchPage(page)?"-12          0           +12 ST":"0              Volume            100%",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }else if(page==4){
-            for(int i=0;i<4;++i){
-                auto r=rect(10,i);
+            for(int i=0;i<5;++i){
+                const auto r=modDestinationRect(i);
                 const bool active=static_cast<int>(channel(o).destination)==i;
                 button(r,active,true);
-                text(i==0?"Vol":i==1?"Pitch":i==2?"Morph":"P Morph",
-                    r,.8f,overlayColor(active?kBg:kWhite));
+                const char* label=i==0?"Vol":i==1?"Pitch":
+                    i==2?"Morph":i==3?"P Morph":"W Morph";
+                text(label,r,i==4?.69f:.77f,overlayColor(active?kBg:kWhite));
             }
-            ov.addText("Output 100%  /  Input 0 -> 100%",
+            ov.addText("Output 0-100%  /  Input V or M",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }else{
-            ov.addText(harmonicView==2?"Muted partials - drag bars":"Custom harmonics - drag bars",
-                plot.x,plot.y-18,.8f,overlayColor(kMuted));
+            const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
+            const auto selector=rect(14);
+            button(selector,true,true);
+            text(std::string("Preset: ")+
+                kWaveformLabels[std::clamp(static_cast<int>(bank),0,6)]+
+                "  v",selector,.87f,overlayColor(kBg));
+            const bool noise=bank==Wave::Noise||bank==Wave::Hiss;
+            ov.addText(noise?"Noise partials unavailable":
+                "Drag partials to switch this bank to Custom",
+                plot.x,plot.y-18,.75f,overlayColor(kMuted));
         }
         ov.setClip({plot.x-11,plot.y-9,plot.w+22,plot.h+18});
         for(int i=0;i<=4;++i){
@@ -992,17 +1010,22 @@ struct OpSurface {
                 ov.addLine(plot.x,y,plot.x+plot.w,y,1,overlayColor(kMuted,.5f));
             }
         }
-        if(page==5&&o.wave==Wave::Custom){
-            const auto& harm=harmonicView==2?o.harmMute:o.harm;
+        if(page==5){
+            const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
+            const bool editable=bank!=Wave::Noise&&bank!=Wave::Hiss;
+            const auto& harm=harmonicView==2?
+                (o.hasHarmMute?o.harmMute:presetWaveHarmonics(bank)):
+                (o.hasHarm?o.harm:presetWaveHarmonics(bank));
+            const auto display=(bank==Wave::Custom)?harm:presetWaveHarmonics(bank);
             for(int i=0;i<16;++i){
                 const int col=i%8,row=i/8;
                 const float w=plot.w/8.0f,h=harmonicRowHeight();
                 const float x=plot.x+col*w,
                     y=plot.y+row*h-harmonicScroll[op][harmonicView==2?1:0];
-                const float v=std::clamp(harm[static_cast<size_t>(i)],0.0f,1.0f);
+                const float v=std::clamp(display[static_cast<size_t>(i)],0.0f,1.0f);
                 ov.addRect({x+3,y+4,w-6,h-8},overlayColor(kButton));
                 ov.addRect({x+w*.26f,y+h-8-(h-38)*v,w*.48f,(h-38)*v},
-                    overlayColor(harmonicView==2?kPurple:kCyan));
+                    overlayColor(!editable?kMuted:(harmonicView==2?kPurple:kCyan)));
                 ov.addTextCentered(std::to_string(i+1),{x,y+h-34,w,27},.7f,overlayColor(kWhite));
             }
             ov.clearClip();return;
@@ -1194,7 +1217,9 @@ struct OpSurface {
         auto&core=ProjectCore::instance();
         const auto o=core.selectedPatch().ops[op];
         custom=o.wave==Wave::Custom;
-        if(!custom&&page==5)page=4;
+        if(rect(1).contains(x,y)){
+            page=5;harmonicView=1;selected=-1;return true;
+        }
         if(powerRect().contains(x,y)){
             changed=core.setSelectedOperatorEnabled(op,!o.enabled);
             return true;
@@ -1205,7 +1230,7 @@ struct OpSurface {
         }
         for(int i=0;i<2;++i)if(rect(5+i).contains(x,y)){drag=-10-i;return move(x,y);}
         if(rect(12).contains(x,y)){drag=-12;return move(x,y);}
-        for(int i=0;i<(custom?6:5);++i)if(rect(7,i).contains(x,y)){
+        for(int i=0;i<5;++i)if(rect(7,i).contains(x,y)){
             page=i;selected=-1;
             if(page==5)harmonicView=1;
             return true;
@@ -1224,7 +1249,7 @@ struct OpSurface {
             }else if(i!=op)shadows^=1u<<i;
             return true;
         }
-        if(page==4)for(int i=0;i<4;++i)if(rect(10,i).contains(x,y)){
+        if(page==4)for(int i=0;i<5;++i)if(modDestinationRect(i).contains(x,y)){
             auto c=channel(o);
             c.destination=static_cast<OperatorModDestination>(i);
             c.enabled=true;
@@ -1250,8 +1275,9 @@ struct OpSurface {
             }else return true;
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
-        if(page==5&&o.wave==Wave::Custom){
-            if(rect(11).contains(x,y)){
+        if(page==5){
+            const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
+            if(bank!=Wave::Noise&&bank!=Wave::Hiss&&rect(11).contains(x,y)){
                 auto plot=rect(11);
                 const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
                 const float relativeY=y-plot.y+harmonicScroll[op][harmonicView==2?1:0];
@@ -2345,7 +2371,8 @@ void NativeEditor::renderSynth() const noexcept {
         opSurface.view=bodyRect();
         const auto currentOperator=ProjectCore::instance().selectedPatch().ops[static_cast<size_t>(opSurface.op)];
         opSurface.custom=currentOperator.wave==Wave::Custom;
-        if(!opSurface.custom&&opSurface.page==5)opSurface.page=4;
+        // The waveform editor stays available for preset waves and noise.
+        // Selecting any tonal harmonic partial changes that bank to Custom;
         opSurface.draw();
         drawPatchTransfer(EditorPage::Synth);
         auto& ov=NativeOverlay::instance();auto b=bodyRect();
@@ -3012,19 +3039,23 @@ bool NativeEditor::openDropdownAt(
         const float contentBottom=b.y+b.h;
         if(y<contentTop||y>=contentBottom)return false;
 
-        static const std::vector<std::string> waveNames{
-            kWaveformLabels.begin(),kWaveformLabels.end()};
-        for(int op=opSurface.op;op<=opSurface.op;++op){
-            const auto rr=opSurface.rect(1);
-            if(!rr.contains(x,y))continue;
-            ui.openDropdown(
-                DropdownKind::Wave,op,anchor(rr),
-                std::clamp(
-                    static_cast<int>(
-                        p.ops[static_cast<size_t>(op)].wave),
-                    0,static_cast<int>(kWaveformLabels.size())-1),
-                waveNames);
-            return true;
+        if(opSurface.page==5){
+            const auto selector=opSurface.rect(14);
+            if(selector.contains(x,y)){
+                const int op=opSurface.op;
+                const bool morph=opSurface.harmonicView==2;
+                const Wave selected=morph?
+                    effectiveWaveMorph(p.ops[static_cast<size_t>(op)]):
+                    p.ops[static_cast<size_t>(op)].wave;
+                static const std::vector<std::string> waveNames{
+                    kWaveformLabels.begin(),kWaveformLabels.end()};
+                ui.openDropdown(
+                    DropdownKind::Wave,op+(morph?6:0),anchor(selector),
+                    std::clamp(static_cast<int>(selected),0,
+                        static_cast<int>(kWaveformLabels.size())-1),
+                    waveNames);
+                return true;
+            }
         }
         return false;
     }
@@ -3109,11 +3140,12 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
             fxRackNewType_=static_cast<FxType>(choice.option);
             return false;
         case DropdownKind::Wave:
-            if(choice.context<0||choice.context>=6||choice.option<0||
+            if(choice.context<0||choice.context>=12||choice.option<0||
                choice.option>=static_cast<int>(kWaveformLabels.size()))
                 return false;
             return project.setSelectedOperatorWave(
-                choice.context,static_cast<Wave>(choice.option));
+                choice.context%6,static_cast<Wave>(choice.option),
+                choice.context>=6);
 
         case DropdownKind::FilterType:
             if(choice.option<0||choice.option>=3)return false;
