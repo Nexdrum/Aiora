@@ -150,6 +150,7 @@ public:
     bool setSelectedOperatorWave(int opIndex, Wave wave, bool morph = false);
     bool setSelectedOperatorParam(int opIndex, OperatorParam param, float value);
     bool setSelectedHarmonic(int opIndex, int partialIndex, float value, bool muted = false);
+    bool setSelectedHarmonicPhase(int opIndex, int partialIndex, float value, bool muted = false);
     bool setSelectedMatrixAmount(int modulator, int carrier, float value);
     bool setSelectedFilterType(FilterType type);
     bool setSelectedEvolvingFilter(const EvolvingFilter& model);
