@@ -95,6 +95,9 @@ private:
     EnvState filterEnv_{};
     std::array<std::array<float,2>,6> phase_{};
     std::array<float,6> lastOp_{};
+    // Computed once at voice start, not once per rendered sample.
+    // Presets and Custom use identical additive partial weights.
+    std::array<std::array<float,16>,6> wavePartials_{},morphPartials_{};
     std::array<float,12> platePhase_{};
     std::array<float,12> plateGain_{};
     std::array<float,12> plateDecay_{};

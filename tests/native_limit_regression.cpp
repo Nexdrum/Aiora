@@ -206,6 +206,64 @@ int main(){
         assert(loaded.ops[0].modChannels[0].response.source==1);
         synth.reset();
     }
+    // Wave presets must render sample-identically to the 16 editable
+    // partials displayed in the UI, even after the preset becomes Custom.
+    // Test both waveform banks; previously Saw/Square/Triangle used an
+    // unrelated analytic oscillator, with an audible conversion jump.
+    {
+        for(const Wave preset:{Wave::Sine,Wave::Saw,Wave::Square,Wave::Triangle}){
+            Patch original=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+            auto& op=original.ops[0];
+            op.wave=preset;
+            op.level=.8f;
+            Patch edited=original;
+            edited.ops[0].wave=Wave::Custom;
+            edited.ops[0].harm=presetWaveHarmonics(preset);
+            edited.ops[0].hasHarm=true;
+            SpectrachordVoice reference,converted;
+            reference.prepare(48000);converted.prepare(48000);
+            reference.start(400,toDspPatch(original),64,.8f,0,4800);
+            converted.start(400,toDspPatch(edited),64,.8f,0,4800);
+            float energy=0.0f;
+            for(int i=0;i<3500;++i){
+                const float a=reference.render(),b=converted.render();
+                assert(std::isfinite(a)&&std::isfinite(b));
+                assert(std::fabs(a-b)<2e-6f);
+                energy+=a*a;
+            }
+            assert(energy>.00001f);
+            // The exact same invariant also holds for the alternate bank
+            // when an explicit Wave Morph V/M destination selects it.
+            original.ops[0].wave=Wave::Sine;
+            original.ops[0].waveMorph=preset;
+            original.ops[0].waveMorphConfigured=true;
+            auto& channel=original.ops[0].modChannels[0];
+            original.ops[0].modChannelsConfigured=true;
+            channel=initialOperatorModChannel();
+            channel.enabled=true;
+            channel.destination=OperatorModDestination::WaveMorph;
+            channel.response.source=1;
+            Patch convertedAlt=original;
+            convertedAlt.ops[0].waveMorph=Wave::Custom;
+            convertedAlt.ops[0].harmMute=presetWaveHarmonics(preset);
+            convertedAlt.ops[0].hasHarmMute=true;
+            VoiceAutomation fullM;
+            fullM.mod.storage=std::make_shared<std::vector<DspCurvePoint>>();
+            fullM.mod.storage->push_back({0,1,.5f,0,false});
+            fullM.mod.storage->push_back({8,1,.5f,0,false});
+            fullM.mod.points=fullM.mod.storage->data();
+            fullM.mod.count=2;
+            SpectrachordVoice altPreset,altCustom;
+            altPreset.prepare(48000);altCustom.prepare(48000);
+            altPreset.start(401,toDspPatch(original),64,.8f,0,4800,fullM);
+            altCustom.start(401,toDspPatch(convertedAlt),64,.8f,0,4800,fullM);
+            for(int i=0;i<3500;++i){
+                const float x=altPreset.render(),y=altCustom.render();
+                assert(std::isfinite(x)&&std::isfinite(y));
+                assert(std::fabs(x-y)<2e-6f);
+            }
+        }
+    }
     // Rack effects are ordinary, repeatable, ordered modules, not fixed slots.
     Fx rack{};rack.rackConfigured=true;rack.count=2;
     rack.chain[0]=makeFxModule(FxType::MetalAmp);

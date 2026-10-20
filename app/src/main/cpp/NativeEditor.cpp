@@ -814,9 +814,11 @@ struct OpSurface {
                 return {r.x+42,r.y+57,std::max(0.0f,r.w-67),
                     std::max(0.0f,r.h-78)};
             }
-            case 14:{ // Harmonic waveform preset dropdown
-                const auto r=rect(9);
-                return {r.x+6,r.y+3,r.w-12,43};
+            case 14:{ // Preset selector shares the Wave / Wave Morph row.
+                // The four unused cells on its right form one touch target;
+                // leave the graph header free for the harmonic instructions.
+                const auto first=rect(8,2),last=rect(8,5);
+                return {first.x,first.y,last.x+last.w-first.x,first.h};
             }
         }
         return {};

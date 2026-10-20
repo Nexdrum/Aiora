@@ -251,6 +251,11 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     // Noise and Hiss have no meaningful phase and are left untouched.
     for(size_t i=0;i<6;++i){
         const auto& o=patch_.ops[i];
+        wavePartials_[i]=(o.wave==Wave::Custom&&o.hasHarm)
+            ?o.harm:presetWaveHarmonics(o.wave);
+        const Wave alternate=effectiveWaveMorph(o);
+        morphPartials_[i]=(alternate==Wave::Custom&&o.hasHarmMute)
+            ?o.harmMute:presetWaveHarmonics(alternate);
         if(!o.enabled||!o.randomPhase||o.randomPhaseDegrees<=0.0f||
            o.wave==Wave::Noise||o.wave==Wave::Hiss)continue;
         if(rng_==0)rng_=0x91e10da5u;
@@ -382,19 +387,25 @@ float SpectrachordVoice::morphValue(size_t i,float v,float m) const noexcept {
 float SpectrachordVoice::waveSample(
     Wave wave,const std::array<float,16>& partials,float phase) noexcept {
     if(wave==Wave::Noise)return noise();
-    if(wave==Wave::Saw)return phase/kPi-1;
-    if(wave==Wave::Square)return phase<kPi?1.0f:-1.0f;
-    if(wave==Wave::Triangle)return 2*std::fabs(2*(phase/kTwoPi)-1)-1;
-    if(wave==Wave::Custom){
-        float sum=0.0f,norm=0.0f;
-        for(size_t n=0;n<partials.size();++n){
-            const float amplitude=partials[n];
-            sum+=amplitude*std::sin(phase*static_cast<float>(n+1));
-            norm+=std::fabs(amplitude);
+    // Every tonal preset and Custom share this EXACT oscillator and
+    // normalization. Moving any preset partial into Custom is sound-neutral
+    // until the authored partial weights actually change. The 16 partials
+    // intentionally form a band-limited approximation of ideal hard waves.
+    // Recurrent sin(n*phase) avoids 16 transcendental calls per sample.
+    const float sinBase=std::sin(phase),cosBase=std::cos(phase);
+    float sinPartial=sinBase,cosPartial=cosBase;
+    float sum=0.0f,norm=0.0f;
+    for(size_t n=0;n<partials.size();++n){
+        const float amplitude=partials[n];
+        sum+=amplitude*sinPartial;
+        norm+=std::fabs(amplitude);
+        if(n+1<partials.size()){
+            const float nextSin=sinPartial*cosBase+cosPartial*sinBase;
+            cosPartial=cosPartial*cosBase-sinPartial*sinBase;
+            sinPartial=nextSin;
         }
-        return norm>1.0f?sum/norm:(norm>0.0f?sum:std::sin(phase));
     }
-    return std::sin(phase);
+    return norm>1.0f?sum/norm:sum;
 }
 
 float SpectrachordVoice::render() noexcept {
@@ -514,15 +525,14 @@ float SpectrachordVoice::render() noexcept {
                 return wave==Wave::Hiss?hissSample(i,u,f):
                     waveSample(wave,partials,ph);
             };
-            const auto& primary=op.harm;
-            float sample=bankSample(op.wave,primary);
+            float sample=bankSample(op.wave,wavePartials_[i]);
             if(waveMorph>0.0f){
                 const Wave alternate=effectiveWaveMorph(op);
                 const bool distinct=alternate!=op.wave||
                     (alternate==Wave::Custom&&op.hasHarmMute);
                 if(distinct){
-                    const auto& partials=op.hasHarmMute?op.harmMute:primary;
-                    const float alternateSample=bankSample(alternate,partials);
+                    const float alternateSample=bankSample(
+                        alternate,morphPartials_[i]);
                     sample+=(alternateSample-sample)*waveMorph;
                 }
             }
