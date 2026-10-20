@@ -183,6 +183,105 @@ int main(){
     assert(loadedCore.fx.count==1);
     assert(loadedCore.fx.chain[0].type==FxType::MetalCore);
     assert(loadedCore.fx.chain[0].params[3]==10.0f);
+    // Ampere and Cabeus are independent new modules; legacy IDs and
+    // serialized effect chains must remain unchanged.
+    assert(static_cast<int>(FxType::Ampere)==7);
+    assert(static_cast<int>(FxType::Cabeus)==8);
+    assert(std::string(fxTypeName(FxType::Ampere))=="Ampere");
+    assert(std::string(fxTypeName(FxType::Cabeus))=="Cabeus");
+    assert(fxParamCount(FxType::Ampere)==8);
+    assert(fxParamCount(FxType::Cabeus)==8);
+    Fx modern{};modern.rackConfigured=true;modern.count=2;
+    modern.chain[0]=makeFxModule(FxType::Ampere);
+    modern.chain[1]=makeFxModule(FxType::Cabeus);
+    assert(modern.chain[0].params[6]==0.0f); // soft gate is opt-in
+    assert(modern.chain[1].params[0]==2.0f); // default 4x12
+    Patch modernPatch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    modernPatch.fx=modern;
+    Patch modernLoaded;
+    assert(deserializePatchJson(serializePatchJson(modernPatch),modernLoaded));
+    assert(modernLoaded.fx.count==2);
+    assert(modernLoaded.fx.chain[0].type==FxType::Ampere);
+    assert(modernLoaded.fx.chain[1].type==FxType::Cabeus);
+    Project modernProject;
+    Track modernTrack;modernTrack.patch=modernPatch;
+    modernProject.tracks.push_back(std::move(modernTrack));
+    Project modernRestored;
+    assert(deserializeProjectJson(serializeProjectJson(modernProject),modernRestored));
+    assert(modernRestored.tracks[0].patch.fx.chain[1].type==FxType::Cabeus);
+
+    // Audio-derived saturation must preserve actual amplitude dynamics:
+    // soft notes remain softer than hard ones even with a high drive.
+    Fx ampOnly{};ampOnly.rackConfigured=true;ampOnly.count=1;
+    ampOnly.chain[0]=makeFxModule(FxType::Ampere);
+    FxProcessor quietAmp,loudAmp;
+    quietAmp.prepare(48000);loudAmp.prepare(48000);
+    quietAmp.set(ampOnly);loudAmp.set(ampOnly);
+    double quietEnergy=0,loudEnergy=0,ampDifference=0;
+    for(int n=0;n<10000;++n){
+        const float wave=std::sin(2.0*3.14159265359*146.832*n/48000.0);
+        const float soft=.055f*wave,hard=.25f*wave;
+        const auto a=quietAmp.processStereo(soft,soft*.6f);
+        const auto b=loudAmp.processStereo(hard,hard*.6f);
+        assert(std::isfinite(a[0])&&std::isfinite(a[1]));
+        assert(std::isfinite(b[0])&&std::isfinite(b[1]));
+        if(n>2400){
+            quietEnergy+=std::fabs(a[0]);
+            loudEnergy+=std::fabs(b[0]);
+            ampDifference+=std::fabs(b[1]-a[1]);
+        }
+    }
+    assert(quietEnergy>.1);
+    assert(loudEnergy>quietEnergy*1.1);
+    assert(ampDifference>.1);
+    // Quiet sustained input can remain saturated but a deliberate cut must
+    // decay to silence rather than leave a feedback tail or hiss source.
+    float cutEnergy=0.0f;
+    for(int n=0;n<10000;++n){
+        const auto a=loudAmp.processStereo(0.0f,0.0f);
+        if(n>8000)cutEnergy+=std::fabs(a[0])+std::fabs(a[1]);
+        assert(std::isfinite(a[0])&&std::isfinite(a[1]));
+    }
+    assert(cutEnergy<.01f);
+    Fx gated=ampOnly;
+    gated.chain[0].params[6]=.8f;
+    FxProcessor gatedAmp;gatedAmp.prepare(48000);gatedAmp.set(gated);
+    for(int n=0;n<1200;++n)
+        assert(gatedAmp.processStereo(0.0f,0.0f)[0]==0.0f);
+
+    // Cabeus convolution has distinct 1x12/4x12 voices and passes audio
+    // through correctly when its wet mix is exactly zero.
+    Fx cabOnly{};cabOnly.rackConfigured=true;cabOnly.count=1;
+    cabOnly.chain[0]=makeFxModule(FxType::Cabeus);
+    FxProcessor smallCab,largeCab,dryCab;
+    smallCab.prepare(48000);largeCab.prepare(48000);dryCab.prepare(48000);
+    cabOnly.chain[0].params[0]=0.0f;smallCab.set(cabOnly);
+    cabOnly.chain[0].params[0]=2.0f;largeCab.set(cabOnly);
+    cabOnly.chain[0].params[6]=0.0f;dryCab.set(cabOnly);
+    double cabDifference=0,cabEnergy=0;
+    for(int n=0;n<7000;++n){
+        const float x=.14f*std::sin(n*.12f)+.035f*std::sin(n*.39f);
+        const float a=smallCab.processStereo(x,x*.65f)[0];
+        const float b=largeCab.processStereo(x,x*.65f)[0];
+        const float dry=dryCab.processStereo(x,x*.65f)[0];
+        assert(std::isfinite(a)&&std::isfinite(b)&&std::isfinite(dry));
+        assert(std::fabs(dry-x)<1e-6f);
+        if(n>256){cabDifference+=std::fabs(a-b);cabEnergy+=std::fabs(b);}
+    }
+    assert(cabDifference>.05&&cabEnergy>.1);
+    FxProcessor ampCab,cabAmp;
+    ampCab.prepare(48000);cabAmp.prepare(48000);
+    ampCab.set(modern);
+    std::swap(modern.chain[0],modern.chain[1]);cabAmp.set(modern);
+    double modernOrderDifference=0;
+    for(int n=0;n<8000;++n){
+        const float x=.15f*std::sin(n*.12f);
+        const auto a=ampCab.processStereo(x,x*.7f);
+        const auto b=cabAmp.processStereo(x,x*.7f);
+        assert(std::isfinite(a[0])&&std::isfinite(b[0]));
+        if(n>256)modernOrderDifference+=std::fabs(a[0]-b[0]);
+    }
+    assert(modernOrderDifference>.1);
     Fx duplicates{};duplicates.rackConfigured=true;duplicates.count=2;
     duplicates.chain[0]=makeFxModule(FxType::BandEq);
     duplicates.chain[1]=makeFxModule(FxType::BandEq);

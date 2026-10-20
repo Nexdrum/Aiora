@@ -192,7 +192,8 @@ struct PeakFilter {
 };
 struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget target{LfoTarget::None}; };
 // Append new types; IDs 0 through 5 are preserved in existing saved patches.
-enum class FxType : uint8_t { Saturation, MetalAmp, Cabinet, BandEq, Delay, Reverb, MetalCore };
+// Stable numeric IDs: append new algorithms; legacy song files retain their FX.
+enum class FxType : uint8_t { Saturation, MetalAmp, Cabinet, BandEq, Delay, Reverb, MetalCore, Ampere, Cabeus };
 constexpr size_t kMaxFxStages=16;
 struct FxModule {
     FxType type{FxType::Saturation};
@@ -205,6 +206,8 @@ inline const char* fxTypeName(FxType type) noexcept {
         case FxType::Saturation:return "Saturation";
         case FxType::MetalAmp:return "Metal Amp";
         case FxType::MetalCore:return "Metal Core";
+        case FxType::Ampere:return "Ampere";
+        case FxType::Cabeus:return "Cabeus";
         case FxType::Cabinet:return "Cabinet";
         case FxType::BandEq:return "5-Band EQ";
         case FxType::Delay:return "Delay";
@@ -217,6 +220,8 @@ inline size_t fxParamCount(FxType type) noexcept {
         case FxType::Saturation:return 3;
         case FxType::MetalAmp:return 8;
         case FxType::MetalCore:return 8;
+        case FxType::Ampere:return 8;
+        case FxType::Cabeus:return 8;
         case FxType::Cabinet:return 5;
         case FxType::BandEq:return 6;
         case FxType::Delay:return 3;
@@ -229,6 +234,10 @@ inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
     static constexpr FxParamDesc metal[]={{"Input",0,4,1},{"Drive",0,10,6.5f},{"Tight Hz",40,240,115},{"Bass dB",-12,12,0},{"Mid dB",-12,12,2},{"Treble dB",-12,12,0},{"Presence dB",-12,12,1.5f},{"Output",0,4,.6f}};
     // Recover the short low-frequency impact after pre-clipping bass tightening.
     static constexpr FxParamDesc metalCore[]={{"Input",0,4,1},{"Drive",0,10,7.5f},{"Tight Hz",40,240,115},{"Punch",0,10,6},{"Mid dB",-12,12,-2.5f},{"Bite dB",-12,12,3},{"Presence dB",-12,12,1.5f},{"Output",0,4,.42f}};
+    // Level-aware drive is intentionally separate from instrument envelopes.
+    static constexpr FxParamDesc ampere[]={{"Input",0,4,.5f},{"Drive",0,10,7.0f},{"Tight Hz",40,240,105},{"Mid dB",-12,12,-3},{"Bite dB",-12,12,3},{"Definition",0,1,.32f},{"Soft Gate",0,1,0},{"Output",0,4,.6f}};
+    // Cabinet model = 0: 1x12, 1: 2x12, 2: 4x12; initial FIRs are procedural.
+    static constexpr FxParamDesc cabeus[]={{"Cab Model",0,2,2},{"Mic Position",0,1,.35f},{"Mic Distance",0,1,.15f},{"Low Cut Hz",40,200,75},{"High Cut Hz",2500,9500,6800},{"Resonance",0,1,.55f},{"Mix",0,1,1},{"Output",0,4,1}};
     static constexpr FxParamDesc cabinet[]={{"Low cut",40,200,85},{"High cut",2500,9500,5100},{"Body",0,1,.55f},{"Bite",0,1,.48f},{"Mix",0,1,1}};
     static constexpr FxParamDesc eq[]={{"80 Hz dB",-12,12,0},{"240 Hz dB",-12,12,0},{"750 Hz dB",-12,12,0},{"2.2k dB",-12,12,0},{"6k dB",-12,12,0},{"Output",0,2,1}};
     static constexpr FxParamDesc delay[]={{"Mix",0,1,.18f},{"Time s",.03f,1,.32f},{"Feedback",0,.85f,.32f}};
@@ -238,6 +247,8 @@ inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
         case FxType::Saturation:return saturation[p];
         case FxType::MetalAmp:return metal[p];
         case FxType::MetalCore:return metalCore[p];
+        case FxType::Ampere:return ampere[p];
+        case FxType::Cabeus:return cabeus[p];
         case FxType::Cabinet:return cabinet[p];
         case FxType::BandEq:return eq[p];
         case FxType::Delay:return delay[p];

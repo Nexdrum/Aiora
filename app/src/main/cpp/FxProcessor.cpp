@@ -98,6 +98,83 @@ void FxProcessor::Stage::configure(float sr){
             for(int i=0;i<4;++i)
                 eq[ch][i].peak(frequencies[i],.84f,gains[i],sr);
     }
+    if(module.type==FxType::Ampere){
+        const float osRate=sr*2.0f;
+        ampTightPole=pole(p[2],osRate);
+        ampMidLowPole=pole(520.0f,osRate);
+        ampMidHighPole=pole(2700.0f,osRate);
+        ampPickPole=pole(2100.0f,osRate);
+        ampInterPole=pole(4900.0f,osRate);
+        ampGrowlLowPole=pole(440.0f,osRate);
+        ampGrowlHighPole=pole(145.0f,osRate);
+        ampDcPole=pole(16.0f,sr);
+        // Fast response tracks the actual audio while allowing the
+        // synth's own attack and release to remain audible.
+        ampAttackPole=pole(900.0f,sr);
+        ampReleasePole=pole(160.0f,sr);
+        for(int ch=0;ch<2;++ch){
+            eq[ch][0].peak(850.0f,0.85f,p[3]*.35f,sr);
+            eq[ch][1].peak(3000.0f,0.9f,p[4]*.55f,sr);
+        }
+        // The two algorithms never share a Stage, so this proven
+        // two-times anti-aliasing FIR can use the same per-slot buffers.
+        constexpr int taps=33,half=16;
+        float total=0.0f;
+        for(int i=0;i<taps;++i){
+            const int k=i-half;
+            constexpr float fc=.235f;
+            const float sinc=k==0?2.0f*fc:
+                std::sin(2.0f*pi*fc*k)/(pi*k);
+            const float window=.42f-.5f*std::cos(2.0f*pi*i/(taps-1))+
+                .08f*std::cos(4.0f*pi*i/(taps-1));
+            coreFir[i]=sinc*window;total+=coreFir[i];
+        }
+        for(auto& tap:coreFir)tap/=total;
+    }
+    if(module.type==FxType::Cabeus){
+        cabLowPole=pole(p[3],sr);
+        const int model=std::clamp(static_cast<int>(std::round(p[0])),0,2);
+        const float mic=std::clamp(p[1],0.0f,1.0f);
+        const float distance=std::clamp(p[2],0.0f,1.0f);
+        const float cut=(model==0?5800.0f:model==1?6900.0f:7800.0f)*
+            (1.0f-.38f*mic)*(1.0f-.22f*distance);
+        cabHighPole=pole(std::min(p[4],cut),sr);
+        // Procedural speaker impulse: three cascaded minimum-delay poles
+        // followed by cabinet-dependent early acoustic reflections.
+        // Runtime processing is fixed 64-tap convolution, allocation free.
+        const float a=std::exp(-2.0f*pi*std::clamp(cut,1000.0f,sr*.44f)/sr);
+        std::array<float,64> lowpass{};
+        float z1=0,z2=0,z3=0;
+        for(size_t n=0;n<lowpass.size();++n){
+            const float in=n==0?1.0f:0.0f;
+            z1+=(1.0f-a)*(in-z1);
+            z2+=(1.0f-a)*(z1-z2);
+            z3+=(1.0f-a)*(z2-z3);
+            lowpass[n]=z3;
+        }
+        const int d1=model==0?5:model==1?7:9;
+        const int d2=model==0?13:model==1?17:22;
+        const int d3=model==0?23:model==1?27:35;
+        float sum=0;
+        for(int n=0;n<64;++n){
+            float v=lowpass[static_cast<size_t>(n)];
+            if(n>=d1)v-=.28f*lowpass[static_cast<size_t>(n-d1)];
+            if(n>=d2)v+=.21f*lowpass[static_cast<size_t>(n-d2)];
+            if(n>=d3)v-=.10f*lowpass[static_cast<size_t>(n-d3)];
+            cabImpulse[static_cast<size_t>(n)]=v;sum+=v;
+        }
+        if(std::fabs(sum)>1.0e-6f)
+            for(auto& tap:cabImpulse)tap/=sum;
+        const float resonance=std::clamp(p[5],0.0f,1.0f);
+        const float bodyHz=model==0?180.0f:model==1?145.0f:115.0f;
+        const float bodyGain=(resonance-.5f)*11.0f+(1.0f-distance)*2.5f;
+        const float biteGain=(1.0f-mic)*3.5f-mic*3.5f;
+        for(int ch=0;ch<2;++ch){
+            eq[ch][0].peak(bodyHz,.80f,bodyGain,sr);
+            eq[ch][1].peak(model==2?1950.0f:2350.0f,1.15f,biteGain,sr);
+            eq[ch][2].peak(model==0?4100.0f:3650.0f,1.3f,-2.0f-2.0f*mic,sr);
+        }
+    }
     if(module.type==FxType::Cabinet){
         cutoffA=pole(p[0],sr);cutoffB=pole(p[1],sr);
         for(int ch=0;ch<2;++ch){
@@ -136,6 +213,13 @@ void FxProcessor::Stage::reset() noexcept {
     coreInter.fill(0.0f);corePickLow.fill(0.0f);
     coreSubLow.fill(0.0f);coreBassBody.fill(0.0f);
     coreDc.fill(0.0f);
+    ampEnvelope.fill(0.0f);ampTightLow.fill(0.0f);
+    ampMidLow.fill(0.0f);ampMidHigh.fill(0.0f);
+    ampPickLow.fill(0.0f);ampInter.fill(0.0f);
+    ampGrowlLow.fill(0.0f);ampGrowlHigh.fill(0.0f);
+    ampDc.fill(0.0f);
+    for(auto& h:cabHistory)h.fill(0.0f);
+    cabPosition.fill(0);cabLow.fill(0.0f);cabHigh.fill(0.0f);
 }
 std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexcept {
     const auto& p=module.params;
@@ -210,6 +294,105 @@ std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexce
                 return y*p[7];
             };
             return {pedal(l,0),pedal(r,1)};
+        }
+        case FxType::Ampere:{
+            // Musical dynamics come from the audio amplitude itself; the
+            // operator envelopes and note gates are never inspected here.
+            const auto amplifier=[&](float input,int ch){
+                const float x=input*p[0];
+                const float level=std::fabs(x);
+                const float tracking=level>ampEnvelope[ch]?
+                    ampAttackPole:ampReleasePole;
+                ampEnvelope[ch]+=tracking*(level-ampEnvelope[ch]);
+                const float env=ampEnvelope[ch];
+                // Bounded adaptive drive keeps quieter resonance gritty,
+                // but never normalizes notes to a common output level.
+                const float compensation=std::clamp(
+                    std::pow(.10f/(env+.025f),.28f),.75f,2.15f);
+                const float drive=(1.4f+1.55f*p[1])*compensation;
+                const float dynamicGain=.44f+.56f*std::sqrt(
+                    env/(env+.085f));
+                float output=0.0f;
+                for(int sub=0;sub<2;++sub){
+                    const float sample=sub==0?.5f*(corePrevious[ch]+x):x;
+                    ampTightLow[ch]+=ampTightPole*(sample-ampTightLow[ch]);
+                    const float tight=sample-ampTightLow[ch];
+                    ampMidLow[ch]+=ampMidLowPole*(tight-ampMidLow[ch]);
+                    ampMidHigh[ch]+=ampMidHighPole*(tight-ampMidHigh[ch]);
+                    const float midBand=ampMidHigh[ch]-ampMidLow[ch];
+                    const float presence=tight-ampMidHigh[ch];
+                    const float pre=tight+
+                        (db(p[3]) - 1.0f)*midBand*.77f+
+                        (db(p[4]) - 1.0f)*presence*.58f;
+                    ampPickLow[ch]+=ampPickPole*(pre-ampPickLow[ch]);
+                    const float pick=pre-ampPickLow[ch];
+                    const float first=std::tanh((pre+.12f*pick)*drive+.045f)-
+                        std::tanh(.045f);
+                    ampInter[ch]+=ampInterPole*(first-ampInter[ch]);
+                    // Asymmetric saturator after a frequency-dependent first
+                    // stage, not a hard peak limiter.
+                    const float secondDrive=(ampInter[ch]+.11f*pick)*
+                        (1.0f+.20f*p[1]);
+                    const float second=.72f*(std::tanh(secondDrive*1.55f+.035f)-
+                        std::tanh(.035f))+
+                        .28f*std::tanh(secondDrive*.7f);
+                    ampGrowlLow[ch]+=ampGrowlLowPole*(sample-ampGrowlLow[ch]);
+                    ampGrowlHigh[ch]+=ampGrowlHighPole*(sample-ampGrowlHigh[ch]);
+                    const float growl=ampGrowlLow[ch]-ampGrowlHigh[ch];
+                    // The low-mid growl is input-fed only. No free-running
+                    // feedback and no artificial release after a cut.
+                    const float definition=std::clamp(p[5],0.0f,1.0f);
+                    const float articulate=std::tanh(pre*(2.0f+p[1]*.4f));
+                    const float shaped=(second*(1.0f-.32f*definition)+
+                        articulate*(.32f*definition)+.095f*growl)*
+                        dynamicGain;
+                    auto& history=coreHistory[ch];
+                    const size_t at=corePosition[ch];
+                    history[at]=shaped;
+                    corePosition[ch]=(at+1)%history.size();
+                    if(sub==1){
+                        size_t index=corePosition[ch];
+                        for(size_t tap=0;tap<coreFir.size();++tap){
+                            index=(index+history.size()-1)%history.size();
+                            output+=history[index]*coreFir[tap];
+                        }
+                    }
+                }
+                corePrevious[ch]=x;
+                ampDc[ch]+=ampDcPole*(output-ampDc[ch]);
+                float y=output-ampDc[ch];
+                for(int i=0;i<2;++i)y=eq[ch][i].process(y);
+                if(p[6]>.0001f){
+                    // Downward expander: silent input suppresses residual
+                    // fuzz, without forcing musical notes to a fixed level.
+                    const float threshold=.00004f*std::pow(220.0f,p[6]);
+                    const float t=std::clamp(env/threshold,0.0f,1.0f);
+                    y*=t*t*(3.0f-2.0f*t);
+                }
+                return y*p[7];
+            };
+            return {amplifier(l,0),amplifier(r,1)};
+        }
+        case FxType::Cabeus:{
+            const auto cabinet=[&](float x,int ch){
+                auto& history=cabHistory[ch];
+                history[cabPosition[ch]]=x;
+                size_t at=cabPosition[ch];
+                float wet=0.0f;
+                for(size_t i=0;i<cabImpulse.size();++i){
+                    wet+=history[at]*cabImpulse[i];
+                    at=(at+history.size()-1)%history.size();
+                }
+                cabPosition[ch]=(cabPosition[ch]+1)%history.size();
+                cabLow[ch]+=cabLowPole*(wet-cabLow[ch]);
+                wet-=cabLow[ch];
+                cabHigh[ch]+=cabHighPole*(wet-cabHigh[ch]);
+                wet=cabHigh[ch];
+                for(int i=0;i<3;++i)wet=eq[ch][i].process(wet);
+                const float mix=std::clamp(p[6],0.0f,1.0f);
+                return (x*(1.0f-mix)+wet*mix)*p[7];
+            };
+            return {cabinet(l,0),cabinet(r,1)};
         }
         case FxType::Cabinet:{
             const auto cab=[&](float x,int ch){

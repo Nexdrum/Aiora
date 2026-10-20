@@ -58,6 +58,22 @@ private:
             corePickLow{},coreSubLow{},coreBassBody{},coreDc{};
         float coreTightPole{0},coreInterPole{0},corePickPole{0},
             coreSubPole{0},coreBodyPole{0},coreDcPole{0};
+        // Ampere: all tracking comes from the incoming audio, never the
+        // synth's normal/morph envelopes. Separate state for each channel.
+        std::array<float,2> ampEnvelope{},ampTightLow{},ampMidLow{},
+            ampMidHigh{},ampPickLow{},ampInter{},ampGrowlLow{},
+            ampGrowlHigh{},ampDc{};
+        float ampTightPole{0},ampMidLowPole{0},ampMidHighPole{0},
+            ampPickPole{0},ampInterPole{0},ampGrowlLowPole{0},
+            ampGrowlHighPole{0},ampDcPole{0},ampAttackPole{0},
+            ampReleasePole{0};
+        // Cabeus: 64-tap procedural, causal FIR cabinet responses.
+        // These are synthetic kernels, NOT sampled commercial speaker IRs.
+        std::array<float,64> cabImpulse{};
+        std::array<std::array<float,64>,2> cabHistory{};
+        std::array<size_t,2> cabPosition{};
+        std::array<float,2> cabLow{},cabHigh{};
+        float cabLowPole{0},cabHighPole{0};
         void prepare(float sr,float maxDelay,FxType type,bool allTypes);
         void configure(float sr);
         void reset() noexcept;

@@ -809,7 +809,7 @@ bool ProjectCore::addFxStage(bool master,FxType type){
     if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
     if(master&&!fx->rackConfigured)*fx=legacyMasterFx(project_.masterReverb,project_.masterReverbDecay,project_.masterReverbRoom);
     migrateLegacyFx(*fx);
-    if(fx->count>=kMaxFxStages||static_cast<int>(type)>static_cast<int>(FxType::MetalCore))return false;
+    if(fx->count>=kMaxFxStages||static_cast<int>(type)>static_cast<int>(FxType::Cabeus))return false;
     fx->chain[fx->count++]=makeFxModule(type);return true;
 }
 bool ProjectCore::removeFxStage(bool master,int index){
