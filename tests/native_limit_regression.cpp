@@ -196,6 +196,13 @@ int main(){
         assert(bank.waveMorph==Wave::Custom);
         assert(bank.hasHarmMute&&std::fabs(bank.harmMute[3]-.42f)<.0001f);
         assert(std::fabs(bank.harmMutePhase[62]-.96f)<.0001f);
+        // Save/load the authored morph spectrum BEFORE intentionally
+        // replacing it with Noise. Persisted phases must be exact.
+        Patch authoredLoaded;
+        assert(deserializePatchJson(
+            serializePatchJson(synth.selectedPatch()),authoredLoaded,&parseError));
+        assert(std::fabs(authoredLoaded.ops[0].harmPhase[63]-.75f)<.0001f);
+        assert(std::fabs(authoredLoaded.ops[0].harmMutePhase[62]-.96f)<.0001f);
         assert(synth.setSelectedOperatorWave(0,Wave::Noise,true));
         assert(!synth.setSelectedHarmonic(0,0,.3f,true));
         assert(synth.setSelectedOperatorWave(0,Wave::Custom,true));
@@ -210,7 +217,9 @@ int main(){
         assert(loaded.ops[0].waveMorph==Wave::Custom);
         assert(loaded.ops[0].hasHarmMute);
         assert(std::fabs(loaded.ops[0].harmPhase[63]-.75f)<.0001f);
-        assert(std::fabs(loaded.ops[0].harmMutePhase[62]-.96f)<.0001f);
+        // Switching Noise -> Custom intentionally initializes a fresh
+        // spectrum; it must not resurrect an abandoned phase assignment.
+        assert(std::fabs(loaded.ops[0].harmMutePhase[62])<.0001f);
         assert(loaded.ops[0].modChannels[0].destination==
             OperatorModDestination::WaveMorph);
         assert(loaded.ops[0].modChannels[0].response.source==1);
