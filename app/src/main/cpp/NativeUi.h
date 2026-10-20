@@ -271,6 +271,8 @@ public:
     }
 
     void scrollRoll(int pitchDelta, int stepDelta) noexcept;
+    [[nodiscard]] int rollPitchScrollOffset() const noexcept { return rollPitchOffset_; }
+    [[nodiscard]] int rollTimeScrollOffset() const noexcept { return rollStepOffset_; }
     void cycleRollZoom() noexcept;
     [[nodiscard]] int rollVisiblePitchCells() const noexcept;
     void setRollStartStep(int step) noexcept;

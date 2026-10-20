@@ -6,6 +6,7 @@
 #include "AioraTypes.h"
 #include "ProjectCore.h"
 #include "NativeUi.h"
+#include "KineticScroll.h"
 
 namespace aiora {
 
@@ -33,6 +34,8 @@ public:
     bool pointerMove(float x, float y);
     bool pointerUp();
     void cancel() noexcept;
+    void stopKineticScrolling() noexcept { kineticScroll_.stop(); }
+    void advanceKineticScrolling(float dt) noexcept;
 
     [[nodiscard]] std::optional<PatchTransferAction> hitPatchTransfer(
         EditorPage page, float x, float y) const noexcept;
@@ -151,6 +154,7 @@ private:
     float fxScrollY_{0.0f};
     bool scrolling_{false};
     float scrollLastY_{0.0f};
+    KineticScroll kineticScroll_{};
 
     std::optional<Hit> activeHit_;
     EditorPage activePage_{EditorPage::Synth};
