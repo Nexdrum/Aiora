@@ -393,7 +393,8 @@ bool readFxRack(const Json* source,Fx& fx){
     }
     return true;
 }
-void writeFloatArray(Writer& w,const std::array<float,16>& a){
+template<size_t N>
+void writeFloatArray(Writer& w,const std::array<float,N>& a){
     w.raw("[");for(size_t i=0;i<a.size();++i){if(i)w.raw(",");w.number(a[i]);}w.raw("]");
 }
 void writeOperatorCurve(Writer& w,const OperatorCurve& c){
@@ -520,7 +521,11 @@ void writePatch(Writer& w,const Patch& p){
             w.raw("]");
         }
         w.raw(",\"harm\":");if(o.hasHarm)writeFloatArray(w,o.harm);else w.raw("null");
-        if(o.hasHarmMute){w.raw(",\"harmMute\":");writeFloatArray(w,o.harmMute);}
+        if(o.hasHarm){w.raw(",\"harmPhase\":");writeFloatArray(w,o.harmPhase);}
+        if(o.hasHarmMute){
+            w.raw(",\"harmMute\":");writeFloatArray(w,o.harmMute);
+            w.raw(",\"harmMutePhase\":");writeFloatArray(w,o.harmMutePhase);
+        }
         w.raw("}");
     }
     w.raw("],\"matrix\":[");
@@ -582,10 +587,12 @@ void writePatch(Writer& w,const Patch& p){
     w.raw("}");
 }
 
-bool readFloatArray(const Json* j,std::array<float,16>& dst){
+template<size_t N>
+bool readFloatArray(const Json* j,std::array<float,N>& dst){
     if(!j||j->type!=Json::Type::Array)return false;
     dst.fill(0.0f);
-    for(size_t i=0;i<std::min<size_t>(16,j->array.size());++i)dst[i]=clampf(num(&j->array[i],0),0,1,0);
+    for(size_t i=0;i<std::min<size_t>(N,j->array.size());++i)
+        dst[i]=clampf(num(&j->array[i],0),0,1,0);
     return true;
 }
 OperatorPoint readOperatorPoint(const Json& j,float maxTime,float lo,float hi){
@@ -766,7 +773,12 @@ bool readPatch(const Json& src,Patch& p){
                 readOperatorResponse(raw.get("response"),channel.response);
             }
         }
-        o.hasHarm=readFloatArray(jo.get("harm"),o.harm);o.hasHarmMute=readFloatArray(jo.get("harmMute"),o.harmMute);
+        o.hasHarm=readFloatArray(jo.get("harm"),o.harm);
+        o.hasHarmMute=readFloatArray(jo.get("harmMute"),o.harmMute);
+        // Historical 16-partial patches have no phase arrays: zero phase
+        // preserves their original authored sine-series alignment.
+        readFloatArray(jo.get("harmPhase"),o.harmPhase);
+        readFloatArray(jo.get("harmMutePhase"),o.harmMutePhase);
     }
     if(const Json* matrix=src.get("matrix");matrix&&matrix->type==Json::Type::Array){
         for(size_t r=0;r<std::min<size_t>(6,matrix->array.size());++r)if(matrix->array[r].type==Json::Type::Array)
