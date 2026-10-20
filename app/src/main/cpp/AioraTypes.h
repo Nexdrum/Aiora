@@ -12,10 +12,12 @@ namespace aiora {
 
 enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise, Hiss };
 // Single source of truth for selectable operator waveforms and their menu names.
-// Harmonic magnitudes shown for tonal waveform presets. Editing a partial
-// turns only that bank into an additive custom waveform.
-inline std::array<float,16> presetWaveHarmonics(Wave wave) noexcept {
-    std::array<float,16> partials{};
+// 64 authored harmonics per bank, extended to 128 during wavetable construction.
+constexpr size_t kEditableHarmonics=64;
+constexpr size_t kSynthHarmonics=128;
+using HarmonicBank=std::array<float,kEditableHarmonics>;
+inline HarmonicBank presetWaveHarmonics(Wave wave) noexcept {
+    HarmonicBank partials{};
     for(size_t i=0;i<partials.size();++i){
         const float n=static_cast<float>(i+1);
         if(wave==Wave::Sine)partials[i]=i==0?1.0f:0.0f;
@@ -25,6 +27,46 @@ inline std::array<float,16> presetWaveHarmonics(Wave wave) noexcept {
         else if(wave==Wave::Custom)partials[i]=1.0f/n;
     }
     return partials;
+}
+// Phase is expressed in cycle fractions: 0=0 degrees, .25=90, .5=180.
+// Triangle's alternating cosine partials retain the correct relative phase.
+inline HarmonicBank presetWavePhases(Wave wave) noexcept {
+    HarmonicBank phases{};
+    if(wave==Wave::Triangle){
+        for(size_t i=0;i<phases.size();i+=2)
+            phases[i]=(i%4==0)?0.25f:0.75f;
+    }
+    return phases;
+}
+// Extend only harmonics 65..128. Doubled frequencies copy their source
+// phase and halve amplitude, subject to the 1/n upper-amplitude ceiling.
+// Gaps use linear amplitude and shortest-arc circular phase interpolation.
+inline void extrapolateHarmonics(const HarmonicBank& amplitude,
+    const HarmonicBank& phase,std::array<float,kSynthHarmonics>& outAmp,
+    std::array<float,kSynthHarmonics>& outPhase) noexcept {
+    for(size_t i=0;i<kEditableHarmonics;++i){
+        outAmp[i]=std::clamp(amplitude[i],0.0f,1.0f);
+        outPhase[i]=std::clamp(phase[i],0.0f,1.0f);
+    }
+    for(size_t source=33;source<=64;++source){
+        const size_t dest=source*2;
+        outAmp[dest-1]=std::min(outAmp[source-1]*0.5f,1.0f/static_cast<float>(dest));
+        outPhase[dest-1]=outPhase[source-1];
+    }
+    const auto midpoint=[](float a,float b) noexcept {
+        float delta=b-a;
+        if(delta>0.5f)delta-=1.0f;
+        else if(delta<-0.5f)delta+=1.0f;
+        const float value=a+delta*0.5f;
+        return value-std::floor(value);
+    };
+    // 65 is bridged from the edited 64 to the generated 66.
+    for(size_t n=65;n<128;n+=2){
+        outAmp[n-1]=std::min(
+            0.5f*(outAmp[n-2]+outAmp[n]),
+            1.0f/static_cast<float>(n));
+        outPhase[n-1]=midpoint(outPhase[n-2],outPhase[n]);
+    }
 }
 inline constexpr std::array<const char*,7> kWaveformLabels{
     "sine","sawtooth","square","triangle","custom","noise","hiss"
@@ -127,7 +169,8 @@ struct Operator {
     OperatorResponse expressionCurve{}; // pre-four-channel patch migration
     std::array<OperatorModChannel,4> modChannels{};
     bool modChannelsConfigured{false};
-    std::array<float,16> harm{}; std::array<float,16> harmMute{};
+    HarmonicBank harm{},harmMute{};
+    HarmonicBank harmPhase{},harmMutePhase{};
     bool hasHarm{false},hasHarmMute{false};
 };
 // Unconfigured alternate banks follow the primary preset, except for old
