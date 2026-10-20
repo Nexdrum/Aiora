@@ -741,6 +741,7 @@ namespace {
 struct OpSurface {
     using Rect=NativeEditor::Rect;
     int op{0},page{0},selected{-1},drag{-1},bend{-1},harmonicView{1},modSlot{0};
+    bool harmonicPhaseView{false};
     bool custom{false};
     unsigned shadows{0};
     float downX{0},downY{0},lastY{0};
@@ -837,7 +838,7 @@ struct OpSurface {
         const float w=(graph.w-28.0f)/5.0f;
         return {graph.x+4.0f+index*(w+5.0f),graph.y+3.0f,w,43.0f};
     }
-    float harmonicRowHeight()const{return std::max(245.0f,rect(11).h*.62f);}
+    float harmonicRowHeight()const{return std::max(104.0f,rect(11).h*.25f);}
     void scrollBy(float dy){
         if(page<4){
             auto& amount=scroll[op][page];
@@ -845,7 +846,7 @@ struct OpSurface {
         }else if(page==5){
             auto& amount=harmonicScroll[op][harmonicView==2?1:0];
             amount=std::clamp(amount+dy,0.0f,
-                std::max(0.0f,2.0f*harmonicRowHeight()-rect(11).h+10.0f));
+                std::max(0.0f,8.0f*harmonicRowHeight()-rect(11).h+10.0f));
         }
     }
     static bool pitchPage(int which){return which==1||which==3;}
@@ -999,9 +1000,16 @@ struct OpSurface {
                 kWaveformLabels[std::clamp(static_cast<int>(bank),0,6)]+
                 "  v",selector,.87f,overlayColor(kBg));
             const bool noise=bank==Wave::Noise||bank==Wave::Hiss;
-            ov.addText(noise?"Noise partials unavailable":
-                "Drag partials to switch this bank to Custom",
-                plot.x,plot.y-18,.75f,overlayColor(kMuted));
+            for(int mode=0;mode<2;++mode){
+                const auto r=rect(10,mode);
+                const bool active=(mode==1)==harmonicPhaseView;
+                button(r,active,true);
+                text(mode==0?"Amplitude":"Phase",r,.76f,
+                    overlayColor(active?kBg:kWhite));
+            }
+            ov.addText(noise?"Noise phase and amplitude unavailable":
+                (harmonicPhaseView?"Phase: 0-100% of cycle":"Amplitude: 0-100%"),
+                plot.x,plot.y-18,.76f,overlayColor(kMuted));
         }
         ov.setClip({plot.x-11,plot.y-9,plot.w+22,plot.h+18});
         for(int i=0;i<=4;++i){
@@ -1015,20 +1023,33 @@ struct OpSurface {
         if(page==5){
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
             const bool editable=bank!=Wave::Noise&&bank!=Wave::Hiss;
-            const auto& harm=harmonicView==2?
-                (o.hasHarmMute?o.harmMute:presetWaveHarmonics(bank)):
-                (o.hasHarm?o.harm:presetWaveHarmonics(bank));
-            const auto display=(bank==Wave::Custom)?harm:presetWaveHarmonics(bank);
-            for(int i=0;i<16;++i){
+            const auto amplitude=(bank==Wave::Custom&&
+                (harmonicView==2?o.hasHarmMute:o.hasHarm))?
+                (harmonicView==2?o.harmMute:o.harm):presetWaveHarmonics(bank);
+            const auto phase=(bank==Wave::Custom&&
+                (harmonicView==2?o.hasHarmMute:o.hasHarm))?
+                (harmonicView==2?o.harmMutePhase:o.harmPhase):presetWavePhases(bank);
+            for(int i=0;i<static_cast<int>(kEditableHarmonics);++i){
                 const int col=i%8,row=i/8;
                 const float w=plot.w/8.0f,h=harmonicRowHeight();
                 const float x=plot.x+col*w,
                     y=plot.y+row*h-harmonicScroll[op][harmonicView==2?1:0];
-                const float v=std::clamp(display[static_cast<size_t>(i)],0.0f,1.0f);
+                const float strength=std::clamp(amplitude[static_cast<size_t>(i)],0.0f,1.0f);
+                const float phasePos=std::clamp(phase[static_cast<size_t>(i)],0.0f,1.0f);
+                const float barHeight=h-38.0f,barBottom=y+h-8.0f;
                 ov.addRect({x+3,y+4,w-6,h-8},overlayColor(kButton));
-                ov.addRect({x+w*.26f,y+h-8-(h-38)*v,w*.48f,(h-38)*v},
-                    overlayColor(!editable?kMuted:(harmonicView==2?kPurple:kCyan)));
-                ov.addTextCentered(std::to_string(i+1),{x,y+h-34,w,27},.7f,overlayColor(kWhite));
+                // Both properties are always visible; whichever is not
+                // editable remains as its own translucent shape underneath.
+                ov.addRect({x+w*.26f,barBottom-barHeight*strength,
+                    w*.48f,barHeight*strength},
+                    overlayColor(!editable?kMuted:(harmonicView==2?kPurple:kCyan),
+                        harmonicPhaseView?0.25f:1.0f));
+                const float marker=barBottom-barHeight*phasePos;
+                ov.addRect({x+w*.09f,marker-2.0f,w*.82f,4.0f},
+                    overlayColor(!editable?kMuted:kWhite,
+                        harmonicPhaseView?1.0f:0.26f));
+                ov.addTextCentered(std::to_string(i+1),
+                    {x,y+h-34,w,27},.67f,overlayColor(kWhite));
             }
             ov.clearClip();return;
         }
@@ -1278,12 +1299,14 @@ struct OpSurface {
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
         if(page==5){
+            if(rect(10,0).contains(x,y)){harmonicPhaseView=false;return true;}
+            if(rect(10,1).contains(x,y)){harmonicPhaseView=true;return true;}
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
             if(bank!=Wave::Noise&&bank!=Wave::Hiss&&rect(11).contains(x,y)){
                 auto plot=rect(11);
                 const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
                 const float relativeY=y-plot.y+harmonicScroll[op][harmonicView==2?1:0];
-                const int row=std::clamp(static_cast<int>(relativeY/harmonicRowHeight()),0,1);
+                const int row=std::clamp(static_cast<int>(relativeY/harmonicRowHeight()),0,7);
                 drag=-50-(row*8+col);return move(x,y);
             }
         }
@@ -1332,8 +1355,12 @@ struct OpSurface {
             const int i=-drag-50,row=i/8;auto r=rect(11);
             const float h=harmonicRowHeight();
             const float top=r.y+row*h-harmonicScroll[op][harmonicView==2?1:0];
-            const float amount=std::clamp(1-(y-top)/h,0.0f,1.0f);
-            changed=ProjectCore::instance().setSelectedHarmonic(op,i,amount,harmonicView==2)||changed;
+            const float amount=std::clamp(
+                (top+h-8.0f-y)/std::max(1.0f,h-38.0f),0.0f,1.0f);
+            auto& project=ProjectCore::instance();
+            changed=(harmonicPhaseView?
+                project.setSelectedHarmonicPhase(op,i,amount,harmonicView==2):
+                project.setSelectedHarmonic(op,i,amount,harmonicView==2))||changed;
             return true;
         }
         if(drag==-12){
