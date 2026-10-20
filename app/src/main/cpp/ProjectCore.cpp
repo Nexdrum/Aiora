@@ -882,17 +882,20 @@ bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
     auto& op=p->ops[static_cast<size_t>(opIndex)];
     if(morph){
         const Wave old=effectiveWaveMorph(op);
-        if(wave==Wave::Custom&&!op.hasHarmMute){
-            op.harmMute=presetWaveHarmonics(old);
-            op.harmMutePhase=presetWavePhases(old);
+        if(wave==Wave::Custom&&(old!=Wave::Custom||!op.hasHarmMute)){
+            const Wave source=old==Wave::Noise||old==Wave::Hiss?Wave::Custom:old;
+            op.harmMute=presetWaveHarmonics(source);
+            op.harmMutePhase=presetWavePhases(source);
             op.hasHarmMute=true;
         }
         op.waveMorph=wave;
         op.waveMorphConfigured=true;
     }else{
-        if(wave==Wave::Custom&&!op.hasHarm){
-            op.harm=presetWaveHarmonics(op.wave);
-            op.harmPhase=presetWavePhases(op.wave);
+        if(wave==Wave::Custom&&(op.wave!=Wave::Custom||!op.hasHarm)){
+            const Wave source=op.wave==Wave::Noise||op.wave==Wave::Hiss?
+                Wave::Custom:op.wave;
+            op.harm=presetWaveHarmonics(source);
+            op.harmPhase=presetWavePhases(source);
             op.hasHarm=true;
         }
         op.wave=wave;
