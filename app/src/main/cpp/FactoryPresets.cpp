@@ -15,8 +15,20 @@ void setOp(Operator& o, Wave wave, float ratio, float detune, float level,
 }
 
 void disable(Operator& o) { o.enabled = false; o.level = 0.0f; }
-void setHarm(Operator& o, const std::array<float,16>& h) { o.harm = h; o.hasHarm = true; }
-void setHarmMute(Operator& o, const std::array<float,16>& h) { o.harmMute = h; o.hasHarmMute = true; }
+// Existing factory voicings author 16 partials; copy them into the expanded
+// editable spectrum, leaving unassigned harmonics quiet.
+void setHarm(Operator& o,const std::array<float,16>& h){
+    o.harm.fill(0.0f);
+    std::copy(h.begin(),h.end(),o.harm.begin());
+    o.harmPhase.fill(0.0f);
+    o.hasHarm=true;
+}
+void setHarmMute(Operator& o,const std::array<float,16>& h){
+    o.harmMute.fill(0.0f);
+    std::copy(h.begin(),h.end(),o.harmMute.begin());
+    o.harmMutePhase.fill(0.0f);
+    o.hasHarmMute=true;
+}
 
 void slots(Patch& p, std::initializer_list<ModSlot> list) {
     p.modSlots.assign(list.begin(),list.end());
