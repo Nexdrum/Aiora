@@ -38,7 +38,7 @@ int main(){
         original.pads[2].patch.ops[0].randomPhaseDegrees=11.0f;
         const auto serialized=serializeDrumKitJson(original);
         assert(serialized.find("aiora-drum-kit")!=std::string::npos);
-        assert(serialized.find("\\"notes\\"")==std::string::npos);
+        assert(serialized.find("\"notes\"")==std::string::npos);
         std::vector<DrumPad> decoded;
         std::string error;
         assert(deserializeDrumKitJson(serialized,decoded,&error));
@@ -56,7 +56,7 @@ int main(){
             assert(serializePatchJson(expected)==serializePatchJson(b.patch));
         }
         assert(!deserializeDrumKitJson(
-            "{\\"type\\":\\"aiora-drum-kit\\",\\"version\\":99,\\"pads\\":[]}",decoded,&error));
+            R"({"type":"aiora-drum-kit","version":99,"pads":[]})",decoded,&error));
         assert(decoded.size()==original.pads.size()); // failed import is atomic
         const std::string file="/tmp/aiora_drum_kit_regression.kit.json";
         assert(saveDrumKitFile(file,original,&error));
