@@ -104,13 +104,19 @@ public class AioraActivity extends NativeActivity {
     }
 
     public void chooseDrumKitImportMode() {
+        // An AlertDialog message suppresses setItems()'s list view on
+        // Android. Keep the two import actions as visible list items.
         runOnUiThread(() -> new AlertDialog.Builder(this)
             .setTitle("Import drum kit")
-            .setMessage("Replace the current kit or append its pads? Existing song notes are preserved. Appending requires unused pitch ranges.")
-            .setItems(new String[]{"Replace current kit", "Append pads"}, (dialog, which) ->
+            .setItems(new String[]{
+                "Replace kit (song notes stay)",
+                "Append pads (unused pitch ranges only)"
+            }, (dialog, which) -> {
+                dialog.dismiss();
                 openDocument(which == 0
                     ? REQUEST_IMPORT_KIT_REPLACE
-                    : REQUEST_IMPORT_KIT_APPEND, "application/json"))
+                    : REQUEST_IMPORT_KIT_APPEND, "application/json");
+            })
             .setNegativeButton("Cancel", null)
             .show());
     }
