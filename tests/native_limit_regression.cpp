@@ -13,6 +13,7 @@
 #include "RollTouchRouting.h"
 #include "KineticScroll.h"
 #include <cassert>
+#include <cstdio>
 #include <cmath>
 #include <fstream>
 #include <iterator>
@@ -36,6 +37,33 @@ int main(){
         original.pads[2].volume=.68f;
         original.pads[2].patch.ops[0].randomPhase=true;
         original.pads[2].patch.ops[0].randomPhaseDegrees=11.0f;
+        auto& modeled=original.pads[2].patch.ops[0];
+        modeled.volumeCurve.enabled=true;
+        modeled.volumeCurve.sustain=false;
+        modeled.volumeCurve.count=4;
+        modeled.volumeCurve.decayIndex=1;
+        modeled.volumeCurve.releaseIndex=2;
+        modeled.volumeCurve.points[0]={0,0};
+        modeled.volumeCurve.points[1]={.001f,1};
+        modeled.volumeCurve.points[2]={.13f,.3f};
+        modeled.volumeCurve.points[3]={.19f,0};
+        modeled.waveMorph=Wave::Triangle;
+        modeled.waveMorphConfigured=true;
+        modeled.modChannelsConfigured=true;
+        modeled.modChannels[0]=initialOperatorModChannel();
+        modeled.modChannels[0].enabled=true;
+        modeled.modChannels[0].destination=OperatorModDestination::WaveMorph;
+        modeled.modChannels[0].response.source=1; // M
+        auto& partial=original.pads[2].patch.ops[1];
+        partial.wave=Wave::Custom;
+        partial.hasHarm=true;
+        partial.harm[0]=1.0f;
+        partial.harm[1]=.27f;
+        partial.harmPhase[1]=.125f;
+        partial.hasHarmMute=true;
+        partial.harmMute[0]=.8f;
+        partial.harmMute[1]=.4f;
+        partial.harmMutePhase[1]=.2f;
         const auto serialized=serializeDrumKitJson(original);
         assert(serialized.find("aiora-drum-kit")!=std::string::npos);
         assert(serialized.find("\"notes\"")==std::string::npos);
@@ -51,7 +79,12 @@ int main(){
             assert(a.name==b.name&&a.icon==b.icon);
             assert(std::fabs(a.pan-b.pan)<.00001f);
             assert(std::fabs(a.volume-b.volume)<.00001f);
-            Patch expected=a.patch;
+            // Older embedded factory patches can contain values that
+            // the current patch decoder clamps. Canonicalize through the
+            // same public importer, then require all modern structures,
+            // harmonic phases and expression mappings to match exactly.
+            Patch expected;
+            assert(deserializePatchJson(serializePatchJson(a.patch),expected));
             expected.fundamentalMidi=a.centerMidi;
             assert(serializePatchJson(expected)==serializePatchJson(b.patch));
         }
