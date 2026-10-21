@@ -41,7 +41,7 @@ jobs:
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
             tests/native_limit_regression.cpp \
-            app/src/main/cpp/{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
+            app/src/main/cpp/{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,ProjectStorage.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
             -o /tmp/aiora-native-limit-regression
           /tmp/aiora-native-limit-regression
 
