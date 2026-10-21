@@ -1620,6 +1620,106 @@ int main(){
         }
         assert(changed>1.0f);
     }
+    // Six channels per operator and filter, with played-key K mapping.
+    // Old four-channel presets retain their first four routes unchanged.
+    {
+        static_assert(std::tuple_size<decltype(Operator{}.modChannels)>::value==6);
+        static_assert(std::tuple_size<decltype(EvolvingFilter{}.mods)>::value==6);
+        assert(normalizedKeyMap(24,36,72)==0.0f);
+        assert(normalizedKeyMap(90,36,72)==1.0f);
+        assert(std::fabs(normalizedKeyMap(54,36,72)-.5f)<1e-6f);
+
+        Patch k=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+        for(auto& op:k.ops){op.enabled=false;op.level=0;}
+        auto& tone=k.ops[0];
+        tone.enabled=true;tone.level=.8f;tone.wave=Wave::Sine;
+        tone.env={.001f,.12f,.95f,.08f};
+        tone.volumeCurve={};tone.volumeMorphCurve={};
+        tone.modChannelsConfigured=true;
+        for(auto& mod:tone.modChannels)mod=initialOperatorModChannel();
+        tone.modChannels[0].enabled=true;
+        tone.modChannels[0].destination=OperatorModDestination::Vol;
+        tone.modChannels[0].response.source=2; // played key K
+        // Slot six must persist through JSON, not be silently truncated.
+        tone.modChannels[5].enabled=true;
+        tone.modChannels[5].destination=OperatorModDestination::Vol;
+        tone.modChannels[5].response.source=2;
+        k.keyMapLow=36;k.keyMapHigh=48;
+        k.filter.evolving={};
+        k.filter.cutoff=18000.0f;k.velocityAmp=0;k.velocityFilter=0;
+        k.masterAmpCurve={};
+        const auto keyJson=serializePatchJson(k);
+        Patch decoded;
+        assert(deserializePatchJson(keyJson,decoded));
+        assert(decoded.keyMapLow==36&&decoded.keyMapHigh==48);
+        assert(decoded.ops[0].modChannels[5].enabled);
+        assert(decoded.ops[0].modChannels[5].response.source==2);
+        const auto dsp=toDspPatch(decoded);
+        assert(dsp.keyMapLow==36&&dsp.keyMapHigh==48);
+
+        // A historical JSON without the new keyMap field uses all 128 keys.
+        auto legacyKeyJson=keyJson;
+        const auto keyAt=legacyKeyJson.find(",\"keyMap\":");
+        const auto ampAt=legacyKeyJson.find(",\"amp\":",keyAt);
+        assert(keyAt!=std::string::npos&&ampAt!=std::string::npos);
+        legacyKeyJson.erase(keyAt,ampAt-keyAt);
+        Patch legacyDecoded;
+        assert(deserializePatchJson(legacyKeyJson,legacyDecoded));
+        assert(legacyDecoded.keyMapLow==0&&legacyDecoded.keyMapHigh==127);
+
+        // On the SAME played pitch, a different K range changes loudness.
+        auto lowKey=decoded;lowKey.keyMapLow=48;lowKey.keyMapHigh=72;
+        SpectrachordVoice zero,full;
+        zero.prepare(48000);full.prepare(48000);
+        zero.start(8121,toDspPatch(lowKey),48,.8f,0,4800);
+        full.start(8121,toDspPatch(decoded),48,.8f,0,4800);
+        float zeroEnergy=0,fullEnergy=0;
+        for(int i=0;i<2400;++i){
+            const float a=zero.render(),b=full.render();
+            zeroEnergy+=a*a;fullEnergy+=b*b;
+        }
+        assert(zeroEnergy<1e-10f&&fullEnergy>1e-5f);
+
+        // Duplicate targets average: K=0 and a V=1 produce half the
+        // unmodulated amplitude rather than replacing either route.
+        auto mixed=lowKey;
+        mixed.ops[0].modChannels[5].response.source=0;
+        mixed.ops[0].modChannels[5].response.points[0].value=1;
+        mixed.ops[0].modChannels[5].response.points[1].value=1;
+        SpectrachordVoice half;
+        half.prepare(48000);
+        half.start(8121,toDspPatch(mixed),48,.8f,0,4800);
+        float halfEnergy=0;
+        for(int i=0;i<2400;++i){const float a=half.render();halfEnergy+=a*a;}
+        assert(std::fabs(halfEnergy/fullEnergy-.25f)<.001f);
+
+        // The filter's sixth channel also understands K and round-trips.
+        auto filtering=decoded;
+        filtering.ops[0].modChannelsConfigured=false;
+        filtering.ops[0].expressionCurve={};
+        filtering.filter.evolving=initialEvolvingFilter();
+        auto& fm=filtering.filter.evolving.mods[5];
+        fm=initialFilterModChannel();fm.enabled=true;fm.destination=1;
+        fm.response.source=2;
+        const auto filterJson=serializePatchJson(filtering);
+        Patch filteredDecoded;
+        assert(deserializePatchJson(filterJson,filteredDecoded));
+        assert(filteredDecoded.filter.evolving.mods[5].enabled);
+        assert(filteredDecoded.filter.evolving.mods[5].response.source==2);
+        auto filteringLow=filteredDecoded;
+        filteringLow.keyMapLow=48;filteringLow.keyMapHigh=72;
+        SpectrachordVoice fl,fh;
+        fl.prepare(48000);fh.prepare(48000);
+        fl.start(8122,toDspPatch(filteringLow),48,.8f,0,4800);
+        fh.start(8122,toDspPatch(filteredDecoded),48,.8f,0,4800);
+        float filterDelta=0;
+        for(int i=0;i<3000;++i){
+            const float a=fl.render(),b=fh.render();
+            assert(std::isfinite(a)&&std::isfinite(b));
+            filterDelta+=std::fabs(a-b);
+        }
+        assert(filterDelta>1e-4f);
+    }
     // Default volume and pitch envelopes must place decay at the second
     // anchor and the release/sustain gate at the second-to-last anchor.
     const auto defaults=legacyOperatorVolume(Envelope{});

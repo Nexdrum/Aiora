@@ -284,7 +284,9 @@ float SpectrachordVoice::slotValue(ModTarget target,float v,float m,float fallba
 }
 
 void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
-    id_=id;patch_=patch;midi_=midi;velocity_=clamp01(pressure);active_=true;automation_=automation;
+    id_=id;patch_=patch;midi_=midi;
+    keyMapValue_=normalizedKeyMap(midi,patch.keyMapLow,patch.keyMapHigh);
+    velocity_=clamp01(pressure);active_=true;automation_=automation;
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
     // M is always supplied; an unedited line is explicitly M=0, never
     // a request to bypass an operator or FX modulation route.
@@ -535,7 +537,7 @@ float SpectrachordVoice::render() noexcept {
                 const int dest=static_cast<int>(channel.destination);
                 if(dest<0||dest>=5)continue;
                 const auto& c=channel.response;
-                const float input=c.source==1?m:expressionV;
+                const float input=c.source==2?keyMapValue_:(c.source==1?m:expressionV);
                 const float output=c.enabled&&c.count>=2?
                     operatorCurveValue(c.points.data(),c.count,clamp01(input),input):clamp01(input);
                 totals[static_cast<size_t>(dest)]+=clamp01(output);
@@ -544,7 +546,7 @@ float SpectrachordVoice::render() noexcept {
         }else{
             const auto& c=op.expressionCurve;
             if(c.enabled&&c.count>=2){
-                const float input=c.source==1?m:expressionV;
+                const float input=c.source==2?keyMapValue_:(c.source==1?m:expressionV);
                 totals[0]=clamp01(operatorCurveValue(c.points.data(),c.count,clamp01(input),input));
                 counts[0]=1;
             }
@@ -674,7 +676,8 @@ float SpectrachordVoice::render() noexcept {
         std::array<float,3> qDirectWeights{};
         for(const auto& route:model.mods){
             if(!route.enabled||route.destination>=6)continue;
-            const float input=clamp01(route.response.source==1?m:expressionV);
+            const float input=clamp01(route.response.source==2?keyMapValue_:
+                (route.response.source==1?m:expressionV));
             const auto& response=route.response;
             const float value=clamp01(response.enabled&&response.count>=2?
                 operatorCurveValue(response.points.data(),response.count,input,input):input);

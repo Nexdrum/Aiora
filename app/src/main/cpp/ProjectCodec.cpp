@@ -433,6 +433,12 @@ void writeFilterLane(Writer& w,const FilterLane& lane){
     }
     w.raw("]}");
 }
+const char* expressionSourceName(uint8_t source){
+    return source==2?"K":source==1?"M":"V";
+}
+uint8_t parseExpressionSource(const std::string& source){
+    return source=="K"?2:source=="M"?1:0;
+}
 void writeOperatorResponse(Writer& w,const OperatorResponse& c);
 void writeEvolvingFilter(Writer& w,const EvolvingFilter& filter){
     if(!filter.configured){w.raw("null");return;}
@@ -456,7 +462,7 @@ void writeEvolvingFilter(Writer& w,const EvolvingFilter& filter){
         const auto& m=filter.mods[j];
         w.raw("{\"enabled\":");w.boolean(m.enabled);
         w.raw(",\"dest\":");w.number(m.destination);
-        w.raw(",\"source\":");w.string(m.response.source?"M":"V");
+        w.raw(",\"source\":");w.string(expressionSourceName(m.response.source));
         w.raw(",\"points\":[");
         for(int i=0;i<m.response.count;++i){
             if(i)w.raw(",");
@@ -475,7 +481,7 @@ void writeEvolvingFilter(Writer& w,const EvolvingFilter& filter){
 }
 void writeOperatorResponse(Writer& w,const OperatorResponse& c){
     w.raw("{\"enabled\":");w.boolean(c.enabled);
-    w.raw(",\"source\":");w.string(c.source?"M":"V");
+    w.raw(",\"source\":");w.string(expressionSourceName(c.source));
     w.raw(",\"points\":[");
     for(size_t i=0;i<c.count;++i){
         if(i)w.raw(",");const auto& p=c.points[i];
@@ -542,6 +548,8 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"q\":");w.number(p.peak.q);
     w.raw(",\"gainDb\":");w.number(p.peak.gainDb);w.raw("}");
     if(p.masterAmpCurve.enabled){w.raw(",\"masterAmpCurve\":");writeOperatorCurve(w,p.masterAmpCurve);}
+    w.raw(",\"keyMap\":{\"low\":");w.number(p.keyMapLow);
+    w.raw(",\"high\":");w.number(p.keyMapHigh);w.raw("}");
     w.raw(",\"amp\":{\"attack\":");w.number(p.amp.attack);w.raw(",\"decay\":");w.number(p.amp.decay);w.raw(",\"sustain\":");w.number(p.amp.sustain);w.raw(",\"release\":");w.number(p.amp.release);w.raw("}");
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
     w.raw(",\"vel\":{\"amp\":");w.number(p.velocityAmp);w.raw(",\"filter\":");w.number(p.velocityFilter);
@@ -637,7 +645,7 @@ void readOperatorResponse(const Json* j,OperatorResponse& out){
     if(out.count<2){out={};return;}
     std::stable_sort(out.points.begin(),out.points.begin()+out.count,
         [](const OperatorPoint&a,const OperatorPoint&b){return a.time<b.time;});
-    out.source=str(j->get("source"),"V")=="M"?1:0;
+    out.source=parseExpressionSource(str(j->get("source"),"V"));
     out.enabled=boolean(j->get("enabled"),true);
 }
 void readEvolvingFilter(const Json* j,EvolvingFilter& e){
@@ -685,12 +693,12 @@ void readEvolvingFilter(const Json* j,EvolvingFilter& e){
         }
     }
     if(const auto* mods=j->get("mods");mods&&mods->type==Json::Type::Array){
-        for(size_t k=0;k<std::min<size_t>(4,mods->array.size());++k){
+        for(size_t k=0;k<std::min<size_t>(e.mods.size(),mods->array.size());++k){
             const auto& raw=mods->array[k];
             if(raw.type!=Json::Type::Object)continue;
             auto& m=e.mods[k];m.enabled=boolean(raw.get("enabled"),false);
             m.destination=static_cast<uint8_t>(clampi(num(raw.get("dest"),0),0,5,0));
-            m.response.source=str(raw.get("source"),"V")=="M"?1:0;
+            m.response.source=parseExpressionSource(str(raw.get("source"),"V"));
             if(const auto* points=raw.get("points");
                points&&points->type==Json::Type::Array&&points->array.size()>=2){
                 m.response.count=0;
@@ -763,7 +771,7 @@ bool readPatch(const Json& src,Patch& p){
            mods&&mods->type==Json::Type::Array){
             o.modChannelsConfigured=true;
             for(auto& channel:o.modChannels)channel=initialOperatorModChannel();
-            for(size_t m=0;m<std::min<size_t>(4,mods->array.size());++m){
+            for(size_t m=0;m<std::min<size_t>(o.modChannels.size(),mods->array.size());++m){
                 const auto& raw=mods->array[m];
                 if(raw.type!=Json::Type::Object)continue;
                 auto& channel=o.modChannels[m];
@@ -797,6 +805,10 @@ bool readPatch(const Json& src,Patch& p){
         p.peak.frequency=clampf(num(pk->get("frequency"),220),40,8000,220);
         p.peak.q=clampf(num(pk->get("q"),1),.3f,12,1);
         p.peak.gainDb=clampf(num(pk->get("gainDb"),0),-18,18,0);
+    }
+    if(const Json* km=src.get("keyMap");km&&km->type==Json::Type::Object){
+        p.keyMapLow=clampi(num(km->get("low"),0),0,126,0);
+        p.keyMapHigh=clampi(num(km->get("high"),127),p.keyMapLow+1,127,127);
     }
     if(const Json* a=src.get("amp");a&&a->type==Json::Type::Object){
         p.amp.attack=clampf(num(a->get("attack"),.008),.001f,2,.008f);p.amp.decay=clampf(num(a->get("decay"),.12),.01f,3,.12f);p.amp.sustain=clampf(num(a->get("sustain"),.85),0,1,.85f);p.amp.release=clampf(num(a->get("release"),.25),.02f,8,.25f);

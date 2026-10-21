@@ -102,7 +102,7 @@ struct OperatorCurve {
 struct OperatorResponse {
     std::array<OperatorPoint,kMaxOperatorPoints> points{};
     uint8_t count{0};
-    uint8_t source{0}; // 0=velocity, 1=modulation
+    uint8_t source{0}; // 0=V, 1=M, 2=K (played key)
     bool enabled{false};
 };
 enum class OperatorModDestination : uint8_t {
@@ -167,7 +167,7 @@ struct Operator {
     OperatorCurve volumeCurve{},pitchCurve{};
     OperatorCurve volumeMorphCurve{},pitchMorphCurve{};
     OperatorResponse expressionCurve{}; // pre-four-channel patch migration
-    std::array<OperatorModChannel,4> modChannels{};
+    std::array<OperatorModChannel,6> modChannels{};
     bool modChannelsConfigured{false};
     HarmonicBank harm{},harmMute{};
     HarmonicBank harmPhase{},harmMutePhase{};
@@ -236,7 +236,7 @@ inline FilterSlope initialFilterSlope(int shape) noexcept {
 struct EvolvingFilter {
     bool configured{false};
     std::array<FilterLane,6> lanes{};
-    std::array<FilterModChannel,4> mods{};
+    std::array<FilterModChannel,6> mods{};
     bool keyTrack{false};
     std::array<FilterSlope,3> slopes{};
 };
@@ -383,6 +383,8 @@ struct Patch {
     float unison{0},glide{0},octave{0},volume{0.8f};
     OperatorCurve unisonCurve{};
     OperatorCurve masterAmpCurve{};
+    // Configurable played-note range for Key Map responses (K=0..100%).
+    int32_t keyMapLow{0},keyMapHigh{127};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
     bool timpaniMembrane{false};
     float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
@@ -391,6 +393,7 @@ struct Patch {
 
 /** Audio-thread copy of Patch: fixed-size and trivially copyable, with no std::string. */
 struct DspPatch {
+    int32_t keyMapLow{0},keyMapHigh{127};
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
     Filter filter{}; PeakFilter peak{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
     std::shared_ptr<const std::vector<ModSlot>> modSlots{}; size_t modSlotCount{0};
@@ -404,6 +407,11 @@ struct DspPatch {
 };
 
 
+inline float normalizedKeyMap(int midi,int low,int high) noexcept {
+    return std::clamp((static_cast<float>(midi)-static_cast<float>(low)) /
+        static_cast<float>(std::max(1,high-low)),0.0f,1.0f);
+}
+
 inline DspPatch toDspPatch(const Patch& p) {
     DspPatch d;d.ops=p.ops;d.matrix=p.matrix;d.filter=p.filter;d.peak=p.peak;d.amp=p.amp;
     d.velocityAmp=p.velocityAmp;d.velocityFilter=p.velocityFilter;
@@ -411,6 +419,7 @@ inline DspPatch toDspPatch(const Patch& p) {
     d.modSlotCount=p.modSlotCount;
     if(!p.velocitySlots.empty())d.velocitySlots=std::make_shared<const std::vector<ModSlot>>(p.velocitySlots);
     d.velocitySlotCount=p.velocitySlotCount;
+    d.keyMapLow=p.keyMapLow;d.keyMapHigh=p.keyMapHigh;
     d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.unisonCurve=p.unisonCurve;d.masterAmpCurve=p.masterAmpCurve;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
     d.timpaniMembrane=p.timpaniMembrane;
     d.drumPitchDrop=p.drumPitchDrop;d.drumPitchDropSeconds=p.drumPitchDropSeconds;

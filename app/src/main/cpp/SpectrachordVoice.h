@@ -84,6 +84,7 @@ private:
     uint64_t age_{0};
     float sampleRate_{48000.0f};
     int midi_{62};
+    float keyMapValue_{0}; // note-on key position; pitch bend does not change K
     float velocity_{0.8f};
     DspPatch patch_{};
     VoiceAutomation automation_{};

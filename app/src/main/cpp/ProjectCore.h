@@ -147,6 +147,7 @@ public:
     bool setSelectedOperatorCurve(int opIndex,int kind,const OperatorCurve& curve);
     bool setSelectedOperatorResponse(int opIndex,const OperatorResponse& response);
     bool setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel);
+    bool setSelectedKeyMapRange(int lowMidi,int highMidi);
     bool setSelectedOperatorWave(int opIndex, Wave wave, bool morph = false);
     bool setSelectedOperatorParam(int opIndex, OperatorParam param, float value);
     bool setSelectedHarmonic(int opIndex, int partialIndex, float value, bool muted = false);

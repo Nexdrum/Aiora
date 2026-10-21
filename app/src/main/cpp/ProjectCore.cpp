@@ -246,9 +246,9 @@ bool ProjectCore::setSelectedOperatorCurve(int opIndex,int kind,const OperatorCu
     return true;
 }
 bool ProjectCore::setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel){
-    if(opIndex<0||opIndex>=6||slot<0||slot>=4||
+    if(opIndex<0||opIndex>=6||slot<0||slot>=6||
        channel.response.count>kMaxOperatorPoints||
-       static_cast<int>(channel.destination)>4||channel.response.source>1)
+       static_cast<int>(channel.destination)>4||channel.response.source>2)
         return false;
     std::scoped_lock lock(mutex_);
     auto* p=selectedPatchUnsafe();if(!p)return false;
@@ -262,6 +262,13 @@ bool ProjectCore::setSelectedOperatorModChannel(int opIndex,int slot,const Opera
     }
     op.modChannels[static_cast<size_t>(slot)]=channel;
     op.modChannelsConfigured=true;
+    return true;
+}
+bool ProjectCore::setSelectedKeyMapRange(int lowMidi,int highMidi){
+    if(lowMidi<0||highMidi>127||lowMidi>=highMidi)return false;
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();if(!p)return false;
+    p->keyMapLow=lowMidi;p->keyMapHigh=highMidi;
     return true;
 }
 bool ProjectCore::setSelectedOperatorResponse(int opIndex,const OperatorResponse& response){
@@ -1006,7 +1013,7 @@ bool ProjectCore::setSelectedEvolvingFilter(const EvolvingFilter& model){
         }
     }
     for(auto& m:clean.mods){
-        if(m.destination>=6||m.response.count<2||
+        if(m.destination>=6||m.response.source>2||m.response.count<2||
            m.response.count>kMaxOperatorPoints)return false;
         for(int i=0;i<m.response.count;++i){
             auto& pt=m.response.points[i];

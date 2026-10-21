@@ -907,12 +907,23 @@ struct OpSurface {
         field(rect(1),"Wave / Edit",kWaveformLabels[std::clamp(static_cast<int>(o.wave),0,6)]);
         std::snprintf(buff,sizeof(buff),"%.4g",static_cast<double>(o.ratio));field(rect(2),"Ratio",buff);
         std::snprintf(buff,sizeof(buff),"%+.0f",static_cast<double>(o.semitoneOffset));field(rect(3),"Base ST",buff);
-        button(powerRect(),o.enabled);
-        text(o.enabled?"OP ON":"OP OFF",powerRect(),.66f,
-            overlayColor(o.enabled?kBg:kWhite));
-        button(phaseRect(),o.randomPhase,true);
-        text(o.randomPhase?"PH RND":"PH FIX",phaseRect(),.66f,
-            overlayColor(o.randomPhase?kBg:kWhite));
+        if(page==4){
+            const auto ch=channel(o);
+            button(powerRect(),true);
+            const char* src=ch.response.source==2?"Src K":
+                ch.response.source==1?"Src M":"Src V";
+            text(src,powerRect(),.76f,overlayColor(kBg));
+            button(phaseRect(),ch.enabled,true);
+            text(ch.enabled?"Mod ON":"Mod OFF",phaseRect(),.66f,
+                overlayColor(ch.enabled?kBg:kWhite));
+        }else{
+            button(powerRect(),o.enabled);
+            text(o.enabled?"OP ON":"OP OFF",powerRect(),.66f,
+                overlayColor(o.enabled?kBg:kWhite));
+            button(phaseRect(),o.randomPhase,true);
+            text(o.randomPhase?"PH RND":"PH FIX",phaseRect(),.66f,
+                overlayColor(o.randomPhase?kBg:kWhite));
+        }
         for(int i=0;i<2;++i){
             auto r=rect(5+i);button(r,false);
             const float v=i?((o.detuneCents+50)/100):o.level;
@@ -943,13 +954,11 @@ struct OpSurface {
             if(page==5&&i>1)continue;
             const auto c=channel(o);
             const bool active=page==5?(harmonicView==i+1):
-                page==4?(i<4?modSlot==i:(i==4?c.response.source==1:c.enabled)):
+                page==4?(modSlot==i):
                 (i!=op&&(shadows&(1u<<i)));
             button(r,active,true);
             const std::string name=page==5?(i?"Wave Morph":"Wave"):
-                page==4?(i<4?"Mod "+std::to_string(i+1):
-                         i==4?(c.response.source?"Src M":"Src V"):
-                              (c.enabled?"Enabled":"Disabled")):
+                page==4?("Mod "+std::to_string(i+1)):
                 ("OP"+std::to_string(i+1));
             text(name,r,.74f,overlayColor(active?kBg:kWhite));
         }
@@ -990,7 +999,7 @@ struct OpSurface {
                     i==2?"Morph":i==3?"P Morph":"W Morph";
                 text(label,r,i==4?.69f:.77f,overlayColor(active?kBg:kWhite));
             }
-            ov.addText("Output 0-100%  /  Input V or M",
+            ov.addText("Output 0-100%  /  Input V, M or K",
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }else{
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
@@ -1244,11 +1253,18 @@ struct OpSurface {
             page=5;harmonicView=1;selected=-1;return true;
         }
         if(powerRect().contains(x,y)){
-            changed=core.setSelectedOperatorEnabled(op,!o.enabled);
+            if(page==4){
+                auto c=channel(o);
+                c.response.source=static_cast<uint8_t>((c.response.source+1)%3);
+                changed=setChannel(c);
+            }else changed=core.setSelectedOperatorEnabled(op,!o.enabled);
             return true;
         }
         if(phaseRect().contains(x,y)){
-            changed=core.setSelectedOperatorRandomPhase(op,!o.randomPhase);
+            if(page==4){
+                auto c=channel(o);c.enabled=!c.enabled;
+                changed=setChannel(c);
+            }else changed=core.setSelectedOperatorRandomPhase(op,!o.randomPhase);
             return true;
         }
         for(int i=0;i<2;++i)if(rect(5+i).contains(x,y)){drag=-10-i;return move(x,y);}
@@ -1262,13 +1278,7 @@ struct OpSurface {
             if(page==5){
                 if(i<2)harmonicView=i+1;
             }else if(page==4){
-                if(i<4){modSlot=i;selected=-1;}
-                else{
-                    auto c=channel(o);
-                    if(i==4)c.response.source=static_cast<uint8_t>(c.response.source?0:1);
-                    else c.enabled=!c.enabled;
-                    changed=setChannel(c);
-                }
+                modSlot=i;selected=-1;
             }else if(i!=op)shadows^=1u<<i;
             return true;
         }
@@ -1535,16 +1545,25 @@ struct FilterSurface {
             o.addTextCentered(label,{r.x,r.y,r.w,r.h},size,
                 overlayColor(active?kBg:kWhite));
         };
-        cell(bar(0,0,2),"Frequency / Amount / Q",true,kCyan,.78f);
-        cell(bar(0,1,2),model.configured?"Filter active":"Enable filter",model.configured,kGreen,.86f);
+        if(page==2){
+            const auto& mod=model.mods[slot];
+            cell(bar(0,0,2),mod.response.source==2?"Source K":
+                mod.response.source==1?"Source M":"Source V",true,kCyan,.85f);
+            cell(bar(0,1,2),mod.enabled?"Mod ON":"Mod OFF",mod.enabled,kGreen,.86f);
+        }else{
+            cell(bar(0,0,2),"Frequency / Amount / Q",true,kCyan,.78f);
+            cell(bar(0,1,2),model.configured?"Filter active":"Enable filter",model.configured,kGreen,.86f);
+        }
         static const char* subTabs[4]={"Envelope","Morph","Mod","Slope"};
         for(int i=0;i<4;++i)cell(bar(1,i,4),subTabs[i],page==i,kPurple,.80f);
         if(page<2){
             cell(bar(2,0,3),model.keyTrack?"Key Track ON":"Key Track OFF",
                 model.keyTrack,kGreen,.78f);
-            cell(bar(2,1,3),model.keyTrack?"Frequency locked":"Frequency editable",
-                model.keyTrack,kCyan,.71f);
-            cell(bar(2,2,3),"Tap any curve to edit",false,kPurple,.70f);
+            const auto patch=ProjectCore::instance().selectedPatch();
+            cell(bar(2,1,3),"K Low "+std::to_string(patch.keyMapLow),
+                false,kCyan,.78f);
+            cell(bar(2,2,3),"K High "+std::to_string(patch.keyMapHigh),
+                false,kPurple,.78f);
             const auto c=getCurve(model);
             cell(bar(3,0,6),"D",selected==c.decayIndex,kCyan,1);
             cell(bar(3,1,6),"R",selected==c.releaseIndex,kOrange,1);
@@ -1555,10 +1574,8 @@ struct FilterSurface {
         }else if(page==2){
             // Mod's controls must not be rendered under the Slope page's
             // shape/preset buttons (they share the same two rows).
-            for(int i=0;i<4;++i)cell(bar(2,i,6),"Mod "+std::to_string(i+1),slot==i,kPurple,.8f);
-            const auto& m=model.mods[slot];
-            cell(bar(2,4,6),m.response.source?"Src M":"Src V",m.response.source==1,kCyan,.7f);
-            cell(bar(2,5,6),m.enabled?"On":"Off",m.enabled,kGreen,.8f);
+            for(int i=0;i<6;++i)
+                cell(bar(2,i,6),"Mod "+std::to_string(i+1),slot==i,kPurple,.78f);
             static const char* dests[6]={"Freq","Amount","Q","F Morph","A Morph","Q Morph"};
             for(int i=0;i<6;++i)cell(bar(3,i,6),
                 i==0&&model.keyTrack?"F locked":dests[i],
@@ -1901,9 +1918,18 @@ struct FilterSurface {
     bool down(float x,float y){
         moved=changed=false;drag=bend=transition=-1;
         downX=x;downY=y;started=std::chrono::steady_clock::now();
-        if(bar(0,0,2).contains(x,y))return true;
+        if(bar(0,0,2).contains(x,y)){
+            if(page==2){
+                auto m=getModel();auto& c=m.mods[slot];
+                c.response.source=static_cast<uint8_t>((c.response.source+1)%3);
+                changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
+            }
+            return true;
+        }
         if(bar(0,1,2).contains(x,y)){
-            auto m=getModel();m.configured=!ProjectCore::instance().selectedPatch().filter.evolving.configured;
+            auto m=getModel();
+            if(page==2)m.mods[slot].enabled=!m.mods[slot].enabled;
+            else m.configured=!ProjectCore::instance().selectedPatch().filter.evolving.configured;
             changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
             return true;
         }
@@ -1964,7 +1990,21 @@ struct FilterSurface {
                 changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
                 return true;
             }
-            if(bar(2,1,3).contains(x,y)||bar(2,2,3).contains(x,y))return true;
+            for(int i=1;i<3;++i)if(bar(2,i,3).contains(x,y)){
+                const auto patch=ProjectCore::instance().selectedPatch();
+                const auto r=bar(2,i,3);
+                // Outer fifths jump by 12 keys; middle regions adjust by one.
+                // K endpoints are patch properties, independent of Filter Key Track.
+                const float fraction=(x-r.x)/std::max(1.0f,r.w);
+                const int delta=fraction<.20f?-12:fraction<.50f?-1:
+                    fraction<.80f?1:12;
+                const int low=i==1?std::clamp(patch.keyMapLow+delta,
+                    0,patch.keyMapHigh-1):patch.keyMapLow;
+                const int high=i==2?std::clamp(patch.keyMapHigh+delta,
+                    patch.keyMapLow+1,127):patch.keyMapHigh;
+                changed=ProjectCore::instance().setSelectedKeyMapRange(low,high);
+                return true;
+            }
             // Each visible lane selects itself by touch; there is no
             // separate frequency / amount / Q focus switch.
             for(int i=0;i<6;++i)if(bar(3,i,6).contains(x,y)){
@@ -1982,13 +2022,7 @@ struct FilterSurface {
             }
         }else{
             for(int i=0;i<6;++i)if(bar(2,i,6).contains(x,y)){
-                if(i<4){slot=i;selected=-1;}
-                else{
-                    auto m=getModel();auto& c=m.mods[slot];
-                    if(i==4)c.response.source=static_cast<uint8_t>(!c.response.source);
-                    else c.enabled=!c.enabled;
-                    changed=ProjectCore::instance().setSelectedEvolvingFilter(m);
-                }
+                slot=i;selected=-1;
                 return true;
             }
             for(int i=0;i<6;++i)if(bar(3,i,6).contains(x,y)){
