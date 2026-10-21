@@ -5,12 +5,7 @@
 
 namespace aiora {
 
-// Pitch-selectable single-cycle tables; 512 samples safely resolve 128
-// partials and octave-filtered banks prevent partials crossing Nyquist.
-constexpr size_t kWaveTableSamples=512;
-constexpr size_t kWaveTableLevels=8;
-using SpectralWaveTables=std::array<
-    std::array<float,kWaveTableSamples>,kWaveTableLevels>;
+// Prepared wavetable types are shared with DspPatch in AioraTypes.h.
 
 class SpectrachordVoice {
 public:
@@ -104,9 +99,8 @@ private:
     EnvState filterEnv_{};
     std::array<std::array<float,2>,6> phase_{};
     std::array<float,6> lastOp_{};
-    // FFT-resynthesized at note start, then linearly sampled on the audio
-    // thread. Each bank has progressive anti-aliasing harmonic limits.
-    std::array<SpectralWaveTables,6> waveTables_{},morphTables_{};
+    // Immutable band-limited cycles are referenced through patch_.
+    // Voice start performs no FFT and copies no waveform samples.
     std::array<float,12> platePhase_{};
     std::array<float,12> plateGain_{};
     std::array<float,12> plateDecay_{};

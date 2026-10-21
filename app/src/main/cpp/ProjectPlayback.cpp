@@ -106,6 +106,10 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
         if(track.mute || (anySolo&&!track.solo))continue;
         const int melodicBus=track.drums?-1:addFxBus(track.patch.fx);
         std::vector<int> padBuses(track.pads.size(),-2);
+        // Build each instrument's DSP patch once per snapshot instead of
+        // performing even cached waveform lookup for every sequenced note.
+        const DspPatch melodicPatch=track.drums?DspPatch{}:toDspPatch(track.patch);
+        std::vector<std::unique_ptr<DspPatch>> preparedPads(track.pads.size());
 
         for(const auto& note:track.notes){
             // Keep the fractional time offset instead of rounding to the grid.
@@ -124,13 +128,15 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
                 const auto& pad=track.pads[static_cast<size_t>(padIndex)];
                 if(padBuses[static_cast<size_t>(padIndex)]==-2)padBuses[static_cast<size_t>(padIndex)]=addFxBus(pad.patch.fx);
                 event.fxBus=static_cast<int32_t>(padBuses[static_cast<size_t>(padIndex)]);
-                event.patch=toDspPatch(pad.patch);
+                auto& prepared=preparedPads[static_cast<size_t>(padIndex)];
+                if(!prepared)prepared=std::make_unique<DspPatch>(toDspPatch(pad.patch));
+                event.patch=*prepared;
                 event.automation.bend=bendCurve(note,&pad);
                 const auto [l,r]=panGain(track.volume*pad.volume,std::clamp(track.pan+pad.pan,-1.0f,1.0f));
                 event.gainLeft=l;event.gainRight=r;
             }else{
                 event.fxBus=static_cast<int32_t>(melodicBus);
-                event.patch=toDspPatch(track.patch);
+                event.patch=melodicPatch;
                 event.automation.bend=bendCurve(note,nullptr);
                 const auto [l,r]=panGain(track.volume,track.pan);
                 event.gainLeft=l;event.gainRight=r;

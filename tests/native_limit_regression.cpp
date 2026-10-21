@@ -285,6 +285,103 @@ int main(){
             }
         }
     }
+    // Band-limited waveform spectra must be built once on the non-audio
+    // patch-preparation path. Repeated notes share immutable tables while
+    // their envelope, phase, K/V/M and waveform crossfade stay independent.
+    {
+        Patch bass=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+        for(auto& op:bass.ops){op.enabled=false;op.level=0;}
+        auto& op=bass.ops[0];
+        op.enabled=true;
+        op.level=.8f;
+        op.wave=Wave::Custom;
+        op.hasHarm=true;
+        op.harm=presetWaveHarmonics(Wave::Saw);
+        op.harmPhase=presetWavePhases(Wave::Saw);
+        op.waveMorph=Wave::Custom;
+        op.waveMorphConfigured=true;
+        op.hasHarmMute=true;
+        op.harmMute=presetWaveHarmonics(Wave::Triangle);
+        op.harmMutePhase=presetWavePhases(Wave::Triangle);
+        op.modChannelsConfigured=true;
+        for(auto& route:op.modChannels)route.enabled=false;
+        op.modChannels[0]=initialOperatorModChannel();
+        op.modChannels[0].enabled=true;
+        op.modChannels[0].destination=OperatorModDestination::WaveMorph;
+        op.modChannels[0].response.source=1;
+        auto& second=bass.ops[1];
+        second.enabled=true;second.level=.20f;
+        second.wave=Wave::Sine;
+        second.waveMorph=Wave::Sine;
+        second.waveMorphConfigured=true;
+
+        const auto first=toDspPatch(bass);
+        const auto repeated=toDspPatch(bass);
+        assert(first.spectralBanks.primary[0]&&first.spectralBanks.alternate[0]);
+        assert(first.spectralBanks.primary[0]==repeated.spectralBanks.primary[0]);
+        assert(first.spectralBanks.alternate[0]==repeated.spectralBanks.alternate[0]);
+        assert(first.spectralBanks.primary[1]==repeated.spectralBanks.primary[1]);
+        assert(first.spectralBanks.primary[1]==first.spectralBanks.alternate[1]);
+        assert(!first.spectralBanks.primary[2]); // disabled operators need no tables
+
+        // Editing modulation and decay should NOT rebuild any spectrum.
+        Patch articulated=bass;
+        articulated.ops[0].modChannels[0].response.source=2;
+        articulated.ops[0].volumeCurve=legacyOperatorVolume(
+            Envelope{.003f,.3f,.8f,.4f});
+        const auto unchanged=toDspPatch(articulated);
+        assert(first.spectralBanks.primary[0]==unchanged.spectralBanks.primary[0]);
+        assert(first.spectralBanks.alternate[0]==unchanged.spectralBanks.alternate[0]);
+
+        // Editing an alternate harmonic rebuilds just the alternate bank.
+        Patch newMorph=bass;
+        newMorph.ops[0].harmMute[2]=.34f;
+        const auto updatedMorph=toDspPatch(newMorph);
+        assert(first.spectralBanks.primary[0]==updatedMorph.spectralBanks.primary[0]);
+        assert(first.spectralBanks.alternate[0]!=updatedMorph.spectralBanks.alternate[0]);
+        assert(first.spectralBanks.primary[1]==updatedMorph.spectralBanks.primary[1]);
+        // Phase changes must also invalidate the correct bank.
+        Patch newPhase=bass;
+        newPhase.ops[0].harmPhase[3]=.25f;
+        const auto updatedPhase=toDspPatch(newPhase);
+        assert(first.spectralBanks.primary[0]!=updatedPhase.spectralBanks.primary[0]);
+        assert(first.spectralBanks.alternate[0]==updatedPhase.spectralBanks.alternate[0]);
+        assert(first.spectralBanks.primary[1]==updatedPhase.spectralBanks.primary[1]);
+
+        // A running voice owns its old banks after the patch is edited.
+        VoiceAutomation fullMorph;
+        fullMorph.mod.storage=std::make_shared<std::vector<DspCurvePoint>>();
+        fullMorph.mod.storage->push_back({0,1,.5f,0,false});
+        fullMorph.mod.storage->push_back({8,1,.5f,0,false});
+        fullMorph.mod.points=fullMorph.mod.storage->data();
+        fullMorph.mod.count=2;
+        SpectrachordVoice previous,oldReference,edited;
+        previous.prepare(48000);oldReference.prepare(48000);edited.prepare(48000);
+        previous.start(8801,first,39,.8f,0,4800,fullMorph);
+        oldReference.start(8801,repeated,39,.8f,0,4800,fullMorph);
+        edited.start(8801,updatedMorph,39,.8f,0,4800,fullMorph);
+        float changedSpectrum=0;
+        for(int n=0;n<3500;++n){
+            const float old=previous.render();
+            const float same=oldReference.render();
+            const float newer=edited.render();
+            assert(std::isfinite(old)&&std::isfinite(same)&&std::isfinite(newer));
+            assert(std::fabs(old-same)<1.0e-6f);
+            changedSpectrum+=std::fabs(old-newer);
+        }
+        assert(changedSpectrum>1.0e-4f);
+        // A noise operator needs no prepared tonal table.
+        Patch hiss=bass;
+        hiss.ops[0].wave=Wave::Hiss;
+        hiss.ops[0].waveMorph=Wave::Noise;
+        const auto stochastic=toDspPatch(hiss);
+        assert(!stochastic.spectralBanks.primary[0]);
+        assert(!stochastic.spectralBanks.alternate[0]);
+        SpectrachordVoice noiseVoice;
+        noiseVoice.prepare(48000);
+        noiseVoice.start(8802,stochastic,39,.8f,0,4800);
+        for(int n=0;n<128;++n)assert(std::isfinite(noiseVoice.render()));
+    }
     // Harmonic extrapolation follows the octave-copy rule, obeys the 1/n
     // ceiling, and interpolates phase around the shortest circle arc.
     {

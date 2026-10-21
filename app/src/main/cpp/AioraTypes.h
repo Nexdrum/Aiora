@@ -16,6 +16,17 @@ enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise, Hiss };
 constexpr size_t kEditableHarmonics=64;
 constexpr size_t kSynthHarmonics=128;
 using HarmonicBank=std::array<float,kEditableHarmonics>;
+// One immutable bank is shared by any voices using identical harmonic data.
+// Expression, frequency and morph mixing remain calculated every sample.
+constexpr size_t kWaveTableSamples=512;
+constexpr size_t kWaveTableLevels=8;
+using SpectralWaveTables=std::array<
+    std::array<float,kWaveTableSamples>,kWaveTableLevels>;
+using SharedSpectralBank=std::shared_ptr<const SpectralWaveTables>;
+struct PreparedSpectralBanks {
+    std::array<SharedSpectralBank,6> primary{};
+    std::array<SharedSpectralBank,6> alternate{};
+};
 inline HarmonicBank presetWaveHarmonics(Wave wave) noexcept {
     HarmonicBank partials{};
     for(size_t i=0;i<partials.size();++i){
@@ -391,9 +402,10 @@ struct Patch {
     uint8_t cymbalModel{0}; // 0=normal, 1=crash, 2=ride
 };
 
-/** Audio-thread copy of Patch: fixed-size and trivially copyable, with no std::string. */
+/** DSP-ready patch with immutable wave tables shared across voices. */
 struct DspPatch {
     int32_t keyMapLow{0},keyMapHigh{127};
+    PreparedSpectralBanks spectralBanks{};
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
     Filter filter{}; PeakFilter peak{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
     std::shared_ptr<const std::vector<ModSlot>> modSlots{}; size_t modSlotCount{0};
@@ -412,6 +424,9 @@ inline float normalizedKeyMap(int midi,int low,int high) noexcept {
         static_cast<float>(std::max(1,high-low)),0.0f,1.0f);
 }
 
+// Only call off the audio thread when preparing a patch or song snapshot.
+void prepareDspPatchWaveforms(DspPatch& patch);
+
 inline DspPatch toDspPatch(const Patch& p) {
     DspPatch d;d.ops=p.ops;d.matrix=p.matrix;d.filter=p.filter;d.peak=p.peak;d.amp=p.amp;
     d.velocityAmp=p.velocityAmp;d.velocityFilter=p.velocityFilter;
@@ -423,7 +438,9 @@ inline DspPatch toDspPatch(const Patch& p) {
     d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.unisonCurve=p.unisonCurve;d.masterAmpCurve=p.masterAmpCurve;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
     d.timpaniMembrane=p.timpaniMembrane;
     d.drumPitchDrop=p.drumPitchDrop;d.drumPitchDropSeconds=p.drumPitchDropSeconds;
-    d.cymbalModel=p.cymbalModel;return d;
+    d.cymbalModel=p.cymbalModel;
+    prepareDspPatchWaveforms(d);
+    return d;
 }
 
 // q=0.5 preserves linear interpolation; q<0.5 puts the half-value

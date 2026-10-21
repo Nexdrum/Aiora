@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <bit>
+#include <mutex>
+#include <unordered_map>
 
 namespace aiora {
 namespace {
@@ -65,6 +68,82 @@ void buildSpectralTables(SpectralWaveTables& tables,
             tables[level][sample]=spectrum[sample].real()*invN;
     }
 }
+// Cache tables by *actual* authored amplitudes and phases, rather than by
+// patch name or note. This preserves exact morph-bank and preset semantics.
+struct SpectralKey {
+    std::array<uint32_t,kEditableHarmonics*2> bits{};
+    bool operator==(const SpectralKey&) const noexcept = default;
+};
+struct SpectralKeyHash {
+    size_t operator()(const SpectralKey& key) const noexcept {
+        size_t h=static_cast<size_t>(1469598103934665603ull);
+        for(uint32_t b:key.bits){
+            h^=static_cast<size_t>(b);
+            h*=static_cast<size_t>(1099511628211ull);
+        }
+        return h;
+    }
+};
+struct TableCache {
+    std::mutex mutex;
+    std::unordered_map<SpectralKey,SharedSpectralBank,SpectralKeyHash> banks{};
+};
+TableCache& tableCache(){
+    static TableCache cache;
+    return cache;
+}
+SharedSpectralBank cachedSpectralBank(const HarmonicBank& amplitudes,
+                                     const HarmonicBank& phases){
+    SpectralKey key;
+    for(size_t i=0;i<kEditableHarmonics;++i){
+        key.bits[i]=std::bit_cast<uint32_t>(amplitudes[i]);
+        key.bits[i+kEditableHarmonics]=std::bit_cast<uint32_t>(phases[i]);
+    }
+    auto& cache=tableCache();
+    std::scoped_lock lock(cache.mutex);
+    if(const auto it=cache.banks.find(key);it!=cache.banks.end())
+        return it->second;
+    // Keep several MB of tables available across note releases. The last
+    // owner of a playing voice's bank must not disappear on the audio thread:
+    // only evict cache-only entries, with use_count() == 1.
+    constexpr size_t kCachedBankLimit=192;
+    if(cache.banks.size()>=kCachedBankLimit){
+        for(auto it=cache.banks.begin();
+            it!=cache.banks.end()&&cache.banks.size()>=kCachedBankLimit;){
+            if(it->second.use_count()==1)it=cache.banks.erase(it);
+            else ++it;
+        }
+    }
+    auto writable=std::make_shared<SpectralWaveTables>();
+    buildSpectralTables(*writable,amplitudes,phases);
+    const SharedSpectralBank prepared=writable;
+    cache.banks.emplace(std::move(key),prepared);
+    return prepared;
+}
+SharedSpectralBank preparedTonalBank(Wave wave,
+                                    const HarmonicBank& amplitudes,
+                                    const HarmonicBank& phases,
+                                    bool customAuthored){
+    if(wave==Wave::Noise||wave==Wave::Hiss)return {};
+    return cachedSpectralBank(
+        wave==Wave::Custom&&customAuthored?amplitudes:presetWaveHarmonics(wave),
+        wave==Wave::Custom&&customAuthored?phases:presetWavePhases(wave));
+}
+}
+
+void prepareDspPatchWaveforms(DspPatch& patch){
+    for(size_t i=0;i<patch.ops.size();++i){
+        const auto& op=patch.ops[i];
+        if(!op.enabled)continue;
+        auto& primary=patch.spectralBanks.primary[i];
+        auto& alternate=patch.spectralBanks.alternate[i];
+        primary=preparedTonalBank(op.wave,op.harm,op.harmPhase,op.hasHarm);
+        const Wave alt=effectiveWaveMorph(op);
+        if(alt==op.wave&&!(alt==Wave::Custom&&op.hasHarmMute))
+            alternate=primary;
+        else
+            alternate=preparedTonalBank(alt,op.harmMute,op.harmMutePhase,op.hasHarmMute);
+    }
 }
 
 // Morphing a filter type means CROSSFADE, not running two effects
@@ -305,29 +384,10 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     }else unisonSmoothed_=fixedUnison_;
     fixedFilterEnvAmount_=clamp01(slotValue(ModTarget::FilterEnv,vMean,mMean,patch_.filter.envAmount));
     rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;filter_.reset();peak_.reset();peakReady_=false;
-    // Fixed-phase operators retain their original zero start. When enabled,
-    // draw an independent phase for each tonal operator/unison oscillator.
-    // Noise and Hiss have no meaningful phase and are left untouched.
+    // Tables were generated once off the audio callback during patch
+    // preparation. Here only per-note phase state is initialized.
     for(size_t i=0;i<6;++i){
         const auto& o=patch_.ops[i];
-        const Wave alternate=effectiveWaveMorph(o);
-        if(o.enabled&&o.wave!=Wave::Noise&&o.wave!=Wave::Hiss){
-            buildSpectralTables(waveTables_[i],
-                (o.wave==Wave::Custom&&o.hasHarm)
-                    ?o.harm:presetWaveHarmonics(o.wave),
-                (o.wave==Wave::Custom&&o.hasHarm)
-                    ?o.harmPhase:presetWavePhases(o.wave));
-        }
-        if(o.enabled&&alternate!=Wave::Noise&&alternate!=Wave::Hiss){
-            if(alternate==o.wave&&
-                !(alternate==Wave::Custom&&o.hasHarmMute))
-                morphTables_[i]=waveTables_[i];
-            else buildSpectralTables(morphTables_[i],
-                (alternate==Wave::Custom&&o.hasHarmMute)
-                    ?o.harmMute:presetWaveHarmonics(alternate),
-                (alternate==Wave::Custom&&o.hasHarmMute)
-                    ?o.harmMutePhase:presetWavePhases(alternate));
-        }
         if(!o.enabled||!o.randomPhase||o.randomPhaseDegrees<=0.0f||
            o.wave==Wave::Noise||o.wave==Wave::Hiss)continue;
         if(rng_==0)rng_=0x91e10da5u;
@@ -588,18 +648,19 @@ float SpectrachordVoice::render() noexcept {
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
             const auto bankSample=[&](Wave wave,
-                const SpectralWaveTables& tables)->float {
-                return wave==Wave::Hiss?hissSample(i,u,f):
-                    waveSample(wave,tables,ph,f);
+                const SharedSpectralBank& tables)->float {
+                if(wave==Wave::Hiss)return hissSample(i,u,f);
+                if(wave==Wave::Noise)return noise();
+                return tables?waveSample(wave,*tables,ph,f):0.0f;
             };
-            float sample=bankSample(op.wave,waveTables_[i]);
+            float sample=bankSample(op.wave,P.spectralBanks.primary[i]);
             if(waveMorph>0.0f){
                 const Wave alternate=effectiveWaveMorph(op);
                 const bool distinct=alternate!=op.wave||
                     (alternate==Wave::Custom&&op.hasHarmMute);
                 if(distinct){
                     const float alternateSample=bankSample(
-                        alternate,morphTables_[i]);
+                        alternate,P.spectralBanks.alternate[i]);
                     sample+=(alternateSample-sample)*waveMorph;
                 }
             }
