@@ -952,7 +952,6 @@ struct OpSurface {
         for(int i=0;i<6;++i){
             auto r=rect(8,i);
             if(page==5&&i>1)continue;
-            const auto c=channel(o);
             const bool active=page==5?(harmonicView==i+1):
                 page==4?(modSlot==i):
                 (i!=op&&(shadows&(1u<<i)));
@@ -1576,6 +1575,7 @@ struct FilterSurface {
             // shape/preset buttons (they share the same two rows).
             for(int i=0;i<6;++i)
                 cell(bar(2,i,6),"Mod "+std::to_string(i+1),slot==i,kPurple,.78f);
+            const auto& m=model.mods[slot];
             static const char* dests[6]={"Freq","Amount","Q","F Morph","A Morph","Q Morph"};
             for(int i=0;i<6;++i)cell(bar(3,i,6),
                 i==0&&model.keyTrack?"F locked":dests[i],
