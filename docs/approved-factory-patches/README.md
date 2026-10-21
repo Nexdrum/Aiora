@@ -1,19 +1,21 @@
-# Approved Nebular and Subula factory patches
+# Approved physical-instrument factory patches
 
-Aiora Beta 0.7.78 ships the user-auditioned instruments as the two existing factory presets. Only their **display names** are normalized to `Nebular` and `Subula`; harmonic data and patch behavior are imported unmodified using `deserializePatchJson`.
+Aiora Beta 0.7.79 replaces the factory **Spectrello** slot (ID 2) with the approved, user-auditioned five-string carbon-fiber electric cello. The previously approved **Nebular** (ID 3) and **Subula** (ID 1) are unchanged from Beta 0.7.78.
 
-- Factory ID 1 — **Subula**: `Subula_Metal_Fingerboard_Fretless_v4.json` (phase-locked metal fingerboard contact and independent pick transient).
-- Factory ID 3 — **Nebular**: `Nebular_Steel_Physics_v2.json`.
-- `app/src/main/cpp/ApprovedFactoryPatches.h` embeds the exact source JSON as C++ string literals so it can be loaded without introducing a runtime file dependency.
+The patches use `deserializePatchJson` to import the complete approved source JSON, retaining harmonic amplitudes and phases, both morph banks, V/M/K expression, custom sustain/release envelopes, filter settings and dry FX. Only factory display names are normalized.
 
-## Original factory backups
+- ID 1 — **Subula**: `Subula_Metal_Fingerboard_Fretless_v4.json` (Beta 0.7.78)
+- ID 2 — **Spectrello**: `Spectrello_Carbon_Fiber_Five_String_v2_Resonant_Release.json` (Beta 0.7.79)
+- ID 3 — **Nebular**: `Nebular_Steel_Physics_v2.json` (Beta 0.7.78)
 
-The previous native factory implementation, including both older Nebular and Subula voices, is preserved in Git history before this replacement:
+**Implementation:** `app/src/main/cpp/ApprovedFactoryPatches.h` embeds the approved Nebular/Subula patches; `SpectrelloFactoryV2.h` embeds Spectrello. There are no new runtime data-file dependencies.
 
-- Pre-integration branch commit: [7c611bf2c023ba95fffafbd20e207e6e5f59155b](https://github.com/Nexdrum/Aiora/commit/7c611bf2c023ba95fffafbd20e207e6e5f59155b)
-- Legacy file: `app/src/main/cpp/FactoryPresets.cpp`, blob `4cd8ec362d5a2265f44e6b8c9ca6c054e77b1401`.
-- Both approved JSONs also remain available in this directory for independent restoration and future sound-design revision.
+## Preservation / rollback
+
+The legacy native Nebular and Subula factory definitions remain in Git history at commit `7c611bf2c023ba95fffafbd20e207e6e5f59155b`. The original native Spectrello definition remains in Git history at commit `ba3e0eabded71b327d8e524b512096c2a43c58a2`.
+
+User-approved source JSON copies are retained in this directory. Existing projects with embedded patch snapshots are not automatically rewritten when factory defaults change.
 
 ## Verification
 
-Native regressions compare decoded factory patches field-for-field by serializing them to JSON and comparing against independently decoded approved source JSON, and check Spectrello remains unaffected. This does not substitute for listening and touchscreen testing on Android.
+Native regressions compare each decoded factory instrument against the independently decoded approved JSON, checking the entire serialized patch including custom envelope points. Spectrello-specific tests verify its six enabled operators, short friction release, dry output, disabled automatic vibrato, and C2–E4-derived K reference range (MIDI 36–88). These tests do not replace on-device auditioning.

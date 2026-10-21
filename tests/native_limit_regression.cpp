@@ -2,6 +2,7 @@
 #include "ProjectCodec.h"
 #include "FactoryPresets.h"
 #include "ApprovedFactoryPatches.h"
+#include "SpectrelloFactoryV2.h"
 #include "NexdrumKit.h"
 #include "SpectrachordVoice.h"
 #include "PlaybackSnapshot.h"
@@ -590,7 +591,7 @@ int main(){
     assert(snapshot&&snapshot->masterEffects.count==2);
     fxCore.reset();
 
-    // Factory Nebular/Subula must be the exact approved importable patches,
+    // Factory Nebular/Subula/Spectrello must be the exact approved importable patches,
     // not the legacy four-operator sound designs. Compare the full serialized
     // decoded models to catch differences in phases, morphs, curves, V/M/K
     // routing, effects and the new patch-wide key map.
@@ -601,15 +602,17 @@ int main(){
         for(const auto& slot:slots)if(slot.target==target)return true;
         return false;
     };
-    for(const auto& entry:std::array<std::pair<FactoryPreset,std::string_view>,2>{{
+    for(const auto& entry:std::array<std::pair<FactoryPreset,std::string_view>,3>{{
         {FactoryPreset::Nebular,factory_patch_data::nebularSteelPhysicsV2},
-        {FactoryPreset::Subula,factory_patch_data::subulaMetalFretlessV4}
+        {FactoryPreset::Subula,factory_patch_data::subulaMetalFretlessV4},
+        {FactoryPreset::Spectrello,factory_patch_data::spectrelloCarbonFiberV2}
     }}){
         Patch expected;
         std::string error;
         assert(deserializePatchJson(entry.second,expected,&error));
         const Patch actual=makeFactoryPatch(entry.first);
-        expected.name=entry.first==FactoryPreset::Nebular?"Nebular":"Subula";
+        expected.name=entry.first==FactoryPreset::Nebular?"Nebular":
+            (entry.first==FactoryPreset::Subula?"Subula":"Spectrello");
         assert(actual.name==expected.name);
         assert(serializePatchJson(expected)==serializePatchJson(actual));
         assert(serializePatchJson(factoryBank()[static_cast<size_t>(entry.first)])==
@@ -635,18 +638,42 @@ int main(){
     assert(std::fabs(subula.ops[4].ratio-1.0f)<.00001f);
     assert(subula.ops[5].wave==Wave::Hiss);
     assert(effectiveWaveMorph(subula.ops[5])==Wave::Noise);
-    // Spectrello retains the old factory arrangement and global V/M routes.
+    // The five-string carbon-fiber cello uses the modern per-operator
+    // V/M/K channels, natural R-point release, and an entirely dry output.
+    assert(spectrello.name=="Spectrello");
     assert(!spectrello.cymbalModel&&!spectrello.timpaniMembrane);
-    assert(spectrello.velocitySlotCount>=3&&spectrello.modSlotCount>=3);
-    for(const auto& v:spectrello.velocitySlots)
-        for(const auto& m:spectrello.modSlots)assert(v.target!=m.target);
-    Patch spectrelloRoundTrip;
-    assert(deserializePatchJson(serializePatchJson(spectrello),spectrelloRoundTrip));
-    assert(spectrelloRoundTrip.modSlotCount==spectrello.modSlotCount);
-    assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Morph1));
-    assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Op5));
-    assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Op6));
-    assert(hasInstrumentTarget(spectrello.velocitySlots,ModTarget::AmpAttack));
+    assert(spectrello.lfo.target==LfoTarget::None&&spectrello.lfo.amount==0.0f);
+    assert(spectrello.fx.distortion==0.0f);
+    assert(spectrello.fx.delay==0.0f);
+    assert(spectrello.fx.reverb==0.0f);
+    assert(spectrello.unison==0.0f);
+    assert(spectrello.keyMapLow==36&&spectrello.keyMapHigh==88);
+    assert(spectrello.ops[4].wave==Wave::Custom);
+    assert(spectrello.ops[5].wave==Wave::Hiss);
+    assert(effectiveWaveMorph(spectrello.ops[5])==Wave::Noise);
+    for(size_t i=0;i<spectrello.ops.size();++i){
+        const auto& op=spectrello.ops[i];
+        assert(op.enabled&&op.modChannelsConfigured);
+        assert(op.volumeCurve.enabled&&op.volumeMorphCurve.enabled);
+        assert(op.volumeCurve.sustain&&op.volumeMorphCurve.sustain);
+        const auto checkRelease=[](const OperatorCurve& curve){
+            assert(curve.releaseIndex<curve.count-1);
+            const float duration=curve.points[curve.count-1].time-
+                curve.points[curve.releaseIndex].time;
+            assert(duration>0.015f&&duration<=0.28f);
+            assert(curve.points[curve.count-1].value==0.0f);
+        };
+        checkRelease(op.volumeCurve);
+        checkRelease(op.volumeMorphCurve);
+    }
+    // OP5/OP6 cease friction promptly when the bow lifts; OP3 carries the
+    // longer but still short hollow-neck resonance.
+    const auto releaseSeconds=[](const OperatorCurve& c){
+        return c.points[c.count-1].time-c.points[c.releaseIndex].time;
+    };
+    assert(releaseSeconds(spectrello.ops[4].volumeCurve)<.05f);
+    assert(releaseSeconds(spectrello.ops[5].volumeCurve)<.04f);
+    assert(releaseSeconds(spectrello.ops[2].volumeCurve)>.20f);
 
     // Existing patches without a "peak" object remain unchanged/disabled.
     {

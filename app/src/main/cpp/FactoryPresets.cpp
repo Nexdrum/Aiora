@@ -1,5 +1,6 @@
 #include "FactoryPresets.h"
 #include "ApprovedFactoryPatches.h"
+#include "SpectrelloFactoryV2.h"
 #include "ProjectCodec.h"
 #include <algorithm>
 #include <stdexcept>
@@ -778,16 +779,18 @@ Patch makeFactoryPatch(FactoryPreset preset) {
     // user's auditioned JSON patches. Only the factory display name changes;
     // no harmonics, phases, modulation, timelines or FX are re-authored.
     // readPatch() starts from SpectrachordInit, so this cannot recurse.
-    if(preset==FactoryPreset::Nebular||preset==FactoryPreset::Subula){
-        const bool nebular=preset==FactoryPreset::Nebular;
-        const std::string_view source=nebular?
+    if(preset==FactoryPreset::Nebular||preset==FactoryPreset::Subula||
+       preset==FactoryPreset::Spectrello){
+        const std::string_view source=preset==FactoryPreset::Nebular?
             factory_patch_data::nebularSteelPhysicsV2:
-            factory_patch_data::subulaMetalFretlessV4;
+            (preset==FactoryPreset::Subula?
+                factory_patch_data::subulaMetalFretlessV4:
+                factory_patch_data::spectrelloCarbonFiberV2);
         Patch approved;
         std::string error;
         if(!deserializePatchJson(source,approved,&error))
             throw std::runtime_error("Invalid approved factory patch: "+error);
-        approved.name=nebular?"Nebular":"Subula";
+        approved.name=name;
         return approved;
     }
     Patch p = makeDefaultPatch(name);
@@ -891,23 +894,7 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         return p;
     }
 
-    if (preset == FactoryPreset::Spectrello) {
-        // Five-string electric cello. All layers are ordinary Spectrachord
-        // operators. Bow pressure/texture comes from editable M links.
-        configureBowedString(p,FactoryPreset::Cello);
-        p.amp={.065f,.27f,.97f,.37f};
-        p.velocityAmp=.72f;
-        p.velocityFilter=.22f;
-        p.velocitySlots={
-            {ModTarget::AmpAttack,.15f,.025f}, // hard bow attacks engage quickly
-            {ModTarget::Op2,.17f,.42f},       // cello body
-            {ModTarget::Op3,.06f,.24f},       // upper harmonic bow excitation
-            {ModTarget::Op4,.02f,.20f}        // bridge bite
-        };
-        p.velocitySlotCount=p.velocitySlots.size();
-        p.unison=0.0f;p.volume=.77f;
-        p.fx.delay=0.0f;p.fx.reverb=.18f;
-    } else if (preset == FactoryPreset::Nexdrum) {
+    if (preset == FactoryPreset::Nexdrum) {
         setOp(p.ops[0],Wave::Sine,1.0f,0.0f,0.7f,0.002f,0.25f,0.0f,0.15f);
         setOp(p.ops[1],Wave::Sine,0.5f,0.0f,0.5f,0.002f,0.22f,0.0f,0.12f);
         disable(p.ops[2]);disable(p.ops[3]);disable(p.ops[4]);disable(p.ops[5]);
