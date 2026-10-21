@@ -1,6 +1,7 @@
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
 #include "FactoryPresets.h"
+#include "ApprovedFactoryPatches.h"
 #include "NexdrumKit.h"
 #include "SpectrachordVoice.h"
 #include "PlaybackSnapshot.h"
@@ -589,7 +590,10 @@ int main(){
     assert(snapshot&&snapshot->masterEffects.count==2);
     fxCore.reset();
 
-    // Native presets are ordinary editable Spectrachord patches.
+    // Factory Nebular/Subula must be the exact approved importable patches,
+    // not the legacy four-operator sound designs. Compare the full serialized
+    // decoded models to catch differences in phases, morphs, curves, V/M/K
+    // routing, effects and the new patch-wide key map.
     const auto nebular=makeFactoryPatch(FactoryPreset::Nebular);
     const auto spectrello=makeFactoryPatch(FactoryPreset::Spectrello);
     const auto subula=makeFactoryPatch(FactoryPreset::Subula);
@@ -597,66 +601,48 @@ int main(){
         for(const auto& slot:slots)if(slot.target==target)return true;
         return false;
     };
-    for(const Patch* patch:{&nebular,&spectrello,&subula}){
-        assert(!patch->cymbalModel&&!patch->timpaniMembrane);
-        assert(patch->velocitySlotCount>=3&&patch->modSlotCount>=3);
-        for(const auto& v:patch->velocitySlots)
-            for(const auto& m:patch->modSlots)assert(v.target!=m.target);
-        const auto json=serializePatchJson(*patch);
-        assert(json.find("stringDecay")==std::string::npos);
-        assert(json.find("stringDamping")==std::string::npos);
-        Patch restored;std::string patchError;
-        assert(deserializePatchJson(json,restored,&patchError));
-        assert(restored.modSlotCount==patch->modSlotCount);
-        assert(restored.velocitySlotCount==patch->velocitySlotCount);
+    for(const auto& entry:std::array<std::pair<FactoryPreset,std::string_view>,2>{{
+        {FactoryPreset::Nebular,factory_patch_data::nebularSteelPhysicsV2},
+        {FactoryPreset::Subula,factory_patch_data::subulaMetalFretlessV4}
+    }}){
+        Patch expected;
+        std::string error;
+        assert(deserializePatchJson(entry.second,expected,&error));
+        const Patch actual=makeFactoryPatch(entry.first);
+        expected.name=entry.first==FactoryPreset::Nebular?"Nebular":"Subula";
+        assert(actual.name==expected.name);
+        assert(serializePatchJson(expected)==serializePatchJson(actual));
+        assert(serializePatchJson(factoryBank()[static_cast<size_t>(entry.first)])==
+            serializePatchJson(actual));
+        assert(actual.filter.evolving.configured);
+        assert(actual.ops[0].wave==Wave::Custom&&actual.ops[0].hasHarm);
+        assert(actual.ops[0].modChannelsConfigured);
+        assert(actual.ops[5].enabled);
+        for(const auto& op:actual.ops)
+            if(op.wave==Wave::Custom)assert(op.hasHarm);
+        const auto serialized=serializePatchJson(actual);
+        Patch roundTrip;
+        assert(deserializePatchJson(serialized,roundTrip,&error));
+        assert(serializePatchJson(roundTrip)==serialized);
+        // Confirm even the complex patches have prepared spectral banks.
+        const auto dsp=toDspPatch(actual);
+        assert(dsp.spectralBanks.primary[0]!=nullptr);
     }
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpDecay));
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpSustain));
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::AmpRelease));
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Morph1));
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Cutoff));
-    assert(nebular.peak.enabled&&nebular.peak.followNote);
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::PeakRatio));
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::PeakQ));
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::PeakGain));
-    // A palm mute boosts the NOTE fundamental only during the short attack;
-    // it must not use a sustained sub-octave or steal OP4 from V routing.
-    assert(nebular.ops[3].wave==Wave::Triangle);
-    assert(std::fabs(nebular.ops[3].ratio-1.0f)<.00001f);
-    assert(nebular.ops[3].env.sustain==0.0f);
-    assert(nebular.ops[3].env.decay>=.04f&&nebular.ops[3].env.decay<=.07f);
-    assert(hasInstrumentTarget(nebular.modSlots,ModTarget::Op4));
-    assert(!hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op4));
-    assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op1));
-    const auto nebularLink=[&](ModTarget target){
-        for(const auto& link:nebular.modSlots)
-            if(link.target==target)return link;
-        return ModSlot{};
-    };
-    const auto bodyLink=nebularLink(ModTarget::Op4);
-    assert(bodyLink.max>bodyLink.min*10.0f);
-    assert(nebularLink(ModTarget::AmpDecay).max>=.11f);
-    assert(nebularLink(ModTarget::Cutoff).max>=1200.0f);
-    {
-        Patch restored;std::string err;
-        assert(deserializePatchJson(serializePatchJson(nebular),restored,&err));
-        assert(restored.ops[3].ratio==nebular.ops[3].ratio);
-        assert(restored.peak.enabled&&restored.peak.followNote);
-        assert(std::fabs(restored.peak.gainDb-nebular.peak.gainDb)<.0001f);
-        assert(restored.modSlotCount==nebular.modSlotCount);
-        for(size_t i=0;i<nebular.modSlotCount;++i){
-            assert(restored.modSlots[i].target==nebular.modSlots[i].target);
-            assert(std::fabs(restored.modSlots[i].max-nebular.modSlots[i].max)<.0001f);
-        }
-    }
-    assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op3));
-    assert(hasInstrumentTarget(nebular.velocitySlots,ModTarget::Op2));
-    assert(hasInstrumentTarget(subula.modSlots,ModTarget::AmpDecay));
-    assert(hasInstrumentTarget(subula.modSlots,ModTarget::AmpSustain));
-    assert(hasInstrumentTarget(subula.modSlots,ModTarget::AmpRelease));
-    assert(hasInstrumentTarget(subula.modSlots,ModTarget::Cutoff));
-    assert(subula.ops[0].wave==Wave::Saw);
-    assert(subula.ops[1].wave==Wave::Saw);
+    assert(nebular.ops[3].wave==Wave::Hiss);
+    assert(nebular.ops[5].wave==Wave::Custom);
+    assert(subula.keyMapLow==19&&subula.keyMapHigh==57);
+    assert(subula.ops[4].wave==Wave::Custom);
+    assert(std::fabs(subula.ops[4].ratio-1.0f)<.00001f);
+    assert(subula.ops[5].wave==Wave::Hiss);
+    assert(effectiveWaveMorph(subula.ops[5])==Wave::Noise);
+    // Spectrello retains the old factory arrangement and global V/M routes.
+    assert(!spectrello.cymbalModel&&!spectrello.timpaniMembrane);
+    assert(spectrello.velocitySlotCount>=3&&spectrello.modSlotCount>=3);
+    for(const auto& v:spectrello.velocitySlots)
+        for(const auto& m:spectrello.modSlots)assert(v.target!=m.target);
+    Patch spectrelloRoundTrip;
+    assert(deserializePatchJson(serializePatchJson(spectrello),spectrelloRoundTrip));
+    assert(spectrelloRoundTrip.modSlotCount==spectrello.modSlotCount);
     assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Morph1));
     assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Op5));
     assert(hasInstrumentTarget(spectrello.modSlots,ModTarget::Op6));

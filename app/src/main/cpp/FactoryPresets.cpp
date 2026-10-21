@@ -1,5 +1,8 @@
 #include "FactoryPresets.h"
+#include "ApprovedFactoryPatches.h"
+#include "ProjectCodec.h"
 #include <algorithm>
+#include <stdexcept>
 
 namespace aiora {
 namespace {
@@ -771,6 +774,22 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         case FactoryPreset::Marimba: name="Marimba"; break;
         default: break;
     }
+    // The approved presets are imported through the *same* decoder as the
+    // user's auditioned JSON patches. Only the factory display name changes;
+    // no harmonics, phases, modulation, timelines or FX are re-authored.
+    // readPatch() starts from SpectrachordInit, so this cannot recurse.
+    if(preset==FactoryPreset::Nebular||preset==FactoryPreset::Subula){
+        const bool nebular=preset==FactoryPreset::Nebular;
+        const std::string_view source=nebular?
+            factory_patch_data::nebularSteelPhysicsV2:
+            factory_patch_data::subulaMetalFretlessV4;
+        Patch approved;
+        std::string error;
+        if(!deserializePatchJson(source,approved,&error))
+            throw std::runtime_error("Invalid approved factory patch: "+error);
+        approved.name=nebular?"Nebular":"Subula";
+        return approved;
+    }
     Patch p = makeDefaultPatch(name);
 
     if(preset==FactoryPreset::Violin ||
@@ -888,86 +907,6 @@ Patch makeFactoryPatch(FactoryPreset preset) {
         p.velocitySlotCount=p.velocitySlots.size();
         p.unison=0.0f;p.volume=.77f;
         p.fx.delay=0.0f;p.fx.reverb=.18f;
-    } else if (preset == FactoryPreset::Nebular) {
-        // Seven-string guitar. Conventional metal palm muting creates a
-        // punchy short NOTE at the pick attack, not a mid-note choke.
-        // Open strings keep their upper harmonics and normal resonant tail.
-        setOp(p.ops[0],Wave::Custom,1.0f,0.0f,.88f,.002f,.36f,.84f,.55f);
-        setHarm(p.ops[0],{1,.72f,.50f,.33f,.22f,.16f,.10f,.070f,.045f,.028f,.017f,.010f,.006f,.004f,.002f,.001f});
-        // Original Nebular palm waveform: strong fundamental and 2nd, rapid upper rolloff.
-        setHarmMute(p.ops[0],{1,.76f,.50f,.26f,.116f,.052f,.024f,.011f,.005f,.002f,0,0,0,0,0,0});
-        setOp(p.ops[1],Wave::Custom,2.0f,1.5f,.30f,.002f,.21f,.46f,.28f);
-        setHarm(p.ops[1],{1,.62f,.33f,.17f,.09f,.049f,.025f,.012f,.006f,.003f,0,0,0,0,0,0});
-        setOp(p.ops[2],Wave::Noise,1.0f,0.0f,.16f,.001f,.028f,0.0f,.045f);
-        // Short fundamental-frequency pluck transient; the moving peaking
-        // filter below now supplies the low-mid body instead of a loud OP4.
-        setOp(p.ops[3],Wave::Triangle,1.0f,0.0f,.02f,.0015f,.055f,0.0f,.065f);
-        disable(p.ops[4]);disable(p.ops[5]);
-        for(auto& row:p.matrix)row.fill(0.0f);
-        p.matrix[1][0]=.11f;
-        p.filter={FilterType::Lowpass,5200.0f,.80f,0.0f,
-            {.003f,.27f,0.0f,.18f}};
-        // Recreate Nebular's moving resonant body: as M increases the
-        // center shifts from 4x to 1.7x the played pitch, Q narrows the
-        // peak and gain increases by 7.8 dB.
-        p.peak={true,true,4.0f,220.0f,1.0f,5.8f};
-        p.amp={.002f,1.1f,.15f,.64f};
-        p.velocityAmp=.75f;p.velocityFilter=.45f;
-        // Same core shaping as the original browser Nebular: the body
-        // peak grows deeper/narrower as M increases while LPF gets darker.
-        // Damped articulation is modestly longer here because Aiora uses a
-        // linear ADSR decay rather than a complete exponential note fade.
-        slots(p,{
-            {ModTarget::AmpDecay,1.15f,.12f},
-            {ModTarget::AmpSustain,.15f,0.0f},
-            {ModTarget::AmpRelease,.64f,.07f},
-            {ModTarget::Cutoff,5200.0f,1350.0f},
-            {ModTarget::Morph1,0.0f,1.0f},
-            {ModTarget::Op4,.02f,.29f},
-            {ModTarget::PeakRatio,4.0f,1.7f},
-            {ModTarget::PeakQ,1.0f,6.4f},
-            {ModTarget::PeakGain,5.8f,13.6f}
-        });
-        p.velocitySlots={
-            {ModTarget::AmpAttack,.007f,.001f},
-            {ModTarget::Op2,.11f,.41f}, // pick-excited string harmonics
-            {ModTarget::Op3,.022f,.37f},// initial pick scratch
-            {ModTarget::Op1,.68f,.93f}, // picked fundamental/harmonic emphasis
-            {ModTarget::FilterDecay,.16f,.40f}
-        };
-        p.velocitySlotCount=p.velocitySlots.size();
-        p.unison=0.0f;p.volume=.78f;
-        p.fx.distortion=0.0f;p.fx.delay=.04f;p.fx.delayFeedback=.15f;p.fx.reverb=.10f;
-    } else if (preset == FactoryPreset::Subula) {
-        // Three-string Tribass Kitara. Saw waves supply the low growl;
-        // a standard filter ADSR removes upper harmonics after the pluck.
-        // M dampens the note at its attack, using the same editable ADSR.
-        setOp(p.ops[0],Wave::Saw,1.0f,0.0f,.72f,.003f,.30f,.88f,.66f);
-        setOp(p.ops[1],Wave::Saw,1.006f,3.0f,.34f,.003f,.24f,.73f,.52f);
-        setOp(p.ops[2],Wave::Sine,.5f,0.0f,.43f,.003f,.28f,.90f,.66f);
-        setOp(p.ops[3],Wave::Noise,1.0f,0.0f,.12f,.001f,.023f,0.0f,.045f);
-        disable(p.ops[4]);disable(p.ops[5]);
-        for(auto& row:p.matrix)row.fill(0.0f);
-        p.filter={FilterType::Lowpass,2850.0f,1.1f,.42f,
-            {.005f,.44f,0.0f,.21f}};
-        p.amp={.003f,1.35f,.22f,.82f};
-        p.velocityAmp=.73f;p.velocityFilter=.35f;
-        slots(p,{
-            {ModTarget::AmpDecay,1.48f,.10f},
-            {ModTarget::AmpSustain,.22f,0.0f},
-            {ModTarget::AmpRelease,.82f,.075f},
-            {ModTarget::FilterEnv,.48f,.08f},
-            {ModTarget::Cutoff,2850.0f,570.0f}
-        });
-        p.velocitySlots={
-            {ModTarget::AmpAttack,.010f,.0015f},
-            {ModTarget::Op2,.14f,.48f},   // upper saw harmonics
-            {ModTarget::Op4,.012f,.26f}, // finger/pick transient
-            {ModTarget::FilterDecay,.20f,.58f}
-        };
-        p.velocitySlotCount=p.velocitySlots.size();
-        p.unison=0.0f;p.volume=.77f;
-        p.fx.distortion=0.0f;p.fx.delay=.0f;p.fx.reverb=.07f;
     } else if (preset == FactoryPreset::Nexdrum) {
         setOp(p.ops[0],Wave::Sine,1.0f,0.0f,0.7f,0.002f,0.25f,0.0f,0.15f);
         setOp(p.ops[1],Wave::Sine,0.5f,0.0f,0.5f,0.002f,0.22f,0.0f,0.12f);
