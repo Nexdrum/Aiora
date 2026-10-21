@@ -41,6 +41,9 @@ constexpr int kRequestExportWav = 4103;
 constexpr int kRequestExportMidi = 4104;
 constexpr int kRequestExportPatch = 4105;
 constexpr int kRequestImportPatch = 4106;
+constexpr int kRequestExportKit = 4107;
+constexpr int kRequestImportKitReplace = 4108;
+constexpr int kRequestImportKitAppend = 4109;
 constexpr int kRequestRenameTrack = 4201;
 constexpr int kRequestRenamePad = 4202;
 constexpr int kRequestRenameSong = 4206;
@@ -187,6 +190,9 @@ struct NativeState {
     std::string documentLoadPath{};
     std::string patchExportPath{};
     std::string patchLoadPath{};
+    std::string kitExportPath{};
+    std::string kitLoadPath{};
+    int pendingKitTrack{-1};
     int64_t autosaveDueMs{0};
     bool autosaveDirty{false};
 };
@@ -434,6 +440,35 @@ bool launchOpenDocument(
     if(cls)env->DeleteLocalRef(cls);
     detachAndroidEnv(activity,attached);
     return ok;
+}
+
+bool launchKitImportChoice(ANativeActivity* activity){
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return false;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls?env->GetMethodID(cls,"chooseDrumKitImportMode","()V"):nullptr;
+    bool ok=false;
+    if(method){env->CallVoidMethod(activity->clazz,method);ok=!env->ExceptionCheck();}
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+    return ok;
+}
+
+void kitImportMessage(ANativeActivity* activity,const std::string& message){
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env||!activity||!activity->clazz)return;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    jmethodID method=cls?env->GetMethodID(cls,"showOperationMessage",
+        "(Ljava/lang/String;)V"):nullptr;
+    jstring value=env->NewStringUTF(message.c_str());
+    if(method&&value)env->CallVoidMethod(activity->clazz,method,value);
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(value)env->DeleteLocalRef(value);
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
 }
 
 bool launchNameEditor(
@@ -744,11 +779,50 @@ void serviceDocumentResult(NativeState& state){
         return;
     }
 
+    if(requestCode==kRequestImportKitReplace||
+       requestCode==kRequestImportKitAppend){
+        const int target=state.pendingKitTrack;
+        state.pendingKitTrack=-1;
+        if(!success){
+            if(message!="Cancelled")
+                kitImportMessage(state.app?state.app->activity:nullptr,
+                    "Kit import failed: "+message);
+            return;
+        }
+        std::vector<aiora::DrumPad> pads;
+        std::string error;
+        auto& project=aiora::ProjectCore::instance();
+        const bool loaded=!state.kitLoadPath.empty()&&
+            aiora::loadDrumKitFile(state.kitLoadPath,pads,&error);
+        if(loaded&&project.applyDrumKit(target,std::move(pads),
+                requestCode==kRequestImportKitAppend,&error)){
+            auto& audio=aiora::AudioEngine::instance();
+            audio.stopTransport();
+            audio.panic();
+            audio.syncProject();
+            state.ui.resetDrumRangeArm();
+            scheduleAutosave(state,0);
+            kitImportMessage(state.app?state.app->activity:nullptr,
+                "Drum kit imported");
+            __android_log_print(ANDROID_LOG_INFO,kTag,"imported AIORA drum kit");
+        }else{
+            const std::string reason=error.empty()?
+                "Invalid file or selected drum track changed":error;
+            kitImportMessage(state.app?state.app->activity:nullptr,
+                "Kit import failed: "+reason);
+            __android_log_print(ANDROID_LOG_WARN,kTag,
+                "drum kit import failed: %s",reason.c_str());
+        }
+        if(!state.kitLoadPath.empty())std::remove(state.kitLoadPath.c_str());
+        return;
+    }
+
     const char* kind=
         requestCode==kRequestSaveJson?"song JSON":
         requestCode==kRequestExportWav?"WAV":
         requestCode==kRequestExportMidi?"MIDI":
-        requestCode==kRequestExportPatch?"patch JSON":"document";
+        requestCode==kRequestExportPatch?"patch JSON":
+        requestCode==kRequestExportKit?"drum kit JSON":"document";
     if(success){
         __android_log_print(ANDROID_LOG_INFO,kTag,"saved AIORA %s",kind);
     }else if(message!="Cancelled"){
@@ -2270,6 +2344,37 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if(state.ui.page()==aiora::NativePage::Drums){
+        if(const auto transfer=state.ui.hitDrumKitTransfer(x,y)){
+            const int track=project.selectedTrack();
+            if(track<0||!project.trackIsDrums(track))return true;
+            if(*transfer==0){
+                state.pendingKitTrack=track;
+                if(!launchKitImportChoice(state.app?state.app->activity:nullptr)){
+                    state.pendingKitTrack=-1;
+                    kitImportMessage(state.app?state.app->activity:nullptr,
+                        "Could not open drum kit importer");
+                }
+            }else{
+                const auto snapshot=project.projectCopy();
+                std::string error;
+                const auto& t=snapshot.tracks[static_cast<size_t>(track)];
+                const bool saved=!state.kitExportPath.empty()&&
+                    aiora::saveDrumKitFile(state.kitExportPath,t,&error);
+                const bool launched=saved&&launchCreateNamedDocument(
+                    state.app?state.app->activity:nullptr,
+                    kRequestExportKit,t.name,"application/json",
+                    state.kitExportPath);
+                if(!launched){
+                    kitImportMessage(state.app?state.app->activity:nullptr,
+                        "Kit export failed: "+(error.empty()?
+                            "Could not open save folder":error));
+                }
+            }
+            return true;
+        }
+    }
+
+    if(state.ui.page()==aiora::NativePage::Drums){
         if(const auto renamePad=state.ui.hitPadName(x,y)){
             const int track=project.selectedTrack();
             if(track>=0&&project.trackIsDrums(track)){
@@ -3617,6 +3722,8 @@ void android_main(android_app* app) {
         state.documentLoadPath=base+"/aiora_open_song.json";
         state.patchExportPath=base+"/aiora_patch_export.patch.json";
         state.patchLoadPath=base+"/aiora_open_patch.patch.json";
+        state.kitExportPath=base+"/aiora_kit_export.kit.json";
+        state.kitLoadPath=base+"/aiora_open_kit.kit.json";
     }
 
     aiora::Project restored;

@@ -974,13 +974,31 @@ NativeUi::Rect NativeUi::drumKitCardRect() const noexcept {
         ?project.padCount(track):0;
     const float gap=std::clamp(view.w*0.014f,9.0f,13.0f);
     const float rowH=std::clamp(view.w*0.185f,138.0f,160.0f);
-    const float headerH=132.0f;
+    const float headerH=212.0f;
     const float addH=74.0f;
     const float h=
         gap+headerH+
         count*rowH+std::max(0,count-1)*gap+
         gap+addH+gap;
     return {view.x,view.y-drumScrollY_,view.w,h};
+}
+
+NativeUi::Rect NativeUi::drumKitTransferRect(int index) const noexcept {
+    const auto card=drumKitCardRect();
+    const float inset=20.0f;
+    const float gap=14.0f;
+    const float w=(card.w-2.0f*inset-gap)*0.5f;
+    return {card.x+inset+(index==0?0.0f:w+gap),
+            card.y+132.0f,w,60.0f};
+}
+
+std::optional<int> NativeUi::hitDrumKitTransfer(float x,float y) const noexcept {
+    if(page_!=NativePage::Drums)return std::nullopt;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0||!project.trackIsDrums(track))return std::nullopt;
+    for(int i=0;i<2;++i)if(drumKitTransferRect(i).contains(x,y))return i;
+    return std::nullopt;
 }
 
 NativeUi::Rect NativeUi::drumPadCardRect() const noexcept {
@@ -1000,7 +1018,7 @@ NativeUi::Rect NativeUi::padQuickRect(int index, int count) const noexcept {
     const auto card=drumKitCardRect();
     const float gap=std::clamp(card.w*0.014f,9.0f,13.0f);
     const float rowH=std::clamp(card.w*0.185f,138.0f,160.0f);
-    const float top=card.y+gap+132.0f;
+    const float top=card.y+gap+212.0f;
     return {
         card.x+gap,
         top+index*(rowH+gap),
@@ -2933,6 +2951,19 @@ void NativeUi::drawDrums() const noexcept {
         kitField.x+14.0f,kitField.y+17.0f,
         1.02f,
         overlayColor(hasTrack?kWhite:kMuted));
+
+    if(hasDrumTrack){
+        const auto importKit=drumKitTransferRect(0);
+        const auto exportKit=drumKitTransferRect(1);
+        fillRect(importKit,kButton);
+        fillRect(exportKit,kButton);
+        ov.addTextCentered("Import Kit",
+            {importKit.x,importKit.y,importKit.w,importKit.h},
+            0.90f,overlayColor(kWhite));
+        ov.addTextCentered("Export Kit",
+            {exportKit.x,exportKit.y,exportKit.w,exportKit.h},
+            0.90f,overlayColor(kWhite));
+    }
 
     drawPadQuick();
 

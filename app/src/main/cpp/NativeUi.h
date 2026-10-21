@@ -316,6 +316,7 @@ public:
     [[nodiscard]] std::optional<ProjectTransferAction> hitProjectTransfer(float x, float y) const noexcept;
     [[nodiscard]] std::optional<TrackAddKind> hitAddTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadQuick(float x, float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitDrumKitTransfer(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
     [[nodiscard]] bool hitRollZoom(float x,float y) const noexcept;
@@ -375,6 +376,7 @@ private:
     [[nodiscard]] Rect padQuickRect(int index, int count) const noexcept;
     [[nodiscard]] Rect padReorderRect(int index,int count) const noexcept;
     [[nodiscard]] Rect drumKitCardRect() const noexcept;
+    [[nodiscard]] Rect drumKitTransferRect(int index) const noexcept;
     [[nodiscard]] Rect drumPadCardRect() const noexcept;
     [[nodiscard]] Rect drumEditorRect() const noexcept;
     [[nodiscard]] Rect drumActionRect(int index) const noexcept;

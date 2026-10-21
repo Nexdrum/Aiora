@@ -1,5 +1,6 @@
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
+#include "ProjectStorage.h"
 #include "FactoryPresets.h"
 #include "ApprovedFactoryPatches.h"
 #include "SpectrelloFactoryV2.h"
@@ -21,6 +22,86 @@
 using namespace aiora;
 
 int main(){
+    // Standalone drum-kit files preserve every pad synth, range, name,
+    // pan, and icon without carrying song notes or song-level effects.
+    {
+        Track original;
+        original.drums=true;
+        original.name="Nexdrum regression";
+        const auto& factory=nexdrumKit();
+        original.pads.assign(factory.begin(),factory.end());
+        original.selectedPad=2;
+        original.pads[2].name="Small roto-tom";
+        original.pads[2].pan=.37f;
+        original.pads[2].volume=.68f;
+        original.pads[2].patch.ops[0].randomPhase=true;
+        original.pads[2].patch.ops[0].randomPhaseDegrees=11.0f;
+        const auto serialized=serializeDrumKitJson(original);
+        assert(serialized.find("aiora-drum-kit")!=std::string::npos);
+        assert(serialized.find("\\"notes\\"")==std::string::npos);
+        std::vector<DrumPad> decoded;
+        std::string error;
+        assert(deserializeDrumKitJson(serialized,decoded,&error));
+        assert(decoded.size()==original.pads.size());
+        for(size_t i=0;i<decoded.size();++i){
+            const auto& a=original.pads[i];
+            const auto& b=decoded[i];
+            assert(a.centerMidi==b.centerMidi);
+            assert(a.lowMidi==b.lowMidi&&a.highMidi==b.highMidi);
+            assert(a.name==b.name&&a.icon==b.icon);
+            assert(std::fabs(a.pan-b.pan)<.00001f);
+            assert(std::fabs(a.volume-b.volume)<.00001f);
+            Patch expected=a.patch;
+            expected.fundamentalMidi=a.centerMidi;
+            assert(serializePatchJson(expected)==serializePatchJson(b.patch));
+        }
+        assert(!deserializeDrumKitJson(
+            "{\\"type\\":\\"aiora-drum-kit\\",\\"version\\":99,\\"pads\\":[]}",decoded,&error));
+        assert(decoded.size()==original.pads.size()); // failed import is atomic
+        const std::string file="/tmp/aiora_drum_kit_regression.kit.json";
+        assert(saveDrumKitFile(file,original,&error));
+        std::vector<DrumPad> fromDisk;
+        assert(loadDrumKitFile(file,fromDisk,&error));
+        assert(fromDisk.size()==original.pads.size());
+        std::remove(file.c_str());
+
+        auto& core=ProjectCore::instance();
+        core.reset();
+        const int track=core.addTrack(true);
+        const int other=core.addTrack(false);
+        assert(other!=track);
+        core.setSongName("Do not change the song");
+        const int note=core.addNote(track,38,0,1);
+        assert(note>=0);
+        assert(core.selectTrack(track));
+        assert(core.applyDrumKit(track,std::move(fromDisk),false,&error));
+        assert(core.noteCount(track)==1);
+        assert(core.songName()=="Do not change the song");
+        assert(core.trackCount()==2);
+        assert(!core.trackIsDrums(other));
+        assert(core.padCount(track)==7);
+        // A sparse kit makes append tests unambiguous.
+        auto one=decoded[0];
+        one.id="collision";
+        one.centerMidi=38;
+        one.lowMidi=one.highMidi=38;
+        one.patch.fundamentalMidi=38;
+        assert(core.applyDrumKit(track,{one},false,&error));
+        assert(core.padCount(track)==1);
+        auto extra=one;
+        extra.centerMidi=42;extra.lowMidi=extra.highMidi=42;
+        extra.patch.fundamentalMidi=42;
+        assert(core.applyDrumKit(track,{extra},true,&error));
+        assert(core.padCount(track)==2);
+        assert(core.padLow(track,1)==42);
+        const auto snapshot=core.projectCopy();
+        assert(snapshot.tracks[track].pads[0].id!=
+               snapshot.tracks[track].pads[1].id);
+        assert(!core.applyDrumKit(track,{one},true,&error));
+        assert(core.padCount(track)==2);
+        assert(core.noteCount(track)==1); // append collision left project intact
+        core.reset();
+    }
     // All scroll surfaces use the same time-based fling model; a drag
     // follows precisely, quick release coasts, slow drag/tap stays still.
     {

@@ -931,6 +931,103 @@ bool deserializePatchJson(std::string_view json,Patch& patch,std::string* error)
     }catch(const std::exception& e){setError(error,e.what());return false;}
 }
 
+
+std::string serializeDrumKitJson(const Track& track){
+    Writer w;
+    w.raw("{\"type\":\"aiora-drum-kit\",\"version\":1,\"name\":");
+    w.string(track.name);
+    w.raw(",\"selectedPad\":");w.number(track.selectedPad);
+    w.raw(",\"pads\":[");
+    for(size_t i=0;i<track.pads.size();++i){
+        if(i)w.raw(",");
+        const auto& p=track.pads[i];
+        w.raw("{\"id\":");w.string(p.id.empty()?"pad"+std::to_string(i+1):p.id);
+        w.raw(",\"name\":");w.string(p.name);
+        w.raw(",\"m\":");w.number(p.centerMidi);
+        w.raw(",\"icon\":");w.string(p.icon);
+        w.raw(",\"vol\":");w.number(p.volume);
+        w.raw(",\"pan\":");w.number(p.pan);
+        w.raw(",\"patch\":");writePatch(w,p.patch);
+        w.raw(",\"range\":[");w.number(p.lowMidi);
+        w.raw(",");w.number(p.highMidi);w.raw("]}");
+    }
+    w.raw("]}");
+    return w.finish();
+}
+
+bool deserializeDrumKitJson(std::string_view json,
+                            std::vector<DrumPad>& pads,
+                            std::string* error){
+    try{
+        const Json root=Parser(json).parse();
+        if(root.type!=Json::Type::Object||
+           str(root.get("type"),"")!="aiora-drum-kit"||
+           static_cast<int>(num(root.get("version"),-1))!=1){
+            setError(error,"Not a supported AIORA drum kit");
+            return false;
+        }
+        const Json* entries=root.get("pads");
+        if(!entries||entries->type!=Json::Type::Array||
+           entries->array.empty()||entries->array.size()>49){
+            setError(error,"Kit must contain 1 to 49 pads");
+            return false;
+        }
+        std::vector<DrumPad> decoded;
+        decoded.reserve(entries->array.size());
+        std::array<bool,49> usedNotes{};
+        for(size_t i=0;i<entries->array.size();++i){
+            const Json& item=entries->array[i];
+            if(item.type!=Json::Type::Object){
+                setError(error,"Kit contains an invalid pad");
+                return false;
+            }
+            DrumPad p;
+            const Json* range=item.get("range");
+            const Json* patch=item.get("patch");
+            if(!range||range->type!=Json::Type::Array||range->array.size()!=2||
+               !patch||patch->type!=Json::Type::Object){
+                setError(error,"Kit pad missing pitch range or synth patch");
+                return false;
+            }
+            p.centerMidi=static_cast<int>(num(item.get("m"),-1));
+            p.lowMidi=static_cast<int>(num(&range->array[0],-1));
+            p.highMidi=static_cast<int>(num(&range->array[1],-1));
+            if(p.lowMidi<38||p.highMidi>86||p.lowMidi>p.highMidi||
+               p.centerMidi<p.lowMidi||p.centerMidi>p.highMidi){
+                setError(error,"Kit pad pitch range is invalid (38-86)");
+                return false;
+            }
+            for(int midi=p.lowMidi;midi<=p.highMidi;++midi){
+                if(usedNotes[static_cast<size_t>(midi-38)]){
+                    setError(error,"Kit has overlapping pad pitch ranges");
+                    return false;
+                }
+                usedNotes[static_cast<size_t>(midi-38)]=true;
+            }
+            p.id=str(item.get("id"),"pad"+std::to_string(i+1));
+            p.name=str(item.get("name"),"");
+            p.icon=str(item.get("icon"),"kick");
+            p.volume=clampf(num(item.get("vol"),1),0,1,1);
+            p.pan=clampf(num(item.get("pan"),0),-1,1,0);
+            for(const auto& other:decoded)if(other.id==p.id){
+                setError(error,"Kit contains duplicate pad identifiers");
+                return false;
+            }
+            if(!readPatch(*patch,p.patch)){
+                setError(error,"Kit contains an invalid synth patch");
+                return false;
+            }
+            p.patch.fundamentalMidi=p.centerMidi;
+            decoded.push_back(std::move(p));
+        }
+        pads=std::move(decoded);
+        return true;
+    }catch(const std::exception& e){
+        setError(error,e.what());
+        return false;
+    }
+}
+
 std::string serializeProjectJson(const Project& project){
     Writer w;
     w.raw("{\"name\":");w.string(project.name);w.raw(",\"bpm\":");w.number(project.bpm);w.raw(",\"beats\":");w.number(project.beats);w.raw(",\"div\":");w.number(project.divisions);w.raw(",\"dz\":");w.boolean(project.dozenal);

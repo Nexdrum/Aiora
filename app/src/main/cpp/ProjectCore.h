@@ -56,6 +56,7 @@ public:
     void setTrackPan(int index, float value);
 
     bool loadNexdrumKit(int trackIndex);
+    bool applyDrumKit(int trackIndex, std::vector<DrumPad> pads, bool append, std::string* error = nullptr);
     bool convertTrackToDrumKit(int trackIndex);
     int addDrumPad(int trackIndex);
     bool deleteDrumPad(int trackIndex, int padIndex);

@@ -28,6 +28,9 @@ public class AioraActivity extends NativeActivity {
     public static final int REQUEST_EXPORT_MIDI = 4104;
     public static final int REQUEST_EXPORT_PATCH = 4105;
     public static final int REQUEST_IMPORT_PATCH = 4106;
+    public static final int REQUEST_EXPORT_KIT = 4107;
+    public static final int REQUEST_IMPORT_KIT_REPLACE = 4108;
+    public static final int REQUEST_IMPORT_KIT_APPEND = 4109;
     public static final int REQUEST_RENAME_TRACK = 4201;
     public static final int REQUEST_RENAME_PAD = 4202;
     public static final int REQUEST_RENAME_SONG = 4206;
@@ -100,8 +103,27 @@ public class AioraActivity extends NativeActivity {
         });
     }
 
+    public void chooseDrumKitImportMode() {
+        runOnUiThread(() -> new AlertDialog.Builder(this)
+            .setTitle("Import drum kit")
+            .setMessage("Replace the current kit or append its pads? Existing song notes are preserved. Appending requires unused pitch ranges.")
+            .setItems(new String[]{"Replace current kit", "Append pads"}, (dialog, which) ->
+                openDocument(which == 0
+                    ? REQUEST_IMPORT_KIT_REPLACE
+                    : REQUEST_IMPORT_KIT_APPEND, "application/json"))
+            .setNegativeButton("Cancel", null)
+            .show());
+    }
+
+    public void showOperationMessage(String message) {
+        runOnUiThread(() -> android.widget.Toast.makeText(
+            this, message == null ? "" : message,
+            android.widget.Toast.LENGTH_LONG).show());
+    }
+
     private static String namedExportFile(String name,int requestCode) {
-        final String suffix=requestCode==REQUEST_EXPORT_PATCH?".patch.json":".json";
+        final String suffix=requestCode==REQUEST_EXPORT_PATCH?".patch.json":
+            requestCode==REQUEST_EXPORT_KIT?".kit.json":".json";
         String base=name==null?"":name.trim();
         if(base.toLowerCase(java.util.Locale.ROOT).endsWith(suffix))
             base=base.substring(0,base.length()-suffix.length()).trim();
@@ -109,7 +131,8 @@ public class AioraActivity extends NativeActivity {
                  .replace('?','_').replace('|','_').replace('<','_')
                  .replace('>','_').replace('"','_');
         while(base.endsWith("."))base=base.substring(0,base.length()-1).trim();
-        if(base.isEmpty())base=requestCode==REQUEST_EXPORT_PATCH?"Instrument":"Untitled Song";
+        if(base.isEmpty())base=requestCode==REQUEST_EXPORT_PATCH?"Instrument":
+            requestCode==REQUEST_EXPORT_KIT?"Drum Kit":"Untitled Song";
         if(base.length()>80)base=base.substring(0,80);
         return base+suffix;
     }
@@ -268,7 +291,10 @@ public class AioraActivity extends NativeActivity {
             requestCode != REQUEST_EXPORT_WAV &&
             requestCode != REQUEST_EXPORT_MIDI &&
             requestCode != REQUEST_EXPORT_PATCH &&
-            requestCode != REQUEST_IMPORT_PATCH) {
+            requestCode != REQUEST_IMPORT_PATCH &&
+            requestCode != REQUEST_EXPORT_KIT &&
+            requestCode != REQUEST_IMPORT_KIT_REPLACE &&
+            requestCode != REQUEST_IMPORT_KIT_APPEND) {
             return;
         }
 
@@ -287,6 +313,13 @@ public class AioraActivity extends NativeActivity {
                 writeResult(requestCode, true, "");
                 return;
             }
+            if (requestCode == REQUEST_IMPORT_KIT_REPLACE ||
+                requestCode == REQUEST_IMPORT_KIT_APPEND) {
+                File dst = new File(getFilesDir(), "aiora_open_kit.kit.json");
+                copyUriToFile(uri, dst);
+                writeResult(requestCode, true, "");
+                return;
+            }
             if (requestCode == REQUEST_IMPORT_PATCH) {
                 File dst = new File(getFilesDir(), "aiora_open_patch.patch.json");
                 copyUriToFile(uri, dst);
@@ -300,7 +333,8 @@ public class AioraActivity extends NativeActivity {
                 writeResult(requestCode, false, "Export source file is missing");
                 return;
             }
-            if(requestCode==REQUEST_SAVE_JSON||requestCode==REQUEST_EXPORT_PATCH){
+            if(requestCode==REQUEST_SAVE_JSON||requestCode==REQUEST_EXPORT_PATCH||
+               requestCode==REQUEST_EXPORT_KIT){
                 String filename=namedExportFile(pendingNames.remove(requestCode),requestCode);
                 Uri parent=DocumentsContract.buildDocumentUriUsingTree(
                         uri,DocumentsContract.getTreeDocumentId(uri));

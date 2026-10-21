@@ -7,6 +7,9 @@
 
 namespace aiora {
 
+std::string serializeDrumKitJson(const Track& track);
+bool deserializeDrumKitJson(std::string_view json, std::vector<DrumPad>& pads, std::string* error = nullptr);
+
 std::string serializeProjectJson(const Project& project);
 bool deserializeProjectJson(std::string_view json, Project& project, std::string* error = nullptr);
 

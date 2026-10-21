@@ -341,6 +341,67 @@ void ProjectCore::setTrackSolo(int index,bool value){std::scoped_lock lock(mutex
 void ProjectCore::setTrackVolume(int index,float value){std::scoped_lock lock(mutex_);if(validTrack(index))project_.tracks[index].volume=std::clamp(value,0.0f,1.0f);}
 void ProjectCore::setTrackPan(int index,float value){std::scoped_lock lock(mutex_);if(validTrack(index))project_.tracks[index].pan=std::clamp(value,-1.0f,1.0f);}
 
+bool ProjectCore::applyDrumKit(int trackIndex,std::vector<DrumPad> pads,
+                               bool append,std::string* error){
+    const auto fail=[&](const char* why){if(error)*error=why;return false;};
+    std::scoped_lock lock(mutex_);
+    if(!validTrack(trackIndex)||!project_.tracks[trackIndex].drums)
+        return fail("Select a drum track before importing a kit");
+    auto& track=project_.tracks[trackIndex];
+    if(pads.empty()||pads.size()>49||track.pads.size()+(append?pads.size():0)>49)
+        return fail("A drum kit must have 1 to 49 pads");
+    std::array<bool,kGridHigh-kGridLow+1> used{};
+    std::vector<std::string> identifiers;
+    if(append){
+        for(const auto& existing:track.pads){
+            identifiers.push_back(existing.id);
+            for(int m=std::max(kGridLow,existing.lowMidi);
+                m<=std::min(kGridHigh,existing.highMidi);++m)
+                used[static_cast<size_t>(m-kGridLow)]=true;
+        }
+    }
+    for(auto& pad:pads){
+        if(pad.lowMidi<kGridLow||pad.highMidi>kGridHigh||
+           pad.lowMidi>pad.highMidi||
+           pad.centerMidi<pad.lowMidi||pad.centerMidi>pad.highMidi)
+            return fail("Imported pad pitch range is invalid");
+        for(int m=pad.lowMidi;m<=pad.highMidi;++m){
+            const auto slot=static_cast<size_t>(m-kGridLow);
+            if(used[slot])
+                return fail("Pad ranges overlap; use Replace Kit or choose an unused range");
+            used[slot]=true;
+        }
+        pad.volume=std::clamp(pad.volume,0.0f,1.0f);
+        pad.pan=std::clamp(pad.pan,-1.0f,1.0f);
+        pad.patch.fundamentalMidi=pad.centerMidi;
+        std::string id=pad.id;
+        if(id.empty())id="pad";
+        if(std::find(identifiers.begin(),identifiers.end(),id)!=identifiers.end()){
+            // Append can encounter identical identifiers in otherwise
+            // disjoint kits. Preserve every pad, assigning unique IDs.
+            const std::string base=id;
+            int suffix=2;
+            do{id=base+"-"+std::to_string(suffix++);}
+            while(std::find(identifiers.begin(),identifiers.end(),id)!=identifiers.end());
+        }
+        pad.id=std::move(id);
+        identifiers.push_back(pad.id);
+    }
+    if(append){
+        const int first=static_cast<int>(track.pads.size());
+        track.pads.insert(track.pads.end(),
+            std::make_move_iterator(pads.begin()),
+            std::make_move_iterator(pads.end()));
+        track.selectedPad=first;
+    }else{
+        track.pads=std::move(pads);
+        track.selectedPad=0;
+    }
+    // Track notes, track-level mixing, other tracks, and song metadata
+    // deliberately remain unchanged.
+    return true;
+}
+
 bool ProjectCore::loadNexdrumKit(int trackIndex) {
     std::scoped_lock lock(mutex_);if(!validTrack(trackIndex))return false;
     auto& t=project_.tracks[trackIndex];t.drums=true;t.patch=makeFactoryPatch(FactoryPreset::Nexdrum);
