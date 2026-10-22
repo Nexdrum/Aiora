@@ -98,13 +98,9 @@ float clampPatchParam(PatchParam param,float v){
         case PatchParam::LfoVelocity:
         case PatchParam::Unison:
         case PatchParam::Volume:
-        case PatchParam::Delay:
-        case PatchParam::Reverb:
             return std::clamp(v,0.0f,1.0f);
         case PatchParam::LfoRate:return std::clamp(v,0.1f,20.0f);
         case PatchParam::LfoAttack:return std::clamp(v,0.0f,2.0f);
-        case PatchParam::DelayTime:return std::clamp(v,0.03f,1.0f);
-        case PatchParam::DelayFeedback:return std::clamp(v,0.0f,0.85f);
     }
     return v;
 }
