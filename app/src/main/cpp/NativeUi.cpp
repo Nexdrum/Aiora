@@ -2547,7 +2547,8 @@ bool NativeUi::trackPointerDown(float x,float y){
                     const float n=std::clamp((x-pr.x-lw)/w,0.0f,1.0f);
                     trackControlChanged_=project.setFxStageParameter(true,stage,
                         static_cast<int>(param),d.lo+n*(d.hi-d.lo));
-                    trackActiveSlider_=1000+stage*8+static_cast<int>(param);
+                    trackActiveSlider_=1000+stage*static_cast<int>(kMaxFxParams)+
+                        static_cast<int>(param);
                     return true;
                 }
             }
@@ -2631,7 +2632,8 @@ bool NativeUi::trackPointerMove(float x,float y){
 
     if(trackActiveSlider_>=1000){
         const int encoded=trackActiveSlider_-1000;
-        const int stage=encoded/8,param=encoded%8;
+        const int stride=static_cast<int>(kMaxFxParams);
+        const int stage=encoded/stride,param=encoded%stride;
         const auto rack=project.fxRack(true);
         if(stage<0||stage>=rack.count||
            static_cast<size_t>(param)>=fxParamCount(rack.chain[stage].type))return false;

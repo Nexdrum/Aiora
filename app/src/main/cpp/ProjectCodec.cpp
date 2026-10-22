@@ -301,7 +301,7 @@ bool readFxRack(const Json* source,Fx& fx){
         if(fx.count>=kMaxFxStages)break;
         if(item.type!=Json::Type::Object)continue;
         const int t=static_cast<int>(num(item.get("type"),-1));
-        if(t<0||t>static_cast<int>(FxType::Cabeus))continue;
+        if(t<0||t>255||!isAvailableFxType(static_cast<FxType>(t)))continue;
         auto module=makeFxModule(static_cast<FxType>(t));
         module.enabled=boolean(item.get("on"),true);
         if(const Json* a=item.get("p");a&&a->type==Json::Type::Array)

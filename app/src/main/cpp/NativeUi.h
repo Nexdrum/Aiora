@@ -428,7 +428,7 @@ private:
     int trackReorderIndex_{-1};
     bool trackControlChanged_{false};
     int masterFxExpanded_{-1};
-    FxType masterFxNewType_{FxType::MetalAmp};
+    FxType masterFxNewType_{FxType::Embera};
 
     bool drumRangeArmed_{false};
     int drumActiveSlider_{-1};

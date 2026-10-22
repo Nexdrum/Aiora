@@ -71,7 +71,7 @@ int main(){
     // FX rack settings round-trip without retired patch-level knobs.
     Patch fxPatch=makeDefaultPatch("Modern FX");
     fxPatch.fx.count=1;
-    fxPatch.fx.chain[0]=makeFxModule(FxType::Reverb);
+    fxPatch.fx.chain[0]=makeFxModule(FxType::Vastrel);
     fxPatch.fx.chain[0].params[0]=.43f;
     fxPatch.fx.chain[0].params[1]=2.4f;
     const std::string fxJson=serializePatchJson(fxPatch);
@@ -79,14 +79,14 @@ int main(){
     Patch fxDecoded;
     assert(deserializePatchJson(fxJson,fxDecoded,&error));
     assert(fxDecoded.fx.count==1);
-    assert(fxDecoded.fx.chain[0].type==FxType::Reverb);
+    assert(fxDecoded.fx.chain[0].type==FxType::Vastrel);
     assert(std::fabs(fxDecoded.fx.chain[0].params[0]-.43f)<1e-5f);
     assert(std::fabs(fxDecoded.fx.chain[0].params[1]-2.4f)<1e-5f);
 
     // A master rack is saved directly, rather than synthesized from
     // obsolete master reverb controls.
     song.masterFx.count=1;
-    song.masterFx.chain[0]=makeFxModule(FxType::Delay);
+    song.masterFx.chain[0]=makeFxModule(FxType::Recurra);
     song.masterFx.chain[0].params[0]=.31f;
     const std::string modernProject=serializeProjectJson(song);
     assert(modernProject.find("\"mrev\"")==std::string::npos);
@@ -95,8 +95,92 @@ int main(){
     Project decodedModern;
     assert(deserializeProjectJson(modernProject,decodedModern,&error));
     assert(decodedModern.masterFx.count==1);
-    assert(decodedModern.masterFx.chain[0].type==FxType::Delay);
+    assert(decodedModern.masterFx.chain[0].type==FxType::Recurra);
     assert(std::fabs(decodedModern.masterFx.chain[0].params[0]-.31f)<1e-5f);
+
+    // Exactly six supported effects; abandoned numeric slots never decode.
+    assert(kAvailableFxTypes.size()==6);
+    assert(std::string(fxTypeName(FxType::Embera))=="Embera");
+    assert(std::string(fxTypeName(FxType::Recurra))=="Recurra");
+    assert(std::string(fxTypeName(FxType::Vastrel))=="Vastrel");
+    assert(std::string(fxTypeName(FxType::Prisma))=="Prisma");
+    assert(std::string(fxTypeName(FxType::Ampere))=="Ampere");
+    assert(std::string(fxTypeName(FxType::Cabeus))=="Cabeus");
+    for(int retired:{1,2,6}){
+        assert(!isAvailableFxType(static_cast<FxType>(retired)));
+        std::string invalid=fxJson;
+        const auto location=invalid.find("\"type\":5");
+        assert(location!=std::string::npos);
+        invalid.replace(location,std::string("\"type\":5").size(),
+            "\"type\":"+std::to_string(retired));
+        Patch rejected;
+        assert(deserializePatchJson(invalid,rejected,&error));
+        assert(rejected.fx.count==0);
+    }
+
+    // Embera's bitcrush is a fourth parameter, bypassed exactly at zero.
+    assert(fxParamCount(FxType::Embera)==4);
+    Fx embera;
+    embera.count=1;
+    embera.chain[0]=makeFxModule(FxType::Embera);
+    assert(embera.chain[0].params[3]==0.0f);
+    embera.chain[0].params[1]=0.0f;
+    FxProcessor crushDsp;
+    crushDsp.prepare(48000);
+    crushDsp.set(embera);
+    const float clean=crushDsp.process(.237f)[0];
+    assert(std::fabs(clean-std::tanh(.237f))<1e-6f);
+    embera.chain[0].params[3]=1.0f;
+    crushDsp.set(embera);
+    const float crushed=crushDsp.process(.237f)[0];
+    assert(std::fabs(crushed-clean)>.03f);
+
+    // Prisma stores, edits and actually processes 16 bands and Output.
+    assert(kPrismaBands==16);
+    assert(fxParamCount(FxType::Prisma)==17);
+    assert(std::string(fxParamDesc(FxType::Prisma,15).name)=="14k dB");
+    assert(std::string(fxParamDesc(FxType::Prisma,16).name)=="Output");
+    Patch prismaPatch=makeDefaultPatch("Prisma test");
+    prismaPatch.fx.count=2;
+    prismaPatch.fx.chain[0]=embera.chain[0];
+    prismaPatch.fx.chain[1]=makeFxModule(FxType::Prisma);
+    prismaPatch.fx.chain[1].params[9]=-5.5f;
+    prismaPatch.fx.chain[1].params[15]=8.25f;
+    prismaPatch.fx.chain[1].params[16]=.81f;
+    Patch prismaDecoded;
+    assert(deserializePatchJson(serializePatchJson(prismaPatch),prismaDecoded,&error));
+    assert(prismaDecoded.fx.count==2);
+    assert(prismaDecoded.fx.chain[0].type==FxType::Embera);
+    assert(prismaDecoded.fx.chain[0].params[3]==1.0f);
+    assert(prismaDecoded.fx.chain[1].type==FxType::Prisma);
+    assert(std::fabs(prismaDecoded.fx.chain[1].params[9]+5.5f)<1e-5f);
+    assert(std::fabs(prismaDecoded.fx.chain[1].params[15]-8.25f)<1e-5f);
+    assert(std::fabs(prismaDecoded.fx.chain[1].params[16]-.81f)<1e-5f);
+    Fx prism;
+    prism.count=1;
+    prism.chain[0]=makeFxModule(FxType::Prisma);
+    FxProcessor prismDsp;
+    prismDsp.prepare(48000);
+    prismDsp.set(prism);
+    float neutralEnergy=0.0f;
+    for(int i=0;i<4800;++i){
+        const float signal=.12f*std::sin(2.0f*3.14159265f*14000.0f*
+            static_cast<float>(i)/48000.0f);
+        const float y=prismDsp.process(signal)[0];
+        if(i>1000)neutralEnergy+=y*y;
+    }
+    prism.chain[0].params[15]=12.0f;
+    prismDsp.set(prism);
+    prismDsp.reset();
+    float boostedEnergy=0.0f;
+    for(int i=0;i<4800;++i){
+        const float signal=.12f*std::sin(2.0f*3.14159265f*14000.0f*
+            static_cast<float>(i)/48000.0f);
+        const float y=prismDsp.process(signal)[0];
+        assert(std::isfinite(y));
+        if(i>1000)boostedEnergy+=y*y;
+    }
+    assert(boostedEnergy>neutralEnergy*1.3f);
 
     // Test full modern synthesis at both ends of the continuous V/M controls.
     for(size_t i=0;i<kit.size();++i){

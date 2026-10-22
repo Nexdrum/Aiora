@@ -2532,10 +2532,10 @@ bool NativeEditor::openDropdownAt(
             const auto rr=fxRackAddRect(false);
             if(rr.contains(x,y)){
                 std::vector<std::string> names;
-                for(int i=0;i<=static_cast<int>(FxType::Cabeus);++i)
-                    names.emplace_back(fxTypeName(static_cast<FxType>(i)));
+                for(const auto type:kAvailableFxTypes)
+                    names.emplace_back(fxTypeName(type));
                 ui.openDropdown(DropdownKind::FxType,0,anchor(rr),
-                    static_cast<int>(fxRackNewType_),std::move(names));
+                    fxTypeMenuIndex(fxRackNewType_),std::move(names));
                 return true;
             }
         }else if(fxWorkspace_==3){
@@ -2572,8 +2572,9 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
     auto& project=ProjectCore::instance();
     switch(choice.kind){
         case DropdownKind::FxType:
-            if(choice.option<0||choice.option>static_cast<int>(FxType::Cabeus))return false;
-            fxRackNewType_=static_cast<FxType>(choice.option);
+            if(choice.option<0||
+               choice.option>=static_cast<int>(kAvailableFxTypes.size()))return false;
+            fxRackNewType_=kAvailableFxTypes[static_cast<size_t>(choice.option)];
             return false;
         case DropdownKind::Wave:
             if(choice.context<0||choice.context>=12||choice.option<0||

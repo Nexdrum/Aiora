@@ -125,7 +125,7 @@ private:
     int fxWorkspace_{0}; // Filter / Amp / Unison / LFO / Addable FX
     int fxGroup_{0};
     int fxRackExpanded_{-1};
-    FxType fxRackNewType_{FxType::MetalAmp};
+    FxType fxRackNewType_{FxType::Embera};
     float synthScrollY_{0.0f};
     float fxScrollY_{0.0f};
     bool scrolling_{false};

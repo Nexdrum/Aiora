@@ -789,7 +789,7 @@ bool ProjectCore::addFxStage(bool master,FxType type){
     std::scoped_lock lock(mutex_);
     Fx* fx=master?&project_.masterFx:nullptr;
     if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
-    if(fx->count>=kMaxFxStages||static_cast<int>(type)>static_cast<int>(FxType::Cabeus))return false;
+    if(fx->count>=kMaxFxStages||!isAvailableFxType(type))return false;
     fx->chain[fx->count++]=makeFxModule(type);return true;
 }
 bool ProjectCore::removeFxStage(bool master,int index){

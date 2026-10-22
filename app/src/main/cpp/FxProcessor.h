@@ -46,18 +46,14 @@ private:
         size_t delayWrite{0};
         std::array<Comb,4> combL{},combR{};
         std::array<Allpass,2> allL{},allR{};
-        std::array<std::array<Biquad,6>,2> eq{};
-        std::array<float,2> low{},inter{},high{};
-        float cutoffA{0},cutoffB{0};
-        // Dedicated, allocation-free 2x-oversampling state for Metal Core.
-        // Existing FX algorithms and their numeric IDs remain unchanged.
+        std::array<std::array<Biquad,kPrismaBands>,2> eq{};
+        float crushLevels{65535.0f};
+        bool crushEnabled{false};
+        // 2x-oversampling state for Ampere's anti-aliasing FIR.
         std::array<std::array<float,33>,2> coreHistory{};
         std::array<float,33> coreFir{};
         std::array<size_t,2> corePosition{};
-        std::array<float,2> corePrevious{},coreTightLow{},coreInter{},
-            corePickLow{},coreSubLow{},coreBassBody{},coreDc{};
-        float coreTightPole{0},coreInterPole{0},corePickPole{0},
-            coreSubPole{0},coreBodyPole{0},coreDcPole{0};
+        std::array<float,2> corePrevious{};
         // Ampere: all tracking comes from the incoming audio, never the
         // synth's normal/morph envelopes. Separate state for each channel.
         std::array<float,2> ampEnvelope{},ampTightLow{},ampMidLow{},

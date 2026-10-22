@@ -1854,9 +1854,10 @@ bool handleUiTap(NativeState& state, float x, float y) {
             }
 
             case aiora::DropdownKind::MasterFxType:
-                if(choice->option>=0&&
-                   choice->option<=static_cast<int>(aiora::FxType::Reverb))
-                    state.ui.setMasterFxType(static_cast<aiora::FxType>(choice->option));
+                if(choice->option>=0&&choice->option<
+                   static_cast<int>(aiora::kAvailableFxTypes.size()))
+                    state.ui.setMasterFxType(
+                        aiora::kAvailableFxTypes[static_cast<size_t>(choice->option)]);
                 return true;
 
             case aiora::DropdownKind::FxType:

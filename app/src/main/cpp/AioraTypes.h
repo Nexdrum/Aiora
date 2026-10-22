@@ -258,74 +258,94 @@ struct PeakFilter {
     float ratio{4.0f},frequency{220.0f},q{1.0f},gainDb{0.0f};
 };
 struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget target{LfoTarget::None}; };
-// Append new types; IDs 0 through 5 are preserved in existing saved patches.
-// Stable numeric IDs: append new algorithms; legacy song files retain their FX.
-enum class FxType : uint8_t { Saturation, MetalAmp, Cabinet, BandEq, Delay, Reverb, MetalCore, Ampere, Cabeus };
+// Keep live FX identifiers stable in saved modern projects. Retired IDs are
+// intentionally unassigned and rejected during decoding.
+enum class FxType : uint8_t {
+    Embera=0, Prisma=3, Recurra=4, Vastrel=5, Ampere=7, Cabeus=8
+};
+inline constexpr std::array<FxType,6> kAvailableFxTypes{{
+    FxType::Embera,FxType::Recurra,FxType::Vastrel,
+    FxType::Prisma,FxType::Ampere,FxType::Cabeus
+}};
+inline bool isAvailableFxType(FxType type) noexcept {
+    for(const auto allowed:kAvailableFxTypes)
+        if(allowed==type)return true;
+    return false;
+}
+inline int fxTypeMenuIndex(FxType type) noexcept {
+    for(size_t i=0;i<kAvailableFxTypes.size();++i)
+        if(kAvailableFxTypes[i]==type)return static_cast<int>(i);
+    return 0;
+}
 constexpr size_t kMaxFxStages=16;
+constexpr size_t kPrismaBands=16;
+constexpr size_t kMaxFxParams=kPrismaBands+1;
 struct FxModule {
-    FxType type{FxType::Saturation};
+    FxType type{FxType::Embera};
     bool enabled{true};
-    std::array<float,8> params{};
+    std::array<float,kMaxFxParams> params{};
 };
 struct FxParamDesc { const char* name;float lo,hi,defaultValue; };
 inline const char* fxTypeName(FxType type) noexcept {
     switch(type){
-        case FxType::Saturation:return "Saturation";
-        case FxType::MetalAmp:return "Metal Amp";
-        case FxType::MetalCore:return "Metal Core";
+        case FxType::Embera:return "Embera";
+        case FxType::Recurra:return "Recurra";
+        case FxType::Vastrel:return "Vastrel";
+        case FxType::Prisma:return "Prisma";
         case FxType::Ampere:return "Ampere";
         case FxType::Cabeus:return "Cabeus";
-        case FxType::Cabinet:return "Cabinet";
-        case FxType::BandEq:return "5-Band EQ";
-        case FxType::Delay:return "Delay";
-        case FxType::Reverb:return "Reverb";
     }
     return "Effect";
 }
 inline size_t fxParamCount(FxType type) noexcept {
     switch(type){
-        case FxType::Saturation:return 3;
-        case FxType::MetalAmp:return 8;
-        case FxType::MetalCore:return 8;
+        case FxType::Embera:return 4;
+        case FxType::Prisma:return kPrismaBands+1;
+        case FxType::Recurra:return 3;
+        case FxType::Vastrel:return 3;
         case FxType::Ampere:return 8;
         case FxType::Cabeus:return 8;
-        case FxType::Cabinet:return 5;
-        case FxType::BandEq:return 6;
-        case FxType::Delay:return 3;
-        case FxType::Reverb:return 3;
     }
     return 0;
 }
 inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
-    static constexpr FxParamDesc saturation[]={{"Input",0,4,1},{"Drive",0,10,3},{"Output",0,4,1}};
-    static constexpr FxParamDesc metal[]={{"Input",0,4,1},{"Drive",0,10,6.5f},{"Tight Hz",40,240,115},{"Bass dB",-12,12,0},{"Mid dB",-12,12,2},{"Treble dB",-12,12,0},{"Presence dB",-12,12,1.5f},{"Output",0,4,.6f}};
-    // Recover the short low-frequency impact after pre-clipping bass tightening.
-    static constexpr FxParamDesc metalCore[]={{"Input",0,4,1},{"Drive",0,10,7.5f},{"Tight Hz",40,240,115},{"Punch",0,10,6},{"Mid dB",-12,12,-2.5f},{"Bite dB",-12,12,3},{"Presence dB",-12,12,1.5f},{"Output",0,4,.42f}};
-    // Level-aware drive is intentionally separate from instrument envelopes.
+    static constexpr FxParamDesc embera[]={
+        {"Input",0,4,1},{"Drive",0,10,3},
+        {"Output",0,4,1},{"Bitcrush",0,1,0}
+    };
+    // Ampere retains its approved dynamics and voicing unchanged.
     static constexpr FxParamDesc ampere[]={{"Input",0,4,.5f},{"Drive",0,10,7.0f},{"Tight Hz",40,240,105},{"Mid dB",-12,12,-3},{"Bite dB",-12,12,3},{"Definition",0,1,.32f},{"Soft Gate",0,1,0},{"Output",0,4,.6f}};
-    // Cabinet model = 0: 1x12, 1: 2x12, 2: 4x12; initial FIRs are procedural.
+    // Cabeus remains the approved modelled speaker cabinet.
     static constexpr FxParamDesc cabeus[]={{"Cab Model",0,2,2},{"Mic Position",0,1,.35f},{"Mic Distance",0,1,.15f},{"Low Cut Hz",40,200,75},{"High Cut Hz",2500,9500,6800},{"Resonance",0,1,.55f},{"Mix",0,1,1},{"Output",0,4,1}};
-    static constexpr FxParamDesc cabinet[]={{"Low cut",40,200,85},{"High cut",2500,9500,5100},{"Body",0,1,.55f},{"Bite",0,1,.48f},{"Mix",0,1,1}};
-    static constexpr FxParamDesc eq[]={{"80 Hz dB",-12,12,0},{"240 Hz dB",-12,12,0},{"750 Hz dB",-12,12,0},{"2.2k dB",-12,12,0},{"6k dB",-12,12,0},{"Output",0,2,1}};
-    static constexpr FxParamDesc delay[]={{"Mix",0,1,.18f},{"Time s",.03f,1,.32f},{"Feedback",0,.85f,.32f}};
-    static constexpr FxParamDesc reverb[]={{"Mix",0,1,.25f},{"Decay s",.2f,12,.8f},{"Room",.5f,2.5f,1}};
+    // 16 logarithmically spaced parametric bands, each ±12 dB, plus output.
+    static constexpr FxParamDesc prisma[]={
+        {"31 Hz dB",-12,12,0},{"47 Hz dB",-12,12,0},
+        {"70 Hz dB",-12,12,0},{"106 Hz dB",-12,12,0},
+        {"160 Hz dB",-12,12,0},{"240 Hz dB",-12,12,0},
+        {"360 Hz dB",-12,12,0},{"540 Hz dB",-12,12,0},
+        {"810 Hz dB",-12,12,0},{"1.2k dB",-12,12,0},
+        {"1.8k dB",-12,12,0},{"2.7k dB",-12,12,0},
+        {"4.05k dB",-12,12,0},{"6.1k dB",-12,12,0},
+        {"9.2k dB",-12,12,0},{"14k dB",-12,12,0},
+        {"Output",0,2,1}
+    };
+    static constexpr FxParamDesc recurra[]={{"Mix",0,1,.18f},{"Time s",.03f,1,.32f},{"Feedback",0,.85f,.32f}};
+    static constexpr FxParamDesc vastrel[]={{"Mix",0,1,.25f},{"Decay s",.2f,12,.8f},{"Room",.5f,2.5f,1}};
     if(p>=fxParamCount(type))return {"Parameter",0,1,0};
     switch(type){
-        case FxType::Saturation:return saturation[p];
-        case FxType::MetalAmp:return metal[p];
-        case FxType::MetalCore:return metalCore[p];
+        case FxType::Embera:return embera[p];
+        case FxType::Prisma:return prisma[p];
+        case FxType::Recurra:return recurra[p];
+        case FxType::Vastrel:return vastrel[p];
         case FxType::Ampere:return ampere[p];
         case FxType::Cabeus:return cabeus[p];
-        case FxType::Cabinet:return cabinet[p];
-        case FxType::BandEq:return eq[p];
-        case FxType::Delay:return delay[p];
-        case FxType::Reverb:return reverb[p];
     }
     return {"Parameter",0,1,0};
 }
 inline FxModule makeFxModule(FxType type) noexcept {
     FxModule m;m.type=type;
-    for(size_t i=0;i<fxParamCount(type);++i)m.params[i]=fxParamDesc(type,i).defaultValue;
+    for(size_t i=0;i<fxParamCount(type);++i)
+        m.params[i]=fxParamDesc(type,i).defaultValue;
     return m;
 }
 struct Fx {

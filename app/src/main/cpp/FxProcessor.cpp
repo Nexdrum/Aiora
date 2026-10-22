@@ -7,6 +7,9 @@ namespace {
 constexpr float pi=3.14159265358979323846f;
 constexpr std::array<float,4> combMs{29.7f,37.1f,41.1f,43.7f};
 constexpr std::array<float,2> allMs{5.0f,1.7f};
+constexpr std::array<float,kPrismaBands> prismaHz{{
+    31,47,70,106,160,240,360,540,810,1200,1800,2700,4050,6100,9200,14000
+}};
 float pole(float hz,float sr) noexcept {
     return 1.0f-std::exp(-2.0f*pi*std::clamp(hz,10.0f,sr*.44f)/sr);
 }
@@ -37,11 +40,11 @@ void FxProcessor::Biquad::peak(float freq,float q,float gainDb,float sr) noexcep
     a1=(-2*c)/n;a2=(1-alpha/a)/n;
 }
 void FxProcessor::Stage::prepare(float sr,float maxDelay,FxType type,bool allTypes){
-    if(allTypes||type==FxType::Delay){
+    if(allTypes||type==FxType::Recurra){
         const size_t size=static_cast<size_t>(sr*std::max(1.2f,maxDelay))+2;
         if(delay.size()<size)delay.resize(size,0.0f);
     }
-    if(allTypes||type==FxType::Reverb){
+    if(allTypes||type==FxType::Vastrel){
         for(size_t i=0;i<4;++i){
             const size_t a=static_cast<size_t>(sr*combMs[i]*2.5f/1000.0f)+2;
             const size_t b=static_cast<size_t>(sr*(combMs[i]+1.3f)*2.5f/1000.0f)+2;
@@ -58,45 +61,17 @@ void FxProcessor::Stage::prepare(float sr,float maxDelay,FxType type,bool allTyp
 }
 void FxProcessor::Stage::configure(float sr){
     const auto& p=module.params;
-    if(module.type==FxType::BandEq){
-        constexpr float f[5]={80,240,750,2200,6000};
+    if(module.type==FxType::Embera){
+        // Float quantization is the entire bitcrush effect; at zero the
+        // original saturation transfer function is bit-for-bit unchanged.
+        const float amount=std::clamp(p[3],0.0f,1.0f);
+        crushEnabled=amount>0.0f;
+        crushLevels=std::exp2(16.0f-14.0f*amount)-1.0f;
+    }
+    if(module.type==FxType::Prisma){
         for(int channel=0;channel<2;++channel)
-            for(int i=0;i<5;++i)eq[channel][i].peak(f[i],.95f,p[i],sr);
-    }
-    if(module.type==FxType::MetalAmp){
-        cutoffA=pole(p[2],sr);cutoffB=pole(3700.0f,sr);
-        constexpr float f[4]={120,850,3200,4900};
-        for(int ch=0;ch<2;++ch)
-            for(int i=0;i<4;++i)eq[ch][i].peak(f[i],.85f,p[3+i],sr);
-    }
-    if(module.type==FxType::MetalCore){
-        const float osRate=sr*2.0f;
-        coreTightPole=pole(p[2],osRate);
-        coreInterPole=pole(5100.0f,osRate);
-        corePickPole=pole(1700.0f,osRate);
-        coreSubPole=pole(56.0f,osRate);
-        coreBodyPole=pole(210.0f,osRate);
-        coreDcPole=pole(22.0f,sr);
-        // Blackman-windowed 33-tap decimation filter, centered below
-        // the 1x Nyquist limit to reduce hard-clip aliasing.
-        constexpr int taps=33,half=(taps-1)/2;
-        constexpr float fc=.235f;
-        float total=0.0f;
-        for(int i=0;i<taps;++i){
-            const int k=i-half;
-            const float sinc=k==0?2.0f*fc:
-                std::sin(2.0f*pi*fc*k)/(pi*k);
-            const float window=.42f-.5f*std::cos(2.0f*pi*i/(taps-1))+
-                .08f*std::cos(4.0f*pi*i/(taps-1));
-            coreFir[i]=sinc*window;
-            total+=coreFir[i];
-        }
-        for(auto& tap:coreFir)tap/=total;
-        constexpr float frequencies[4]={125.0f,850.0f,2700.0f,5150.0f};
-        const float gains[4]={(p[3]-5.0f)*1.05f,p[4],p[5],p[6]};
-        for(int ch=0;ch<2;++ch)
-            for(int i=0;i<4;++i)
-                eq[ch][i].peak(frequencies[i],.84f,gains[i],sr);
+            for(size_t i=0;i<kPrismaBands;++i)
+                eq[channel][i].peak(prismaHz[i],1.65f,p[i],sr);
     }
     if(module.type==FxType::Ampere){
         const float osRate=sr*2.0f;
@@ -175,15 +150,7 @@ void FxProcessor::Stage::configure(float sr){
             eq[ch][2].peak(model==0?4100.0f:3650.0f,1.3f,-2.0f-2.0f*mic,sr);
         }
     }
-    if(module.type==FxType::Cabinet){
-        cutoffA=pole(p[0],sr);cutoffB=pole(p[1],sr);
-        for(int ch=0;ch<2;++ch){
-            eq[ch][0].peak(145,.82f,(p[2]-.5f)*12.0f,sr);
-            eq[ch][1].peak(1800,1.15f,(p[3]-.5f)*10.0f,sr);
-            eq[ch][2].peak(3700,1.05f,-2.5f,sr);
-        }
-    }
-    if(module.type==FxType::Reverb){
+    if(module.type==FxType::Vastrel){
         const float room=std::clamp(p[2],.5f,2.5f);
         const float decay=std::clamp(p[1],.2f,12.0f);
         const auto conf=[&](Comb& c,float ms){
@@ -206,13 +173,9 @@ void FxProcessor::Stage::reset() noexcept {
     for(auto& c:combL)c.reset();for(auto& c:combR)c.reset();
     for(auto& a:allL)a.reset();for(auto& a:allR)a.reset();
     for(auto& ch:eq)for(auto& q:ch)q.clear();
-    low.fill(0);inter.fill(0);high.fill(0);
     for(auto& h:coreHistory)h.fill(0.0f);
     corePosition.fill(0);
-    corePrevious.fill(0.0f);coreTightLow.fill(0.0f);
-    coreInter.fill(0.0f);corePickLow.fill(0.0f);
-    coreSubLow.fill(0.0f);coreBassBody.fill(0.0f);
-    coreDc.fill(0.0f);
+    corePrevious.fill(0.0f);
     ampEnvelope.fill(0.0f);ampTightLow.fill(0.0f);
     ampMidLow.fill(0.0f);ampMidHigh.fill(0.0f);
     ampPickLow.fill(0.0f);ampInter.fill(0.0f);
@@ -224,76 +187,21 @@ void FxProcessor::Stage::reset() noexcept {
 std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexcept {
     const auto& p=module.params;
     switch(module.type){
-        case FxType::Saturation:{
+        case FxType::Embera:{
             const float drive=1.0f+std::clamp(p[1],0.0f,10.0f)*8.0f;
-            return {std::tanh(l*p[0]*drive)*p[2],std::tanh(r*p[0]*drive)*p[2]};
-        }
-        case FxType::MetalAmp:{
-            const auto clip=[&](float x,int ch){
-                low[ch]+=cutoffA*(x-low[ch]);
-                const float tight=x-low[ch];
-                const float first=std::tanh(tight*p[0]*(1.0f+p[1]*1.8f)+.09f)-std::tanh(.09f);
-                inter[ch]+=cutoffB*(first-inter[ch]);
-                const float second=std::tanh((inter[ch]+tight*.12f)*(1.0f+p[1]*1.1f));
-                float y=second/(1.0f+p[1]*.13f);
-                for(int i=0;i<4;++i)y=eq[ch][i].process(y);
-                return y*p[7];
-            };
-            return {clip(l,0),clip(r,1)};
-        }
-        case FxType::MetalCore:{
-            const auto pedal=[&](float input,int ch){
-                const float gain=1.0f+p[1]*3.1f;
-                // Input level governs EVERY branch, including post-clip punch.
-                const float inputSample=input*p[0];
-                float output=0.0f;
-                for(int subStep=0;subStep<2;++subStep){
-                    const float sample=subStep==0?
-                        .5f*(corePrevious[ch]+inputSample):inputSample;
-                    // Keep bass out of both clipping stages, then mix a
-                    // short low-pitched impact back in after saturation.
-                    coreSubLow[ch]+=coreSubPole*(sample-coreSubLow[ch]);
-                    const float subFree=sample-coreSubLow[ch];
-                    coreBassBody[ch]+=coreBodyPole*(subFree-coreBassBody[ch]);
-                    const float bass=coreBassBody[ch];
-                    coreTightLow[ch]+=coreTightPole*(sample-coreTightLow[ch]);
-                    const float tight=sample-coreTightLow[ch];
-                    corePickLow[ch]+=corePickPole*(tight-corePickLow[ch]);
-                    const float attack=tight-corePickLow[ch];
-                    const float first=std::tanh(
-                        (tight+.18f*attack)*gain);
-                    coreInter[ch]+=coreInterPole*(first-coreInter[ch]);
-                    const float drive=(coreInter[ch]+.16f*attack)*
-                        (1.0f+p[1]*.9f);
-                    // Asymmetric hard clipping creates dense metal
-                    // harmonics; the soft blend retains pick nuance.
-                    const float hard=std::clamp(drive+.055f,-.82f,.69f)-.055f;
-                    const float soft=std::tanh(drive*1.35f)/1.35f;
-                    const float core=std::tanh((hard*.79f+soft*.21f)*
-                        (1.15f+.13f*p[1]));
-                    const float punch=std::tanh(bass*3.2f)*
-                        (.055f+.031f*p[3]);
-                    const float pick=.055f*std::tanh(attack*3.0f);
-                    const float shaped=.72f*core+punch+pick;
-                    auto& history=coreHistory[ch];
-                    const size_t at=corePosition[ch];
-                    history[at]=shaped;
-                    corePosition[ch]=(at+1)%history.size();
-                    if(subStep==1){
-                        size_t index=corePosition[ch];
-                        for(size_t tap=0;tap<coreFir.size();++tap){
-                            index=(index+history.size()-1)%history.size();
-                            output+=history[index]*coreFir[tap];
-                        }
-                    }
+            const auto saturate=[&](float x){
+                float y=std::tanh(x*p[0]*drive);
+                if(crushEnabled){
+                    // Uniform quantization of a signed full-scale wave.
+                    // Slider 0: bypass; slider 1: approximately 2-bit.
+                    const float normalized=(std::clamp(y,-1.0f,1.0f)+1.0f)*.5f;
+                    const float quantized=std::floor(normalized*crushLevels+.5f)/
+                        crushLevels;
+                    y=2.0f*quantized-1.0f;
                 }
-                corePrevious[ch]=inputSample;
-                coreDc[ch]+=coreDcPole*(output-coreDc[ch]);
-                float y=output-coreDc[ch];
-                for(int i=0;i<4;++i)y=eq[ch][i].process(y);
-                return y*p[7];
+                return y*p[2];
             };
-            return {pedal(l,0),pedal(r,1)};
+            return {saturate(l),saturate(r)};
         }
         case FxType::Ampere:{
             // Musical dynamics come from the audio amplitude itself; the
@@ -394,22 +302,13 @@ std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexce
             };
             return {cabinet(l,0),cabinet(r,1)};
         }
-        case FxType::Cabinet:{
-            const auto cab=[&](float x,int ch){
-                low[ch]+=cutoffA*(x-low[ch]);
-                float y=x-low[ch];
-                high[ch]+=cutoffB*(y-high[ch]);
-                y=high[ch];
-                for(int i=0;i<3;++i)y=eq[ch][i].process(y);
-                return x*(1.0f-p[4])+y*p[4];
-            };
-            return {cab(l,0),cab(r,1)};
+        case FxType::Prisma:{
+            for(size_t i=0;i<kPrismaBands;++i){
+                l=eq[0][i].process(l);r=eq[1][i].process(r);
+            }
+            return {l*p[kPrismaBands],r*p[kPrismaBands]};
         }
-        case FxType::BandEq:{
-            for(int i=0;i<5;++i){l=eq[0][i].process(l);r=eq[1][i].process(r);}
-            return {l*p[5],r*p[5]};
-        }
-        case FxType::Delay:{
+        case FxType::Recurra:{
             if(delay.empty())return {l,r};
             const size_t len=std::clamp<size_t>(static_cast<size_t>(std::clamp(p[1],.03f,1.0f)*sr),1,delay.size()-1);
             const size_t read=(delayWrite+delay.size()-len)%delay.size();
@@ -418,7 +317,7 @@ std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexce
             delayWrite=(delayWrite+1)%delay.size();
             return {l+d*.3f*p[0],r+d*.3f*p[0]};
         }
-        case FxType::Reverb:{
+        case FxType::Vastrel:{
             const float mono=(l+r)*.5f;float a=0,b=0;
             for(auto& c:combL)a+=c.process(mono*.25f);
             for(auto& c:combR)b+=c.process(mono*.25f);
@@ -435,7 +334,7 @@ void FxProcessor::prepare(float sampleRate,float maxDelaySeconds,bool realtimeCh
     maxDelaySeconds_=std::max(1.2f,maxDelaySeconds);
     realtimeChanges_=realtimeChanges;
     if(realtimeChanges_)
-        for(auto& stage:stages_)stage.prepare(sampleRate_,maxDelaySeconds_,FxType::Delay,true);
+        for(auto& stage:stages_)stage.prepare(sampleRate_,maxDelaySeconds_,FxType::Recurra,true);
     set(fx_);reset();
 }
 void FxProcessor::set(const Fx& fx){
