@@ -1,4 +1,4 @@
-// Approved Spectrello v2 patch, embedded byte-for-byte as auditioned.
+// Approved Spectrello v2 patch; retired unused fields removed without changing audio.
 // It is decoded using ProjectCodec, like the other approved factory patches.
 #pragma once
 #include <string_view>
@@ -3451,25 +3451,6 @@ inline constexpr std::string_view spectrelloCarbonFiberV2 = R"SPECTRELLOV2({
     "target": "none",
     "attack": 0,
     "velSens": 0
-  },
-  "vel": {
-    "amp": 0,
-    "filter": 0,
-    "slots": []
-  },
-  "mod": {
-    "slots": []
-  },
-  "fx": {
-    "dist": 0,
-    "distIn": 1,
-    "distOut": 1,
-    "delay": 0,
-    "delayTime": 0.32,
-    "delayFb": 0,
-    "reverb": 0,
-    "reverbDecay": 0.8,
-    "reverbRoom": 1
   },
   "fxChain": [],
   "unison": 0,

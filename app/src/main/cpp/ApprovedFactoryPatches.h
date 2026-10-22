@@ -2899,25 +2899,6 @@ inline constexpr std::string_view nebularSteelPhysicsV2 = R"NEBULARV2({
     "attack": 0,
     "velSens": 0
   },
-  "vel": {
-    "amp": 0,
-    "filter": 0,
-    "slots": []
-  },
-  "mod": {
-    "slots": []
-  },
-  "fx": {
-    "dist": 0,
-    "distIn": 1,
-    "distOut": 1,
-    "delay": 0,
-    "delayTime": 0.32,
-    "delayFb": 0,
-    "reverb": 0,
-    "reverbDecay": 0.8,
-    "reverbRoom": 1
-  },
   "fxChain": [],
   "unison": 0,
   "glide": 0,
@@ -7206,25 +7187,6 @@ inline constexpr std::string_view subulaMetalFretlessV4 = R"SUBULAV4({
     "target": "none",
     "attack": 0,
     "velSens": 0
-  },
-  "vel": {
-    "amp": 0,
-    "filter": 0,
-    "slots": []
-  },
-  "mod": {
-    "slots": []
-  },
-  "fx": {
-    "dist": 0,
-    "distIn": 1,
-    "distOut": 1,
-    "delay": 0,
-    "delayTime": 0.32,
-    "delayFb": 0,
-    "reverb": 0,
-    "reverbDecay": 0.8,
-    "reverbRoom": 1
   },
   "fxChain": [],
   "unison": 0,

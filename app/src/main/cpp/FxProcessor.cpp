@@ -439,7 +439,7 @@ void FxProcessor::prepare(float sampleRate,float maxDelaySeconds,bool realtimeCh
     set(fx_);reset();
 }
 void FxProcessor::set(const Fx& fx){
-    fx_=fx;migrateLegacyFx(fx_);
+    fx_=fx;
     for(size_t i=0;i<fx_.count&&i<kMaxFxStages;++i){
         auto& stage=stages_[i];
         const auto type=fx_.chain[i].type;

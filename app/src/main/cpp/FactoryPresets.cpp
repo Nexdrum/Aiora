@@ -23,7 +23,7 @@ Patch makeDefaultPatch(const char* name){
     p.filter.evolving=initialEvolvingFilter();
     p.masterAmpCurve=initialMasterAmpCurve();
     p.fx={};
-    p.fx.count=0;p.fx.rackConfigured=true;
+    p.fx.count=0;
     p.unison=0;p.octave=0;p.volume=.8f;
     return p;
 }

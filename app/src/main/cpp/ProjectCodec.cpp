@@ -278,8 +278,7 @@ LfoTarget parseLfo(std::string_view s){
     if(s=="amp")return LfoTarget::Amp;
     return LfoTarget::None;
 }
-void writeFxRack(Writer& w,Fx fx){
-    migrateLegacyFx(fx);
+void writeFxRack(Writer& w,const Fx& fx){
     w.raw("[");
     for(size_t i=0;i<fx.count;++i){
         if(i)w.raw(",");
@@ -297,7 +296,7 @@ void writeFxRack(Writer& w,Fx fx){
 }
 bool readFxRack(const Json* source,Fx& fx){
     if(!source||source->type!=Json::Type::Array)return false;
-    fx.rackConfigured=true;fx.count=0;
+    fx.count=0;
     for(const auto& item:source->array){
         if(fx.count>=kMaxFxStages)break;
         if(item.type!=Json::Type::Object)continue;
@@ -466,13 +465,6 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"keyMap\":{\"low\":");w.number(p.keyMapLow);
     w.raw(",\"high\":");w.number(p.keyMapHigh);w.raw("}");
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
-    w.raw(",\"fx\":{\"dist\":");w.number(p.fx.distortion);
-    w.raw(",\"distIn\":");w.number(p.fx.distIn);w.raw(",\"distOut\":");w.number(p.fx.distOut);
-    w.raw(",\"delay\":");w.number(p.fx.delay);w.raw(",\"delayTime\":");w.number(p.fx.delayTime);w.raw(",\"delayFb\":");w.number(p.fx.delayFeedback);
-    w.raw(",\"reverb\":");w.number(p.fx.reverb);
-    w.raw(",\"reverbDecay\":");w.number(p.fx.reverbDecay);
-    w.raw(",\"reverbRoom\":");w.number(p.fx.reverbRoom);
-    w.raw("}");
     w.raw(",\"fxChain\":");writeFxRack(w,p.fx);
     w.raw(",\"unison\":");w.number(p.unison);
     if(p.unisonCurve.enabled){w.raw(",\"unisonCurve\":");writeOperatorCurve(w,p.unisonCurve);}
@@ -626,27 +618,12 @@ bool readPatch(const Json& src,Patch& p){
         }
         o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,16.0f,o.ratio);
 
-        float semi=clampf(
+        o.semitoneOffset=std::round(clampf(
             num(jo.get("semi"),o.semitoneOffset),
-            -12.0f,12.0f,o.semitoneOffset);
-        float fine=static_cast<float>(
-            num(jo.get("detune"),o.detuneCents));
-
-        // Legacy patches only had ±100-cent detune. Fold any excess beyond
-        // the new ±50-cent fine range into whole semitone steps so their
-        // audible pitch is preserved.
-        while(fine>50.0f&&semi<12.0f){
-            fine-=100.0f;
-            semi+=1.0f;
-        }
-        while(fine<-50.0f&&semi>-12.0f){
-            fine+=100.0f;
-            semi-=1.0f;
-        }
-        o.semitoneOffset=std::round(
-            std::clamp(semi,-12.0f,12.0f));
-        o.detuneCents=std::round(
-            std::clamp(fine,-50.0f,50.0f));
+            -12.0f,12.0f,o.semitoneOffset));
+        o.detuneCents=std::round(clampf(
+            num(jo.get("detune"),o.detuneCents),
+            -50.0f,50.0f,o.detuneCents));
         o.level=clampf(num(jo.get("level"),o.level),0,1,o.level);
         readOperatorCurve(jo.get("volumeCurve"),o.volumeCurve,0,1);
         readOperatorCurve(jo.get("pitchCurve"),o.pitchCurve,-12,12);
@@ -695,17 +672,6 @@ bool readPatch(const Json& src,Patch& p){
     }
     if(const Json* l=src.get("lfo");l&&l->type==Json::Type::Object){
         p.lfo.rate=clampf(num(l->get("rate"),5),.1f,20,5);p.lfo.amount=clampf(num(l->get("amount"),0),0,2,0);p.lfo.target=parseLfo(str(l->get("target"),"none"));p.lfo.attack=clampf(num(l->get("attack"),0),0,2,0);p.lfo.velocitySensitivity=clampf(num(l->get("velSens"),0),0,1,0);
-    }
-    if(const Json* x=src.get("fx");x&&x->type==Json::Type::Object){
-        p.fx.distortion=clampf(num(x->get("dist"),0),0,10,0);
-        p.fx.distIn=clampf(num(x->get("distIn"),1),0,4,1);
-        p.fx.distOut=clampf(num(x->get("distOut"),1),0,4,1);
-        p.fx.delay=clampf(num(x->get("delay"),0),0,1,0);
-        p.fx.delayTime=clampf(num(x->get("delayTime"),.32),.03f,1,.32f);
-        p.fx.delayFeedback=clampf(num(x->get("delayFb"),.3),0,1,.3f);
-        p.fx.reverb=clampf(num(x->get("reverb"),0),0,1,0);
-        p.fx.reverbDecay=clampf(num(x->get("reverbDecay"),.8),.2f,12,.8f);
-        p.fx.reverbRoom=clampf(num(x->get("reverbRoom"),1),.5f,2.5f,1);
     }
     readFxRack(src.get("fxChain"),p.fx);
     readOperatorCurve(src.get("masterAmpCurve"),p.masterAmpCurve,0,1);
@@ -863,12 +829,8 @@ std::string serializeProjectJson(const Project& project){
     Writer w;
     w.raw("{\"name\":");w.string(project.name);w.raw(",\"bpm\":");w.number(project.bpm);w.raw(",\"beats\":");w.number(project.beats);w.raw(",\"div\":");w.number(project.divisions);w.raw(",\"dz\":");w.boolean(project.dozenal);
     w.raw(",\"mvol\":");w.number(project.masterVolume);
-    w.raw(",\"mrev\":");w.number(project.masterReverb);
-    w.raw(",\"mrevDecay\":");w.number(project.masterReverbDecay);
-    w.raw(",\"mrevRoom\":");w.number(project.masterReverbRoom);
     w.raw(",\"masterFxChain\":");
-    writeFxRack(w,project.masterFx.rackConfigured?project.masterFx:
-        legacyMasterFx(project.masterReverb,project.masterReverbDecay,project.masterReverbRoom));
+    writeFxRack(w,project.masterFx);
     w.raw(",\"tracks\":[");
     for(size_t ti=0;ti<project.tracks.size();++ti){
         if(ti)w.raw(",");const auto&t=project.tracks[ti];
@@ -899,9 +861,7 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
         out.name=str(root.get("name"),"Untitled Song");
         if(out.name.empty())out.name="Untitled Song";
         if(out.name.size()>80)out.name.resize(80);
-        out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);out.masterReverb=clampf(num(root.get("mrev"),0),0,1,0);
-        out.masterReverbDecay=clampf(num(root.get("mrevDecay"),.8),.2f,12,.8f);
-        out.masterReverbRoom=clampf(num(root.get("mrevRoom"),1),.5f,2.5f,1);
+        out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);
         readFxRack(root.get("masterFxChain"),out.masterFx);
         for(size_t ti=0;ti<tracks->array.size();++ti){
             const auto& jt=tracks->array[ti];if(jt.type!=Json::Type::Object)continue;

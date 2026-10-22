@@ -82,9 +82,7 @@ extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_beats(JNIE
 extern "C" JNIEXPORT jint JNICALL Java_com_nexdrum_aiora_NativeBridge_divisions(JNIEnv*,jobject){return ProjectCore::instance().divisions();}
 extern "C" JNIEXPORT jboolean JNICALL Java_com_nexdrum_aiora_NativeBridge_dozenal(JNIEnv*,jobject){return ProjectCore::instance().dozenal()?JNI_TRUE:JNI_FALSE;}
 extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_masterVolume(JNIEnv*,jobject){return ProjectCore::instance().masterVolume();}
-extern "C" JNIEXPORT jfloat JNICALL Java_com_nexdrum_aiora_NativeBridge_masterReverb(JNIEnv*,jobject){return ProjectCore::instance().masterReverb();}
 extern "C" JNIEXPORT void JNICALL Java_com_nexdrum_aiora_NativeBridge_setBpm(JNIEnv*,jobject,jfloat v){ProjectCore::instance().setBpm(v);}
 extern "C" JNIEXPORT void JNICALL Java_com_nexdrum_aiora_NativeBridge_setSignature(JNIEnv*,jobject,jint b,jint d){ProjectCore::instance().setSignature(b,d);}
 extern "C" JNIEXPORT void JNICALL Java_com_nexdrum_aiora_NativeBridge_setDozenal(JNIEnv*,jobject,jboolean e){ProjectCore::instance().setDozenal(e==JNI_TRUE);}
 extern "C" JNIEXPORT void JNICALL Java_com_nexdrum_aiora_NativeBridge_setMasterVolume(JNIEnv*,jobject,jfloat v){ProjectCore::instance().setMasterVolume(v);}
-extern "C" JNIEXPORT void JNICALL Java_com_nexdrum_aiora_NativeBridge_setMasterReverb(JNIEnv*,jobject,jfloat v){ProjectCore::instance().setMasterReverb(v);}

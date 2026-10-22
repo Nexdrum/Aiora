@@ -21,6 +21,11 @@ int main(){
         assert(bank[i].name==instruments[i]);
         assert(bank[i].filter.evolving.configured);
         const auto serialized=serializePatchJson(bank[i]);
+        // Factory patches must be expressed entirely in the modern model.
+        assert(serialized.find("\"fx\":")==std::string::npos);
+        assert(serialized.find("\"vel\":")==std::string::npos);
+        assert(serialized.find("\"mod\":")==std::string::npos);
+        assert(serialized.find("\"fxChain\":")!=std::string::npos);
         Patch decoded;
         std::string error;
         assert(deserializePatchJson(serialized,decoded,&error));
@@ -62,6 +67,36 @@ int main(){
     assert(deserializeProjectJson(serializeProjectJson(song),decodedSong,&error));
     assert(decodedSong.tracks.size()==1);
     assert(decodedSong.tracks[0].pads.size()==7);
+
+    // FX rack settings round-trip without retired patch-level knobs.
+    Patch fxPatch=makeDefaultPatch("Modern FX");
+    fxPatch.fx.count=1;
+    fxPatch.fx.chain[0]=makeFxModule(FxType::Reverb);
+    fxPatch.fx.chain[0].params[0]=.43f;
+    fxPatch.fx.chain[0].params[1]=2.4f;
+    const std::string fxJson=serializePatchJson(fxPatch);
+    assert(fxJson.find("\"fx\":")==std::string::npos);
+    Patch fxDecoded;
+    assert(deserializePatchJson(fxJson,fxDecoded,&error));
+    assert(fxDecoded.fx.count==1);
+    assert(fxDecoded.fx.chain[0].type==FxType::Reverb);
+    assert(std::fabs(fxDecoded.fx.chain[0].params[0]-.43f)<1e-5f);
+    assert(std::fabs(fxDecoded.fx.chain[0].params[1]-2.4f)<1e-5f);
+
+    // A master rack is saved directly, rather than synthesized from
+    // obsolete master reverb controls.
+    song.masterFx.count=1;
+    song.masterFx.chain[0]=makeFxModule(FxType::Delay);
+    song.masterFx.chain[0].params[0]=.31f;
+    const std::string modernProject=serializeProjectJson(song);
+    assert(modernProject.find("\"mrev\"")==std::string::npos);
+    assert(modernProject.find("\"mrevDecay\"")==std::string::npos);
+    assert(modernProject.find("\"mrevRoom\"")==std::string::npos);
+    Project decodedModern;
+    assert(deserializeProjectJson(modernProject,decodedModern,&error));
+    assert(decodedModern.masterFx.count==1);
+    assert(decodedModern.masterFx.chain[0].type==FxType::Delay);
+    assert(std::fabs(decodedModern.masterFx.chain[0].params[0]-.31f)<1e-5f);
 
     // Test full modern synthesis at both ends of the continuous V/M controls.
     for(size_t i=0;i<kit.size();++i){

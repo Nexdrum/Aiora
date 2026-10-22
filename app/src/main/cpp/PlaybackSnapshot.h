@@ -26,9 +26,6 @@ struct PlaybackSnapshot {
     int32_t divisions{4};
     int32_t lengthSteps{16};
     float masterVolume{0.9f};
-    float masterReverb{0.0f};
-    float masterReverbDecay{0.8f};
-    float masterReverbRoom{1.0f};
     Fx masterEffects{};
     std::vector<Fx> fxBuses;
     std::vector<FxProcessor> preparedFx;

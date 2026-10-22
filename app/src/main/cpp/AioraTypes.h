@@ -159,7 +159,7 @@ inline OperatorResponse initialOperatorResponse() noexcept {
 }
 struct Operator {
     bool enabled{true};
-    // Optional phase variation at note-on; legacy patches default to fixed.
+    // Optional phase variation at note-on; disabled by default.
     bool randomPhase{false};
     // Symmetric note-on variation in degrees: 10 = -10..+10, 180 = full circle.
     float randomPhaseDegrees{10.0f};
@@ -329,39 +329,10 @@ inline FxModule makeFxModule(FxType type) noexcept {
     return m;
 }
 struct Fx {
-    // Legacy parameters remain readable for old patch/project migration.
-    float distortion{0},delay{0.18f},delayTime{0.32f},delayFeedback{0.32f},reverb{0.25f};
-    float distIn{1.0f},distOut{1.0f};
-    float reverbDecay{0.8f},reverbRoom{1.0f};
-    // Ordered fixed-capacity rack: no allocations when passed into audio events.
+    // The FX rack is the sole source of processing state for a patch or master.
     std::array<FxModule,kMaxFxStages> chain{};
     uint8_t count{0};
-    bool rackConfigured{false}; // true even if all modules were removed
 };
-inline void migrateLegacyFx(Fx& fx) noexcept {
-    if(fx.rackConfigured)return;
-    fx.count=0;fx.rackConfigured=true;
-    if(fx.distortion>.005f){
-        auto m=makeFxModule(FxType::Saturation);
-        m.params[0]=fx.distIn;m.params[1]=fx.distortion;m.params[2]=fx.distOut;
-        fx.chain[fx.count++]=m;
-    }
-    if(fx.delay>.005f){
-        auto m=makeFxModule(FxType::Delay);
-        m.params[0]=fx.delay;m.params[1]=fx.delayTime;m.params[2]=fx.delayFeedback;
-        fx.chain[fx.count++]=m;
-    }
-    if(fx.reverb>.005f){
-        auto m=makeFxModule(FxType::Reverb);
-        m.params[0]=fx.reverb;m.params[1]=fx.reverbDecay;m.params[2]=fx.reverbRoom;
-        fx.chain[fx.count++]=m;
-    }
-}
-inline Fx legacyMasterFx(float mix,float decay,float room) noexcept {
-    Fx fx{};fx.distortion=0;fx.delay=0;fx.reverb=mix;
-    fx.reverbDecay=decay;fx.reverbRoom=room;
-    migrateLegacyFx(fx);return fx;
-}
 inline OperatorCurve initialUnisonCurve(float base=0.0f) noexcept {
     OperatorCurve c;c.enabled=true;c.sustain=true;c.count=2;
     c.releaseIndex=0;c.decayIndex=0;
@@ -501,8 +472,7 @@ struct Track {
 struct Project {
     std::string name{"Untitled Song"};
     float bpm{112}; int32_t beats{4},divisions{4}; bool dozenal{false};
-    float masterVolume{0.9f},masterReverb{0};
-    float masterReverbDecay{0.8f},masterReverbRoom{1.0f};
+    float masterVolume{0.9f};
     Fx masterFx{};
     std::vector<Track> tracks;
 };

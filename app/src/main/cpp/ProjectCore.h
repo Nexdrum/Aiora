@@ -112,16 +112,10 @@ public:
     int divisions() const;
     bool dozenal() const;
     float masterVolume() const;
-    float masterReverb() const;
-    float masterReverbDecay() const;
-    float masterReverbRoom() const;
     void setBpm(float value);
     void setSignature(int beats, int divisions);
     void setDozenal(bool enabled);
     void setMasterVolume(float value);
-    void setMasterReverb(float value);
-    void setMasterReverbDecay(float value);
-    void setMasterReverbRoom(float value);
 
     Patch selectedPatch() const;
     DspPatch selectedDspPatch() const;
