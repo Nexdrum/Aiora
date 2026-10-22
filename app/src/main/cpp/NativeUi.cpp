@@ -2561,10 +2561,7 @@ bool NativeUi::trackPointerDown(float x,float y){
         const float start=r.x+labelW;
         const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
         const float n=std::clamp((x-start)/width,0.0f,1.0f);
-        if(i==0)project.setMasterVolume(n);
-        else if(i==1)project.setMasterReverb(n);
-        else if(i==2)project.setMasterReverbDecay(0.2f+n*11.8f);
-        else project.setMasterReverbRoom(0.5f+n*2.0f);
+        project.setMasterVolume(n);
         trackActiveSlider_=i+2;trackControlChanged_=true;return true;
     }
 
@@ -2648,7 +2645,7 @@ bool NativeUi::trackPointerMove(float x,float y){
         return true;
     }
 
-    if(trackActiveSlider_>=2&&trackActiveSlider_<=5){
+    if(trackActiveSlider_==2){
         const int i=trackActiveSlider_-2;
         const auto r=masterSliderRect(i);
         const float labelW=std::clamp(r.w*0.17f,54.0f,88.0f);
@@ -2656,10 +2653,7 @@ bool NativeUi::trackPointerMove(float x,float y){
         const float start=r.x+labelW;
         const float width=std::max(2.0f,r.w-labelW-valueW-10.0f);
         const float n=std::clamp((x-start)/width,0.0f,1.0f);
-        if(i==0)project.setMasterVolume(n);
-        else if(i==1)project.setMasterReverb(n);
-        else if(i==2)project.setMasterReverbDecay(0.2f+n*11.8f);
-        else project.setMasterReverbRoom(0.5f+n*2.0f);
+        project.setMasterVolume(n);
     }else if(trackActiveSlider_>=6&&trackActiveSlider_<=8){
         const int i=trackActiveSlider_-6;
         const auto r=trackSongSliderRect(i);
