@@ -497,10 +497,10 @@ bool NativeUi::openUiDropdownAt(float x,float y){
     if(page_==NativePage::Tracks&&contentRect().contains(x,y)&&
        masterFxAddRect(false).contains(x,y)){
         std::vector<std::string> labels;
-        for(int i=0;i<=static_cast<int>(FxType::Reverb);++i)
-            labels.emplace_back(fxTypeName(static_cast<FxType>(i)));
+        for(const auto type:kAvailableFxTypes)
+            labels.emplace_back(fxTypeName(type));
         openDropdown(DropdownKind::MasterFxType,-1,masterFxAddRect(false),
-            static_cast<int>(masterFxNewType_),std::move(labels));
+            fxTypeMenuIndex(masterFxNewType_),std::move(labels));
         return true;
     }
 
