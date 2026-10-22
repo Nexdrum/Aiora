@@ -42,15 +42,6 @@ public:
     [[nodiscard]] std::optional<int> hitFactoryPreset(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitOperatorRatio(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitOperatorSemitone(float x,float y) const noexcept;
-    struct ModLinkValueHit {
-        int slot{-1};
-        LinkSource source{LinkSource::Mod};
-        bool maximum{false};
-        ModTarget target{ModTarget::None};
-        float value{0.0f};
-    };
-    [[nodiscard]] std::optional<ModLinkValueHit> hitModLinkValue(
-        float x,float y) const noexcept;
     bool openDropdownAt(EditorPage page,float x,float y,NativeUi& ui) const;
     bool applyDropdownChoice(const DropdownChoice& choice);
 
@@ -61,8 +52,7 @@ private:
         None,
         SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
-        FxGroup, FilterType, FilterOpen, FilterEditor, UnisonEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
-        LinkSourceV, LinkSourceM, ModTargetPrev, ModTargetNext, ModMin, ModMax, ModDelete, ModAdd,
+        FxGroup, FilterOpen, FilterEditor, UnisonEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
     };
     struct Hit {
@@ -102,17 +92,6 @@ private:
     [[nodiscard]] Rect fxRackStageRect(int index) const noexcept;
     [[nodiscard]] Rect fxRackParamRect(int index,int parameter) const noexcept;
     [[nodiscard]] Rect fxRackAddRect(bool add) const noexcept;
-    [[nodiscard]] Rect fxGroupRect(int index) const noexcept;
-    [[nodiscard]] Rect fxSectionParamRect(int section,int row) const noexcept;
-    [[nodiscard]] Rect filterTypeRect(int index) const noexcept;
-    [[nodiscard]] Rect peakToggleRect(int index) const noexcept;
-    [[nodiscard]] Rect peakParamRect(int row) const noexcept;
-    [[nodiscard]] Rect lfoTargetRect(int index) const noexcept;
-    [[nodiscard]] Rect fxSliderRect(int row,int rowCount,bool hasChoiceRow) const noexcept;
-    [[nodiscard]] Rect linkSourceRect(LinkSource source) const noexcept;
-    [[nodiscard]] Rect modRowRect(int slot) const noexcept;
-    [[nodiscard]] Rect modPartRect(int slot,int part) const noexcept;
-    [[nodiscard]] Rect modAddRect() const noexcept;
 
     [[nodiscard]] std::optional<Hit> hitSynth(float x,float y) const noexcept;
     [[nodiscard]] std::optional<Hit> hitFx(float x,float y) const noexcept;
@@ -120,12 +99,10 @@ private:
 
     [[nodiscard]] static Range operatorRange(OperatorParam param) noexcept;
     [[nodiscard]] static Range patchRange(PatchParam param) noexcept;
-    [[nodiscard]] static Range modRange(ModTarget target) noexcept;
     [[nodiscard]] static float operatorValue(const Patch& p,int op,OperatorParam param) noexcept;
     [[nodiscard]] static float patchValue(const Patch& p,PatchParam param) noexcept;
     [[nodiscard]] static float normalized(float value,Range range) noexcept;
     [[nodiscard]] static float denormalized(float value,Range range) noexcept;
-    [[nodiscard]] static ModTarget cycleModTarget(ModTarget current,int direction) noexcept;
     [[nodiscard]] float editorScrollMax(EditorPage page) const noexcept;
     void scrollEditor(EditorPage page,float delta) noexcept;
     bool applyKineticScrollDelta(float delta) noexcept;
@@ -149,7 +126,6 @@ private:
     int fxGroup_{0};
     int fxRackExpanded_{-1};
     FxType fxRackNewType_{FxType::MetalAmp};
-    LinkSource linkSource_{LinkSource::Mod};
     float synthScrollY_{0.0f};
     float fxScrollY_{0.0f};
     bool scrolling_{false};

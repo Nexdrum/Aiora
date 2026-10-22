@@ -9,19 +9,12 @@ namespace aiora {
 struct PlaybackSnapshot;
 
 enum class OperatorParam : uint8_t {
-    Ratio, Semitone, Detune, Level, Attack, Decay, Sustain, Release
+    Ratio, Semitone, Detune, Level
 };
 
 enum class PatchParam : uint8_t {
-    FilterCutoff, FilterResonance, FilterEnv,
-    FilterAttack, FilterDecay, FilterSustain, FilterRelease,
-    AmpAttack, AmpDecay, AmpSustain, AmpRelease,
-    VelocityAmp, VelocityFilter,
-    LfoRate, LfoAmount, LfoAttack, LfoVelocity,
-    Unison, Glide, Volume,
-    Distortion, Delay, DelayTime, DelayFeedback, Reverb,
-    DistIn, DistOut, ReverbDecay, ReverbRoom,
-    PeakRatio, PeakFrequency, PeakQ, PeakGain
+    LfoRate,LfoAmount,LfoAttack,LfoVelocity,Unison,Volume,
+    PeakRatio,PeakFrequency,PeakQ,PeakGain
 };
 
 class ProjectCore {
@@ -146,7 +139,6 @@ public:
     bool setSelectedOperatorRandomPhase(int opIndex, bool enabled);
     bool setSelectedOperatorRandomPhaseDegrees(int opIndex, float degrees);
     bool setSelectedOperatorCurve(int opIndex,int kind,const OperatorCurve& curve);
-    bool setSelectedOperatorResponse(int opIndex,const OperatorResponse& response);
     bool setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel);
     bool setSelectedKeyMapRange(int lowMidi,int highMidi);
     bool setSelectedOperatorWave(int opIndex, Wave wave, bool morph = false);
@@ -154,7 +146,6 @@ public:
     bool setSelectedHarmonic(int opIndex, int partialIndex, float value, bool muted = false);
     bool setSelectedHarmonicPhase(int opIndex, int partialIndex, float value, bool muted = false);
     bool setSelectedMatrixAmount(int modulator, int carrier, float value);
-    bool setSelectedFilterType(FilterType type);
     bool setSelectedEvolvingFilter(const EvolvingFilter& model);
     bool setSelectedUnisonCurve(const OperatorCurve& curve);
     bool setSelectedMasterAmpCurve(const OperatorCurve& curve);
@@ -163,11 +154,6 @@ public:
     bool setSelectedLfoTarget(LfoTarget target);
     bool setSelectedPatchParam(PatchParam param, float value);
 
-    int selectedModSlotCount(LinkSource source = LinkSource::Mod) const;
-    ModSlot selectedModSlot(int slotIndex, LinkSource source = LinkSource::Mod) const;
-    bool addSelectedModSlot(ModTarget target = ModTarget::Cutoff, LinkSource source = LinkSource::Mod);
-    bool removeSelectedModSlot(int slotIndex, LinkSource source = LinkSource::Mod);
-    bool setSelectedModSlot(int slotIndex, ModTarget target, float minValue, float maxValue, LinkSource source = LinkSource::Mod);
 
     std::unique_ptr<PlaybackSnapshot> makePlaybackSnapshot() const;
 

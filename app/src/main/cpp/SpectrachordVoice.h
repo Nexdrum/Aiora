@@ -29,19 +29,6 @@ public:
     float render() noexcept;
 
 private:
-    enum class EnvStage : uint8_t { Off, Attack, Decay, Sustain, Release };
-    struct EnvState {
-        EnvStage stage{EnvStage::Off};
-        float value{0.0f};
-        float releaseStart{0.0f};
-        uint32_t stageSamples{0};
-        uint32_t pos{0};
-        Envelope shape{};
-        void reset(const Envelope& e, float sr) noexcept;
-        void noteOff(float sr) noexcept;
-        float next(float sr) noexcept;
-        bool done() const noexcept { return stage == EnvStage::Off; }
-    };
     struct PointEnvState {
         OperatorCurve curve{};
         float age{0},releaseAge{0},releaseStart{0},value{0};
@@ -54,7 +41,7 @@ private:
         float b0{1},b1{0},b2{0},a1{0},a2{0};
         float z1{0},z2{0};
         void reset() noexcept { z1=z2=0; }
-        void configure(FilterType type, float freq, float q, float sr) noexcept;
+        void configureLowpass(float freq,float q,float sr) noexcept;
         void configurePeak(float freq,float q,float gainDb,float sr) noexcept;
         void configureEvolving(FilterShape shape,float freq,float qNorm,float gainDb,float sr) noexcept;
         float process(float x) noexcept;
@@ -68,12 +55,6 @@ private:
     float hissSample(size_t index, int unisonVoice, float pitchHz) noexcept;
     float waveSample(Wave wave,const SpectralWaveTables& tables,
         float phase,float frequency) noexcept;
-    float mappedValue(ModTarget target, float m, float fallback) const noexcept;
-    float slotValue(ModTarget target, float v, float m, float fallback) const noexcept;
-    bool velocityOwns(ModTarget target) const noexcept;
-    float opLevel(size_t index, float v, float m) const noexcept;
-    float morphValue(size_t index, float v, float m) const noexcept;
-
     bool active_{false};
     int32_t id_{-1};
     uint64_t age_{0};
@@ -83,7 +64,6 @@ private:
     float velocity_{0.8f};
     DspPatch patch_{};
     VoiceAutomation automation_{};
-    std::array<EnvState,6> opEnv_{};
     std::array<PointEnvState,6> opVolume_{},opPitch_{},opMorphVolume_{},opMorphPitch_{};
     std::array<PointEnvState,6> filterTimeline_{};
     PointEnvState unisonTimeline_{},masterAmpTimeline_{};
@@ -94,18 +74,11 @@ private:
     uint32_t slopeUpdateCounter_{0};
     float filterFrequencySmoothed_{1000.0f},filterGainSmoothed_{0.0f},filterQSmoothed_{.5f};
     std::array<float,3> filterShapeSmoothed_{{0,1,0}};
-    bool anyCustomVolume_{false};
-    EnvState ampEnv_{};
-    EnvState filterEnv_{};
     std::array<std::array<float,2>,6> phase_{};
     std::array<float,6> lastOp_{};
     // Immutable band-limited cycles are referenced through patch_.
     // Voice start performs no FFT and copies no waveform samples.
-    std::array<float,12> platePhase_{};
-    std::array<float,12> plateGain_{};
-    std::array<float,12> plateDecay_{};
     std::array<std::array<float,2>,6> hissState_{};
-    Biquad filter_{};
     Biquad peak_{};
     float peakCenterSmoothed_{220.0f},peakQSmoothed_{1.0f},peakGainSmoothed_{0.0f};
     bool peakReady_{false};
@@ -113,12 +86,8 @@ private:
     float lfoPhase_{0.0f};
     float lfoAge_{0.0f};
     float modValue_{0.0f};
-    float timpaniRingGain_{1.0f};
-    float cymbalTailGain_{1.0f};
-    float cymbalTailMultiplier_{1.0f};
     float samplesPerStep_{1.0f};
     float fixedUnison_{0.0f};
-    float fixedFilterEnvAmount_{0.0f};
     uint64_t gateSamples_{0};
     uint64_t elapsedSamples_{0};
     bool modActive_{false};

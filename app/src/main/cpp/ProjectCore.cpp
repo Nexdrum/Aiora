@@ -84,85 +84,27 @@ float clampOperatorParam(OperatorParam param,float v){
         case OperatorParam::Semitone:return std::clamp(v,-12.0f,12.0f);
         case OperatorParam::Detune:return std::clamp(v,-50.0f,50.0f);
         case OperatorParam::Level:return std::clamp(v,0.0f,1.0f);
-        case OperatorParam::Attack:return std::clamp(v,0.001f,1.0f);
-        case OperatorParam::Decay:return std::clamp(v,0.005f,1.5f);
-        case OperatorParam::Sustain:return std::clamp(v,0.0f,1.0f);
-        case OperatorParam::Release:return std::clamp(v,0.02f,2.0f);
     }
     return v;
 }
 
 float clampPatchParam(PatchParam param,float v){
     switch(param){
-        case PatchParam::FilterCutoff:return std::clamp(v,40.0f,18000.0f);
-        case PatchParam::FilterResonance:return std::clamp(v,0.1f,18.0f);
-        case PatchParam::FilterEnv:return std::clamp(v,0.0f,1.0f);
-        case PatchParam::FilterAttack:return std::clamp(v,0.005f,1.0f);
-        case PatchParam::FilterDecay:return std::clamp(v,0.01f,1.5f);
-        case PatchParam::FilterSustain:return std::clamp(v,0.0f,1.0f);
-        case PatchParam::FilterRelease:return std::clamp(v,0.02f,2.0f);
         case PatchParam::PeakRatio:return std::clamp(v,0.5f,8.0f);
         case PatchParam::PeakFrequency:return std::clamp(v,40.0f,8000.0f);
         case PatchParam::PeakQ:return std::clamp(v,0.3f,12.0f);
         case PatchParam::PeakGain:return std::clamp(v,-18.0f,18.0f);
-        case PatchParam::AmpAttack:return std::clamp(v,0.001f,1.0f);
-        case PatchParam::AmpDecay:return std::clamp(v,0.01f,1.5f);
-        case PatchParam::AmpSustain:return std::clamp(v,0.0f,1.0f);
-        case PatchParam::AmpRelease:return std::clamp(v,0.02f,8.0f);
-        case PatchParam::VelocityAmp:
-        case PatchParam::VelocityFilter:
         case PatchParam::LfoAmount:
         case PatchParam::LfoVelocity:
         case PatchParam::Unison:
-        case PatchParam::Glide:
         case PatchParam::Volume:
         case PatchParam::Delay:
         case PatchParam::Reverb:
             return std::clamp(v,0.0f,1.0f);
-        case PatchParam::Distortion:return std::clamp(v,0.0f,10.0f);
-        case PatchParam::DistIn:
-        case PatchParam::DistOut:return std::clamp(v,0.0f,4.0f);
-        case PatchParam::ReverbDecay:return std::clamp(v,0.2f,12.0f);
-        case PatchParam::ReverbRoom:return std::clamp(v,0.5f,2.5f);
         case PatchParam::LfoRate:return std::clamp(v,0.1f,20.0f);
         case PatchParam::LfoAttack:return std::clamp(v,0.0f,2.0f);
         case PatchParam::DelayTime:return std::clamp(v,0.03f,1.0f);
         case PatchParam::DelayFeedback:return std::clamp(v,0.0f,0.85f);
-    }
-    return v;
-}
-
-float clampModValue(ModTarget target,float v){
-    switch(target){
-        case ModTarget::Cutoff:return std::clamp(v,40.0f,18000.0f);
-        case ModTarget::Resonance:return std::clamp(v,0.1f,18.0f);
-        case ModTarget::FilterEnv:return std::clamp(v,0.0f,1.0f);
-        case ModTarget::AmpAttack:return std::clamp(v,0.001f,1.0f);
-        case ModTarget::AmpDecay:return std::clamp(v,0.01f,1.5f);
-        case ModTarget::AmpSustain:return std::clamp(v,0.0f,1.0f);
-        case ModTarget::AmpRelease:return std::clamp(v,0.02f,8.0f);
-        case ModTarget::FilterAttack:return std::clamp(v,0.005f,1.0f);
-        case ModTarget::FilterDecay:return std::clamp(v,0.01f,1.5f);
-        case ModTarget::FilterSustain:return std::clamp(v,0.0f,1.0f);
-        case ModTarget::FilterRelease:return std::clamp(v,0.02f,2.0f);
-        case ModTarget::Op1: case ModTarget::Op2: case ModTarget::Op3:
-        case ModTarget::Op4: case ModTarget::Op5: case ModTarget::Op6:
-        case ModTarget::Morph1: case ModTarget::Morph2: case ModTarget::Morph3:
-        case ModTarget::Morph4: case ModTarget::Morph5: case ModTarget::Morph6:
-        case ModTarget::Unison:
-            return std::clamp(v,0.0f,1.0f);
-        case ModTarget::Fm:return std::clamp(v,0.0f,1.5f);
-        case ModTarget::LfoAmount:return std::clamp(v,0.0f,2.0f);
-        case ModTarget::LfoRate:return std::clamp(v,0.1f,20.0f);
-        case ModTarget::Volume:return std::clamp(v,0.0f,2.0f);
-        case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
-        case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
-            return std::clamp(v,0.005f,1.5f);
-        case ModTarget::PeakRatio:return std::clamp(v,0.5f,8.0f);
-        case ModTarget::PeakFrequency:return std::clamp(v,40.0f,8000.0f);
-        case ModTarget::PeakQ:return std::clamp(v,0.3f,12.0f);
-        case ModTarget::PeakGain:return std::clamp(v,-18.0f,18.0f);
-        case ModTarget::None:return 0.0f;
     }
     return v;
 }
@@ -255,10 +197,6 @@ bool ProjectCore::setSelectedOperatorModChannel(int opIndex,int slot,const Opera
     auto& op=p->ops[static_cast<size_t>(opIndex)];
     if(!op.modChannelsConfigured){
         for(auto& c:op.modChannels)c=initialOperatorModChannel();
-        if(op.expressionCurve.enabled&&op.expressionCurve.count>=2){
-            op.modChannels[0].response=op.expressionCurve;
-            op.modChannels[0].enabled=true;
-        }
     }
     op.modChannels[static_cast<size_t>(slot)]=channel;
     op.modChannelsConfigured=true;
@@ -271,14 +209,6 @@ bool ProjectCore::setSelectedKeyMapRange(int lowMidi,int highMidi){
     p->keyMapLow=lowMidi;p->keyMapHigh=highMidi;
     return true;
 }
-bool ProjectCore::setSelectedOperatorResponse(int opIndex,const OperatorResponse& response){
-    if(opIndex<0||opIndex>=6||response.count>kMaxOperatorPoints)return false;
-    std::scoped_lock lock(mutex_);
-    auto* p=selectedPatchUnsafe();if(!p)return false;
-    p->ops[static_cast<size_t>(opIndex)].expressionCurve=response;
-    return true;
-}
-
 int ProjectCore::addTrack(bool drums) {
     std::scoped_lock lock(mutex_);
     
@@ -982,10 +912,6 @@ bool ProjectCore::setSelectedOperatorParam(int opIndex,OperatorParam param,float
             op.detuneCents=std::round(v);
             break;
         case OperatorParam::Level:op.level=v;break;
-        case OperatorParam::Attack:op.env.attack=v;break;
-        case OperatorParam::Decay:op.env.decay=v;break;
-        case OperatorParam::Sustain:op.env.sustain=v;break;
-        case OperatorParam::Release:op.env.release=v;break;
     }
     return true;
 }
@@ -1120,9 +1046,6 @@ bool ProjectCore::setSelectedUnisonCurve(const OperatorCurve& curve){
     patch->unisonCurve=clean;
     return true;
 }
-bool ProjectCore::setSelectedFilterType(FilterType type){
-    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->filter.type=type;return true;
-}
 bool ProjectCore::setSelectedPeakEnabled(bool enabled){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;p->peak.enabled=enabled;return true;
 }
@@ -1135,131 +1058,17 @@ bool ProjectCore::setSelectedLfoTarget(LfoTarget target){
 bool ProjectCore::setSelectedPatchParam(PatchParam param,float value){
     std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();if(!p)return false;const float v=clampPatchParam(param,value);
     switch(param){
-        case PatchParam::FilterCutoff:p->filter.cutoff=v;break;
-        case PatchParam::FilterResonance:p->filter.resonance=v;break;
-        case PatchParam::FilterEnv:p->filter.envAmount=v;break;
-        case PatchParam::FilterAttack:p->filter.env.attack=v;break;
-        case PatchParam::FilterDecay:p->filter.env.decay=v;break;
-        case PatchParam::FilterSustain:p->filter.env.sustain=v;break;
-        case PatchParam::FilterRelease:p->filter.env.release=v;break;
         case PatchParam::PeakRatio:p->peak.ratio=v;break;
         case PatchParam::PeakFrequency:p->peak.frequency=v;break;
         case PatchParam::PeakQ:p->peak.q=v;break;
         case PatchParam::PeakGain:p->peak.gainDb=v;break;
-        case PatchParam::AmpAttack:p->amp.attack=v;break;
-        case PatchParam::AmpDecay:p->amp.decay=v;break;
-        case PatchParam::AmpSustain:p->amp.sustain=v;break;
-        case PatchParam::AmpRelease:p->amp.release=v;break;
-        case PatchParam::VelocityAmp:p->velocityAmp=v;break;
-        case PatchParam::VelocityFilter:p->velocityFilter=v;break;
         case PatchParam::LfoRate:p->lfo.rate=v;break;
         case PatchParam::LfoAmount:p->lfo.amount=v;break;
         case PatchParam::LfoAttack:p->lfo.attack=v;break;
         case PatchParam::LfoVelocity:p->lfo.velocitySensitivity=v;break;
         case PatchParam::Unison:p->unison=v;break;
-        case PatchParam::Glide:p->glide=v;break;
         case PatchParam::Volume:p->volume=v;break;
-        case PatchParam::Distortion:p->fx.distortion=v;break;
-        case PatchParam::DistIn:p->fx.distIn=v;break;
-        case PatchParam::DistOut:p->fx.distOut=v;break;
-        case PatchParam::ReverbDecay:p->fx.reverbDecay=v;break;
-        case PatchParam::ReverbRoom:p->fx.reverbRoom=v;break;
-        case PatchParam::Delay:p->fx.delay=v;break;
-        case PatchParam::DelayTime:p->fx.delayTime=v;break;
-        case PatchParam::DelayFeedback:p->fx.delayFeedback=v;break;
-        case PatchParam::Reverb:p->fx.reverb=v;break;
     }
     return true;
 }
-
-
-namespace {
-bool linkTargetUsed(const Patch& p,ModTarget t,LinkSource source,int skipIndex=-1) {
-    auto contains=[&](const std::vector<ModSlot>& slots,size_t count,LinkSource group){
-        for(size_t i=0;i<count&&i<slots.size();++i)
-            if(!(group==source&&static_cast<int>(i)==skipIndex)&&slots[i].target==t)return true;
-        return false;
-    };
-    return contains(p.modSlots,p.modSlotCount,LinkSource::Mod)||
-           contains(p.velocitySlots,p.velocitySlotCount,LinkSource::Velocity);
-}
-float baseLinkValue(const Patch& p,ModTarget target){
-    switch(target){
-        case ModTarget::Cutoff:return p.filter.cutoff;
-        case ModTarget::Resonance:return p.filter.resonance;
-        case ModTarget::FilterEnv:return p.filter.envAmount;
-        case ModTarget::PeakRatio:return p.peak.ratio;
-        case ModTarget::PeakFrequency:return p.peak.frequency;
-        case ModTarget::PeakQ:return p.peak.q;
-        case ModTarget::PeakGain:return p.peak.gainDb;
-        case ModTarget::AmpAttack:return p.amp.attack;
-        case ModTarget::AmpDecay:return p.amp.decay;
-        case ModTarget::AmpSustain:return p.amp.sustain;
-        case ModTarget::AmpRelease:return p.amp.release;
-        case ModTarget::FilterAttack:return p.filter.env.attack;
-        case ModTarget::FilterDecay:return p.filter.env.decay;
-        case ModTarget::FilterSustain:return p.filter.env.sustain;
-        case ModTarget::FilterRelease:return p.filter.env.release;
-        case ModTarget::Op1:case ModTarget::Op2:case ModTarget::Op3:
-        case ModTarget::Op4:case ModTarget::Op5:case ModTarget::Op6:
-            return p.ops[static_cast<size_t>(static_cast<int>(target)-static_cast<int>(ModTarget::Op1))].level;
-        case ModTarget::LfoAmount:return p.lfo.amount;
-        case ModTarget::LfoRate:return p.lfo.rate;
-        case ModTarget::Unison:return p.unison;
-        case ModTarget::Volume:return 1.0f;
-        case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
-        case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:
-            return p.ops[static_cast<size_t>(static_cast<int>(target)-static_cast<int>(ModTarget::Op1Decay))].env.decay;
-        default:return 0.0f;
-    }
-}
-}
-int ProjectCore::selectedModSlotCount(LinkSource source) const {
-    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();
-    return p?static_cast<int>(source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount):0;
-}
-ModSlot ProjectCore::selectedModSlot(int slotIndex,LinkSource source) const {
-    std::scoped_lock lock(mutex_);const auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0)return {};
-    const auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
-    const size_t count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
-    if(static_cast<size_t>(slotIndex)>=count||static_cast<size_t>(slotIndex)>=slots.size())return {};
-    return slots[static_cast<size_t>(slotIndex)];
-}
-bool ProjectCore::addSelectedModSlot(ModTarget target,LinkSource source){
-    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
-    if(!p)return false;
-    if(target==ModTarget::None||linkTargetUsed(*p,target,source)){
-        target=ModTarget::None;
-        for(int value=static_cast<int>(ModTarget::Cutoff);value<=static_cast<int>(ModTarget::PeakGain);++value){
-            const auto candidate=static_cast<ModTarget>(value);
-            if(!linkTargetUsed(*p,candidate,source)){target=candidate;break;}
-        }
-        if(target==ModTarget::None)return false;
-    }
-    auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
-    auto& count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
-    const float value=baseLinkValue(*p,target);
-    slots.push_back({target,value,value});count=slots.size();
-    return true;
-}
-bool ProjectCore::removeSelectedModSlot(int slotIndex,LinkSource source){
-    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0)return false;
-    auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
-    auto& count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
-    if(static_cast<size_t>(slotIndex)>=count||static_cast<size_t>(slotIndex)>=slots.size())return false;
-    slots.erase(slots.begin()+slotIndex);count=slots.size();return true;
-}
-bool ProjectCore::setSelectedModSlot(int slotIndex,ModTarget target,float minValue,float maxValue,LinkSource source){
-    std::scoped_lock lock(mutex_);auto* p=selectedPatchUnsafe();
-    if(!p||slotIndex<0||target==ModTarget::None)return false;
-    auto& slots=source==LinkSource::Velocity?p->velocitySlots:p->modSlots;
-    const size_t count=source==LinkSource::Velocity?p->velocitySlotCount:p->modSlotCount;
-    if(static_cast<size_t>(slotIndex)>=count||static_cast<size_t>(slotIndex)>=slots.size())return false;
-    if(target!=slots[static_cast<size_t>(slotIndex)].target&&linkTargetUsed(*p,target,source,slotIndex))return false;
-    slots[static_cast<size_t>(slotIndex)]={target,clampModValue(target,minValue),clampModValue(target,maxValue)};
-    return true;
-}
-
 } // namespace aiora

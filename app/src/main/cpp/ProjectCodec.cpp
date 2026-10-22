@@ -263,19 +263,6 @@ Wave parseWave(std::string_view s){
     if(s=="hiss")return Wave::Hiss;
     return Wave::Sine;
 }
-const char* filterName(FilterType t){
-    switch(t){
-        case FilterType::Lowpass:return "lowpass";
-        case FilterType::Highpass:return "highpass";
-        case FilterType::Bandpass:return "bandpass";
-    }
-    return "lowpass";
-}
-FilterType parseFilter(std::string_view s){
-    if(s=="highpass")return FilterType::Highpass;
-    if(s=="bandpass")return FilterType::Bandpass;
-    return FilterType::Lowpass;
-}
 const char* lfoName(LfoTarget t){
     switch(t){
         case LfoTarget::None:return "none";
@@ -291,72 +278,6 @@ LfoTarget parseLfo(std::string_view s){
     if(s=="amp")return LfoTarget::Amp;
     return LfoTarget::None;
 }
-const char* modName(ModTarget t){
-    switch(t){
-        case ModTarget::None:return "none";
-        case ModTarget::Cutoff:return "cutoff";
-        case ModTarget::Resonance:return "reso";
-        case ModTarget::FilterEnv:return "fenv";
-        case ModTarget::AmpAttack:return "aatk";
-        case ModTarget::AmpDecay:return "adec";
-        case ModTarget::AmpSustain:return "asus";
-        case ModTarget::AmpRelease:return "arel";
-        case ModTarget::FilterAttack:return "fatk";
-        case ModTarget::FilterDecay:return "fdec";
-        case ModTarget::FilterSustain:return "fsus";
-        case ModTarget::FilterRelease:return "frel";
-        case ModTarget::Op1:return "op1";case ModTarget::Op2:return "op2";case ModTarget::Op3:return "op3";
-        case ModTarget::Op4:return "op4";case ModTarget::Op5:return "op5";case ModTarget::Op6:return "op6";
-        case ModTarget::Morph1:return "morph1";case ModTarget::Morph2:return "morph2";case ModTarget::Morph3:return "morph3";
-        case ModTarget::Morph4:return "morph4";case ModTarget::Morph5:return "morph5";case ModTarget::Morph6:return "morph6";
-        case ModTarget::Fm:return "fm";
-        case ModTarget::LfoAmount:return "lfoA";
-        case ModTarget::LfoRate:return "lfoR";
-        case ModTarget::Unison:return "uni";
-        case ModTarget::Volume:return "vol";
-        case ModTarget::Op1Decay:return "op1dec";case ModTarget::Op2Decay:return "op2dec";case ModTarget::Op3Decay:return "op3dec";
-        case ModTarget::Op4Decay:return "op4dec";case ModTarget::Op5Decay:return "op5dec";case ModTarget::Op6Decay:return "op6dec";
-        case ModTarget::PeakRatio:return "peakRatio";case ModTarget::PeakFrequency:return "peakHz";
-        case ModTarget::PeakQ:return "peakQ";case ModTarget::PeakGain:return "peakGain";
-    }
-    return "none";
-}
-ModTarget parseMod(std::string_view s){
-    if(s=="cutoff")return ModTarget::Cutoff;if(s=="reso")return ModTarget::Resonance;if(s=="fenv")return ModTarget::FilterEnv;
-    if(s=="aatk")return ModTarget::AmpAttack;if(s=="adec")return ModTarget::AmpDecay;if(s=="asus")return ModTarget::AmpSustain;if(s=="arel")return ModTarget::AmpRelease;
-    if(s=="fatk")return ModTarget::FilterAttack;if(s=="fdec")return ModTarget::FilterDecay;if(s=="fsus")return ModTarget::FilterSustain;if(s=="frel")return ModTarget::FilterRelease;
-    if(s=="op1")return ModTarget::Op1;if(s=="op2")return ModTarget::Op2;if(s=="op3")return ModTarget::Op3;
-    if(s=="op4")return ModTarget::Op4;if(s=="op5")return ModTarget::Op5;if(s=="op6")return ModTarget::Op6;
-    if(s=="morph1")return ModTarget::Morph1;if(s=="morph2")return ModTarget::Morph2;if(s=="morph3")return ModTarget::Morph3;
-    if(s=="morph4")return ModTarget::Morph4;if(s=="morph5")return ModTarget::Morph5;if(s=="morph6")return ModTarget::Morph6;
-    if(s=="fm")return ModTarget::Fm;if(s=="lfoA")return ModTarget::LfoAmount;if(s=="lfoR")return ModTarget::LfoRate;
-    if(s=="uni")return ModTarget::Unison;if(s=="vol")return ModTarget::Volume;
-    if(s=="op1dec")return ModTarget::Op1Decay;if(s=="op2dec")return ModTarget::Op2Decay;if(s=="op3dec")return ModTarget::Op3Decay;
-    if(s=="op4dec")return ModTarget::Op4Decay;if(s=="op5dec")return ModTarget::Op5Decay;if(s=="op6dec")return ModTarget::Op6Decay;
-    if(s=="peakRatio")return ModTarget::PeakRatio;if(s=="peakHz")return ModTarget::PeakFrequency;
-    if(s=="peakQ")return ModTarget::PeakQ;if(s=="peakGain")return ModTarget::PeakGain;
-    return ModTarget::None;
-}
-
-std::pair<float,float> modBounds(ModTarget t){
-    switch(t){
-        case ModTarget::Cutoff:return {40,18000};case ModTarget::Resonance:return {.1f,18};case ModTarget::FilterEnv:return {0,1};
-        case ModTarget::AmpAttack:return {.001f,1};case ModTarget::AmpDecay:return {.01f,1.5f};case ModTarget::AmpSustain:return {0,1};case ModTarget::AmpRelease:return {.02f,8};
-        case ModTarget::FilterAttack:return {.005f,1};case ModTarget::FilterDecay:return {.01f,1.5f};case ModTarget::FilterSustain:return {0,1};case ModTarget::FilterRelease:return {.02f,2};
-        case ModTarget::Op1:case ModTarget::Op2:case ModTarget::Op3:case ModTarget::Op4:case ModTarget::Op5:case ModTarget::Op6:
-        case ModTarget::Morph1:case ModTarget::Morph2:case ModTarget::Morph3:case ModTarget::Morph4:case ModTarget::Morph5:case ModTarget::Morph6:
-        case ModTarget::Unison:return {0,1};
-        case ModTarget::Fm:return {0,1.5f};case ModTarget::LfoAmount:return {0,2};case ModTarget::LfoRate:return {.1f,20};case ModTarget::Volume:return {0,2};
-        case ModTarget::Op1Decay:case ModTarget::Op2Decay:case ModTarget::Op3Decay:
-        case ModTarget::Op4Decay:case ModTarget::Op5Decay:case ModTarget::Op6Decay:return {.005f,1.5f};
-        case ModTarget::PeakRatio:return {.5f,8};case ModTarget::PeakFrequency:return {40,8000};
-        case ModTarget::PeakQ:return {.3f,12};case ModTarget::PeakGain:return {-18,18};
-        case ModTarget::None:return {0,1};
-    }
-    return {0,1};
-}
-
-
 void writeFxRack(Writer& w,Fx fx){
     migrateLegacyFx(fx);
     w.raw("[");
@@ -508,12 +429,10 @@ void writePatch(Writer& w,const Patch& p){
         w.raw(",\"semi\":");w.number(o.semitoneOffset);
         w.raw(",\"detune\":");w.number(o.detuneCents);
         w.raw(",\"level\":");w.number(o.level);
-        w.raw(",\"attack\":");w.number(o.env.attack);w.raw(",\"decay\":");w.number(o.env.decay);w.raw(",\"sustain\":");w.number(o.env.sustain);w.raw(",\"release\":");w.number(o.env.release);
         if(o.volumeCurve.enabled){w.raw(",\"volumeCurve\":");writeOperatorCurve(w,o.volumeCurve);}
         if(o.pitchCurve.enabled){w.raw(",\"pitchCurve\":");writeOperatorCurve(w,o.pitchCurve);}
         if(o.volumeMorphCurve.enabled){w.raw(",\"volumeMorphCurve\":");writeOperatorCurve(w,o.volumeMorphCurve);}
         if(o.pitchMorphCurve.enabled){w.raw(",\"pitchMorphCurve\":");writeOperatorCurve(w,o.pitchMorphCurve);}
-        if(o.expressionCurve.enabled){w.raw(",\"expressionCurve\":");writeOperatorResponse(w,o.expressionCurve);}
         if(o.modChannelsConfigured){
             w.raw(",\"operatorMods\":[");
             for(size_t m=0;m<o.modChannels.size();++m){
@@ -536,11 +455,7 @@ void writePatch(Writer& w,const Patch& p){
     }
     w.raw("],\"matrix\":[");
     for(size_t r=0;r<6;++r){if(r)w.raw(",");w.raw("[");for(size_t c=0;c<6;++c){if(c)w.raw(",");w.number(p.matrix[r][c]);}w.raw("]");}
-    w.raw("],\"filter\":{\"type\":");w.string(filterName(p.filter.type));
-    w.raw(",\"cutoff\":");w.number(p.filter.cutoff);w.raw(",\"resonance\":");w.number(p.filter.resonance);w.raw(",\"envAmt\":");w.number(p.filter.envAmount);
-    w.raw(",\"attack\":");w.number(p.filter.env.attack);w.raw(",\"decay\":");w.number(p.filter.env.decay);w.raw(",\"sustain\":");w.number(p.filter.env.sustain);w.raw(",\"release\":");w.number(p.filter.env.release);
-    if(p.filter.evolving.configured){w.raw(",\"evolving\":");writeEvolvingFilter(w,p.filter.evolving);}
-    w.raw("}");
+    w.raw("],\"filter\":{\"evolving\":");writeEvolvingFilter(w,p.filter.evolving);w.raw("}");
     w.raw(",\"peak\":{\"enabled\":");w.boolean(p.peak.enabled);
     w.raw(",\"followNote\":");w.boolean(p.peak.followNote);
     w.raw(",\"ratio\":");w.number(p.peak.ratio);
@@ -550,32 +465,7 @@ void writePatch(Writer& w,const Patch& p){
     if(p.masterAmpCurve.enabled){w.raw(",\"masterAmpCurve\":");writeOperatorCurve(w,p.masterAmpCurve);}
     w.raw(",\"keyMap\":{\"low\":");w.number(p.keyMapLow);
     w.raw(",\"high\":");w.number(p.keyMapHigh);w.raw("}");
-    w.raw(",\"amp\":{\"attack\":");w.number(p.amp.attack);w.raw(",\"decay\":");w.number(p.amp.decay);w.raw(",\"sustain\":");w.number(p.amp.sustain);w.raw(",\"release\":");w.number(p.amp.release);w.raw("}");
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
-    w.raw(",\"vel\":{\"amp\":");w.number(p.velocityAmp);w.raw(",\"filter\":");w.number(p.velocityFilter);
-    w.raw(",\"slots\":[");
-    for(size_t i=0;i<p.velocitySlotCount&&i<p.velocitySlots.size();++i){
-        if(i)w.raw(",");
-        const auto& s=p.velocitySlots[i];
-        w.raw("{\"t\":");w.string(modName(s.target));
-        w.raw(",\"min\":");w.number(s.min);
-        w.raw(",\"max\":");w.number(s.max);
-        w.raw("}");
-    }
-    w.raw("]}");
-    w.raw(",\"mod\":{\"slots\":[");
-    for(int i=0;
-        i<static_cast<int>(p.modSlotCount)&&
-        i<static_cast<int>(p.modSlots.size());
-        ++i){
-        if(i)w.raw(",");
-        const auto&s=p.modSlots[static_cast<size_t>(i)];
-        w.raw("{\"t\":");w.string(modName(s.target));
-        w.raw(",\"min\":");w.number(s.min);
-        w.raw(",\"max\":");w.number(s.max);
-        w.raw("}");
-    }
-    w.raw("]}");
     w.raw(",\"fx\":{\"dist\":");w.number(p.fx.distortion);
     w.raw(",\"distIn\":");w.number(p.fx.distIn);w.raw(",\"distOut\":");w.number(p.fx.distOut);
     w.raw(",\"delay\":");w.number(p.fx.delay);w.raw(",\"delayTime\":");w.number(p.fx.delayTime);w.raw(",\"delayFb\":");w.number(p.fx.delayFeedback);
@@ -586,10 +476,7 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"fxChain\":");writeFxRack(w,p.fx);
     w.raw(",\"unison\":");w.number(p.unison);
     if(p.unisonCurve.enabled){w.raw(",\"unisonCurve\":");writeOperatorCurve(w,p.unisonCurve);}
-    w.raw(",\"glide\":");w.number(p.glide);w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
-    if(p.timpaniMembrane)w.raw(",\"timpaniMembrane\":true");
-    if(p.drumPitchDrop>0.0f&&p.drumPitchDropSeconds>0.0f){w.raw(",\"drumPitchDrop\":");w.number(p.drumPitchDrop);w.raw(",\"drumPitchDropSeconds\":");w.number(p.drumPitchDropSeconds);}
-    if(p.cymbalModel>0){w.raw(",\"cymbalModel\":");w.number(p.cymbalModel);}
+    w.raw(",\"octave\":");w.number(p.octave);w.raw(",\"volume\":");w.number(p.volume);
     if(p.fundamentalMidi>=0){w.raw(",\"fundamental\":{\"pitch\":");w.number(p.fundamentalMidi);w.raw("}");}
     if(p.nexdrumLow>=0&&p.nexdrumHigh>=0){w.raw(",\"nexdrum\":{\"lo\":");w.number(p.nexdrumLow);w.raw(",\"hi\":");w.number(p.nexdrumHigh);w.raw("}");}
     w.raw("}");
@@ -761,12 +648,10 @@ bool readPatch(const Json& src,Patch& p){
         o.detuneCents=std::round(
             std::clamp(fine,-50.0f,50.0f));
         o.level=clampf(num(jo.get("level"),o.level),0,1,o.level);
-        o.env.attack=clampf(num(jo.get("attack"),o.env.attack),.0005f,2,o.env.attack);o.env.decay=clampf(num(jo.get("decay"),o.env.decay),.005f,3,o.env.decay);o.env.sustain=clampf(num(jo.get("sustain"),o.env.sustain),0,1,o.env.sustain);o.env.release=clampf(num(jo.get("release"),o.env.release),.02f,3,o.env.release);
         readOperatorCurve(jo.get("volumeCurve"),o.volumeCurve,0,1);
         readOperatorCurve(jo.get("pitchCurve"),o.pitchCurve,-12,12);
         readOperatorCurve(jo.get("volumeMorphCurve"),o.volumeMorphCurve,0,1);
         readOperatorCurve(jo.get("pitchMorphCurve"),o.pitchMorphCurve,-12,12);
-        readOperatorResponse(jo.get("expressionCurve"),o.expressionCurve);
         if(const auto* mods=jo.get("operatorMods");
            mods&&mods->type==Json::Type::Array){
             o.modChannelsConfigured=true;
@@ -793,8 +678,6 @@ bool readPatch(const Json& src,Patch& p){
             for(size_t c=0;c<std::min<size_t>(6,matrix->array[r].array.size());++c)p.matrix[r][c]=clampf(num(&matrix->array[r].array[c],0),0,1,0);
     }
     if(const Json* f=src.get("filter");f&&f->type==Json::Type::Object){
-        p.filter.type=parseFilter(str(f->get("type"),"lowpass"));p.filter.cutoff=clampf(num(f->get("cutoff"),4000),40,18000,4000);p.filter.resonance=clampf(num(f->get("resonance"),1),.1f,18,1);p.filter.envAmount=clampf(num(f->get("envAmt"),0),0,1,0);
-        p.filter.env.attack=clampf(num(f->get("attack"),.01),.005f,2,.01f);p.filter.env.decay=clampf(num(f->get("decay"),.15),.01f,3,.15f);p.filter.env.sustain=clampf(num(f->get("sustain"),.7),0,1,.7f);p.filter.env.release=clampf(num(f->get("release"),.2),.02f,3,.2f);
         readEvolvingFilter(f->get("evolving"),p.filter.evolving);
     }
     // Old patches have no peak key and therefore keep it disabled.
@@ -810,57 +693,9 @@ bool readPatch(const Json& src,Patch& p){
         p.keyMapLow=clampi(num(km->get("low"),0),0,126,0);
         p.keyMapHigh=clampi(num(km->get("high"),127),p.keyMapLow+1,127,127);
     }
-    if(const Json* a=src.get("amp");a&&a->type==Json::Type::Object){
-        p.amp.attack=clampf(num(a->get("attack"),.008),.001f,2,.008f);p.amp.decay=clampf(num(a->get("decay"),.12),.01f,3,.12f);p.amp.sustain=clampf(num(a->get("sustain"),.85),0,1,.85f);p.amp.release=clampf(num(a->get("release"),.25),.02f,8,.25f);
-    }
     if(const Json* l=src.get("lfo");l&&l->type==Json::Type::Object){
         p.lfo.rate=clampf(num(l->get("rate"),5),.1f,20,5);p.lfo.amount=clampf(num(l->get("amount"),0),0,2,0);p.lfo.target=parseLfo(str(l->get("target"),"none"));p.lfo.attack=clampf(num(l->get("attack"),0),0,2,0);p.lfo.velocitySensitivity=clampf(num(l->get("velSens"),0),0,1,0);
     }
-    if(const Json* v=src.get("vel");v&&v->type==Json::Type::Object){p.velocityAmp=clampf(num(v->get("amp"),0),0,1,0);p.velocityFilter=clampf(num(v->get("filter"),0),0,1,0);}
-    p.modSlots.clear();p.modSlotCount=0;
-    if(const Json* mod=src.get("mod");
-       mod&&mod->type==Json::Type::Object){
-        if(const Json* slots=mod->get("slots");
-           slots&&slots->type==Json::Type::Array){
-            const size_t limit=slots->array.size();
-            for(size_t i=0;i<limit;++i){
-                const auto& js=slots->array[i];
-                if(js.type!=Json::Type::Object)continue;
-                const ModTarget target=parseMod(
-                    str(js.get("t"),"none"));
-                if(target==ModTarget::None)continue;
-                const auto [lo,hi]=modBounds(target);
-                p.modSlots.emplace_back();
-                auto& s=p.modSlots.back();
-                ++p.modSlotCount;
-                s.target=target;
-                s.min=clampf(
-                    num(js.get("min"),lo),lo,hi,lo);
-                s.max=clampf(
-                    num(js.get("max"),hi),lo,hi,hi);
-            }
-        }
-    }
-    // Older patches omit V links. Invalid overlaps are discarded in favor
-    // of pre-existing M routes so legacy M expressions stay unchanged.
-    p.velocitySlots.clear();p.velocitySlotCount=0;
-    if(const Json* vel=src.get("vel");vel&&vel->type==Json::Type::Object)
-        if(const Json* slots=vel->get("slots");slots&&slots->type==Json::Type::Array)
-            for(const auto& js:slots->array){
-                if(js.type!=Json::Type::Object)continue;
-                const auto target=parseMod(str(js.get("t"),"none"));
-                if(target==ModTarget::None)continue;
-                const auto occupied=[&](const std::vector<ModSlot>& entries){
-                    for(const auto& s:entries)if(s.target==target)return true;
-                    return false;
-                };
-                if(occupied(p.modSlots)||occupied(p.velocitySlots))continue;
-                const auto [lo,hi]=modBounds(target);
-                p.velocitySlots.push_back({target,
-                    clampf(num(js.get("min"),lo),lo,hi,lo),
-                    clampf(num(js.get("max"),hi),lo,hi,hi)});
-            }
-    p.velocitySlotCount=p.velocitySlots.size();
     if(const Json* x=src.get("fx");x&&x->type==Json::Type::Object){
         p.fx.distortion=clampf(num(x->get("dist"),0),0,10,0);
         p.fx.distIn=clampf(num(x->get("distIn"),1),0,4,1);
@@ -876,11 +711,7 @@ bool readPatch(const Json& src,Patch& p){
     readOperatorCurve(src.get("masterAmpCurve"),p.masterAmpCurve,0,1);
     p.unison=clampf(num(src.get("unison"),0),0,1,0);
     readOperatorCurve(src.get("unisonCurve"),p.unisonCurve,0,1);
-    p.glide=clampf(num(src.get("glide"),0),0,1,0);p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
-    p.timpaniMembrane=boolean(src.get("timpaniMembrane"),false);
-    p.drumPitchDrop=clampf(num(src.get("drumPitchDrop"),0),0,36,0);
-    p.drumPitchDropSeconds=clampf(num(src.get("drumPitchDropSeconds"),0),0,0.2f,0);
-    p.cymbalModel=static_cast<uint8_t>(clampi(num(src.get("cymbalModel"),0),0,2,0));
+    p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);
     if(const Json* f=src.get("fundamental");f&&f->type==Json::Type::Object)p.fundamentalMidi=clampi(num(f->get("pitch"),-1),0,127,-1);
     if(const Json* n=src.get("nexdrum");n&&n->type==Json::Type::Object){p.nexdrumLow=clampi(num(n->get("lo"),-1),0,127,-1);p.nexdrumHigh=clampi(num(n->get("hi"),-1),0,127,-1);}
     return true;

@@ -84,20 +84,7 @@ inline constexpr std::array<const char*,7> kWaveformLabels{
 };
 static_assert(kWaveformLabels.size()==static_cast<size_t>(Wave::Hiss)+1);
 
-enum class FilterType : uint8_t { Lowpass, Highpass, Bandpass };
 enum class LfoTarget : uint8_t { None, Pitch, Filter, Amp };
-enum class ModTarget : uint8_t {
-    None, Cutoff, Resonance, FilterEnv,
-    AmpAttack, AmpDecay, AmpSustain, AmpRelease,
-    FilterAttack, FilterDecay, FilterSustain, FilterRelease,
-    Op1, Op2, Op3, Op4, Op5, Op6,
-    Morph1, Morph2, Morph3, Morph4, Morph5, Morph6,
-    Fm, LfoAmount, LfoRate, Unison, Volume,
-    Op1Decay, Op2Decay, Op3Decay, Op4Decay, Op5Decay, Op6Decay,
-    PeakRatio, PeakFrequency, PeakQ, PeakGain
-};
-
-struct Envelope { float attack{0.008f}, decay{0.12f}, sustain{0.85f}, release{0.25f}; };
 // Fixed-capacity curves: no allocation during synthesis or note scheduling.
 // Time envelopes use seconds; response curves use input fractions (0..1).
 constexpr size_t kMaxOperatorPoints=24;
@@ -145,11 +132,20 @@ inline float operatorCurveValue(const OperatorPoint* points,size_t count,float x
     }
     return points[count-1].value;
 }
-inline OperatorCurve legacyOperatorVolume(const Envelope& e) noexcept {
-    OperatorCurve c; c.enabled=true;c.sustain=true;c.count=4;c.releaseIndex=2;c.decayIndex=1;
-    c.points[0]={0,0};c.points[1]={std::max(.0005f,e.attack),1};
-    c.points[2]={c.points[1].time+std::max(.0005f,e.decay),std::clamp(e.sustain,0.0f,1.0f)};
-    c.points[3]={c.points[2].time+std::max(.0005f,e.release),0};
+// A neutral, editable note-on/release envelope for new operators.
+inline OperatorCurve initialOperatorVolume() noexcept {
+    OperatorCurve c; c.enabled=true;c.sustain=true;c.count=4;
+    c.decayIndex=1;c.releaseIndex=2;
+    c.points[0]={0,0};c.points[1]={.005f,1};
+    c.points[2]={.125f,.85f};c.points[3]={.375f,0};
+    return c;
+}
+// Unity master lane: global amplitude is neutral until explicitly drawn.
+// Operator envelopes, not a hidden master ADSR, determine instrument decay.
+inline OperatorCurve initialMasterAmpCurve() noexcept {
+    OperatorCurve c;c.enabled=true;c.sustain=true;c.count=2;
+    c.decayIndex=0;c.releaseIndex=0;
+    c.points[0]={0,1};c.points[1]={120,1};
     return c;
 }
 inline OperatorCurve initialOperatorPitch() noexcept {
@@ -174,19 +170,15 @@ struct Operator {
     float semitoneOffset{0.0f};
     float detuneCents{0.0f};
     float level{0.0f};
-    Envelope env{0.005f,0.1f,0.8f,0.15f};
-    OperatorCurve volumeCurve{},pitchCurve{};
+    OperatorCurve volumeCurve{initialOperatorVolume()},pitchCurve{};
     OperatorCurve volumeMorphCurve{},pitchMorphCurve{};
-    OperatorResponse expressionCurve{}; // pre-four-channel patch migration
     std::array<OperatorModChannel,6> modChannels{};
     bool modChannelsConfigured{false};
     HarmonicBank harm{},harmMute{};
     HarmonicBank harmPhase{},harmMutePhase{};
     bool hasHarm{false},hasHarmMute{false};
 };
-// Unconfigured alternate banks follow the primary preset, except for old
-// patches with authored alternate additive partials. Existing presets can
-// therefore be rebuilt later without losing their stored harmonic data.
+// Unconfigured alternate banks follow the primary waveform.
 inline Wave effectiveWaveMorph(const Operator& op) noexcept {
     if(op.waveMorphConfigured)return op.waveMorph;
     if(op.wave==Wave::Custom&&op.hasHarmMute)return Wave::Custom;
@@ -258,12 +250,7 @@ inline EvolvingFilter initialEvolvingFilter() noexcept {
     for(int i=0;i<3;++i)e.slopes[i]=initialFilterSlope(i);
     return e;
 }
-struct Filter {
-    FilterType type{FilterType::Lowpass};
-    float cutoff{6500},resonance{0.7f},envAmount{0};
-    Envelope env{0.01f,0.15f,0.7f,0.2f};
-    EvolvingFilter evolving{};
-};
+struct Filter { EvolvingFilter evolving{initialEvolvingFilter()}; };
 // Optional per-voice bell EQ before the main filter. Center follows the played
 // fundamental times ratio, or stays at frequency when followNote is false.
 struct PeakFilter {
@@ -375,9 +362,6 @@ inline Fx legacyMasterFx(float mix,float decay,float room) noexcept {
     fx.reverbDecay=decay;fx.reverbRoom=room;
     migrateLegacyFx(fx);return fx;
 }
-struct ModSlot { ModTarget target{ModTarget::None}; float min{0},max{1}; };
-enum class LinkSource : uint8_t { Mod, Velocity };
-
 inline OperatorCurve initialUnisonCurve(float base=0.0f) noexcept {
     OperatorCurve c;c.enabled=true;c.sustain=true;c.count=2;
     c.releaseIndex=0;c.decayIndex=0;
@@ -388,18 +372,13 @@ inline OperatorCurve initialUnisonCurve(float base=0.0f) noexcept {
 struct Patch {
     std::string name{"Spectrachord Init"};
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
-    Filter filter{}; PeakFilter peak{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
-    std::vector<ModSlot> modSlots{}; size_t modSlotCount{0};
-    std::vector<ModSlot> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
-    float unison{0},glide{0},octave{0},volume{0.8f};
+    Filter filter{}; PeakFilter peak{}; Lfo lfo{}; Fx fx{};
+    float unison{0},octave{0},volume{0.8f};
     OperatorCurve unisonCurve{};
-    OperatorCurve masterAmpCurve{};
+    OperatorCurve masterAmpCurve{initialMasterAmpCurve()};
     // Configurable played-note range for Key Map responses (K=0..100%).
     int32_t keyMapLow{0},keyMapHigh{127};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
-    bool timpaniMembrane{false};
-    float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
-    uint8_t cymbalModel{0}; // 0=normal, 1=crash, 2=ride
 };
 
 /** DSP-ready patch with immutable wave tables shared across voices. */
@@ -407,15 +386,10 @@ struct DspPatch {
     int32_t keyMapLow{0},keyMapHigh{127};
     PreparedSpectralBanks spectralBanks{};
     std::array<Operator,6> ops{}; std::array<std::array<float,6>,6> matrix{};
-    Filter filter{}; PeakFilter peak{}; Envelope amp{}; float velocityAmp{0},velocityFilter{0};
-    std::shared_ptr<const std::vector<ModSlot>> modSlots{}; size_t modSlotCount{0};
-    std::shared_ptr<const std::vector<ModSlot>> velocitySlots{}; size_t velocitySlotCount{0}; Lfo lfo{}; Fx fx{};
-    float unison{0},glide{0},octave{0},volume{0.8f};
+    Filter filter{}; PeakFilter peak{}; Lfo lfo{}; Fx fx{};
+    float unison{0},octave{0},volume{0.8f};
     OperatorCurve unisonCurve{};
-    OperatorCurve masterAmpCurve{};
-    bool timpaniMembrane{false};
-    float drumPitchDrop{0.0f},drumPitchDropSeconds{0.0f};
-    uint8_t cymbalModel{0}; // 0=normal, 1=crash, 2=ride
+    OperatorCurve masterAmpCurve{initialMasterAmpCurve()};
 };
 
 
@@ -428,21 +402,15 @@ inline float normalizedKeyMap(int midi,int low,int high) noexcept {
 void prepareDspPatchWaveforms(DspPatch& patch);
 
 inline DspPatch toDspPatch(const Patch& p) {
-    DspPatch d;d.ops=p.ops;d.matrix=p.matrix;d.filter=p.filter;d.peak=p.peak;d.amp=p.amp;
-    d.velocityAmp=p.velocityAmp;d.velocityFilter=p.velocityFilter;
-    if(!p.modSlots.empty())d.modSlots=std::make_shared<const std::vector<ModSlot>>(p.modSlots);
-    d.modSlotCount=p.modSlotCount;
-    if(!p.velocitySlots.empty())d.velocitySlots=std::make_shared<const std::vector<ModSlot>>(p.velocitySlots);
-    d.velocitySlotCount=p.velocitySlotCount;
+    DspPatch d;
+    d.ops=p.ops;d.matrix=p.matrix;d.filter=p.filter;d.peak=p.peak;
     d.keyMapLow=p.keyMapLow;d.keyMapHigh=p.keyMapHigh;
-    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;d.unisonCurve=p.unisonCurve;d.masterAmpCurve=p.masterAmpCurve;d.glide=p.glide;d.octave=p.octave;d.volume=p.volume;
-    d.timpaniMembrane=p.timpaniMembrane;
-    d.drumPitchDrop=p.drumPitchDrop;d.drumPitchDropSeconds=p.drumPitchDropSeconds;
-    d.cymbalModel=p.cymbalModel;
+    d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;
+    d.unisonCurve=p.unisonCurve;d.masterAmpCurve=p.masterAmpCurve;
+    d.octave=p.octave;d.volume=p.volume;
     prepareDspPatchWaveforms(d);
     return d;
 }
-
 // q=0.5 preserves linear interpolation; q<0.5 puts the half-value
 // earlier and q>0.5 later. Rational interpolation is audio-thread safe.
 inline float curveWarp(float fraction,float q) noexcept {

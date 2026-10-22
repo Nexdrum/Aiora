@@ -45,20 +45,13 @@ constexpr std::array<NativeEditor::Rgb,12> kSpectrumColors{{
     {0.6667f,1.0000f,0.0000f},
 }};
 
-constexpr std::array<PatchParam,7> kFilterParams{
-    PatchParam::FilterCutoff,PatchParam::FilterResonance,PatchParam::FilterEnv,
-    PatchParam::FilterAttack,PatchParam::FilterDecay,PatchParam::FilterSustain,PatchParam::FilterRelease
+constexpr std::array<PatchParam,4> kLfoParams{
+    PatchParam::LfoRate,PatchParam::LfoAmount,
+    PatchParam::LfoAttack,PatchParam::LfoVelocity
 };
-constexpr std::array<PatchParam,9> kAmpParams{
-    PatchParam::AmpAttack,PatchParam::AmpDecay,PatchParam::AmpSustain,PatchParam::AmpRelease,
-    PatchParam::Volume,PatchParam::VelocityAmp,PatchParam::VelocityFilter,PatchParam::Unison,PatchParam::Glide
-};
-constexpr std::array<PatchParam,4> kLfoParams{PatchParam::LfoRate,PatchParam::LfoAmount,PatchParam::LfoAttack,PatchParam::LfoVelocity};
-constexpr std::array<OperatorParam,8> kOperatorParams{
+constexpr std::array<OperatorParam,4> kOperatorParams{
     OperatorParam::Ratio,OperatorParam::Semitone,
-    OperatorParam::Detune,OperatorParam::Level,
-    OperatorParam::Attack,OperatorParam::Decay,
-    OperatorParam::Sustain,OperatorParam::Release
+    OperatorParam::Detune,OperatorParam::Level
 };
 
 NativeEditor::Rgb mix(NativeEditor::Rgb a,NativeEditor::Rgb b,float t) noexcept {
@@ -68,42 +61,6 @@ NativeEditor::Rgb mix(NativeEditor::Rgb a,NativeEditor::Rgb b,float t) noexcept 
 
 NativeOverlay::Color overlayColor(NativeEditor::Rgb c,float alpha=1.0f) noexcept {
     return {c.r,c.g,c.b,alpha};
-}
-
-const char* modTargetName(ModTarget t) noexcept {
-    switch(t){
-        case ModTarget::None:return "NONE";
-        case ModTarget::Cutoff:return "CUTOFF";
-        case ModTarget::Resonance:return "RESO";
-        case ModTarget::FilterEnv:return "FENV";
-        case ModTarget::AmpAttack:return "A ATK";
-        case ModTarget::AmpDecay:return "A DEC";
-        case ModTarget::AmpSustain:return "A SUS";
-        case ModTarget::AmpRelease:return "A REL";
-        case ModTarget::FilterAttack:return "F ATK";
-        case ModTarget::FilterDecay:return "F DEC";
-        case ModTarget::FilterSustain:return "F SUS";
-        case ModTarget::FilterRelease:return "F REL";
-        case ModTarget::Op1:return "OP1"; case ModTarget::Op2:return "OP2";
-        case ModTarget::Op3:return "OP3"; case ModTarget::Op4:return "OP4";
-        case ModTarget::Op5:return "OP5"; case ModTarget::Op6:return "OP6";
-        case ModTarget::Morph1:return "MORPH1"; case ModTarget::Morph2:return "MORPH2";
-        case ModTarget::Morph3:return "MORPH3"; case ModTarget::Morph4:return "MORPH4";
-        case ModTarget::Morph5:return "MORPH5"; case ModTarget::Morph6:return "MORPH6";
-        case ModTarget::Fm:return "FM";
-        case ModTarget::LfoAmount:return "LFO A";
-        case ModTarget::LfoRate:return "LFO R";
-        case ModTarget::Unison:return "UNI";
-        case ModTarget::Volume:return "VOL";
-        case ModTarget::Op1Decay:return "OP1 DEC";case ModTarget::Op2Decay:return "OP2 DEC";
-        case ModTarget::Op3Decay:return "OP3 DEC";case ModTarget::Op4Decay:return "OP4 DEC";
-        case ModTarget::Op5Decay:return "OP5 DEC";case ModTarget::Op6Decay:return "OP6 DEC";
-        case ModTarget::PeakRatio:return "PEAK x";
-        case ModTarget::PeakFrequency:return "PEAK Hz";
-        case ModTarget::PeakQ:return "PEAK Q";
-        case ModTarget::PeakGain:return "PEAK dB";
-    }
-    return "?";
 }
 
 bool selectedTrackIsDrums(){
@@ -200,8 +157,7 @@ NativeEditor::Rect NativeEditor::patchTransferRect(EditorPage page,int index) co
     if(page==EditorPage::Synth){
         top=e.y+e.h-63.0f;
     }else{
-        const auto last=fxGroupRect(3);
-        top=last.y+last.h+gap+46.0f;
+        top=e.y+e.h-63.0f;
     }
 
     return {
@@ -357,250 +313,54 @@ NativeEditor::Rect NativeEditor::fxRackAddRect(bool add) const noexcept {
     const auto c=fxRackRect();const float w=(c.w-50)*.5f;
     return {c.x+20+(add?w+10:0),c.y+c.h-83,w,61};
 }
-NativeEditor::Rect NativeEditor::fxGroupRect(int index) const noexcept {
-    const auto b=bodyRect();
-    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    static constexpr float heights[4]={1130.0f,844.0f,470.0f,650.0f};
-    const int clamped=std::clamp(index,0,3);
-    float y=fxRackRect().y+fxRackRect().h+gap;
-    for(int i=0;i<clamped;++i)y+=heights[i]+gap;
-
-    float height=heights[clamped];
-    if(clamped==3){
-        const int count=ProjectCore::instance().selectedModSlotCount(linkSource_);
-        height=std::max(
-            650.0f,
-            262.0f+112.0f*static_cast<float>(std::max(0,count)));
-    }
-
-    return {
-        b.x+gap,y,
-        b.w-gap*2.0f,
-        height
-    };
-}
-
-NativeEditor::Rect NativeEditor::fxSectionParamRect(int section,int row) const noexcept {
-    const auto card=fxGroupRect(section);
-    float y=card.y+72.0f;
-    if(section==0)y=card.y+164.0f+row*78.0f;
-    else if(section==1)y=card.y+76.0f+row*78.0f;
-    else if(section==2){
-        const int visualRow=row+(row>=2?1:0);
-        y=card.y+76.0f+visualRow*78.0f;
-    }
-    return {card.x+20.0f,y,card.w-40.0f,68.0f};
-}
-
-NativeEditor::Rect NativeEditor::filterTypeRect(int) const noexcept {
-    const auto card=fxGroupRect(0);
-    return {
-        card.x+card.w*0.58f,
-        card.y+84.0f,
-        card.w*0.36f,
-        62.0f
-    };
-}
-
-NativeEditor::Rect NativeEditor::peakToggleRect(int index) const noexcept {
-    const auto card=fxGroupRect(0);
-    const float gap=12.0f,buttonW=(card.w-40.0f-gap)*.5f;
-    return {card.x+20.0f+(index?buttonW+gap:0.0f),card.y+782.0f,buttonW,62.0f};
-}
-NativeEditor::Rect NativeEditor::peakParamRect(int row) const noexcept {
-    const auto card=fxGroupRect(0);
-    return {card.x+20.0f,card.y+858.0f+row*78.0f,card.w-40.0f,68.0f};
-}
-NativeEditor::Rect NativeEditor::lfoTargetRect(int) const noexcept {
-    const auto card=fxGroupRect(2);
-    return {
-        card.x+card.w*0.58f,
-        card.y+84.0f+2.0f*78.0f,
-        card.w*0.36f,
-        62.0f
-    };
-}
-
-NativeEditor::Rect NativeEditor::fxSliderRect(int row,int,bool) const noexcept {
-    return fxSectionParamRect(std::clamp(fxGroup_,0,2),row);
-}
-
-NativeEditor::Rect NativeEditor::linkSourceRect(LinkSource source) const noexcept {
-    const auto card=fxGroupRect(3);
-    const float w=(card.w-50.0f)*0.5f;
-    return {card.x+20.0f+(source==LinkSource::Mod?w+10.0f:0.0f),
-        card.y+70.0f,w,56.0f};
-}
-NativeEditor::Rect NativeEditor::modRowRect(int slot) const noexcept {
-    const auto card=fxGroupRect(3);
-    return {
-        card.x+20.0f,
-        card.y+146.0f+slot*112.0f,
-        card.w-40.0f,
-        96.0f
-    };
-}
-
-NativeEditor::Rect NativeEditor::modPartRect(int slot,int part) const noexcept {
-    const auto r=modRowRect(slot);
-    const float gap=8.0f;
-    // Keep six logical parts so existing interaction types remain usable.
-    // 1=target, 3=min, 4=max, 5=delete are the visible HTML-style controls.
-    static constexpr std::array<float,6> weights{
-        0.08f,0.34f,0.01f,0.23f,0.23f,0.10f};
-    float total=0.0f;
-    for(float w:weights)total+=w;
-    const float usable=r.w-gap*5.0f;
-    float x=r.x;
-    for(int i=0;i<part;++i)
-        x+=usable*(weights[static_cast<size_t>(i)]/total)+gap;
-    const float w=
-        usable*(weights[static_cast<size_t>(part)]/total);
-    return {x,r.y,w,r.h};
-}
-
-NativeEditor::Rect NativeEditor::modAddRect() const noexcept {
-    const auto card=fxGroupRect(3);
-    return {
-        card.x+20.0f,
-        card.y+card.h-88.0f,
-        std::min(360.0f,card.w-40.0f),
-        66.0f
-    };
-}
-
 NativeEditor::Range NativeEditor::operatorRange(OperatorParam p) noexcept {
     switch(p){
-        case OperatorParam::Ratio:return {0.125f,16.0f};
-        case OperatorParam::Semitone:return {-12.0f,12.0f};
-        case OperatorParam::Detune:return {-50.0f,50.0f};
-        case OperatorParam::Level:return {0.0f,1.0f};
-        case OperatorParam::Attack:return {0.001f,1.0f};
-        case OperatorParam::Decay:return {0.005f,1.5f};
-        case OperatorParam::Sustain:return {0.0f,1.0f};
-        case OperatorParam::Release:return {0.02f,2.0f};
+        case OperatorParam::Ratio:return {.125f,16};
+        case OperatorParam::Semitone:return {-12,12};
+        case OperatorParam::Detune:return {-50,50};
+        case OperatorParam::Level:return {0,1};
     }
-    return {0.0f,1.0f};
+    return {0,1};
 }
 NativeEditor::Range NativeEditor::patchRange(PatchParam p) noexcept {
     switch(p){
-        case PatchParam::FilterCutoff:return {40.0f,18000.0f};
-        case PatchParam::FilterResonance:return {0.1f,18.0f};
-        case PatchParam::FilterEnv:return {0.0f,1.0f};
-        case PatchParam::FilterAttack:return {0.005f,1.0f};
-        case PatchParam::FilterDecay:return {0.01f,1.5f};
-        case PatchParam::FilterSustain:return {0.0f,1.0f};
-        case PatchParam::FilterRelease:return {0.02f,2.0f};
-        case PatchParam::PeakRatio:return {0.5f,8.0f};
-        case PatchParam::PeakFrequency:return {40.0f,8000.0f};
-        case PatchParam::PeakQ:return {0.3f,12.0f};
-        case PatchParam::PeakGain:return {-18.0f,18.0f};
-        case PatchParam::AmpAttack:return {0.001f,1.0f};
-        case PatchParam::AmpDecay:return {0.01f,1.5f};
-        case PatchParam::AmpSustain:return {0.0f,1.0f};
-        case PatchParam::AmpRelease:return {0.02f,8.0f};
-        case PatchParam::VelocityAmp:
-        case PatchParam::VelocityFilter:
-        case PatchParam::LfoAmount:
-        case PatchParam::LfoVelocity:
-        case PatchParam::Unison:
-        case PatchParam::Glide:
-        case PatchParam::Volume:
-        case PatchParam::Delay:
-        case PatchParam::Reverb:return {0.0f,1.0f};
-        case PatchParam::Distortion:return {0.0f,10.0f};
-        case PatchParam::DistIn:
-        case PatchParam::DistOut:return {0.0f,4.0f};
-        case PatchParam::ReverbDecay:return {0.2f,12.0f};
-        case PatchParam::ReverbRoom:return {0.5f,2.5f};
-        case PatchParam::LfoRate:return {0.1f,20.0f};
-        case PatchParam::LfoAttack:return {0.0f,2.0f};
-        case PatchParam::DelayTime:return {0.03f,1.0f};
-        case PatchParam::DelayFeedback:return {0.0f,0.85f};
+        case PatchParam::LfoRate:return {.1f,20};
+        case PatchParam::LfoAmount:return {0,2};
+        case PatchParam::LfoAttack:return {0,2};
+        case PatchParam::LfoVelocity:return {0,1};
+        case PatchParam::Unison:return {0,1};
+        case PatchParam::Volume:return {0,1};
+        case PatchParam::PeakRatio:return {.5f,8};
+        case PatchParam::PeakFrequency:return {40,8000};
+        case PatchParam::PeakQ:return {.3f,12};
+        case PatchParam::PeakGain:return {-18,18};
     }
-    return {0.0f,1.0f};
+    return {0,1};
 }
-NativeEditor::Range NativeEditor::modRange(ModTarget t) noexcept {
-    switch(t){
-        case ModTarget::Cutoff:return {40.0f,18000.0f};
-        case ModTarget::Resonance:return {0.1f,18.0f};
-        case ModTarget::FilterEnv:return {0.0f,1.0f};
-        case ModTarget::AmpAttack:return {0.001f,1.0f};
-        case ModTarget::AmpDecay:return {0.01f,1.5f};
-        case ModTarget::AmpSustain:return {0.0f,1.0f};
-        case ModTarget::AmpRelease:return {0.02f,8.0f};
-        case ModTarget::FilterAttack:return {0.005f,1.0f};
-        case ModTarget::FilterDecay:return {0.01f,1.5f};
-        case ModTarget::FilterSustain:return {0.0f,1.0f};
-        case ModTarget::FilterRelease:return {0.02f,2.0f};
-        case ModTarget::Op1:case ModTarget::Op2:case ModTarget::Op3:
-        case ModTarget::Op4:case ModTarget::Op5:case ModTarget::Op6:
-        case ModTarget::Morph1:case ModTarget::Morph2:case ModTarget::Morph3:
-        case ModTarget::Morph4:case ModTarget::Morph5:case ModTarget::Morph6:
-        case ModTarget::Unison:return {0.0f,1.0f};
-        case ModTarget::Fm:return {0.0f,1.5f};
-        case ModTarget::LfoAmount:return {0.0f,2.0f};
-        case ModTarget::LfoRate:return {0.1f,20.0f};
-        case ModTarget::Volume:return {0.0f,2.0f};
-        case ModTarget::PeakRatio:return {0.5f,8.0f};
-        case ModTarget::PeakFrequency:return {40.0f,8000.0f};
-        case ModTarget::PeakQ:return {0.3f,12.0f};
-        case ModTarget::PeakGain:return {-18.0f,18.0f};
-        case ModTarget::None:return {0.0f,1.0f};
-    }
-    return {0.0f,1.0f};
-}
-float NativeEditor::operatorValue(const Patch& p,int op,OperatorParam param) noexcept {
-    if(op<0||op>=6)return 0.0f;const auto& o=p.ops[static_cast<size_t>(op)];
+float NativeEditor::operatorValue(const Patch& p,int i,OperatorParam param) noexcept {
+    const auto& o=p.ops[static_cast<size_t>(i)];
     switch(param){
         case OperatorParam::Ratio:return o.ratio;
         case OperatorParam::Semitone:return o.semitoneOffset;
         case OperatorParam::Detune:return o.detuneCents;
         case OperatorParam::Level:return o.level;
-        case OperatorParam::Attack:return o.env.attack;
-        case OperatorParam::Decay:return o.env.decay;
-        case OperatorParam::Sustain:return o.env.sustain;
-        case OperatorParam::Release:return o.env.release;
     }
-    return 0.0f;
+    return 0;
 }
 float NativeEditor::patchValue(const Patch& p,PatchParam param) noexcept {
     switch(param){
-        case PatchParam::FilterCutoff:return p.filter.cutoff;
-        case PatchParam::FilterResonance:return p.filter.resonance;
-        case PatchParam::FilterEnv:return p.filter.envAmount;
-        case PatchParam::FilterAttack:return p.filter.env.attack;
-        case PatchParam::FilterDecay:return p.filter.env.decay;
-        case PatchParam::FilterSustain:return p.filter.env.sustain;
-        case PatchParam::FilterRelease:return p.filter.env.release;
-        case PatchParam::PeakRatio:return p.peak.ratio;
-        case PatchParam::PeakFrequency:return p.peak.frequency;
-        case PatchParam::PeakQ:return p.peak.q;
-        case PatchParam::PeakGain:return p.peak.gainDb;
-        case PatchParam::AmpAttack:return p.amp.attack;
-        case PatchParam::AmpDecay:return p.amp.decay;
-        case PatchParam::AmpSustain:return p.amp.sustain;
-        case PatchParam::AmpRelease:return p.amp.release;
-        case PatchParam::VelocityAmp:return p.velocityAmp;
-        case PatchParam::VelocityFilter:return p.velocityFilter;
         case PatchParam::LfoRate:return p.lfo.rate;
         case PatchParam::LfoAmount:return p.lfo.amount;
         case PatchParam::LfoAttack:return p.lfo.attack;
         case PatchParam::LfoVelocity:return p.lfo.velocitySensitivity;
         case PatchParam::Unison:return p.unison;
-        case PatchParam::Glide:return p.glide;
         case PatchParam::Volume:return p.volume;
-        case PatchParam::Distortion:return p.fx.distortion;
-        case PatchParam::DistIn:return p.fx.distIn;
-        case PatchParam::DistOut:return p.fx.distOut;
-        case PatchParam::ReverbDecay:return p.fx.reverbDecay;
-        case PatchParam::ReverbRoom:return p.fx.reverbRoom;
-        case PatchParam::Delay:return p.fx.delay;
-        case PatchParam::DelayTime:return p.fx.delayTime;
-        case PatchParam::DelayFeedback:return p.fx.delayFeedback;
-        case PatchParam::Reverb:return p.fx.reverb;
+        case PatchParam::PeakRatio:return p.peak.ratio;
+        case PatchParam::PeakFrequency:return p.peak.frequency;
+        case PatchParam::PeakQ:return p.peak.q;
+        case PatchParam::PeakGain:return p.peak.gainDb;
     }
-    return 0.0f;
+    return 0;
 }
 float NativeEditor::normalized(float value,Range r) noexcept {
     if(r.hi<=r.lo)return 0.0f;return std::clamp((value-r.lo)/(r.hi-r.lo),0.0f,1.0f);
@@ -608,17 +368,6 @@ float NativeEditor::normalized(float value,Range r) noexcept {
 float NativeEditor::denormalized(float value,Range r) noexcept {
     return r.lo+std::clamp(value,0.0f,1.0f)*(r.hi-r.lo);
 }
-ModTarget NativeEditor::cycleModTarget(ModTarget current,int direction) noexcept {
-    constexpr int first=static_cast<int>(ModTarget::Cutoff);
-    constexpr int last=static_cast<int>(ModTarget::PeakGain);
-    int n=static_cast<int>(current);
-    if(n<first||n>last)n=first;
-    n+=direction;
-    if(n>last)n=first;
-    if(n<first)n=last;
-    return static_cast<ModTarget>(n);
-}
-
 float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     const auto b=bodyRect();
     if(page==EditorPage::Synth)return 0.0f;
@@ -853,18 +602,14 @@ struct OpSurface {
     OperatorCurve env(const Operator&o) const {
         if(page==1)return o.pitchCurve.enabled?o.pitchCurve:initialOperatorPitch();
         if(page==2)return o.volumeMorphCurve.enabled?o.volumeMorphCurve:
-            (o.volumeCurve.enabled?o.volumeCurve:legacyOperatorVolume(o.env));
+            (o.volumeCurve.enabled?o.volumeCurve:initialOperatorVolume());
         if(page==3)return o.pitchMorphCurve.enabled?o.pitchMorphCurve:
             (o.pitchCurve.enabled?o.pitchCurve:initialOperatorPitch());
-        return o.volumeCurve.enabled?o.volumeCurve:legacyOperatorVolume(o.env);
+        return o.volumeCurve.enabled?o.volumeCurve:initialOperatorVolume();
     }
     OperatorModChannel channel(const Operator&o) const {
         if(o.modChannelsConfigured)return o.modChannels[modSlot];
         auto c=initialOperatorModChannel();
-        if(modSlot==0&&o.expressionCurve.enabled&&o.expressionCurve.count>=2){
-            c.response=o.expressionCurve;
-            c.enabled=true;
-        }
         return c;
     }
     OperatorResponse response(const Operator&o) const {
@@ -2150,7 +1895,7 @@ struct UnisonSurface {
     OperatorCurve curve()const{
         const auto& p=ProjectCore::instance().selectedPatch();
         if(ampMode)return p.masterAmpCurve.count>=2?
-            p.masterAmpCurve:legacyOperatorVolume(p.amp);
+            p.masterAmpCurve:initialMasterAmpCurve();
         return p.unisonCurve.enabled&&p.unisonCurve.count>=2?
             p.unisonCurve:initialUnisonCurve(p.unison);
     }
@@ -2407,7 +2152,7 @@ struct UnisonSurface {
             if(millis>=500){
                 auto c=curve();
                 if(c.count==3&&drag==1){
-                    c=ampMode?legacyOperatorVolume(ProjectCore::instance().selectedPatch().amp):
+                    c=ampMode?initialMasterAmpCurve():
                         initialUnisonCurve(c.points[0].value);
                     selected=-1;changed=save(c)||changed;
                 }else if(c.count>3&&drag<c.count-1){
@@ -2771,288 +2516,7 @@ void NativeEditor::renderFx() const noexcept {
             overlayColor(kWhite));
     }
     return;
-    } // New four-view FX workspace; legacy markup below remains dormant.
-
-    const Patch p=ProjectCore::instance().selectedPatch();
-    auto& ov=NativeOverlay::instance();
-
-    static constexpr const char* kTitles[4]={
-        "Filter","Amp envelope","LFO","Expression links"};
-
-    const auto shortValue=[](float v){
-        std::string s=std::to_string(v);
-        while(s.size()>1&&s.back()=='0')s.pop_back();
-        if(!s.empty()&&s.back()=='.')s.pop_back();
-        if(s.size()>7)s.resize(7);
-        return s;
-    };
-
-    const auto drawSection=[&](int section){
-        const auto card=fxGroupRect(section);
-        fillRect(card,kButton);
-        fillRect({
-            card.x+2.0f,card.y+2.0f,
-            card.w-4.0f,card.h-4.0f},kPanel);
-        ov.addText(
-            kTitles[section],
-            card.x+20.0f,card.y+22.0f,
-            1.10f,overlayColor(kCyan));
-    };
-
-    const auto drawParam=[&](
-        int section,int row,const char* label,
-        PatchParam param,Rgb accent,bool peak=false){
-        const auto rr=peak?peakParamRect(row):fxSectionParamRect(section,row);
-        const float value=patchValue(p,param);
-        const float norm=normalized(value,patchRange(param));
-        ov.addText(
-            label,rr.x,rr.y+rr.h*0.26f,
-            0.76f,overlayColor(kMuted));
-
-        const float labelW=std::clamp(rr.w*0.25f,104.0f,160.0f);
-        const float valueW=70.0f;
-        const float x0=rr.x+labelW;
-        const float w=std::max(24.0f,rr.w-labelW-valueW-8.0f);
-        const float cy=rr.y+rr.h*0.52f;
-
-        fillRect({x0,cy-3.0f,w,6.0f},kTrack);
-        fillRect({x0,cy-3.0f,w*norm,6.0f},accent);
-        const float knob=22.0f;
-        fillRect({
-            x0+w*norm-knob*0.5f,
-            cy-knob*0.5f,knob,knob},
-            mix(kWhite,accent,0.28f));
-
-        ov.addText(
-            shortValue(value),
-            rr.x+rr.w-valueW+4.0f,
-            rr.y+rr.h*0.26f,
-            0.78f,overlayColor(kMuted));
-    };
-
-    // Instrument / pad FX only; the master rack lives on Tracks.
-    const Fx rack=ProjectCore::instance().fxRack(false);
-    const auto rackRect=fxRackRect();
-    fillRect(rackRect,kButton);
-    fillRect({rackRect.x+2,rackRect.y+2,rackRect.w-4,rackRect.h-4},kPanel);
-    ov.addText("Instrument / Pad FX chain",rackRect.x+20,rackRect.y+18,1.08f,overlayColor(kCyan));
-    for(int i=0;i<rack.count;++i){
-        const auto& module=rack.chain[i];
-        const auto r=fxRackStageRect(i);
-        fillRect(r,mix(kPanel,kButton,.45f));
-        const float bw=std::clamp(r.w*.10f,39.0f,67.0f);
-        const float right=r.x+r.w;
-        ov.addText(std::to_string(i+1)+". "+fxTypeName(module.type)+
-            (i==fxRackExpanded_?"   -":"   +"),
-            r.x+12,r.y+25,.89f,overlayColor(module.enabled?kWhite:kMuted));
-        const char* labels[4]={"^","v",module.enabled?"On":"Off","X"};
-        const Rgb colors[4]={kCyan,kCyan,module.enabled?kGreen:kMuted,kRed};
-        for(int j=0;j<4;++j){
-            const Rect cell{right-(4-j)*bw,r.y+5,bw-3,r.h-10};
-            drawButton(cell,false,colors[j]);
-            ov.addTextCentered(labels[j],{cell.x,cell.y,cell.w,cell.h},.85f,overlayColor(kWhite));
-        }
-        if(i==fxRackExpanded_){
-            for(size_t k=0;k<fxParamCount(module.type);++k){
-                const auto pr=fxRackParamRect(i,static_cast<int>(k));
-                const auto d=fxParamDesc(module.type,k);
-                const float n=normalized(module.params[k],{d.lo,d.hi});
-                const float lw=std::clamp(pr.w*.27f,115.0f,182.0f),vw=71.0f;
-                const float x0=pr.x+lw,w=std::max(24.0f,pr.w-lw-vw-9.0f);
-                const float cy=pr.y+pr.h*.52f;
-                ov.addText(d.name,pr.x,pr.y+pr.h*.26f,.74f,overlayColor(kMuted));
-                fillRect({x0,cy-3,w,6},kTrack);
-                fillRect({x0,cy-3,w*n,6},kPurple);
-                fillRect({x0+w*n-10,cy-10,20,20},mix(kWhite,kPurple,.28f));
-                ov.addText(shortValue(module.params[k]),pr.x+pr.w-vw+3,
-                    pr.y+pr.h*.26f,.77f,overlayColor(kWhite));
-            }
-        }
     }
-    const auto pick=fxRackAddRect(false),rackAdd=fxRackAddRect(true);
-    drawButton(pick,false,kCyan);drawButton(rackAdd,true,kGreen);
-    ov.addTextCentered(std::string(fxTypeName(fxRackNewType_)),
-        {pick.x,pick.y,pick.w,pick.h},.82f,overlayColor(kWhite));
-    ov.addDownChevron({pick.x+pick.w-37,pick.y,37,pick.h},overlayColor(kWhite));
-    ov.addTextCentered("+ Add FX",{rackAdd.x,rackAdd.y,rackAdd.w,rackAdd.h},.90f,overlayColor(kWhite));
-
-    // Filter. Old sliders remain accessible on legacy patches; the new
-    // three-lane filter opens in a dedicated full-screen point editor.
-    drawSection(0);
-    {
-        const auto card=fxGroupRect(0);
-        const Rect editButton{card.x+card.w-200,card.y+12,180,52};
-        drawButton(editButton,true,kCyan);
-        ov.addTextCentered("Edit filter",
-            {editButton.x,editButton.y,editButton.w,editButton.h},
-            .87f,overlayColor(kBg));
-        if(p.filter.evolving.configured)
-            ov.addText("Evolving filter active - edit F / Amount / Q",
-                card.x+20,card.y+70,.82f,overlayColor(kGreen));
-    }
-    if(!p.filter.evolving.configured){
-        const auto card=fxGroupRect(0);
-        ov.addText(
-            "Type",
-            card.x+20.0f,card.y+96.0f,
-            0.86f,overlayColor(kMuted));
-        const auto field=filterTypeRect(0);
-        fillRect(field,mix(kRollBg,kButton,0.24f));
-        static constexpr const char* names[3]={
-            "lowpass","highpass","bandpass"};
-        const int type=std::clamp(static_cast<int>(p.filter.type),0,2);
-        ov.addText(
-            names[type],
-            field.x+12.0f,field.y+19.0f,
-            0.90f,overlayColor(kWhite));
-        ov.addDownChevron(
-            {field.x+field.w-38.0f,field.y,38.0f,field.h},
-            overlayColor(kWhite));
-    static constexpr const char* filterLabels[7]={
-        "Cutoff","Reso","Env→Cut","A","D","S","R"};
-    for(int i=0;i<7;++i)
-        drawParam(0,i,filterLabels[i],
-            kFilterParams[static_cast<size_t>(i)],
-            i<3?kCyan:kOrange);
-
-    }else{
-        const auto card=fxGroupRect(0);
-        ov.addText("The three synchronized curves replace the legacy filter controls.",
-            card.x+22,card.y+194,.84f,overlayColor(kMuted));
-        ov.addText("Open Edit filter to draw Frequency, Amount and Q.",
-            card.x+22,card.y+241,.82f,overlayColor(kCyan));
-        ov.addText("Morph between alternate curves or override them with V / M.",
-            card.x+22,card.y+288,.82f,overlayColor(kPurple));
-        ov.addText("Low shelf / Bell / High shelf on each Q point.",
-            card.x+22,card.y+335,.82f,overlayColor(kOrange));
-    }
-
-    // A distinct per-note peaking EQ precedes the existing filter.
-    // A two-state control keeps Follow Note and Fixed Hz equally accessible.
-    {
-        const auto card=fxGroupRect(0);
-        ov.addText("Parametric Peak",card.x+20.0f,card.y+758.0f,
-            1.00f,overlayColor(kPurple));
-        const auto enabled=peakToggleRect(0),mode=peakToggleRect(1);
-        drawButton(enabled,p.peak.enabled,p.peak.enabled?kGreen:kMuted);
-        drawButton(mode,p.peak.followNote,kCyan);
-        ov.addTextCentered(p.peak.enabled?"Peak: On":"Peak: Off",
-            {enabled.x,enabled.y,enabled.w,enabled.h},.84f,overlayColor(kWhite));
-        ov.addTextCentered(p.peak.followNote?"Follow note":"Fixed Hz",
-            {mode.x,mode.y,mode.w,mode.h},.84f,overlayColor(kWhite));
-        drawParam(0,0,p.peak.followNote?"Center x":"Center Hz",
-            p.peak.followNote?PatchParam::PeakRatio:PatchParam::PeakFrequency,kPurple,true);
-        drawParam(0,1,"Q",PatchParam::PeakQ,kPurple,true);
-        drawParam(0,2,"Gain dB",PatchParam::PeakGain,kPurple,true);
-    }
-
-    // Amp envelope
-    drawSection(1);
-    static constexpr const char* ampLabels[9]={
-        "A","D","S","R","Volume",
-        "Vel→Amp","Vel→Cut","Unison","Glide"};
-    for(int i=0;i<9;++i)
-        drawParam(1,i,ampLabels[i],
-            kAmpParams[static_cast<size_t>(i)],
-            i<5?kCyan:kOrange);
-
-    // LFO remains a synth control; all audio effects are rack modules.
-    drawSection(2);
-    static constexpr const char* lfoLabels[4]={"Rate","Amount","LFO Atk","LFO Vel"};
-    for(int i=0;i<4;++i)
-        drawParam(2,i,lfoLabels[i],kLfoParams[static_cast<size_t>(i)],kPurple);
-
-    {
-        const auto target=lfoTargetRect(0);
-        const auto card=fxGroupRect(2);
-        ov.addText(
-            "Target",
-            card.x+20.0f,target.y+target.h*0.26f,
-            0.86f,overlayColor(kMuted));
-        fillRect(target,mix(kRollBg,kButton,0.24f));
-        static constexpr const char* targetNames[4]={
-            "none","pitch","filter","amp"};
-        const int targetIndex=std::clamp(static_cast<int>(p.lfo.target),0,3);
-        ov.addText(
-            targetNames[targetIndex],
-            target.x+12.0f,target.y+19.0f,
-            0.90f,overlayColor(kWhite));
-        ov.addDownChevron(
-            {target.x+target.w-38.0f,target.y,38.0f,target.h},
-            overlayColor(kWhite));
-    }
-
-    // V/M share the target vocabulary; each target has one routing owner.
-    drawSection(3);
-    auto& project=ProjectCore::instance();
-    const auto velocityTab=linkSourceRect(LinkSource::Velocity);
-    const auto modTab=linkSourceRect(LinkSource::Mod);
-    drawButton(velocityTab,linkSource_==LinkSource::Velocity,kCyan);
-    drawButton(modTab,linkSource_==LinkSource::Mod,kPurple);
-    ov.addTextCentered(
-        "V - Velocity ("+std::to_string(project.selectedModSlotCount(LinkSource::Velocity))+")",
-        {velocityTab.x,velocityTab.y,velocityTab.w,velocityTab.h},
-        0.85f,overlayColor(kWhite));
-    ov.addTextCentered(
-        "M - Mod ("+std::to_string(project.selectedModSlotCount(LinkSource::Mod))+")",
-        {modTab.x,modTab.y,modTab.w,modTab.h},
-        0.85f,overlayColor(kWhite));
-    const int count=project.selectedModSlotCount(linkSource_);
-    for(int slot=0;slot<count;++slot){
-        const auto s=project.selectedModSlot(slot,linkSource_);
-        const auto row=modRowRect(slot);
-        fillRect(row,mix(kPanel,kButton,0.18f));
-
-        const auto label=modPartRect(slot,0);
-        ov.addTextCentered(
-            (linkSource_==LinkSource::Velocity?"V":"M")+std::to_string(slot+1),
-            {label.x,label.y,label.w,label.h},
-            0.82f,overlayColor(kWhite));
-
-        const auto target=modPartRect(slot,1);
-        const auto mn=modPartRect(slot,3);
-        const auto mx=modPartRect(slot,4);
-        const auto del=modPartRect(slot,5);
-
-        fillRect(target,mix(kRollBg,kButton,0.24f));
-        ov.addText(
-            modTargetName(s.target),
-            target.x+10.0f,target.y+31.0f,
-            0.82f,overlayColor(kWhite));
-        ov.addDownChevron(
-            {target.x+target.w-32.0f,target.y,32.0f,target.h},
-            overlayColor(kWhite));
-
-        fillRect(mn,mix(kRollBg,kButton,0.20f));
-        fillRect(mx,mix(kRollBg,kButton,0.20f));
-        ov.addText("MIN",mn.x+10.0f,mn.y+9.0f,
-            0.64f,overlayColor(kMuted));
-        ov.addText("MAX",mx.x+10.0f,mx.y+9.0f,
-            0.64f,overlayColor(kMuted));
-        ov.addText(
-            shortValue(s.min),
-            mn.x+10.0f,mn.y+45.0f,
-            0.82f,overlayColor(kWhite));
-        ov.addText(
-            shortValue(s.max),
-            mx.x+10.0f,mx.y+45.0f,
-            0.82f,overlayColor(kWhite));
-
-        drawButton(del,false,kRed);
-        ov.addTextCentered(
-            "×",{del.x,del.y,del.w,del.h},
-            0.90f,overlayColor(kWhite));
-    }
-
-    const auto add=modAddRect();
-    const bool canAdd=true;
-    drawButton(add,canAdd,kGreen);
-    ov.addTextCentered(
-        "+ Add link",
-        {add.x,add.y,add.w,add.h},
-        0.94f,overlayColor(canAdd?kWhite:kMuted));
-
-    drawPatchTransfer(EditorPage::Fx);
 }
 
 std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
@@ -3062,21 +2526,22 @@ std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
 
 bool NativeEditor::openDropdownAt(
     EditorPage page,float x,float y,NativeUi& ui) const {
+    const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
     if(page==EditorPage::Fx){
-        const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
-        const auto& p=ProjectCore::instance().selectedPatch();
         if(fxWorkspace_==4){
             const auto rr=fxRackAddRect(false);
             if(rr.contains(x,y)){
-                static const std::vector<std::string> names{
-                    "Saturation","Metal Amp","Cabinet","5-Band EQ","Delay","Reverb","Metal Core","Ampere","Cabeus"};
+                std::vector<std::string> names;
+                for(int i=0;i<=static_cast<int>(FxType::Cabeus);++i)
+                    names.emplace_back(fxTypeName(static_cast<FxType>(i)));
                 ui.openDropdown(DropdownKind::FxType,0,anchor(rr),
-                    static_cast<int>(fxRackNewType_),names);
+                    static_cast<int>(fxRackNewType_),std::move(names));
                 return true;
             }
         }else if(fxWorkspace_==3){
             const auto rr=lfoWorkspaceTargetRect();
             if(rr.contains(x,y)){
+                const auto p=ProjectCore::instance().selectedPatch();
                 ui.openDropdown(DropdownKind::LfoTarget,0,anchor(rr),
                     static_cast<int>(p.lfo.target),
                     {"none","pitch","filter","amp"});
@@ -3085,114 +2550,22 @@ bool NativeEditor::openDropdownAt(
         }
         return false;
     }
-    const Patch p=ProjectCore::instance().selectedPatch();
-    const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
-
-    if(page==EditorPage::Synth){
-        // Wave selectors only exist on the Operators tab. Their geometric
-        // rectangles may still lie behind the fixed tab strip while the
-        // operator body is scrolled, so respect both the active tab and the
-        // visible clipped content region before testing them.
-        if(matrixMode_)return false;
-
-        const auto b=bodyRect();
-        const auto tab=synthTabRect(0);
-        const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-        const float contentTop=tab.y+tab.h+gap;
-        const float contentBottom=b.y+b.h;
-        if(y<contentTop||y>=contentBottom)return false;
-
-        if(opSurface.page==5){
-            const auto selector=opSurface.rect(14);
-            if(selector.contains(x,y)){
-                const int op=opSurface.op;
-                const bool morph=opSurface.harmonicView==2;
-                const Wave selected=morph?
-                    effectiveWaveMorph(p.ops[static_cast<size_t>(op)]):
-                    p.ops[static_cast<size_t>(op)].wave;
-                static const std::vector<std::string> waveNames{
-                    kWaveformLabels.begin(),kWaveformLabels.end()};
-                ui.openDropdown(
-                    DropdownKind::Wave,op+(morph?6:0),anchor(selector),
-                    std::clamp(static_cast<int>(selected),0,
-                        static_cast<int>(kWaveformLabels.size())-1),
-                    waveNames);
-                return true;
-            }
-        }
+    if(page!=EditorPage::Synth||matrixMode_||opSurface.page!=5)
         return false;
-    }
-
-    if(page==EditorPage::Fx){
-        const auto rr=fxRackAddRect(false);
-        if(rr.contains(x,y)&&bodyRect().contains(x,y)){
-            std::vector<std::string> labels;
-            for(int i=0;i<=static_cast<int>(FxType::Cabeus);++i)
-                labels.emplace_back(fxTypeName(static_cast<FxType>(i)));
-            ui.openDropdown(DropdownKind::FxType,-1,anchor(rr),
-                static_cast<int>(fxRackNewType_),std::move(labels));
-            return true;
-        }
-    }
-
-    {
-        const auto rr=filterTypeRect(0);
-        if(rr.contains(x,y)){
-            ui.openDropdown(
-                DropdownKind::FilterType,0,anchor(rr),
-                std::clamp(static_cast<int>(p.filter.type),0,2),
-                {"lowpass","highpass","bandpass"});
-            return true;
-        }
-    }
-
-    {
-        const auto rr=lfoTargetRect(0);
-        if(rr.contains(x,y)){
-            ui.openDropdown(
-                DropdownKind::LfoTarget,0,anchor(rr),
-                std::clamp(static_cast<int>(p.lfo.target),0,3),
-                {"none","pitch","filter","amp"});
-            return true;
-        }
-    }
-
-    auto& project=ProjectCore::instance();
-    const int count=project.selectedModSlotCount();
-    // Avoid offering a target already owned by any other V or M route.
-    // Current selection remains available for editing older patches.
-    const auto availableTargets=[](const Patch& patch,ModTarget current){
-        std::vector<ModTarget> available;
-        for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::PeakGain);++i){
-            const auto target=static_cast<ModTarget>(i);
-            bool used=false;
-            if(target!=current){
-                for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)
-                    used|=patch.modSlots[j].target==target;
-                for(size_t j=0;j<patch.velocitySlotCount&&j<patch.velocitySlots.size();++j)
-                    used|=patch.velocitySlots[j].target==target;
-            }
-            if(!used)available.push_back(target);
-        }
-        return available;
-    };
-    for(int slot=0;slot<count;++slot){
-        const auto rr=modPartRect(slot,1);
-        if(!rr.contains(x,y))continue;
-        const auto s=project.selectedModSlot(slot,linkSource_);
-        const auto available=availableTargets(p,s.target);
-        std::vector<std::string> names;
-        int selected=0;
-        for(size_t i=0;i<available.size();++i){
-            names.emplace_back(modTargetName(available[i]));
-            if(available[i]==s.target)selected=static_cast<int>(i);
-        }
-        ui.openDropdown(
-            DropdownKind::ModTarget,slot,anchor(rr),selected,names);
-        return true;
-    }
-
-    return false;
+    const auto b=bodyRect(),tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    if(y<tab.y+tab.h+gap||y>=b.y+b.h)return false;
+    const auto rr=opSurface.rect(14);
+    if(!rr.contains(x,y))return false;
+    const auto p=ProjectCore::instance().selectedPatch();
+    const int index=opSurface.op;
+    const bool morph=opSurface.harmonicView==2;
+    const Wave selected=morph?effectiveWaveMorph(p.ops[index]):p.ops[index].wave;
+    static const std::vector<std::string> labels{
+        kWaveformLabels.begin(),kWaveformLabels.end()};
+    ui.openDropdown(DropdownKind::Wave,index+(morph?6:0),anchor(rr),
+        static_cast<int>(selected),labels);
+    return true;
 }
 
 bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
@@ -3210,60 +2583,14 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
                 choice.context%6,static_cast<Wave>(choice.option),
                 choice.context>=6);
 
-        case DropdownKind::FilterType:
-            if(choice.option<0||choice.option>=3)return false;
-            return project.setSelectedFilterType(
-                static_cast<FilterType>(choice.option));
-
         case DropdownKind::LfoTarget:
             if(choice.option<0||choice.option>=4)return false;
             return project.setSelectedLfoTarget(
                 static_cast<LfoTarget>(choice.option));
 
-        case DropdownKind::ModTarget:{
-            if(choice.context<0||choice.context>=project.selectedModSlotCount(linkSource_)||
-               choice.option<0)return false;
-            const Patch patch=project.selectedPatch();
-            const ModTarget current=project.selectedModSlot(choice.context,linkSource_).target;
-            std::vector<ModTarget> available;
-            for(int i=static_cast<int>(ModTarget::Cutoff);i<=static_cast<int>(ModTarget::PeakGain);++i){
-                const auto target=static_cast<ModTarget>(i);
-                bool used=false;
-                if(target!=current){
-                    for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)
-                        used|=patch.modSlots[j].target==target;
-                    for(size_t j=0;j<patch.velocitySlotCount&&j<patch.velocitySlots.size();++j)
-                        used|=patch.velocitySlots[j].target==target;
-                }
-                if(!used)available.push_back(target);
-            }
-            if(static_cast<size_t>(choice.option)>=available.size())return false;
-            const auto target=available[static_cast<size_t>(choice.option)];
-            const auto rr=modRange(target);
-            const float mid=(rr.lo+rr.hi)*0.5f;
-            return project.setSelectedModSlot(choice.context,target,mid,mid,linkSource_);
-        }
-
         default:
             return false;
     }
-}
-
-std::optional<NativeEditor::ModLinkValueHit> NativeEditor::hitModLinkValue(
-    float x,float y) const noexcept {
-    // Old numerical link controls are no longer part of this workspace.
-    return std::nullopt;
-    // Only active, visible M/V numeric fields can open the Android editor.
-    if(!viewportRect().contains(x,y)||scrollGutterRect().contains(x,y))
-        return std::nullopt;
-    const auto hit=hitFx(x,y);
-    if(!hit||(hit->kind!=HitKind::ModMin&&hit->kind!=HitKind::ModMax))
-        return std::nullopt;
-    const auto slot=ProjectCore::instance().selectedModSlot(hit->a,linkSource_);
-    if(slot.target==ModTarget::None)return std::nullopt;
-    const bool maximum=hit->kind==HitKind::ModMax;
-    return ModLinkValueHit{
-        hit->a,linkSource_,maximum,slot.target,maximum?slot.max:slot.min};
 }
 
 std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
@@ -3356,90 +2683,7 @@ std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noex
     }
     if(const auto r=fxRackAddRect(true);r.contains(x,y))
         return Hit{HitKind::RackAdd,-1,-1,r};
-    // The addable FX view does not expose retired filter / link controls.
-    if(fxWorkspace_==4)return std::nullopt;
-    const auto card=fxGroupRect(0);
-    const Rect editFilter{card.x+card.w-200,card.y+12,180,52};
-    if(editFilter.contains(x,y))
-        return Hit{HitKind::FilterOpen,0,-1,editFilter};
-    const auto filterType=filterTypeRect(0);
-    if(!ProjectCore::instance().selectedPatch().filter.evolving.configured&&
-        filterType.contains(x,y))
-        return Hit{HitKind::FilterType,0,-1,filterType};
-
-    for(int i=0;i<static_cast<int>(kFilterParams.size())&&
-        !ProjectCore::instance().selectedPatch().filter.evolving.configured;++i){
-        const auto rr=fxSectionParamRect(0,i);
-        if(rr.contains(x,y))
-            return Hit{
-                HitKind::PatchParam,
-                static_cast<int>(kFilterParams[static_cast<size_t>(i)]),
-                -1,rr};
-    }
-    for(int button=0;button<2;++button){
-        const auto rr=peakToggleRect(button);
-        if(rr.contains(x,y))return Hit{button==0?HitKind::PeakToggle:HitKind::PeakMode,0,-1,rr};
-    }
-    const auto p=ProjectCore::instance().selectedPatch();
-    const PatchParam peakParams[3]={
-        p.peak.followNote?PatchParam::PeakRatio:PatchParam::PeakFrequency,
-        PatchParam::PeakQ,PatchParam::PeakGain};
-    for(int row=0;row<3;++row){
-        const auto rr=peakParamRect(row);
-        if(rr.contains(x,y))
-            return Hit{HitKind::PatchParam,static_cast<int>(peakParams[row]),-1,rr};
-    }
-
-    for(int i=0;i<static_cast<int>(kAmpParams.size());++i){
-        const auto rr=fxSectionParamRect(1,i);
-        if(rr.contains(x,y))
-            return Hit{
-                HitKind::PatchParam,
-                static_cast<int>(kAmpParams[static_cast<size_t>(i)]),
-                -1,rr};
-    }
-
-    const auto target=lfoTargetRect(0);
-    if(target.contains(x,y))
-        return Hit{HitKind::LfoTarget,0,-1,target};
-
-    for(int i=0;i<static_cast<int>(kLfoParams.size());++i){
-        const auto rr=fxSectionParamRect(2,i);
-        if(rr.contains(x,y))
-            return Hit{
-                HitKind::PatchParam,
-                static_cast<int>(kLfoParams[static_cast<size_t>(i)]),
-                -1,rr};
-    }
-
-    auto& project=ProjectCore::instance();
-    if(linkSourceRect(LinkSource::Velocity).contains(x,y))
-        return Hit{HitKind::LinkSourceV,-1,-1,linkSourceRect(LinkSource::Velocity)};
-    if(linkSourceRect(LinkSource::Mod).contains(x,y))
-        return Hit{HitKind::LinkSourceM,-1,-1,linkSourceRect(LinkSource::Mod)};
-    const int count=project.selectedModSlotCount(linkSource_);
-    for(int slot=0;slot<count;++slot){
-        const auto targetRect=modPartRect(slot,1);
-        if(targetRect.contains(x,y))
-            return Hit{HitKind::ModTargetNext,slot,-1,targetRect};
-
-        const auto mn=modPartRect(slot,3);
-        if(mn.contains(x,y))
-            return Hit{HitKind::ModMin,slot,-1,mn};
-
-        const auto mx=modPartRect(slot,4);
-        if(mx.contains(x,y))
-            return Hit{HitKind::ModMax,slot,-1,mx};
-
-        const auto del=modPartRect(slot,5);
-        if(del.contains(x,y))
-            return Hit{HitKind::ModDelete,slot,-1,del};
-    }
-
-    const auto add=modAddRect();
-    if(add.contains(x,y))
-        return Hit{HitKind::ModAdd,-1,-1,add};
-
+    // Other FX workspaces use their own dedicated point/curve surfaces.
     return std::nullopt;
 }
 
@@ -3520,7 +2764,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 
         case HitKind::OperatorParam:{
             const int op=std::clamp(hit.a,0,5);
-            const int paramIndex=std::clamp(hit.b,0,7);
+            const int paramIndex=std::clamp(hit.b,0,3);
             const auto param=kOperatorParams[static_cast<size_t>(paramIndex)];
 
             // The left portion of the row is the label in the HTML layout.
@@ -3556,14 +2800,6 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             filterSurface.open=true;
             filterSurface.view=bodyRect();
             return false;
-        case HitKind::FilterType:{
-            const auto p=project.selectedPatch();
-            const int current=std::clamp(
-                static_cast<int>(p.filter.type),0,2);
-            return project.setSelectedFilterType(
-                static_cast<FilterType>((current+1)%3));
-        }
-
         case HitKind::PeakToggle:{
             const auto p=project.selectedPatch();
             return project.setSelectedPeakEnabled(!p.peak.enabled);
@@ -3594,40 +2830,6 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             return project.setSelectedPatchParam(
                 param,denormalized(controlNx,patchRange(param)));
         }
-
-        case HitKind::LinkSourceV:linkSource_=LinkSource::Velocity;return false;
-        case HitKind::LinkSourceM:linkSource_=LinkSource::Mod;return false;
-        case HitKind::ModTargetPrev:
-        case HitKind::ModTargetNext:{
-            const auto s=project.selectedModSlot(hit.a,linkSource_);
-            const int dir=hit.kind==HitKind::ModTargetNext?1:-1;
-            auto target=s.target;
-            const auto patch=project.selectedPatch();
-            for(int attempt=0;attempt<=static_cast<int>(ModTarget::PeakGain);++attempt){
-                target=cycleModTarget(target,dir);
-                bool used=false;
-                for(size_t j=0;j<patch.modSlotCount&&j<patch.modSlots.size();++j)
-                    used|=patch.modSlots[j].target==target;
-                for(size_t j=0;j<patch.velocitySlotCount&&j<patch.velocitySlots.size();++j)
-                    used|=patch.velocitySlots[j].target==target;
-                if(!used)break;
-            }
-            const auto rr=modRange(target);
-            const float mid=(rr.lo+rr.hi)*0.5f;
-            return project.setSelectedModSlot(hit.a,target,mid,mid,linkSource_);
-        }
-
-        case HitKind::ModMin:
-        case HitKind::ModMax:
-            // Numeric link values are edited with the OS keyboard rather
-            // than an invisible horizontal slider.
-            return false;
-
-        case HitKind::ModDelete:
-            return project.removeSelectedModSlot(hit.a,linkSource_);
-
-        case HitKind::ModAdd:
-            return project.addSelectedModSlot(ModTarget::Cutoff,linkSource_);
 
         case HitKind::None:
             return false;
