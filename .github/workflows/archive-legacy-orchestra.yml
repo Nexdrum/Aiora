@@ -1,0 +1,62 @@
+name: Preserve legacy orchestra patch exports
+on:
+  push:
+    branches: [ native-android ]
+    paths:
+      - 'tools/legacy-orchestra/export_legacy_orchestra.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Export from the original factory commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="9a4853e85537140fb36bba2081308618729b8fb7"
+          LEGACY="$(mktemp -d)"
+          git archive "$REF" | tar -x -C "$LEGACY"
+          g++ -std=c++20 -O2 -pthread -I"$LEGACY/app/src/main/cpp" \
+            tools/legacy-orchestra/export_legacy_orchestra.cpp \
+            "$LEGACY/app/src/main/cpp/"{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,ProjectStorage.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
+            -o /tmp/aiora-legacy-export
+          mkdir -p /tmp/aiora-legacy-exports
+          /tmp/aiora-legacy-export /tmp/aiora-legacy-exports
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          dest=Path("docs/backups/orchestral/Orchestral_Legacy_Reference.zip")
+          patches=sorted(Path("/tmp/aiora-legacy-exports").glob("*.patch.json"))
+          assert len(patches)==19, f"Expected 19 patches; got {len(patches)}"
+          with zipfile.ZipFile(dest,"a",compression=zipfile.ZIP_DEFLATED) as z:
+              for patch in patches:
+                  z.write(patch,"patches/"+patch.name)
+          with zipfile.ZipFile(dest) as z:
+              assert z.testzip() is None
+              assert len([n for n in z.namelist() if n.startswith("patches/") and n.endswith(".patch.json")])==19
+              assert "source/FactoryPresets.cpp" in z.namelist()
+              assert "source/FactoryPresets.h" in z.namelist()
+          print(f"Archived {len(patches)} original orchestral patches: {dest}")
+          PY
+      - name: Commit archival ZIP to native-android
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/backups/orchestral/Orchestral_Legacy_Reference.zip
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Archive original orchestral preset JSON exports"
+          git push origin HEAD:native-android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Original-orchestral-presets-backup
+          path: docs/backups/orchestral/Orchestral_Legacy_Reference.zip
+          if-no-files-found: error

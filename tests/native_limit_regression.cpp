@@ -31,6 +31,17 @@ int main(){
         original.name="Nexdrum regression";
         const auto& factory=nexdrumKit();
         original.pads.assign(factory.begin(),factory.end());
+        assert(factoryBank().size()==4);
+        assert(factoryBank()[0].name=="Subula");
+        assert(factoryBank()[1].name=="Spectrello");
+        assert(factoryBank()[2].name=="Nebular");
+        assert(factoryBank()[3].name=="Nexdrum");
+        const std::array<std::string,7> approvedNames{{
+            "Crash","Ride","Roto Tom","Snare","Tom","Floor Tom","Kick"
+        }};
+        for(size_t i=0;i<factory.size();++i)
+            assert(factory[i].name==approvedNames[i]);
+        assert(std::fabs(factory[1].patch.ops[3].harm[0]-.497686f)<.00001f);
         original.selectedPad=2;
         original.pads[2].name="Small roto-tom";
         original.pads[2].pan=.37f;
@@ -1118,7 +1129,8 @@ int main(){
     const std::string longName="A long orchestral section name that must never be truncated by save or load";
     core.setTrackName(0,longName);
 
-    Patch marimba=makeFactoryPatch(FactoryPreset::Marimba);
+    Patch marimba=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    marimba.ops[2].ratio=9.18f;
     assert(marimba.ops[2].ratio>8.0f);
     marimba.velocitySlots={{ModTarget::Op1,.08f,.5f}};
     marimba.velocitySlotCount=marimba.velocitySlots.size();
@@ -1186,7 +1198,7 @@ int main(){
         DrumPad p;
         p.lowMidi=p.centerMidi=p.highMidi=38+i;
         p.name="Pad with a descriptive long name "+std::to_string(i);
-        p.patch=makeFactoryPatch(FactoryPreset::Triangle);
+        p.patch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
         drums.pads.push_back(std::move(p));
     }
     Note drumNote;

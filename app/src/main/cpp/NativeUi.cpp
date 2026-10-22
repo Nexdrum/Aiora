@@ -516,7 +516,7 @@ bool NativeUi::openUiDropdownAt(float x,float y){
         for(int i=0;i<static_cast<int>(labels.size());++i)
             if(current==labels[static_cast<size_t>(i)]){selected=i;break;}
         if(project.selectedTrack()>=0&&project.trackIsDrums(project.selectedTrack()))
-            selected=4;
+            selected=static_cast<int>(FactoryPreset::Nexdrum);
         openDropdown(
             DropdownKind::Patch,project.selectedTrack(),patchPresetRect(),selected,
             std::move(labels));
