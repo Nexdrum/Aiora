@@ -3013,18 +3013,32 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             if(state.ui.page()==aiora::NativePage::Roll&&
                state.rollDraw.active&&!state.rollDraw.paused&&
                action==AMOTION_EVENT_ACTION_POINTER_DOWN)return 1;
-            // Only a deliberate touch inside the Roll resume rectangle
-            // consumes input. Outside touches finalize the paused draw and
-            // continue through normal scrolling/navigation/note routing.
-            // Paused sessions must never swallow touches on other pages.
+            // The returning note finger is POINTER_DOWN when one or both
+            // expression fingers are still held, not a new primary DOWN.
+            // Either event can resume on the circle without releasing V/M.
+            // A primary DOWN elsewhere finishes and routes normally.
             const bool onRoll=state.ui.page()==aiora::NativePage::Roll;
             const auto pausedTouch=aiora::routePausedRollTouch(
                 onRoll,state.rollDraw.active,state.rollDraw.paused,
                 action==AMOTION_EVENT_ACTION_DOWN,
+                action==AMOTION_EVENT_ACTION_POINTER_DOWN,
                 onRoll&&state.ui.rollDrawResumeRect().contains(x,y));
             if(pausedTouch==aiora::PausedRollTouch::Resume){
                 auto& draw=state.rollDraw;
                 draw.paused=false;
+                // Rebind the held V/M fingers and their latest levels to the
+                // resumed note. Neither controller needs to be released.
+                const auto& armed=state.armedExpression;
+                if(state.ui.rollDrawMode(1)&&armed.vPointer>=0){
+                    draw.valuePointer=armed.vPointer;
+                    draw.velocity=armed.velocity;
+                    draw.vTouched=true;
+                }
+                if(state.ui.rollDrawMode(2)&&armed.mPointer>=0){
+                    draw.modPointer=armed.mPointer;
+                    draw.mod=armed.mod;
+                    draw.mTouched=true;
+                }
                 beginRollGesture(state,pointerId,x,y,nowMs(),
                     RollGestureKind::NoteEdit);
                 auto& g=state.rollGesture;
@@ -3042,6 +3056,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             }
             if(pausedTouch==aiora::PausedRollTouch::CompleteAndRoute)
                 finishRollDraw(state);
+            // Other secondary contacts cannot accidentally finish the note.
+            if(onRoll&&state.rollDraw.active&&state.rollDraw.paused&&
+               action==AMOTION_EVENT_ACTION_POINTER_DOWN)return 1;
 
             // The empty C/P square is now the stack-mode switch.
             // All corner actions execute on release so holding P can cancel.
@@ -3266,6 +3283,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     }
                 }
                 if(changed)showRollDraw(state);
+                // While paused, controller movement remains live but stray
+                // touches cannot trigger a pitch preview or another gesture.
+                if(draw.active&&draw.paused)return 1;
             }
 
             if (state.ui.page() == aiora::NativePage::Roll &&

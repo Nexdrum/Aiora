@@ -4,6 +4,7 @@
 #include "NexdrumKit.h"
 #include "SpectrachordVoice.h"
 #include "FxProcessor.h"
+#include "RollTouchRouting.h"
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -13,6 +14,22 @@
 using namespace aiora;
 
 int main(){
+    // A resumed note must accept Android POINTER_DOWN while V/M stay held.
+    // PRIMARY DOWN still works if the draw finger is alone.
+    constexpr auto resume=PausedRollTouch::Resume;
+    constexpr auto ignore=PausedRollTouch::Ignore;
+    constexpr auto finish=PausedRollTouch::CompleteAndRoute;
+    assert(routePausedRollTouch(true,true,true,true,false,true)==resume);
+    assert(routePausedRollTouch(true,true,true,false,true,true)==resume);
+    // An extra finger away from the circle cannot cancel the recording.
+    assert(routePausedRollTouch(true,true,true,false,true,false)==ignore);
+    assert(routePausedRollTouch(true,true,true,true,false,false)==finish);
+    // Existing tests: wrong page and inactive/unpaused sessions never resume.
+    assert(routePausedRollTouch(false,true,true,false,true,true)==ignore);
+    assert(routePausedRollTouch(false,true,true,true,false,true)==finish);
+    assert(routePausedRollTouch(true,false,true,false,true,true)==ignore);
+    assert(routePausedRollTouch(true,true,false,false,true,true)==ignore);
+    assert(routePausedRollTouch(true,true,true,false,false,true)==ignore);
     static constexpr std::array<const char*,4> instruments{{
         "Subula","Spectrello","Nebular","Nexdrum"}};
     const auto& bank=factoryBank();
