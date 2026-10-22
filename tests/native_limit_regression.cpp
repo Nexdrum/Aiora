@@ -1321,7 +1321,11 @@ int main(){
     assert(!crashTail.active()&&!rideTail.active());
     // Hiss must be pitch responsive on ANY patch, with no cymbal flag.
     // Existing Noise must stay pitch independent and identical to legacy.
-    Patch colored=kit[0].patch;
+    // Isolate generic Hiss-vs-Noise pitch behavior from the approved
+    // crash patch's multi-operator morph and FM configurations.
+    Patch colored=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    colored.ops[1].wave=Wave::Hiss;
+    colored.ops[1].level=.28f;
     for(size_t i=0;i<colored.ops.size();++i)colored.ops[i].enabled=(i==1);
     colored.cymbalModel=0;
     colored.timpaniMembrane=false;
