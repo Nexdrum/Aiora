@@ -24,6 +24,7 @@
 #include "NativeUi.h"
 #include "KineticScroll.h"
 #include "RollTouchRouting.h"
+#include "RollCurveSimplify.h"
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
 #include "ProjectStorage.h"
@@ -1284,52 +1285,18 @@ void showRollDraw(NativeState& state){
         d.midi,d.start,d.paused,d.raw[0],d.raw[1],d.raw[2]);
 }
 
-std::vector<aiora::CurvePoint> simplifyRollDraw(
-    std::vector<aiora::RollDrawSample> samples,
-    float end,float tolerance,float defaultValue){
-    std::vector<aiora::CurvePoint> output;
-    if(samples.empty())return output;
-    for(auto& sample:samples)sample.step=std::clamp(sample.step,-0.5f,end);
-    std::stable_sort(samples.begin(),samples.end(),
-        [](const auto&a,const auto&b){return a.step<b.step;});
-    std::vector<aiora::RollDrawSample> unique;
-    for(const auto& sample:samples){
-        if(!unique.empty()&&
-            std::fabs(unique.back().step-sample.step)<0.0001f)
-            unique.back().value=sample.value;
-        else unique.push_back(sample);
-    }
-    if(unique.empty())return output;
-    if(unique.front().step>-0.5f)unique.insert(
-        unique.begin(),{-0.5f,defaultValue});
-    if(unique.back().step<end-0.0001f)
-        unique.push_back({end,unique.back().value});
-    if(unique.size()<2)return output;
-
-    // Error-bounded greedy polyline simplification: split the segment with
-    // the largest vertical deviation (legacy explanation). All drawn points are retained.
-    bool changed=false;
-    for(const auto& sample:unique)
-        if(std::fabs(sample.value-defaultValue)>0.0005f)
-            {changed=true;break;}
-    if(!changed)return output;
-    output.reserve(unique.size());
-    for(const auto& sample:unique)output.push_back({sample.step,sample.value,true,0.5f});
-    return output;
-}
-
 void finishRollDraw(NativeState& state){
     auto& d=state.rollDraw;
     if(!d.active)return;
     const float end=std::max(0.5f,d.length-0.5f);
     const auto b=state.ui.rollDrawMode(0)
-        ?simplifyRollDraw(d.raw[0],end,0.075f,0.0f)
+        ?aiora::simplifyRollDrawCurve(d.raw[0],end,0.025f,0.0f)
         :std::vector<aiora::CurvePoint>{};
     const auto v=d.vTouched
-        ?simplifyRollDraw(d.raw[1],end,0.014f,1.0f)
+        ?aiora::simplifyRollDrawCurve(d.raw[1],end,0.009f,1.0f)
         :std::vector<aiora::CurvePoint>{};
     const auto m=d.mTouched
-        ?simplifyRollDraw(d.raw[2],end,0.014f,0.0f)
+        ?aiora::simplifyRollDrawCurve(d.raw[2],end,0.009f,0.0f)
         :std::vector<aiora::CurvePoint>{};
     aiora::ProjectCore::instance().replaceNoteCurves(d.track,d.note,b,v,m);
     d.clear();

@@ -5,6 +5,7 @@
 #include "SpectrachordVoice.h"
 #include "FxProcessor.h"
 #include "RollTouchRouting.h"
+#include "RollCurveSimplify.h"
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -13,7 +14,106 @@
 
 using namespace aiora;
 
+// Playback and piano-roll editors use the same interpolation as this check.
+static float inspectDrawCurve(const std::vector<CurvePoint>& points,float x){
+    assert(!points.empty());
+    if(x<=points.front().step)return points.front().value;
+    for(size_t i=1;i<points.size();++i){
+        if(x>points[i].step)continue;
+        const auto& a=points[i-1];
+        const auto& b=points[i];
+        return curveSegment((x-a.step)/(b.step-a.step),
+            a.value,b.value,b.midpoint,b.handleActive,b.handleValue);
+    }
+    return points.back().value;
+}
+
+static void checkDrawFit(
+    const std::vector<RollDrawSample>& samples,
+    const std::vector<CurvePoint>& saved,float tolerance){
+    assert(saved.size()>=2);
+    for(size_t i=0;i<samples.size();++i){
+        assert(std::fabs(inspectDrawCurve(saved,samples[i].step)-
+            samples[i].value)<=tolerance+0.0005f);
+        if(i==0)continue;
+        for(const float t:{0.25f,0.5f,0.75f}){
+            const float x=samples[i-1].step+
+                (samples[i].step-samples[i-1].step)*t;
+            const float wanted=samples[i-1].value+
+                (samples[i].value-samples[i-1].value)*t;
+            assert(std::fabs(inspectDrawCurve(saved,x)-wanted)<=
+                tolerance+0.0005f);
+        }
+    }
+}
+
+static void checkDrawSimplification(){
+    constexpr float pi=3.14159265358979323846f;
+    // Dense straight drawing becomes its two true endpoints.
+    std::vector<RollDrawSample> straight;
+    for(int i=0;i<=400;++i){
+        const float t=static_cast<float>(i)/400.0f;
+        straight.push_back({-0.5f+8*t,0.2f+0.65f*t});
+    }
+    const auto line=simplifyRollDrawCurve(straight,7.5f,.009f,.2f);
+    assert(line.size()==2);
+    checkDrawFit(straight,line,.009f);
+
+    // The X-handle must merge smoothly curved strokes, not only lines.
+    std::vector<RollDrawSample> curved;
+    for(int i=0;i<=480;++i){
+        const float t=static_cast<float>(i)/480.0f;
+        curved.push_back({-0.5f+12*t,0.12f+0.74f*t*t});
+    }
+    const auto smooth=simplifyRollDrawCurve(curved,11.5f,.009f,.12f);
+    assert(smooth.size()<45);
+    assert(std::any_of(smooth.begin(),smooth.end(),
+        [](const CurvePoint& p){return p.handleActive;}));
+    checkDrawFit(curved,smooth,.009f);
+
+    // Delicate bends above 2.5 cents and faster reversals must survive.
+    std::vector<RollDrawSample> vibrato;
+    for(int i=0;i<=540;++i){
+        const float t=static_cast<float>(i)/540.0f;
+        vibrato.push_back({-0.5f+10*t,
+            0.06f*std::sin(2*pi*5*t)});
+    }
+    const auto bends=simplifyRollDrawCurve(vibrato,9.5f,.025f,0.0f);
+    assert(bends.size()>10);
+    assert(bends.size()<vibrato.size()/3);
+    checkDrawFit(vibrato,bends,.025f);
+
+    // Short high-intensity articulations cannot be averaged away.
+    std::vector<RollDrawSample> accents;
+    for(int i=0;i<=240;++i){
+        const float t=static_cast<float>(i)/240.0f;
+        const float peak=std::max(0.0f,1.0f-std::fabs(t-0.51f)/0.015f);
+        accents.push_back({-0.5f+6*t,0.22f+0.55f*peak});
+    }
+    const auto sharp=simplifyRollDrawCurve(accents,5.5f,.009f,.22f);
+    assert(sharp.size()>=4);
+    checkDrawFit(accents,sharp,.009f);
+
+    // No point count cap: a long deliberate modulation remains detailed.
+    std::vector<RollDrawSample> longMod;
+    for(int i=0;i<=2400;++i){
+        const float t=static_cast<float>(i)/2400.0f;
+        longMod.push_back({-0.5f+40*t,0.5f+0.28f*
+            std::sin(2*pi*45*t)});
+    }
+    const auto retained=simplifyRollDrawCurve(longMod,39.5f,.009f,.5f);
+    assert(retained.size()>80);
+    assert(retained.size()<longMod.size());
+    checkDrawFit(longMod,retained,.009f);
+
+    // A silent default channel is correctly omitted.
+    const std::vector<RollDrawSample> untouched{
+        {-0.5f,1.0f},{3.5f,1.0f}};
+    assert(simplifyRollDrawCurve(untouched,3.5f,.009f,1.0f).empty());
+}
+
 int main(){
+    checkDrawSimplification();
     // A resumed note must accept Android POINTER_DOWN while V/M stay held.
     // PRIMARY DOWN still works if the draw finger is alone.
     constexpr auto resume=PausedRollTouch::Resume;
