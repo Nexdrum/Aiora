@@ -946,12 +946,23 @@ void NativeOverlay::addNavIcon(int index,Rect r,Color c){
             addLine(cx-s*0.08f,bottom+s*0.06f,cx+s*0.08f,bottom+s*0.06f,t,c);
             break;
         }
-        case 2:{ // piano roll grid
-            const float cell=s*0.12f,g=s*0.04f;
-            const float total=cell*3.0f+g*2.0f;
-            const float x0=cx-total*0.5f,y0=cy-total*0.5f;
-            for(int y=0;y<3;++y)for(int x=0;x<3;++x)
-                addRect({x0+x*(cell+g),y0+y*(cell+g),cell,cell},c);
+        case 2:{ // Piano roll: pitched note blocks on a time grid.
+            const float x0=cx-s*0.29f,y0=cy-s*0.25f;
+            const float w=s*0.58f,h=s*0.50f;
+            // The grid is a time-versus-pitch editor, not a drum pad matrix.
+            for(int i=0;i<=4;++i){
+                const float yy=y0+h*static_cast<float>(i)/4.0f;
+                addLine(x0,yy,x0+w,yy,std::max(1.0f,t*0.55f),c);
+            }
+            for(int i=0;i<=3;++i){
+                const float xx=x0+w*static_cast<float>(i)/3.0f;
+                addLine(xx,y0,xx,y0+h,std::max(1.0f,t*0.50f),c);
+            }
+            const float n=h*0.18f;
+            addRect({x0+w*.08f,y0+h*.08f,w*.37f,n},c);
+            addRect({x0+w*.36f,y0+h*.34f,w*.52f,n},c);
+            addRect({x0+w*.16f,y0+h*.60f,w*.31f,n},c);
+            addRect({x0+w*.59f,y0+h*.83f,w*.30f,n*.67f},c);
             break;
         }
         case 3:{ // synth sliders
@@ -987,6 +998,32 @@ void NativeOverlay::addNavIcon(int index,Rect r,Color c){
             }
             for(float u:{0.20f,0.40f,0.70f,0.90f})
                 addRect({x0+w*u-s*0.035f,y0,s*0.07f,h*0.52f},c);
+            break;
+        }
+        case 6:{ // Live Play View: dedicated play/trigger symbol.
+            addCircle(cx,cy,s*0.285f,t,c);
+            // Crisp triangle inset within the circular performance control.
+            addLine(cx-s*.073f,cy-s*.147f,cx+s*.167f,cy,t*1.20f,c);
+            addLine(cx+s*.167f,cy,cx-s*.073f,cy+s*.147f,t*1.20f,c);
+            addLine(cx-s*.073f,cy+s*.147f,
+                    cx-s*.073f,cy-s*.147f,t*1.20f,c);
+            break;
+        }
+        case 7:{ // Performance View: illuminated 3-by-3 pad matrix.
+            const float cell=s*.135f,gap=s*.056f;
+            const float side=cell*3.0f+gap*2.0f;
+            const float x0=cx-side*.5f,y0=cy-side*.5f;
+            for(int y=0;y<3;++y)for(int x=0;x<3;++x){
+                const float xx=x0+x*(cell+gap),yy=y0+y*(cell+gap);
+                if((x==1&&y==1)||(x==2&&y==0))
+                    addRect({xx,yy,cell,cell},c);
+                else{
+                    addLine(xx,yy,xx+cell,yy,t*.65f,c);
+                    addLine(xx+cell,yy,xx+cell,yy+cell,t*.65f,c);
+                    addLine(xx+cell,yy+cell,xx,yy+cell,t*.65f,c);
+                    addLine(xx,yy+cell,xx,yy,t*.65f,c);
+                }
+            }
             break;
         }
         default:break;

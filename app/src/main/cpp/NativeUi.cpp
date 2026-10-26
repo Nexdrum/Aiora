@@ -110,7 +110,8 @@ constexpr std::array<NativePage,7> kNavPages{{
     NativePage::Performance
 }};
 
-constexpr std::array<int,7> kNavIconIndices{{0,1,3,4,2,5,2}};
+// Timeline, live trigger, and performance pad use distinct native icons.
+constexpr std::array<int,7> kNavIconIndices{{0,1,3,4,2,6,7}};
 
 
 NativeUi::Rgb mix(NativeUi::Rgb a, NativeUi::Rgb b, float amount) noexcept {

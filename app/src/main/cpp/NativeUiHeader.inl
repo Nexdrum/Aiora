@@ -1,10 +1,22 @@
 // Header and navigation are a single coordinated spectral UI shell.
 drawExpressionPad();
 const auto transport=transportShellRect();
-fillRect(transport,mix(kTop,kPanel,.55f));
+// Matte graphite module with thin purple/cyan spectral rails.
+fillRect(transport,mix(kBg,kPanel,.52f));
+fillRect({transport.x+2.0f,transport.y+2.0f,
+          std::max(1.0f,transport.w-4.0f),
+          std::max(1.0f,transport.h-4.0f)},
+         mix(kRollBg,kTop,.59f));
 auto& overlay=NativeOverlay::instance();
-overlay.addRect({transport.x,transport.y,transport.w,transport.h},
-                overlayColor(kPurple,.75f));
+const float xr=transport.x+transport.w,yr=transport.y+transport.h;
+overlay.addLine(transport.x+1.0f,transport.y+1.0f,xr-1.0f,
+                transport.y+1.0f,2.0f,overlayColor(kPurple,.84f));
+overlay.addLine(transport.x+1.0f,transport.y+1.0f,
+                transport.x+1.0f,yr-1.0f,2.0f,overlayColor(kCyan,.40f));
+overlay.addLine(xr-1.0f,transport.y+1.0f,
+                xr-1.0f,yr-1.0f,2.0f,overlayColor(kPurple,.48f));
+overlay.addLine(transport.x+1.0f,yr-1.0f,xr-1.0f,yr-1.0f,
+                2.0f,overlayColor(kCyan,.77f));
 const float logoSize=std::clamp(transport.h*.18f,28.f,58.f);
 const NativeOverlay::Rect logoR{
     transport.x+transport.w*.11f,transport.y+transport.h*.065f,
@@ -12,14 +24,22 @@ const NativeOverlay::Rect logoR{
 overlay.addSpectrumLogo(logoR);
 overlay.addText("A I O R A",logoR.x+logoSize+9.f,
                 logoR.y+logoSize*.25f,.92f,overlayColor(kWhite));
+overlay.addLine(transport.x+transport.w*.16f,
+                transport.y+transport.h*.25f,
+                transport.x+transport.w*.84f,
+                transport.y+transport.h*.25f,
+                1.4f,overlayColor(kPurple,.46f));
 auto& project=ProjectCore::instance();
 auto& audio=AudioEngine::instance();
 const auto startR=headerControlRect(0),playR=headerControlRect(1),
            endR=headerControlRect(2);
 const auto bezel=[&](Rect r,Rgb accent){
-    fillRect(r,accent);
+    // Illuminated perimeter with an inset hardware face.
+    fillRect(r,mix(kPanel,accent,.85f));
     fillRect({r.x+3,r.y+3,std::max(1.f,r.w-6),
-             std::max(1.f,r.h-6)},kButton);
+             std::max(1.f,r.h-6)},mix(kButton,kBg,.34f));
+    fillRect({r.x+5,r.y+5,std::max(1.f,r.w-10),1.4f},
+             mix(kPanel,accent,.30f));
 };
 bezel(startR,kBlue);
 bezel(playR,audio.transportPlaying()?kOrange:kGreen);
@@ -35,6 +55,15 @@ if(audio.transportPlaying()){
 overlay.addTextCentered(">|",{endR.x,endR.y,endR.w,endR.h},
                         1.32f,overlayColor(kWhite));
 drawScope();
+// Compact 12-tone spectrum strip beneath the oscilloscope.
+const auto scope=headerScopeRect();
+const float stripY=scope.y+scope.h+4.0f;
+const float stripW=scope.w/12.0f;
+for(int i=0;i<12;++i){
+    fillRect({scope.x+i*stripW,stripY,
+              std::max(1.0f,stripW-1.0f),2.4f},
+             mix(kTop,kPitchColors[static_cast<size_t>(i)],.75f));
+}
 static constexpr std::array<Rgb,7> accents{
     kCyan,kOrange,kPurple,kRed,kBlue,kGreen,kGold};
 for(int i=0;i<7;++i){
