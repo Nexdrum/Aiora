@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -177,14 +178,11 @@ public:
         return kind>=0&&kind<3&&rollDrawModes_[static_cast<size_t>(kind)];
     }
     void toggleRollDrawMode(int kind) noexcept {
-        if(kind>=0&&kind<3)rollDrawModes_[static_cast<size_t>(kind)]=
-            !rollDrawModes_[static_cast<size_t>(kind)];
-        // All three modes are independent and can run concurrently.
-        if(rollDrawModes_[0]||rollDrawModes_[1]||rollDrawModes_[2])
-            rollMode_=RollMode::Notes;
+        if(kind==0)rollDrawModes_[0]=!rollDrawModes_[0];
+        if(rollDrawModes_[0])rollMode_=RollMode::Notes;
     }
     [[nodiscard]] bool anyRollDrawMode() const noexcept {
-        return rollDrawModes_[0]||rollDrawModes_[1]||rollDrawModes_[2];
+        return rollDrawModes_[0];
     }
     [[nodiscard]] Rect rollDrawController(int kind) const noexcept;
     [[nodiscard]] bool hitRollDrawController(int kind,float x,float y) const noexcept;
@@ -292,6 +290,19 @@ public:
     [[nodiscard]] float rollCellPixels() const noexcept;
     [[nodiscard]] float rollColumnPixels() const noexcept;
 
+    // Session-only XY expression; the song file never stores this position.
+    [[nodiscard]] float expressionVelocity() const noexcept { return expressionV_; }
+    [[nodiscard]] float expressionMod() const noexcept { return expressionM_; }
+    [[nodiscard]] Rect expressionPadRect() const noexcept;
+    [[nodiscard]] bool hitExpressionPad(float x,float y) const noexcept {
+        return expressionPadRect().contains(x,y);
+    }
+    void setExpressionFromTouch(float x,float y) noexcept {
+        const auto r=expressionPadRect();
+        expressionV_=std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
+        expressionM_=std::clamp((y-r.y)/std::max(1.0f,r.h),0.0f,1.0f);
+    }
+
     void render() const noexcept;
 
     void openDropdown(
@@ -341,6 +352,9 @@ public:
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
 private:
+    [[nodiscard]] bool landscapeLayout() const noexcept { return width_>height_; }
+    [[nodiscard]] Rect expressionShellRect() const noexcept;
+    [[nodiscard]] Rect transportShellRect() const noexcept;
     [[nodiscard]] Rect headerScopeRect() const noexcept;
     [[nodiscard]] Rect headerPerformanceRect() const noexcept;
     [[nodiscard]] Rect headerControlRect(int index) const noexcept;
@@ -399,6 +413,7 @@ private:
 
     void fillRect(const Rect& rect, Rgb color) const noexcept;
     void drawScope() const noexcept;
+    void drawExpressionPad() const noexcept;
     void drawTrackSwitchBar() const noexcept;
     void drawPageScrollGutter() const noexcept;
     void drawGrid() const noexcept;
@@ -414,6 +429,8 @@ private:
     [[nodiscard]] Rect dropdownItemRect(int index) const noexcept;
     [[nodiscard]] int dropdownColumns() const noexcept;
 
+    float expressionV_{0.5f};
+    float expressionM_{0.5f};
     int width_{0};
     int height_{0};
     int safeLeft_{0};

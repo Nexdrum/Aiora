@@ -163,6 +163,7 @@ struct NativeState {
     RollGesture rollGesture{};
     RollDrawSession rollDraw{};
     ArmedExpression armedExpression{};
+    int32_t xyPointerId{-1};
     std::vector<RollClipboardTrack> rollClipboard{};
     bool rollClipboardAllTracks{false};
     std::array<GroupAutomationCurve,2> rollGroupAutomation{};
@@ -1024,7 +1025,9 @@ void previewDrumPitch(NativeState& state,int midi) {
     if(track<0||!project.trackIsDrums(track))return;
     const int pad=project.selectedPad(track);
     if(pad<0||pad>=project.padCount(track))return;
-    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOnPad(pad,midi,0.88f);
+    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOnPad(pad,midi,state.ui.expressionVelocity());
+    aiora::AudioEngine::instance().setLiveExpression(
+        state.ui.expressionVelocity(),state.ui.expressionMod());
     if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
 }
 
@@ -1045,7 +1048,9 @@ void previewEditorPatch(NativeState& state) {
     }
     // AIORA is D-centered: normal synth/operator previews use D4.
     // Drum-kit previews above intentionally keep each pad's own center pitch.
-    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOn(62,0.82f);
+    state.editorPreviewVoice=aiora::AudioEngine::instance().noteOn(62,state.ui.expressionVelocity());
+    aiora::AudioEngine::instance().setLiveExpression(
+        state.ui.expressionVelocity(),state.ui.expressionMod());
     if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
 }
 
@@ -1061,6 +1066,7 @@ void releaseAllTouches(NativeState& state) {
     stopAllKineticScroll(state);
     auto& audio = aiora::AudioEngine::instance();
     state.armedExpression={};
+    state.xyPointerId=-1;
     for (auto& touch : state.touches) {
         if (touch.voiceId >= 0) audio.noteOff(touch.voiceId);
         if (touch.midi >= 0) state.ui.setPitchActive(touch.midi, false);
@@ -1285,6 +1291,8 @@ void showRollDraw(NativeState& state){
         d.midi,d.start,d.paused,d.raw[0],d.raw[1],d.raw[2]);
 }
 
+#include "NativeAppXY.inl"
+
 void finishRollDraw(NativeState& state){
     auto& d=state.rollDraw;
     if(!d.active)return;
@@ -1318,17 +1326,9 @@ void beginRollDraw(NativeState& state){
     d.length=1.0f;
     d.cursor=-0.5f;
     d.bend=0.0f;
-    const auto& armed=state.armedExpression;
-    if(state.ui.rollDrawMode(1)&&armed.vPointer>=0){
-        d.valuePointer=armed.vPointer;
-        d.velocity=armed.velocity;
-        d.vTouched=true;
-    }
-    if(state.ui.rollDrawMode(2)&&armed.mPointer>=0){
-        d.modPointer=armed.mPointer;
-        d.mod=armed.mod;
-        d.mTouched=true;
-    }
+    d.velocity=state.ui.expressionVelocity();
+    d.mod=state.ui.expressionMod();
+    d.vTouched=true;d.mTouched=true;
     captureRollDraw(d.raw[0],-0.5f,0.0f);
     captureRollDraw(d.raw[1],-0.5f,d.velocity);
     captureRollDraw(d.raw[2],-0.5f,d.mod);
@@ -1388,8 +1388,8 @@ void serviceRollLongPress(NativeState& state){
     }
 
     if(g.kind==RollGestureKind::DrawModeButton){
-        state.ui.toggleRollDrawMode(g.curveKind);
-        g.longPressTriggered=true;
+        if(g.curveKind==0)state.ui.toggleRollDrawMode(0);
+        g.longPressTriggered=g.curveKind==0;
         return;
     }
 
@@ -1623,13 +1623,16 @@ void previewRollPitch(NativeState& state,int midi){
     if(project.trackIsDrums(track)){
         const int pad=mappedPadForMidi(track,midi);
         if(pad<0)return;
-        state.editorPreviewVoice=audio.noteOnPad(pad,midi,0.88f);
+        state.editorPreviewVoice=audio.noteOnPad(pad,midi,state.ui.expressionVelocity());
     }else{
-        state.editorPreviewVoice=audio.noteOn(midi,0.85f);
+        state.editorPreviewVoice=audio.noteOn(midi,state.ui.expressionVelocity());
     }
 
-    if(state.editorPreviewVoice>=0)
+    if(state.editorPreviewVoice>=0){
+        audio.setLiveExpression(
+            state.ui.expressionVelocity(),state.ui.expressionMod());
         state.editorPreviewStopMs=nowMs()+420;
+    }
 }
 
 void startPitch(NativeState& state, PointerVoice& touch, int midi) {
@@ -1647,7 +1650,8 @@ void startPitch(NativeState& state, PointerVoice& touch, int midi) {
        track>=0&&project.trackIsDrums(track)){
         int pad=project.selectedPad(track);
         if(pad<0||pad>=project.padCount(track))pad=mappedPadForMidi(track,midi);
-        if(pad>=0)touch.voiceId=audio.noteOnPad(pad,midi,0.85f);
+        if(pad>=0)touch.voiceId=audio.noteOnPad(pad,midi,state.ui.expressionVelocity());
+        audio.setLiveExpression(state.ui.expressionVelocity(),state.ui.expressionMod());
         return;
     }
 
@@ -1655,16 +1659,19 @@ void startPitch(NativeState& state, PointerVoice& touch, int midi) {
        track>=0&&project.trackIsDrums(track)){
         int pad=mappedPadForMidi(track,midi);
         if(pad>=0){
-            touch.voiceId=audio.noteOnPad(pad,midi,0.85f);
+            touch.voiceId=audio.noteOnPad(pad,midi,state.ui.expressionVelocity());
+            audio.setLiveExpression(state.ui.expressionVelocity(),state.ui.expressionMod());
             return;
         }
         // Preserve the old Nexdrum fallback for unmapped pitches.
         touch.voiceId=audio.noteOnPad(
-            aiora::NativeUi::padIndexForMidi(midi),midi,0.85f);
+            aiora::NativeUi::padIndexForMidi(midi),midi,state.ui.expressionVelocity());
+        audio.setLiveExpression(state.ui.expressionVelocity(),state.ui.expressionMod());
         return;
     }
 
-    touch.voiceId=audio.noteOn(midi,0.85f);
+    touch.voiceId=audio.noteOn(midi,state.ui.expressionVelocity());
+    audio.setLiveExpression(state.ui.expressionVelocity(),state.ui.expressionMod());
 }
 
 int noteAtCell(int track, int midi, int step) {
@@ -1973,7 +1980,9 @@ bool handleUiTap(NativeState& state, float x, float y) {
             state.ui.setRollSelection(false,0,0);
             clearRollNoteSelection(state);
         }
-        state.ui.setPage(*nav);
+        if(*nav==aiora::NativePage::Performance)
+            state.ui.togglePerformancePage();
+        else state.ui.setPage(*nav);
         state.ui.resetDrumRangeArm();
         return true;
     }
@@ -2580,6 +2589,10 @@ bool beginRollNoteGesture(
         g.noteIndex=project.addNote(
             track,hit->midi,static_cast<float>(hit->step),1.0f);
         if(g.noteIndex<0){g.clear();return false;}
+        project.replaceNoteCurves(track,g.noteIndex,{},
+            {{0.0f,state.ui.expressionVelocity()}},
+            {{0.0f,state.ui.expressionMod()}});
+
         g.noteEdit=RollNoteEdit::Create;
         g.noteMidi=hit->midi;
         g.noteStart=static_cast<float>(hit->step);
@@ -2944,35 +2957,10 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
-            // Arm V/M on touch-down even if the note does not exist yet.
-            // A stationary finger must be able to define a note's first point.
-            if(state.ui.page()==aiora::NativePage::Roll){
-                auto& arm=state.armedExpression;
-                auto& draw=state.rollDraw;
-                if(state.ui.hitRollDrawController(1,x,y)&&arm.vPointer<0){
-                    arm.vPointer=pointerId;
-                    arm.velocity=state.ui.rollDrawControllerValue(1,x,y);
-                    if(draw.active&&!draw.paused){
-                        draw.valuePointer=pointerId;
-                        draw.vTouched=true;
-                        draw.velocity=arm.velocity;
-                        captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
-                        showRollDraw(state);
-                    }
-                    return 1;
-                }
-                if(state.ui.hitRollDrawController(2,x,y)&&arm.mPointer<0){
-                    arm.mPointer=pointerId;
-                    arm.mod=state.ui.rollDrawControllerValue(2,x,y);
-                    if(draw.active&&!draw.paused){
-                        draw.modPointer=pointerId;
-                        draw.mTouched=true;
-                        draw.mod=arm.mod;
-                        captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
-                        showRollDraw(state);
-                    }
-                    return 1;
-                }
+            if(state.ui.hitExpressionPad(x,y)&&state.xyPointerId<0){
+                state.xyPointerId=pointerId;
+                moveXYInput(state,x,y);
+                return 1;
             }
 
             // Ignore additional non-controller contacts during a recording,
@@ -2993,19 +2981,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             if(pausedTouch==aiora::PausedRollTouch::Resume){
                 auto& draw=state.rollDraw;
                 draw.paused=false;
-                // Rebind the held V/M fingers and their latest levels to the
-                // resumed note. Neither controller needs to be released.
-                const auto& armed=state.armedExpression;
-                if(state.ui.rollDrawMode(1)&&armed.vPointer>=0){
-                    draw.valuePointer=armed.vPointer;
-                    draw.velocity=armed.velocity;
-                    draw.vTouched=true;
-                }
-                if(state.ui.rollDrawMode(2)&&armed.mPointer>=0){
-                    draw.modPointer=armed.mPointer;
-                    draw.mod=armed.mod;
-                    draw.mTouched=true;
-                }
+                draw.velocity=state.ui.expressionVelocity();
+                draw.mod=state.ui.expressionMod();
                 beginRollGesture(state,pointerId,x,y,nowMs(),
                     RollGestureKind::NoteEdit);
                 auto& g=state.rollGesture;
@@ -3148,7 +3125,6 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
 
                     if(state.ui.rollMode()==aiora::RollMode::Notes){
                         if(beginRollNoteGesture(state,pointerId,x,y,timeMs)&&
-                           state.ui.anyRollDrawMode()&&
                            state.rollGesture.noteEdit==RollNoteEdit::Create)
                             beginRollDraw(state);
                     }else{
@@ -3221,38 +3197,15 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 }
             }
 
-            // Always sample held controller fingers, regardless of whether
-            // a draw session exists. This also handles finger moves before
-            // the note finger arrives.
-            if(state.ui.page()==aiora::NativePage::Roll){
-                auto& arm=state.armedExpression;
-                auto& draw=state.rollDraw;
-                bool changed=false;
+            if(state.xyPointerId>=0){
                 const size_t count=AMotionEvent_getPointerCount(event);
-                for(size_t i=0;i<count;++i){
-                    const int32_t id=AMotionEvent_getPointerId(event,i);
-                    if(id==arm.vPointer){
-                        arm.velocity=state.ui.rollDrawControllerValue(
-                            1,AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
-                        if(draw.active&&!draw.paused){
-                            draw.velocity=arm.velocity;draw.vTouched=true;
-                            captureRollDraw(draw.raw[1],draw.cursor,draw.velocity);
-                            changed=true;
-                        }
-                    }else if(id==arm.mPointer){
-                        arm.mod=state.ui.rollDrawControllerValue(
-                            2,AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
-                        if(draw.active&&!draw.paused){
-                            draw.mod=arm.mod;draw.mTouched=true;
-                            captureRollDraw(draw.raw[2],draw.cursor,draw.mod);
-                            changed=true;
-                        }
+                for(size_t i=0;i<count;++i)
+                    if(AMotionEvent_getPointerId(event,i)==state.xyPointerId){
+                        moveXYInput(state,AMotionEvent_getX(event,i),
+                                    AMotionEvent_getY(event,i));
+                        break;
                     }
-                }
-                if(changed)showRollDraw(state);
-                // While paused, controller movement remains live but stray
-                // touches cannot trigger a pitch preview or another gesture.
-                if(draw.active&&draw.paused)return 1;
+                if(state.rollDraw.active&&state.rollDraw.paused)return 1;
             }
 
             if (state.ui.page() == aiora::NativePage::Roll &&
@@ -3273,9 +3226,7 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             const size_t count = AMotionEvent_getPointerCount(event);
             for (size_t i = 0; i < count; ++i) {
                 const int32_t id=AMotionEvent_getPointerId(event,i);
-                if(state.ui.page()==aiora::NativePage::Roll&&
-                   (id==state.armedExpression.vPointer||
-                    id==state.armedExpression.mPointer))continue;
+                if(id==state.xyPointerId)continue;
                 handlePointerPosition(
                     state,id,AMotionEvent_getX(event,i),AMotionEvent_getY(event,i));
             }
@@ -3331,15 +3282,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 return 1;
             }
 
-            if(pointerId==state.armedExpression.vPointer||
-               pointerId==state.armedExpression.mPointer){
-                if(pointerId==state.armedExpression.vPointer){
-                    state.armedExpression.vPointer=-1;
-                    if(state.rollDraw.active)state.rollDraw.valuePointer=-1;
-                }else{
-                    state.armedExpression.mPointer=-1;
-                    if(state.rollDraw.active)state.rollDraw.modPointer=-1;
-                }
+            if(pointerId==state.xyPointerId){
+                state.xyPointerId=-1;
                 return 1;
             }
 

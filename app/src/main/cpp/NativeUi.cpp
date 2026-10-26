@@ -100,16 +100,17 @@ constexpr std::array<NativeUi::Rgb, 12> kPitchColors{{
     {0.6667f, 1.0000f, 0.0000f},
 }};
 
-constexpr std::array<NativePage,6> kNavPages{{
+constexpr std::array<NativePage,7> kNavPages{{
     NativePage::Tracks,
     NativePage::Drums,
     NativePage::Synth,
     NativePage::Fx,
     NativePage::Roll,
-    NativePage::Play
+    NativePage::Play,
+    NativePage::Performance
 }};
 
-constexpr std::array<int,6> kNavIconIndices{{0,1,3,4,2,5}};
+constexpr std::array<int,7> kNavIconIndices{{0,1,3,4,2,5,2}};
 
 
 NativeUi::Rgb mix(NativeUi::Rgb a, NativeUi::Rgb b, float amount) noexcept {
@@ -537,103 +538,7 @@ std::optional<DropdownChoice> NativeUi::hitDropdown(float x,float y){
     return std::nullopt;
 }
 
-NativeUi::Rect NativeUi::headerPerformanceRect() const noexcept {
-    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float scopeH=std::clamp(headerH*0.56f,54.0f,66.0f);
-    return {
-        static_cast<float>(safeLeft_)+usableW-margin-scopeH,
-        static_cast<float>(safeTop_)+(headerH-scopeH)*0.5f,
-        scopeH,scopeH
-    };
-}
-
-NativeUi::Rect NativeUi::headerScopeRect() const noexcept {
-    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float gap=std::clamp(usableW*0.010f,7.0f,11.0f);
-    const float buttonGap=std::clamp(usableW*0.010f,8.0f,12.0f);
-    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.255f,190.0f,224.0f);
-    const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
-    const float side=std::clamp(play*0.78f,52.0f,64.0f);
-    const float transportW=side+buttonGap+play+buttonGap+side;
-    const float left=
-        static_cast<float>(safeLeft_)+margin+brand+gap+transportW+gap;
-    const auto performance=headerPerformanceRect();
-    const float right=performance.x-gap;
-    const float scopeH=std::clamp(headerH*0.56f,54.0f,66.0f);
-    return {
-        left,
-        static_cast<float>(safeTop_)+(headerH-scopeH)*0.5f,
-        std::max(56.0f,right-left),
-        scopeH
-    };
-}
-
-NativeUi::Rect NativeUi::headerControlRect(int index) const noexcept {
-    if(index<0||index>2)return {};
-    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float gap=std::clamp(usableW*0.010f,7.0f,11.0f);
-    const float buttonGap=std::clamp(usableW*0.010f,8.0f,12.0f);
-    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float brand=std::clamp(usableW*0.255f,190.0f,224.0f);
-    const float play=std::clamp(headerH*0.76f,66.0f,82.0f);
-    const float side=std::clamp(play*0.78f,52.0f,64.0f);
-    const float startX=static_cast<float>(safeLeft_)+margin+brand+gap;
-    if(index==0){
-        return {
-            startX,
-            static_cast<float>(safeTop_)+(headerH-side)*0.5f,
-            side,side
-        };
-    }
-    if(index==1){
-        return {
-            startX+side+buttonGap,
-            static_cast<float>(safeTop_)+(headerH-play)*0.5f,
-            play,play
-        };
-    }
-    return {
-        startX+side+buttonGap+play+buttonGap,
-        static_cast<float>(safeTop_)+(headerH-side)*0.5f,
-        side,side
-    };
-}
-
-NativeUi::Rect NativeUi::navRect(int index) const noexcept {
-    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float navH=std::clamp(usableW*0.106f,76.0f,92.0f);
-    const float gap=std::clamp(usableW*0.010f,7.0f,11.0f);
-    const float available=std::max(
-        0.0f,usableW-margin*2.0f-gap*5.0f);
-    const float buttonW=available/6.0f;
-    return {
-        static_cast<float>(safeLeft_)+margin+index*(buttonW+gap),
-        static_cast<float>(safeTop_)+headerH+gap,
-        buttonW,navH
-    };
-}
-
-NativeUi::Rect NativeUi::contentRect() const noexcept {
-    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const auto nav=navRect(0);
-    const float gap=std::clamp(usableW*0.016f,10.0f,16.0f);
-    const float top=nav.y+nav.h+gap;
-    const float bottom=static_cast<float>(height_-safeBottom_);
-    return {
-        static_cast<float>(safeLeft_)+margin,
-        top,
-        std::max(0.0f,usableW-margin*2.0f),
-        std::max(0.0f,bottom-top-margin)
-    };
-}
+#include "NativeUiShell.inl"
 
 NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
     auto r=contentRect();
@@ -1752,6 +1657,8 @@ void NativeUi::drawDropdown() const noexcept {
             overlayColor(selected?kBg:kWhite));
     }
 }
+
+#include "NativeUiXY.inl"
 
 void NativeUi::drawScope() const noexcept {
     const auto r=headerScopeRect();
@@ -3436,24 +3343,7 @@ void NativeUi::drawRoll() const noexcept {
     }
 
     auto& rollOverlay=NativeOverlay::instance();
-    // Only active draw controller boxes cover the pitch header or time gutter.
-    for(int kind=1;kind<=2;++kind){
-        if(!rollDrawMode(kind))continue;
-        const auto box=rollDrawController(kind);
-        fillRect({box.x,box.y,box.w,box.h},mix(kPanel,kCyan,0.23f));
-        rollOverlay.addRect({box.x,box.y,box.w,box.h},overlayColor(kCyan));
-        if(kind==1){
-            rollOverlay.addText("0",box.x+4.0f,box.y+6.0f,0.8f,
-                overlayColor(kWhite));
-            rollOverlay.addText("100",box.x+box.w-36.0f,box.y+6.0f,0.8f,
-                overlayColor(kWhite));
-        }else{
-            rollOverlay.addText("0",box.x+5.0f,box.y+5.0f,0.8f,
-                overlayColor(kWhite));
-            rollOverlay.addText("100",box.x+5.0f,box.y+box.h-18.0f,0.8f,
-                overlayColor(kWhite));
-        }
-    }
+    // V/M live input now belongs to the persistent XY pad.
     const float gridLeft=viewport.x+gutter;
     const float gridRight=viewport.x+viewport.w;
     const float gridTop=viewport.y+header;
@@ -4315,81 +4205,7 @@ void NativeUi::render() const noexcept {
     glClearColor(kBg.r, kBg.g, kBg.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    fillRect({
-        static_cast<float>(safeLeft_),
-        static_cast<float>(safeTop_),
-        usableW,headerH},kTop);
-    auto& overlay=NativeOverlay::instance();
-    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float logoSize=std::clamp(headerH*0.66f,54.0f,70.0f);
-    const NativeOverlay::Rect logoR{
-        static_cast<float>(safeLeft_)+margin,
-        static_cast<float>(safeTop_)+(headerH-logoSize)*0.5f,
-        logoSize,logoSize};
-    overlay.addSpectrumLogo(logoR);
-    overlay.addText(
-        "A I O R A",
-        static_cast<float>(safeLeft_)+margin+logoSize+14.0f,
-        static_cast<float>(safeTop_)+headerH*0.36f,
-        1.02f,overlayColor(kWhite));
-
-    auto& project=ProjectCore::instance();
-    auto& audio=AudioEngine::instance();
-    const auto startR=headerControlRect(0);
-    const auto playR=headerControlRect(1);
-    const auto endR=headerControlRect(2);
-    fillRect(startR,kButton);
-    fillRect(playR,audio.transportPlaying()?kOrange:kGreen);
-    fillRect(endR,kButton);
-    overlay.addTextCentered(
-        "|<",{startR.x,startR.y,startR.w,startR.h},
-        1.32f,overlayColor(kWhite));
-    if(audio.transportPlaying()){
-        const float s=playR.h*0.28f;
-        overlay.addRect({
-            playR.x+(playR.w-s)*0.5f,
-            playR.y+(playR.h-s)*0.5f,
-            s,s},overlayColor(kWhite));
-    }else{
-        overlay.addTextCentered(
-            "▶",{playR.x,playR.y,playR.w,playR.h},
-            1.65f,overlayColor(kWhite));
-    }
-    overlay.addTextCentered(
-        ">|",{endR.x,endR.y,endR.w,endR.h},
-        1.32f,overlayColor(kWhite));
-    drawScope();
-
-    const auto performanceR=headerPerformanceRect();
-    const bool performanceActive=page_==NativePage::Performance;
-    fillRect(performanceR,performanceActive?kCyan:kButton);
-    const float performanceInset=std::max(5.0f,performanceR.w*0.16f);
-    overlay.addNavIcon(
-        2,
-        {performanceR.x+performanceInset,
-         performanceR.y+performanceInset,
-         performanceR.w-performanceInset*2.0f,
-         performanceR.h-performanceInset*2.0f},
-        overlayColor(performanceActive?kBg:kWhite));
-    const float phY=performanceR.y+performanceR.h*0.22f;
-    overlay.addLine(
-        performanceR.x+performanceR.w*0.18f,phY,
-        performanceR.x+performanceR.w*0.82f,phY,
-        2.0f,
-        overlayColor(performanceActive?kBg:kCyan,0.92f));
-
-    for (int i = 0; i < 6; ++i) {
-        const auto page = kNavPages[static_cast<size_t>(i)];
-        const auto nr=navRect(i);
-        fillRect(nr,page==page_?kCyan:kButton);
-        const float inset=std::max(3.0f,nr.h*0.08f);
-        overlay.addNavIcon(
-            kNavIconIndices[static_cast<size_t>(i)],
-            {nr.x+inset,nr.y+inset,nr.w-inset*2.0f,nr.h-inset*2.0f},
-            overlayColor(page==page_?kBg:kWhite));
-    }
+#include "NativeUiHeader.inl"
 
     if(page_!=NativePage::Tracks&&page_!=NativePage::Performance)
         drawTrackSwitchBar();
@@ -4465,12 +4281,11 @@ std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept 
     if(headerControlRect(0).contains(x,y))return HeaderAction::TransportStart;
     if(headerControlRect(1).contains(x,y))return HeaderAction::TransportToggle;
     if(headerControlRect(2).contains(x,y))return HeaderAction::TransportEnd;
-    if(headerPerformanceRect().contains(x,y))return HeaderAction::PerformanceView;
     return std::nullopt;
 }
 
 std::optional<NativePage> NativeUi::hitNav(float x, float y) const noexcept {
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 7; ++i) {
         if (navRect(i).contains(x, y)) {
             return kNavPages[static_cast<size_t>(i)];
         }

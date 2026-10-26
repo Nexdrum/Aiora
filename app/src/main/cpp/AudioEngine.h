@@ -22,6 +22,7 @@ public:
     int noteOn(int midi, float velocity) noexcept;
     int noteOnPad(int padIndex, int midi, float velocity) noexcept;
     void noteOff(int voiceId) noexcept;
+    void setLiveExpression(float v,float m) noexcept;
     void panic() noexcept;
     void setFactoryPreset(int index) noexcept;
     bool syncProject();
@@ -49,7 +50,7 @@ private:
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
 
-    enum class EventType : uint8_t { NoteOn, PadOn, NoteOff, Panic, Preset, Snapshot, Play, StopTransport };
+    enum class EventType : uint8_t { NoteOn, PadOn, NoteOff, Panic, Preset, Snapshot, Play, StopTransport, LiveExpression };
     struct Event {
         EventType type{EventType::Panic};
         int32_t id{-1};

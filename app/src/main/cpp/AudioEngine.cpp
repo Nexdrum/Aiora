@@ -95,6 +95,12 @@ int AudioEngine::noteOnPad(int padIndex,int midi,float velocity) noexcept {
     events_.push(e);
     return id;
 }
+void AudioEngine::setLiveExpression(float v,float m) noexcept {
+    Event e{};e.type=EventType::LiveExpression;
+    e.value=std::clamp(v,0.0f,1.0f);
+    e.gainLeft=std::clamp(m,0.0f,1.0f);
+    events_.push(e);
+}
 void AudioEngine::noteOff(int voiceId) noexcept {events_.push({EventType::NoteOff,voiceId,0,0,0,0});}
 void AudioEngine::panic() noexcept {events_.push({EventType::Panic,-1,0,0,0,0});}
 void AudioEngine::setFactoryPreset(int index) noexcept {const int p=clampPreset(index);selectedPreset_.store(p,std::memory_order_relaxed);events_.push({EventType::Preset,-1,0,p,0,0});}
@@ -173,6 +179,10 @@ void AudioEngine::advanceTransport() noexcept {
 
 void AudioEngine::applyEvent(const Event&e) noexcept {
     switch(e.type){
+        case EventType::LiveExpression:
+            for(auto& slot:voices_)if(slot.voice.active()&&!slot.transport)
+                slot.voice.setLiveExpression(e.value,e.gainLeft);
+            return;
         case EventType::Panic:
             for(auto&slot:voices_)slot.voice.kill();
             previewFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();

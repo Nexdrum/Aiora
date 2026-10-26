@@ -26,6 +26,10 @@ public:
     [[nodiscard]] uint64_t age() const noexcept { return age_; }
     void setAge(uint64_t v) noexcept { age_ = v; }
     void setModValue(float value, bool active = true) noexcept { modValue_ = clamp01(value); modActive_ = active; }
+    void setLiveExpression(float v,float m) noexcept {
+        velocity_=clamp01(v);modValue_=clamp01(m);
+        modActive_=true;liveGain_=velocity_*velocity_;
+    }
     float render() noexcept;
 
 private:
@@ -86,6 +90,7 @@ private:
     float lfoPhase_{0.0f};
     float lfoAge_{0.0f};
     float modValue_{0.0f};
+    float liveGain_{1.0f};
     float samplesPerStep_{1.0f};
     float fixedUnison_{0.0f};
     uint64_t gateSamples_{0};

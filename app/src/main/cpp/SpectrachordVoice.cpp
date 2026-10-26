@@ -311,7 +311,7 @@ void SpectrachordVoice::prepare(float sr) noexcept {sampleRate_=std::max(8000.0f
 void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
     id_=id;patch_=patch;midi_=midi;
     keyMapValue_=normalizedKeyMap(midi,patch.keyMapLow,patch.keyMapHigh);
-    velocity_=clamp01(pressure);active_=true;automation_=automation;
+    velocity_=clamp01(pressure);liveGain_=1.0f;active_=true;automation_=automation;
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
     // M is always supplied; an unedited line is explicitly M=0, never
     // a request to bypass an operator or FX modulation route.
@@ -713,7 +713,7 @@ float SpectrachordVoice::render() noexcept {
     const float gain=P.lfo.target==LfoTarget::Amp?
         std::max(0.0f,1+lfo*lfoAmount*0.5f):1.0f;
     ++elapsedSamples_;
-    return filtered*master*gain*P.volume*velocityGain;
+    return filtered*master*gain*P.volume*velocityGain*liveGain_;
 }
 
 } // namespace aiora
