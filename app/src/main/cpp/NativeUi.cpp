@@ -365,6 +365,7 @@ void NativeUi::resize(int width, int height) noexcept {
     height_ = std::max(0, height);
     NativeEditor::instance().resize(width_, height_);
     NativeEditor::instance().setSafeInsets(safeLeft_,safeTop_,safeRight_,safeBottom_);
+    syncEditorViewport();
 }
 
 void NativeUi::setSafeInsets(int left,int top,int right,int bottom) noexcept {
@@ -373,6 +374,20 @@ void NativeUi::setSafeInsets(int left,int top,int right,int bottom) noexcept {
     safeRight_=std::clamp(right,0,std::max(0,width_/2));
     safeBottom_=std::clamp(bottom,0,std::max(0,height_/2));
     NativeEditor::instance().setSafeInsets(safeLeft_,safeTop_,safeRight_,safeBottom_);
+    syncEditorViewport();
+}
+
+void NativeUi::syncEditorViewport() noexcept {
+    // NativeEditor previously assumed the old header and six-button strip,
+    // placing Operators/FM/FX inside the new permanent UI regions.
+    // Synth and FX share the same content + track-switch row geometry.
+    auto box=contentRect();
+    const float gap=std::max(5.0f,
+        static_cast<float>(std::min(width_,height_))*0.007f);
+    const float switchHeight=std::clamp(box.w*0.090f,68.0f,82.0f);
+    box.y+=switchHeight+gap;
+    box.h=std::max(0.0f,box.h-switchHeight-gap);
+    NativeEditor::instance().setViewport(box.x,box.y,box.w,box.h);
 }
 
 void NativeUi::setPitchActive(int midi, bool active) noexcept {
@@ -4225,14 +4240,22 @@ void NativeUi::render() const noexcept {
         case NativePage::Roll:
             drawRoll();
             break;
-        case NativePage::Synth:
-            fillRect(bodyContentRect(), kPanel);
+        case NativePage::Synth:{
+            const auto body=bodyContentRect();
+            NativeEditor::instance().setViewport(
+                body.x,body.y,body.w,body.h);
+            fillRect(body,kPanel);
             NativeEditor::instance().renderSynth();
             break;
-        case NativePage::Fx:
-            fillRect(bodyContentRect(), kPanel);
+        }
+        case NativePage::Fx:{
+            const auto body=bodyContentRect();
+            NativeEditor::instance().setViewport(
+                body.x,body.y,body.w,body.h);
+            fillRect(body,kPanel);
             NativeEditor::instance().renderFx();
             break;
+        }
         case NativePage::Performance:
             drawPerformance();
             break;

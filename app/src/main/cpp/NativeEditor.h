@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -27,6 +28,11 @@ public:
 
     void resize(int width, int height) noexcept;
     void setSafeInsets(int left,int top,int right,int bottom) noexcept;
+    // The native UI owns Box 4 geometry. Editors receive its exact
+    // page-body rectangle instead of recomputing pre-redesign headers.
+    void setViewport(float x,float y,float w,float h) noexcept {
+        viewport_={x,y,std::max(0.0f,w),std::max(0.0f,h)};
+    }
     void renderSynth() const noexcept;
     void renderFx() const noexcept;
 
@@ -120,6 +126,7 @@ private:
     int safeTop_{0};
     int safeRight_{0};
     int safeBottom_{0};
+    Rect viewport_{};
     int selectedOperator_{0};
     bool matrixMode_{false};
     int fxWorkspace_{0}; // Filter / Amp / Unison / LFO / Addable FX

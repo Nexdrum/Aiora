@@ -352,6 +352,7 @@ public:
     [[nodiscard]] static int padIndexForMidi(int midi) noexcept;
 
 private:
+    void syncEditorViewport() noexcept;
     [[nodiscard]] bool landscapeLayout() const noexcept { return width_>height_; }
     [[nodiscard]] Rect expressionShellRect() const noexcept;
     [[nodiscard]] Rect transportShellRect() const noexcept;

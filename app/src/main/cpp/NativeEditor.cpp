@@ -86,31 +86,9 @@ void NativeEditor::setSafeInsets(int left,int top,int right,int bottom) noexcept
 }
 
 NativeEditor::Rect NativeEditor::viewportRect() const noexcept {
-    // Mirror NativeUi's exact header/nav/track-switch geometry. Keeping a
-    // second, older set of dimensions here caused the Synth tabs to start
-    // inside the track selector row.
-    const float usableW=std::max(0,width_-safeLeft_-safeRight_);
-    const float margin=std::clamp(usableW*0.018f,10.0f,18.0f);
-    const float headerH=std::clamp(usableW*0.142f,94.0f,116.0f);
-    const float navGap=std::clamp(usableW*0.010f,7.0f,11.0f);
-    const float navH=std::clamp(usableW*0.106f,76.0f,92.0f);
-    const float contentGap=std::clamp(usableW*0.016f,10.0f,16.0f);
-    const float contentW=std::max(0.0f,usableW-margin*2.0f);
-    const float switchGap=std::max(
-        5.0f,
-        static_cast<float>(std::min(width_,height_))*0.007f);
-    const float switchH=std::clamp(contentW*0.090f,68.0f,82.0f);
-    const float editorGap=std::clamp(contentW*0.016f,10.0f,16.0f);
-    const float top=
-        static_cast<float>(safeTop_)+
-        headerH+navGap+navH+contentGap+switchH+switchGap+editorGap;
-    const float bottom=static_cast<float>(height_-safeBottom_);
-    return {
-        static_cast<float>(safeLeft_)+margin,
-        top,
-        contentW,
-        std::max(0.0f,bottom-top-margin)
-    };
+    // Box 4 comes directly from NativeUi::bodyContentRect(). Both the
+    // painted editor and its hit targets must use the same native rectangle.
+    return viewport_;
 }
 
 float NativeEditor::scrollGutterPixels() const noexcept {
@@ -2852,6 +2830,9 @@ std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
 }
 
 bool NativeEditor::pointerDown(EditorPage page,float x,float y){
+    // The editor must never intercept touches in expression, transport or
+    // navigation, even when a secondary editor surface contains stale coords.
+    if(!viewportRect().contains(x,y))return false;
     kineticScroll_.stop();
     activePage_=page;
     changed_=false;
