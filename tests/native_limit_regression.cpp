@@ -361,8 +361,9 @@ int main(){
 
     // Noise/Hiss legacy patch migration must preserve independently pitched
     // primary and morph endpoints without exposing Hiss as a new selection.
-    const std::string legacy=R"({"name":"Legacy Hiss","ops":[{"wave":"hiss",
-        "waveMorph":"noise","level":0.8}]})";
+    const std::string legacy=R"({"name":"Legacy Hiss","ops":[
+        {"wave":"hiss","waveMorph":"noise","level":0.8},
+        {},{},{},{},{}]})";
     Patch migrated;
     assert(deserializePatchJson(legacy,migrated,&error));
     assert(migrated.ops[0].wave==Wave::Noise);

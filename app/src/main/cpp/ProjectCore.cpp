@@ -856,7 +856,7 @@ bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
     if(morph){
         const Wave old=effectiveWaveMorph(op);
         if(wave==Wave::Custom&&(old!=Wave::Custom||!op.hasHarmMute)){
-            const Wave source=old==Wave::Noise||old==Wave::Hiss?Wave::Custom:old;
+            const Wave source=isTextureWave(old)?Wave::Custom:old;
             op.harmMute=presetWaveHarmonics(source);
             op.harmMutePhase=presetWavePhases(source);
             op.hasHarmMute=true;
@@ -869,8 +869,7 @@ bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
         op.waveMorphConfigured=true;
     }else{
         if(wave==Wave::Custom&&(op.wave!=Wave::Custom||!op.hasHarm)){
-            const Wave source=op.wave==Wave::Noise||op.wave==Wave::Hiss?
-                Wave::Custom:op.wave;
+            const Wave source=isTextureWave(op.wave)?Wave::Custom:op.wave;
             op.harm=presetWaveHarmonics(source);
             op.harmPhase=presetWavePhases(source);
             op.hasHarm=true;
@@ -935,8 +934,7 @@ bool ProjectCore::setSelectedHarmonic(int opIndex,int partialIndex,float value,b
     if(!p||opIndex<0||opIndex>=6||partialIndex<0||partialIndex>=static_cast<int>(kEditableHarmonics))return false;
     auto& op=p->ops[opIndex];const float v=std::clamp(value,0.0f,1.0f);
     if(muted){
-        if(effectiveWaveMorph(op)==Wave::Noise||
-           effectiveWaveMorph(op)==Wave::Hiss)return false;
+        if(isTextureWave(effectiveWaveMorph(op)))return false;
         if(effectiveWaveMorph(op)!=Wave::Custom||!op.hasHarmMute){
             op.harmMute=presetWaveHarmonics(effectiveWaveMorph(op));
             op.harmMutePhase=presetWavePhases(effectiveWaveMorph(op));
@@ -944,7 +942,7 @@ bool ProjectCore::setSelectedHarmonic(int opIndex,int partialIndex,float value,b
         op.harmMute[partialIndex]=v;op.hasHarmMute=true;
         op.waveMorph=Wave::Custom;op.waveMorphConfigured=true;
     }else{
-        if(op.wave==Wave::Noise||op.wave==Wave::Hiss)return false;
+        if(isTextureWave(op.wave))return false;
         if(op.wave!=Wave::Custom||!op.hasHarm){
             op.harm=presetWaveHarmonics(op.wave);
             op.harmPhase=presetWavePhases(op.wave);
@@ -963,7 +961,7 @@ bool ProjectCore::setSelectedHarmonicPhase(int opIndex,int partialIndex,float va
     const float v=std::clamp(value,0.0f,1.0f);
     if(muted){
         const Wave bank=effectiveWaveMorph(op);
-        if(bank==Wave::Noise||bank==Wave::Hiss)return false;
+        if(isTextureWave(bank))return false;
         if(bank!=Wave::Custom||!op.hasHarmMute){
             op.harmMute=presetWaveHarmonics(bank);
             op.harmMutePhase=presetWavePhases(bank);
@@ -971,7 +969,7 @@ bool ProjectCore::setSelectedHarmonicPhase(int opIndex,int partialIndex,float va
         op.harmMutePhase[partialIndex]=v;
         op.hasHarmMute=true;op.waveMorph=Wave::Custom;op.waveMorphConfigured=true;
     }else{
-        if(op.wave==Wave::Noise||op.wave==Wave::Hiss)return false;
+        if(isTextureWave(op.wave))return false;
         if(op.wave!=Wave::Custom||!op.hasHarm){
             op.harm=presetWaveHarmonics(op.wave);
             op.harmPhase=presetWavePhases(op.wave);
