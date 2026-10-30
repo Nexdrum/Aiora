@@ -215,8 +215,12 @@ int main(){
     assert(decodedModern.masterFx.chain[0].type==FxType::Recurra);
     assert(std::fabs(decodedModern.masterFx.chain[0].params[0]-.31f)<1e-5f);
 
-    // Exactly six supported effects; abandoned numeric slots never decode.
-    assert(kAvailableFxTypes.size()==6);
+    // Pulsar and Binary are named additions; retired numeric slots remain unavailable.
+    assert(kAvailableFxTypes.size()==8);
+    assert(std::string(fxTypeName(FxType::Pulsar))=="Pulsar");
+    assert(std::string(fxTypeName(FxType::Binary))=="Binary");
+    assert(fxParamCount(FxType::Pulsar)==5);
+    assert(fxParamCount(FxType::Binary)==4);
     assert(std::string(fxTypeName(FxType::Embera))=="Embera");
     assert(std::string(fxTypeName(FxType::Recurra))=="Recurra");
     assert(std::string(fxTypeName(FxType::Vastrel))=="Vastrel");
@@ -235,7 +239,28 @@ int main(){
         assert(rejected.fx.count==0);
     }
 
-    // Embera's bitcrush is a fourth parameter, bypassed exactly at zero.
+    // New module IDs and three master-Amp response slots round trip.
+    Patch modulationPatch=makeFactoryPatch(FactoryPreset::SpectrachordInit);
+    modulationPatch.fx.count=2;
+    modulationPatch.fx.chain[0]=makeFxModule(FxType::Pulsar);
+    modulationPatch.fx.chain[1]=makeFxModule(FxType::Binary);
+    modulationPatch.ampMods[0]=initialOperatorResponse();
+    modulationPatch.ampMods[0].enabled=true;
+    modulationPatch.ampMods[0].source=1;
+    modulationPatch.ampMods[1]=initialOperatorResponse();
+    modulationPatch.ampMods[1].enabled=true;
+    modulationPatch.ampMods[1].source=2;
+    Patch modulationRoundTrip;
+    assert(deserializePatchJson(
+        serializePatchJson(modulationPatch),modulationRoundTrip,&error));
+    assert(modulationRoundTrip.fx.count==2);
+    assert(modulationRoundTrip.fx.chain[0].type==FxType::Pulsar);
+    assert(modulationRoundTrip.fx.chain[1].type==FxType::Binary);
+    assert(modulationRoundTrip.ampMods[0].enabled);
+    assert(modulationRoundTrip.ampMods[0].source==1);
+    assert(modulationRoundTrip.ampMods[1].source==2);
+    assert(!modulationRoundTrip.ampMods[2].enabled);
+        // Embera's bitcrush is a fourth parameter, bypassed exactly at zero.
     assert(fxParamCount(FxType::Embera)==4);
     Fx embera;
     embera.count=1;
