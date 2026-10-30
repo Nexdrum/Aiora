@@ -106,12 +106,13 @@ constexpr std::array<NativePage,7> kNavPages{{
     NativePage::Synth,
     NativePage::Fx,
     NativePage::Roll,
-    NativePage::Play,
-    NativePage::Performance
+    NativePage::Performance, // Score: full vertical composition
+    NativePage::Play         // Live: playable instrument grid
 }};
 
-// Timeline, live trigger, and performance pad use distinct native icons.
-constexpr std::array<int,7> kNavIconIndices{{0,1,4,3,2,6,7}};
+// Roll keeps its note-grid icon (2). Score uses a distinct vertical
+// full-page composition icon (8); Live retains the pad-matrix icon (7).
+constexpr std::array<int,7> kNavIconIndices{{0,1,4,3,2,8,7}};
 
 
 NativeUi::Rgb mix(NativeUi::Rgb a, NativeUi::Rgb b, float amount) noexcept {
@@ -4043,7 +4044,7 @@ void NativeUi::drawPerformance() const noexcept {
             base);
     }
     ov.addText(
-        "PERFORMANCE",
+        "SCORE",
         view.x+7.0f,view.y+header*0.28f,
         0.66f,overlayColor(kWhite));
 
@@ -4273,7 +4274,7 @@ void NativeUi::render() const noexcept {
                 std::max(0.0f,card.w-4.0f),
                 std::max(0.0f,card.h-4.0f)},kPanel);
             overlay.addText(
-                "PLAY · space = play/pause",
+                "LIVE · space = play/pause",
                 card.x+18.0f,card.y+18.0f,
                 0.98f,overlayColor(kWhite));
             drawGrid();

@@ -1009,7 +1009,7 @@ void NativeOverlay::addNavIcon(int index,Rect r,Color c){
                     cx-s*.073f,cy-s*.147f,t*1.20f,c);
             break;
         }
-        case 7:{ // Performance View: illuminated 3-by-3 pad matrix.
+        case 7:{ // Live: illuminated 3-by-3 playable instrument pad matrix.
             const float cell=s*.135f,gap=s*.056f;
             const float side=cell*3.0f+gap*2.0f;
             const float x0=cx-side*.5f,y0=cy-side*.5f;
@@ -1024,6 +1024,31 @@ void NativeOverlay::addNavIcon(int index,Rect r,Color c){
                     addLine(xx,yy+cell,xx,yy,t*.65f,c);
                 }
             }
+            break;
+        }
+        case 8:{ // Score: vertical full-composition page, not the piano roll.
+            // A tall score sheet with parallel pitch lanes, several
+            // independent note ribbons and a horizontal transport playhead.
+            const float left=cx-s*.205f,right=cx+s*.205f;
+            const float top=cy-s*.30f,bottom=cy+s*.30f;
+            const float fine=std::max(1.0f,t*.55f);
+            addLine(left,top,right,top,t*.72f,c);
+            addLine(right,top,right,bottom,t*.72f,c);
+            addLine(right,bottom,left,bottom,t*.72f,c);
+            addLine(left,bottom,left,top,t*.72f,c);
+            for(int i=1;i<=3;++i){
+                const float x=left+(right-left)*static_cast<float>(i)/4.0f;
+                addLine(x,top+s*.055f,x,bottom-s*.055f,fine,c);
+            }
+            const float noteW=std::max(2.0f,s*.047f);
+            addRect({left+s*.048f,top+s*.085f,noteW,s*.156f},c);
+            addRect({left+s*.157f,top+s*.276f,noteW,s*.213f},c);
+            addRect({left+s*.265f,top+s*.132f,noteW,s*.118f},c);
+            addRect({left+s*.365f,top+s*.382f,noteW*.70f,s*.156f},c);
+            // A slim playhead distinguishes a complete score from a
+            // grid of separately editable piano-roll cells.
+            addLine(left-s*.075f,cy+s*.045f,right+s*.075f,cy+s*.045f,
+                    fine,c);
             break;
         }
         default:break;

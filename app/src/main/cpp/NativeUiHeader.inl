@@ -66,6 +66,10 @@ for(int i=0;i<12;++i){
 }
 static constexpr std::array<Rgb,7> accents{
     kCyan,kOrange,kPurple,kRed,kBlue,kGreen,kGold};
+// These are the displayed navigation names; the stable NativePage enum
+// values remain unchanged for existing saves and page actions.
+static constexpr std::array<const char*,7> navLabels{
+    "Tracks","Drums","Synth","FX","Roll","Score","Live"};
 for(int i=0;i<7;++i){
     const auto nr=navRect(i);
     const bool active=kNavPages[static_cast<size_t>(i)]==page_;
@@ -75,9 +79,15 @@ for(int i=0;i<7;++i){
     fillRect({nr.x+rim,nr.y+rim,std::max(1.f,nr.w-2*rim),
               std::max(1.f,nr.h-2*rim)},
              active?mix(kPanel,accent,.26f):kButton);
-    const float inset=std::max(5.f,std::min(nr.w,nr.h)*.18f);
+    // Icon above its compact label; preserve the existing touch targets.
+    const float inset=std::max(4.f,std::min(nr.w,nr.h)*.14f);
+    const float iconBand=nr.h*.68f;
     overlay.addNavIcon(kNavIconIndices[static_cast<size_t>(i)],
-                       {nr.x+inset,nr.y+inset,
-                        nr.w-2*inset,nr.h-2*inset},
+                       {nr.x+inset,nr.y+2.0f,
+                        std::max(1.0f,nr.w-2*inset),std::max(1.0f,iconBand-3.0f)},
                        overlayColor(active?accent:kWhite));
+    overlay.addTextCentered(navLabels[static_cast<size_t>(i)],
+                       {nr.x+1.0f,nr.y+iconBand,
+                        std::max(1.0f,nr.w-2.0f),std::max(1.0f,nr.h-iconBand-1.0f)},
+                       .61f,overlayColor(active?accent:kWhite));
 }
