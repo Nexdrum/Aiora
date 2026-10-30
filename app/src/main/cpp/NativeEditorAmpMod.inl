@@ -5,6 +5,7 @@ struct AmpModSurface {
     int slot{0},drag{-1};
     float downX{0},downY{0};
     bool changed{false},moved{false};
+    std::chrono::steady_clock::time_point started{};
     Rect cell(int index)const {
         const float gap=7.0f,w=(view.w-32.0f-2.0f*gap)/3.0f;
         return {view.x+16.0f+index*(w+gap),view.y+12.0f,w,55.0f};
@@ -75,11 +76,12 @@ struct AmpModSurface {
             o.addFilledCircle(p.first,p.second,j==drag?8.0f:6.0f,
                 overlayColor(j==drag?kOrange:kWhite));
         }
-        o.addText("Tap to add point    Drag to shape",
+        o.addText("Tap: add   Drag: shape   Hold point: delete",
             view.x+18,view.y+view.h-36,.74f,overlayColor(kMuted));
     }
     bool down(float x,float y){
         changed=moved=false;drag=-1;downX=x;downY=y;
+        started=std::chrono::steady_clock::now();
         for(int i=0;i<3;++i)if(cell(i).contains(x,y)){slot=i;return true;}
         auto c=response();
         if(sourceButton().contains(x,y)){
@@ -100,7 +102,7 @@ struct AmpModSurface {
     }
     void move(float x,float y){
         if(drag<0)return;
-        if(std::fabs(x-downX)+std::fabs(y-downY)<5.0f)return;
+        if(std::fabs(x-downX)+std::fabs(y-downY)<8.0f)return;
         moved=true;
         auto c=response();const auto r=graph();
         auto& pt=c.points[static_cast<size_t>(drag)];
@@ -111,7 +113,22 @@ struct AmpModSurface {
         c.enabled=true;changed=save(c)||changed;
     }
     bool up(){
-        if(drag<0&&graph().contains(downX,downY)){
+        // Match Filter Mod: a stationary >=500 ms hold removes only
+        // interior points, preserving the two response endpoints.
+        if(drag>0&&!moved){
+            const auto millis=std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now()-started).count();
+            if(millis>=500){
+                auto c=response();
+                if(c.count>2&&drag<c.count-1){
+                    for(int i=drag;i<c.count-1;++i)
+                        c.points[i]=c.points[i+1];
+                    --c.count;
+                    changed=save(c)||changed;
+                }
+            }
+        }
+        if(drag<0&&!moved&&graph().contains(downX,downY)){
             auto c=response();const auto r=graph();
             if(c.count<kMaxOperatorPoints){
                 OperatorPoint p{};
