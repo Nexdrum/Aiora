@@ -58,7 +58,7 @@ private:
         None,
         SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
-        FxGroup, FilterOpen, FilterEditor, UnisonEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
+        FxGroup, FilterOpen, FilterEditor, UnisonEditor, AmpModEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
     };
     struct Hit {
@@ -128,8 +128,8 @@ private:
     int safeBottom_{0};
     Rect viewport_{};
     int selectedOperator_{0};
-    bool matrixMode_{false};
-    int fxWorkspace_{0}; // Filter / Amp / Unison / LFO / Addable FX
+    int synthWorkspace_{0}; // Operators / Filter / Amp
+    int ampSubtab_{0};      // Envelope / Mod
     int fxGroup_{0};
     int fxRackExpanded_{-1};
     FxType fxRackNewType_{FxType::Embera};

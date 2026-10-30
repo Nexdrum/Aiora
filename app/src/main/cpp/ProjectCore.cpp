@@ -1003,6 +1003,22 @@ bool ProjectCore::setSelectedMasterAmpCurve(const OperatorCurve& curve){
     }
     patch->masterAmpCurve=clean;return true;
 }
+bool ProjectCore::setSelectedAmpMod(int slot,const OperatorResponse& response){
+    std::scoped_lock lock(mutex_);
+    auto* patch=selectedPatchUnsafe();
+    if(!patch||slot<0||slot>=3||response.source>2||
+       response.count<2||response.count>kMaxOperatorPoints)return false;
+    auto clean=response;
+    for(int i=0;i<clean.count;++i){
+        auto& pt=clean.points[i];
+        if(!std::isfinite(pt.time)||!std::isfinite(pt.value))return false;
+        pt.time=std::clamp(pt.time,0.0f,1.0f);
+        pt.value=std::clamp(pt.value,0.0f,1.0f);
+        if(i>0&&pt.time<=clean.points[i-1].time)return false;
+    }
+    patch->ampMods[static_cast<size_t>(slot)]=clean;
+    return true;
+}
 bool ProjectCore::setSelectedUnisonCurve(const OperatorCurve& curve){
     std::scoped_lock lock(mutex_);auto* patch=selectedPatchUnsafe();
     if(!patch||curve.count<2||curve.count>kMaxOperatorPoints)return false;

@@ -261,11 +261,13 @@ struct Lfo { float rate{5},amount{0},attack{0},velocitySensitivity{0}; LfoTarget
 // Keep live FX identifiers stable in saved modern projects. Retired IDs are
 // intentionally unassigned and rejected during decoding.
 enum class FxType : uint8_t {
-    Embera=0, Prisma=3, Recurra=4, Vastrel=5, Ampere=7, Cabeus=8
+    Embera=0, Prisma=3, Recurra=4, Vastrel=5, Ampere=7, Cabeus=8,
+    Pulsar=9, Binary=10
 };
-inline constexpr std::array<FxType,6> kAvailableFxTypes{{
+inline constexpr std::array<FxType,8> kAvailableFxTypes{{
     FxType::Embera,FxType::Recurra,FxType::Vastrel,
-    FxType::Prisma,FxType::Ampere,FxType::Cabeus
+    FxType::Prisma,FxType::Ampere,FxType::Cabeus,
+    FxType::Pulsar,FxType::Binary
 }};
 inline bool isAvailableFxType(FxType type) noexcept {
     for(const auto allowed:kAvailableFxTypes)
@@ -294,6 +296,8 @@ inline const char* fxTypeName(FxType type) noexcept {
         case FxType::Prisma:return "Prisma";
         case FxType::Ampere:return "Ampere";
         case FxType::Cabeus:return "Cabeus";
+        case FxType::Pulsar:return "Pulsar";
+        case FxType::Binary:return "Binary";
     }
     return "Effect";
 }
@@ -305,6 +309,8 @@ inline size_t fxParamCount(FxType type) noexcept {
         case FxType::Vastrel:return 3;
         case FxType::Ampere:return 8;
         case FxType::Cabeus:return 8;
+        case FxType::Pulsar:return 5;
+        case FxType::Binary:return 4;
     }
     return 0;
 }
@@ -329,6 +335,19 @@ inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
         {"9.2k dB",-12,12,0},{"14k dB",-12,12,0},
         {"Output",0,2,1}
     };
+    static constexpr FxParamDesc pulsar[]={
+        {"Rate Hz",.1f,20.0f,5.0f},
+        {"Amount",0.0f,2.0f,0.0f},
+        {"Attack s",0.0f,2.0f,0.0f},
+        {"Response",0.0f,1.0f,0.0f},
+        {"Target",0.0f,3.0f,1.0f}
+    };
+    static constexpr FxParamDesc binary[]={
+        {"Detune",0.0f,1.0f,.25f},
+        {"Rate Hz",0.05f,8.0f,.6f},
+        {"Spread",0.0f,1.0f,.75f},
+        {"Mix",0.0f,1.0f,.35f}
+    };
     static constexpr FxParamDesc recurra[]={{"Mix",0,1,.18f},{"Time s",.03f,1,.32f},{"Feedback",0,.85f,.32f}};
     static constexpr FxParamDesc vastrel[]={{"Mix",0,1,.25f},{"Decay s",.2f,12,.8f},{"Room",.5f,2.5f,1}};
     if(p>=fxParamCount(type))return {"Parameter",0,1,0};
@@ -339,6 +358,8 @@ inline FxParamDesc fxParamDesc(FxType type,size_t p) noexcept {
         case FxType::Vastrel:return vastrel[p];
         case FxType::Ampere:return ampere[p];
         case FxType::Cabeus:return cabeus[p];
+        case FxType::Pulsar:return pulsar[p];
+        case FxType::Binary:return binary[p];
     }
     return {"Parameter",0,1,0};
 }
@@ -367,6 +388,7 @@ struct Patch {
     float unison{0},octave{0},volume{0.8f};
     OperatorCurve unisonCurve{};
     OperatorCurve masterAmpCurve{initialMasterAmpCurve()};
+    std::array<OperatorResponse,3> ampMods{};
     // Configurable played-note range for Key Map responses (K=0..100%).
     int32_t keyMapLow{0},keyMapHigh{127};
     int32_t nexdrumLow{-1},nexdrumHigh{-1},fundamentalMidi{-1};
@@ -381,6 +403,7 @@ struct DspPatch {
     float unison{0},octave{0},volume{0.8f};
     OperatorCurve unisonCurve{};
     OperatorCurve masterAmpCurve{initialMasterAmpCurve()};
+    std::array<OperatorResponse,3> ampMods{};
 };
 
 
@@ -398,6 +421,7 @@ inline DspPatch toDspPatch(const Patch& p) {
     d.keyMapLow=p.keyMapLow;d.keyMapHigh=p.keyMapHigh;
     d.lfo=p.lfo;d.fx=p.fx;d.unison=p.unison;
     d.unisonCurve=p.unisonCurve;d.masterAmpCurve=p.masterAmpCurve;
+    d.ampMods=p.ampMods;
     d.octave=p.octave;d.volume=p.volume;
     prepareDspPatchWaveforms(d);
     return d;

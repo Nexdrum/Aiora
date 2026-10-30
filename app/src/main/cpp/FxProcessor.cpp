@@ -40,6 +40,11 @@ void FxProcessor::Biquad::peak(float freq,float q,float gainDb,float sr) noexcep
     a1=(-2*c)/n;a2=(1-alpha/a)/n;
 }
 void FxProcessor::Stage::prepare(float sr,float maxDelay,FxType type,bool allTypes){
+    if(allTypes||type==FxType::Pulsar||type==FxType::Binary){
+        const size_t n=static_cast<size_t>(sr*.085f)+4;
+        for(auto& buffer:modulationDelay)
+            if(buffer.size()<n)buffer.resize(n,0.0f);
+    }
     if(allTypes||type==FxType::Recurra){
         const size_t size=static_cast<size_t>(sr*std::max(1.2f,maxDelay))+2;
         if(delay.size()<size)delay.resize(size,0.0f);
@@ -170,6 +175,10 @@ void FxProcessor::Stage::configure(float sr){
 }
 void FxProcessor::Stage::reset() noexcept {
     std::fill(delay.begin(),delay.end(),0.0f);delayWrite=0;
+    for(auto& buffer:modulationDelay)
+        std::fill(buffer.begin(),buffer.end(),0.0f);
+    modulationWrite=0;modulationPhase=0;modulationAge=0;
+    modulationLowpass.fill(0.0f);
     for(auto& c:combL)c.reset();for(auto& c:combR)c.reset();
     for(auto& a:allL)a.reset();for(auto& a:allR)a.reset();
     for(auto& ch:eq)for(auto& q:ch)q.clear();
@@ -187,6 +196,84 @@ void FxProcessor::Stage::reset() noexcept {
 std::array<float,2> FxProcessor::Stage::process(float l,float r,float sr) noexcept {
     const auto& p=module.params;
     switch(module.type){
+        case FxType::Pulsar:
+        case FxType::Binary:{
+            const bool binary=module.type==FxType::Binary;
+            const float rate=std::clamp(p[binary?1:0],.05f,20.0f);
+            const float sine=std::sin(modulationPhase);
+            const float phaseRight=modulationPhase+(binary?
+                std::clamp(p[2],0.0f,1.0f)*pi:0.0f);
+            const float sineRight=std::sin(phaseRight);
+            modulationPhase+=2.0f*pi*rate/sr;
+            if(modulationPhase>=2.0f*pi)modulationPhase-=2.0f*pi;
+            modulationAge+=1.0f/sr;
+            const float depth=std::clamp(p[binary?0:1],0.0f,
+                binary?1.0f:2.0f);
+            const float fade=binary?1.0f:
+                (p[2]<=0.0f?1.0f:std::min(1.0f,modulationAge/p[2]));
+            const int target=binary?1:static_cast<int>(std::round(p[4]));
+            // The fifth Pulsar slider adjusts responsiveness to the
+            // incoming audio envelope; post-mix FX cannot recover note velocity.
+            const float sensitivity=binary?0.0f:
+                std::clamp(p[3],0.0f,1.0f);
+            const float detector=std::clamp(
+                5.0f*std::max(std::fabs(l),std::fabs(r)),0.0f,1.0f);
+            const float strength=depth*fade*
+                (1.0f-sensitivity+sensitivity*detector);
+            if(target==0&&!binary)return {l,r};
+            if(target==3&&!binary){
+                return {l*std::max(0.0f,1.0f+strength*sine*.5f),
+                        r*std::max(0.0f,1.0f+strength*sineRight*.5f)};
+            }
+            if(target==2&&!binary){
+                const float base=8000.0f/(1.0f+strength*7.0f);
+                const float hzL=std::clamp(base*(1.0f+.78f*sine),
+                    100.0f,sr*.44f);
+                const float hzR=std::clamp(base*(1.0f+.78f*sineRight),
+                    100.0f,sr*.44f);
+                const float a=pole(hzL,sr),b=pole(hzR,sr);
+                modulationLowpass[0]+=a*(l-modulationLowpass[0]);
+                modulationLowpass[1]+=b*(r-modulationLowpass[1]);
+                return {l*(1.0f-std::min(1.0f,strength))+
+                           modulationLowpass[0]*std::min(1.0f,strength),
+                        r*(1.0f-std::min(1.0f,strength))+
+                           modulationLowpass[1]*std::min(1.0f,strength)};
+            }
+            if(modulationDelay[0].empty())return {l,r};
+            const size_t n=modulationDelay[0].size();
+            const auto delayed=[&](int channel,float x,float timeMs){
+                auto& buf=modulationDelay[static_cast<size_t>(channel)];
+                buf[modulationWrite]=x;
+                const float frames=std::clamp(timeMs*sr*.001f,2.0f,
+                    static_cast<float>(n-3));
+                const float pos=static_cast<float>(modulationWrite)+
+                    static_cast<float>(n)-frames;
+                const float wrapped=std::fmod(pos,static_cast<float>(n));
+                const size_t i=static_cast<size_t>(wrapped);
+                const size_t j=(i+1)%n;
+                const float frac=wrapped-static_cast<float>(i);
+                return buf[i]+(buf[j]-buf[i])*frac;
+            };
+            if(binary){
+                // Two independently modulated delay taps produce genuine
+                // stereo pitch variation and a chorus/unison-style width.
+                const float mix=std::clamp(p[3],0.0f,1.0f);
+                const float left=delayed(0,l,14.0f+6.0f*depth*sine);
+                const float right=delayed(1,r,
+                    14.0f+6.0f*depth*sineRight);
+                modulationWrite=(modulationWrite+1)%n;
+                return {l*(1.0f-mix)+left*mix,
+                        r*(1.0f-mix)+right*mix};
+            }
+            // Pulsar Pitch uses fractional-delay vibrato in rack order.
+            const float wet=std::clamp(strength*.5f,0.0f,1.0f);
+            const float left=delayed(0,l,16.0f+6.0f*wet*sine);
+            const float right=delayed(1,r,
+                16.0f+6.0f*wet*sineRight);
+            modulationWrite=(modulationWrite+1)%n;
+            return {l*(1.0f-wet)+left*wet,
+                    r*(1.0f-wet)+right*wet};
+        }
         case FxType::Embera:{
             const float drive=1.0f+std::clamp(p[1],0.0f,10.0f)*8.0f;
             const auto saturate=[&](float x){

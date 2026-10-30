@@ -452,8 +452,7 @@ void writePatch(Writer& w,const Patch& p){
         }
         w.raw("}");
     }
-    w.raw("],\"matrix\":[");
-    for(size_t r=0;r<6;++r){if(r)w.raw(",");w.raw("[");for(size_t c=0;c<6;++c){if(c)w.raw(",");w.number(p.matrix[r][c]);}w.raw("]");}
+    // Legacy FM matrices are accepted on import, but no longer emitted.
     w.raw("],\"filter\":{\"evolving\":");writeEvolvingFilter(w,p.filter.evolving);w.raw("}");
     w.raw(",\"peak\":{\"enabled\":");w.boolean(p.peak.enabled);
     w.raw(",\"followNote\":");w.boolean(p.peak.followNote);
@@ -462,6 +461,12 @@ void writePatch(Writer& w,const Patch& p){
     w.raw(",\"q\":");w.number(p.peak.q);
     w.raw(",\"gainDb\":");w.number(p.peak.gainDb);w.raw("}");
     if(p.masterAmpCurve.enabled){w.raw(",\"masterAmpCurve\":");writeOperatorCurve(w,p.masterAmpCurve);}
+    w.raw(",\"ampMods\":[");
+    for(size_t i=0;i<p.ampMods.size();++i){
+        if(i)w.raw(",");
+        writeOperatorResponse(w,p.ampMods[i]);
+    }
+    w.raw("]");
     w.raw(",\"keyMap\":{\"low\":");w.number(p.keyMapLow);
     w.raw(",\"high\":");w.number(p.keyMapHigh);w.raw("}");
     w.raw(",\"lfo\":{\"rate\":");w.number(p.lfo.rate);w.raw(",\"amount\":");w.number(p.lfo.amount);w.raw(",\"target\":");w.string(lfoName(p.lfo.target));w.raw(",\"attack\":");w.number(p.lfo.attack);w.raw(",\"velSens\":");w.number(p.lfo.velocitySensitivity);w.raw("}");
@@ -675,6 +680,9 @@ bool readPatch(const Json& src,Patch& p){
     }
     readFxRack(src.get("fxChain"),p.fx);
     readOperatorCurve(src.get("masterAmpCurve"),p.masterAmpCurve,0,1);
+    if(const auto* mods=src.get("ampMods");mods&&mods->type==Json::Type::Array)
+        for(size_t i=0;i<std::min<size_t>(3,mods->array.size());++i)
+            readOperatorResponse(&mods->array[i],p.ampMods[i]);
     p.unison=clampf(num(src.get("unison"),0),0,1,0);
     readOperatorCurve(src.get("unisonCurve"),p.unisonCurve,0,1);
     p.octave=static_cast<float>(clampi(num(src.get("octave"),0),-2,2,0));p.volume=clampf(num(src.get("volume"),.8),0,1,.8f);

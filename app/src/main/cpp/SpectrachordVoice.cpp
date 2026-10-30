@@ -436,7 +436,7 @@ float SpectrachordVoice::render() noexcept {
     const float unison=clamp01(unisonSmoothed_);
     const int uniCount=unison>0.0001f?2:1;
     // A brief beater-driven membrane sweep settles at the unchanged note fundamental.
-    std::array<float,6>now{};
+    float sum=0.0f;
     for(size_t i=0;i<6;++i){
         const auto&op=P.ops[i];if(!op.enabled)continue;
         const float primaryVol=opVolume_[i].next(sampleRate_);
@@ -481,21 +481,18 @@ float SpectrachordVoice::render() noexcept {
         const float level=op.level*env*response;
         if(level<=0.000001f)continue;
         const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
-        float fmHz=0;
-        // Bend has no artificial semitone ceiling. The physical output
-        // oscillator must still remain finite and below Nyquist.
+        // The former six-by-six FM cross-routing has been removed.
+        // All operator phase evolution now follows its authored pitch curve.
+        // Bend remains unrestricted except for physical oscillator limits.
         const float unboundedBase=midiHz(baseMidi+pitchEnv)*op.ratio*semitoneScale;
         const float maxHz=sampleRate_*0.49f;
         const float baseF=std::isfinite(unboundedBase)
             ?std::clamp(unboundedBase,0.001f,maxHz):maxHz;
-        const float fmScale=1.0f;
-        for(size_t mod=0;mod<6;++mod)
-            fmHz+=lastOp_[mod]*P.matrix[mod][i]*baseF*2.5f*fmScale;
         float opSum=0;
         for(int u=0;u<uniCount;++u){
             const float uniCents=u?unison*12:0;
             const float cents=op.detuneCents+uniCents+pitchLfoCents;
-            const float unboundedHz=(baseF+fmHz)*std::pow(2.0f,cents/1200.0f);
+            const float unboundedHz=baseF*std::pow(2.0f,cents/1200.0f);
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float&ph=phase_[i][u];
@@ -530,9 +527,8 @@ float SpectrachordVoice::render() noexcept {
                 std::max(1.0f,sampleRate_*.001f),0.0f,1.0f);
             opSum*=t*t*(3.0f-2.0f*t);
         }
-        now[i]=opSum/(dynamicUnison?1.0f+unison:static_cast<float>(uniCount))*level;
+        sum+=opSum/(dynamicUnison?1.0f+unison:static_cast<float>(uniCount))*level;
     }
-    lastOp_=now;float sum=0;for(float v:now)sum+=v;
     // A separate, optional bell EQ runs once per voice, BEFORE the primary
     // subtractive filter. Pitch tracking uses the known MIDI fundamental,
     // including pitch bend; no audio pitch detection is necessary.
@@ -710,10 +706,21 @@ float SpectrachordVoice::render() noexcept {
     }
     const float master=clamp01(masterAmpTimeline_.next(sampleRate_));
     if(masterAmpTimeline_.done||!anyOperatorAlive){active_=false;return 0;}
+    float ampMod=1.0f,modSum=0.0f;
+    int modCount=0;
+    for(const auto& route:P.ampMods){
+        if(!route.enabled||route.count<2)continue;
+        const float input=route.source==2?keyMapValue_:
+            (route.source==1?m:expressionV);
+        modSum+=clamp01(operatorCurveValue(
+            route.points.data(),route.count,clamp01(input),input));
+        ++modCount;
+    }
+    if(modCount>0)ampMod=modSum/static_cast<float>(modCount);
     const float gain=P.lfo.target==LfoTarget::Amp?
         std::max(0.0f,1+lfo*lfoAmount*0.5f):1.0f;
     ++elapsedSamples_;
-    return filtered*master*gain*P.volume*velocityGain*liveGain_;
+    return filtered*master*ampMod*gain*P.volume*velocityGain*liveGain_;
 }
 
 } // namespace aiora

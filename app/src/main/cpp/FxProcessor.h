@@ -44,6 +44,13 @@ private:
         FxModule module{};
         std::vector<float> delay;
         size_t delayWrite{0};
+        // Binary: stereo dual-voice modulated micro-delay (chorus/unison).
+        // Pulsar: post-operator modulation at the selected rack position.
+        std::array<std::vector<float>,2> modulationDelay{};
+        size_t modulationWrite{0};
+        float modulationPhase{0.0f},modulationAge{0.0f};
+        std::array<float,2> modulationLowpass{};
+
         std::array<Comb,4> combL{},combR{};
         std::array<Allpass,2> allL{},allR{};
         std::array<std::array<Biquad,kPrismaBands>,2> eq{};

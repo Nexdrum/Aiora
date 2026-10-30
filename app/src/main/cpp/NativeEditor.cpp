@@ -157,7 +157,7 @@ NativeEditor::Rect NativeEditor::synthTabRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
     const float h=66.0f;
-    const float w=(b.w-gap*3.0f)*0.5f;
+    const float w=(b.w-gap*4.0f)/3.0f;
     return {
         b.x+gap+index*(w+gap),
         b.y+gap,
@@ -275,7 +275,7 @@ NativeEditor::Rect NativeEditor::fxRackRect() const noexcept {
     const Fx rack=ProjectCore::instance().fxRack(false);
     float height=175;
     for(int i=0;i<rack.count;++i){height+=82;if(i==fxRackExpanded_)height+=64.0f*fxParamCount(rack.chain[i].type);}
-    return {b.x+gap,b.y+104.0f-fxScrollY_,b.w-2*gap,height};
+    return {b.x+gap,b.y+70.0f-fxScrollY_,b.w-2*gap,height};
 }
 NativeEditor::Rect NativeEditor::fxRackStageRect(int index) const noexcept {
     const auto c=fxRackRect();const Fx rack=ProjectCore::instance().fxRack(false);
@@ -350,15 +350,12 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     const auto b=bodyRect();
     if(page==EditorPage::Synth)return 0.0f;
 
-    if(page==EditorPage::Fx&&fxWorkspace_==4){
+    if(page==EditorPage::Fx){
         const auto rack=fxRackRect();
-        return std::max(0.0f,rack.h+135.0f-b.h);
+        return std::max(0.0f,
+            rack.y+fxScrollY_+rack.h+32.0f-(b.y+b.h));
     }
-    const auto footer=patchTransferRect(page,1);
-    const float scroll=
-        page==EditorPage::Synth?synthScrollY_:fxScrollY_;
-    const float bottom=footer.y+scroll+footer.h+24.0f;
-    return std::max(0.0f,bottom-(b.y+b.h));
+    return 0.0f;
 }
 
 void NativeEditor::scrollEditor(EditorPage page,float delta) noexcept {
@@ -599,7 +596,7 @@ struct OpSurface {
     std::pair<float,float> position(const OperatorPoint&pt)const{
         auto r=rect(11);
         if(page==4)return {r.x+std::clamp(pt.time,0.0f,1.0f)*r.w,
-            r.y+(1.0f-std::clamp(pt.value,0.0f,1.0f))*r.h};
+            r.y+std::clamp(pt.value,0.0f,1.0f)*r.h};
         const float v=pitchPage(page)?(pt.value+12)/24:pt.value;
         return {r.x+std::clamp(v,0.0f,1.0f)*r.w,
             r.y+pt.time*pixelsPerSecond()-scroll[op][page]};
@@ -894,12 +891,12 @@ struct OpSurface {
                 pt.midpoint=std::clamp((x-r.x-r.w*before.time)/
                     std::max(.00001f,r.w*(pt.time-before.time)),.05f,.95f);
                 pt.handleActive=true;
-                pt.handleValue=std::clamp(1-(y-r.y)/r.h,
+                pt.handleValue=std::clamp((y-r.y)/r.h,
                     std::min(before.value,pt.value),std::max(before.value,pt.value));
             }else{
                 pt.time=std::clamp(xval,idx?c.points[idx-1].time+.0001f:0.0f,
                     idx+1<c.count?c.points[idx+1].time-.0001f:1.0f);
-                pt.value=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);
+                pt.value=std::clamp((y-r.y)/r.h,0.0f,1.0f);
             }
             c.enabled=true;
             channelCopy.enabled=true;
@@ -937,7 +934,7 @@ struct OpSurface {
             auto& c=channelCopy.response;
             if(c.count>=kMaxOperatorPoints)return false;
             pt.time=std::clamp(xval,.0001f,.9999f);
-            pt.value=std::clamp(1-(y-r.y)/r.h,0.0f,1.0f);
+            pt.value=std::clamp((y-r.y)/r.h,0.0f,1.0f);
             int n=0;while(n<c.count&&c.points[n].time<pt.time)++n;
             for(int k=c.count;k>n;--k)c.points[k]=c.points[k-1];
             c.points[n]=pt;++c.count;selected=n;c.enabled=true;
@@ -1205,7 +1202,7 @@ struct FilterSurface {
         if(page==2){
             const auto r=graph();
             return {r.x+std::clamp(p.time,0.0f,1.0f)*r.w,
-                r.y+(1-std::clamp(p.value,0.0f,1.0f))*r.h};
+                r.y+std::clamp(p.value,0.0f,1.0f)*r.h};
         }
         const auto r=pane(which%3);
         return {r.x+std::clamp(p.value,0.0f,1.0f)*r.w,
@@ -1553,7 +1550,7 @@ struct FilterSurface {
             std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f):
             std::clamp((y-r.y+scroll)/rate(),0.0f,120.0f);
         const float v=page==2?
-            std::clamp(1.0f-(y-r.y)/std::max(1.0f,r.h),0.0f,1.0f):
+            std::clamp((y-r.y)/std::max(1.0f,r.h),0.0f,1.0f):
             std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
         if(bend>=1){
             const auto& a=curve.points[idx-1];
@@ -1619,7 +1616,7 @@ struct FilterSurface {
             std::clamp((x-r.x)/std::max(1.0f,r.w),.0001f,.9999f):
             std::clamp((y-r.y+scroll)/rate(),.0001f,119.999f);
         p.value=page==2?
-            std::clamp(1-(y-r.y)/std::max(1.0f,r.h),0.0f,1.0f):
+            std::clamp((y-r.y)/std::max(1.0f,r.h),0.0f,1.0f):
             std::clamp((x-r.x)/std::max(1.0f,r.w),0.0f,1.0f);
         int n=0;while(n<c.count&&c.points[n].time<p.time)++n;
         if(n==0||n==c.count||c.points[n].time-p.time<.0001f||
@@ -2151,276 +2148,72 @@ struct UnisonSurface {
 UnisonSurface unisonSurface;
 } // namespace
 
+#include "NativeEditorAmpMod.inl"
+
 void NativeEditor::renderSynth() const noexcept {
-    if(!matrixMode_){
-        drawPadReservedBackground();
-        opSurface.view=bodyRect();
-        const auto currentOperator=ProjectCore::instance().selectedPatch().ops[static_cast<size_t>(opSurface.op)];
-        opSurface.custom=currentOperator.wave==Wave::Custom;
-        // The waveform editor stays available for preset waves and noise.
-        // Selecting any tonal harmonic partial changes that bank to Custom;
+    drawPadReservedBackground();
+    auto& ov=NativeOverlay::instance();
+    const auto b=bodyRect(),tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    const float top=tab.y+tab.h+gap;
+    const Rect surface{b.x,top,b.w,std::max(0.0f,b.y+b.h-top)};
+    if(synthWorkspace_==0){
+        opSurface.view=surface;
+        const auto current=ProjectCore::instance().selectedPatch().ops[
+            static_cast<size_t>(opSurface.op)];
+        opSurface.custom=current.wave==Wave::Custom;
         opSurface.draw();
         drawPatchTransfer(EditorPage::Synth);
-        auto& ov=NativeOverlay::instance();auto b=bodyRect();
-        auto tab=synthTabRect(0);
-        fillRect({b.x,b.y,b.w,tab.y+tab.h-b.y+6},kPanel);
-        for(int i=0;i<2;++i){auto r=synthTabRect(i);drawButton(r,i==0,i?kPurple:kCyan);
-            ov.addTextCentered(i?"FM Matrix":"Operators",{r.x,r.y,r.w,r.h},1.04f,overlayColor(i?kWhite:kBg));}
-        return;
-    }
-    drawPadReservedBackground();
-    const Patch p=ProjectCore::instance().selectedPatch();
-    auto& ov=NativeOverlay::instance();
-    const auto b=bodyRect();
-    const auto firstTab=synthTabRect(0);
-    const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
-    const float contentTop=firstTab.y+firstTab.h+gap;
-
-    // Everything below the tab strip scrolls/clips beneath it.
-    ov.setClip({
-        b.x,
-        contentTop,
-        b.w,
-        std::max(0.0f,b.y+b.h-contentTop)
-    });
-
-    if(matrixMode_){
-        ov.addText(
-            "Row = modulator → column = carrier.",
-            b.x+gap,
-            contentTop+10.0f,
-            0.82f,
-            overlayColor(kMuted));
-
-        for(int carrier=0;carrier<6;++carrier){
-            const auto rr=matrixRect(0,carrier);
-            ov.addTextCentered(
-                "C"+std::to_string(carrier+1),
-                {rr.x,rr.y-34.0f,rr.w,28.0f},
-                0.82f,
-                overlayColor(kMuted));
-        }
-
-        for(int m=0;m<6;++m){
-            const auto first=matrixRect(m,0);
-            ov.addTextCentered(
-                "M"+std::to_string(m+1),
-                {first.x-42.0f,first.y,36.0f,first.h},
-                0.82f,
-                overlayColor(kMuted));
-
-            for(int carrier=0;carrier<6;++carrier){
-                const auto rr=matrixRect(m,carrier);
-                const float v=std::clamp(
-                    p.matrix[static_cast<size_t>(m)][static_cast<size_t>(carrier)],
-                    0.0f,1.0f);
-
-                const float inset=std::max(8.0f,rr.w*0.08f);
-                const float x0=rr.x+inset;
-                const float w=std::max(12.0f,rr.w-inset*2.0f);
-                const float cy=rr.y+rr.h*0.54f;
-                fillRect({x0,cy-3.0f,w,6.0f},kTrack);
-                fillRect({x0,cy-3.0f,w*v,6.0f},kPurple);
-
-                const float knob=std::clamp(rr.h*0.22f,14.0f,20.0f);
-                fillRect({
-                    x0+w*v-knob*0.5f,
-                    cy-knob*0.5f,
-                    knob,knob},
-                    mix(kWhite,kPurple,0.18f));
-            }
-        }
+    }else if(synthWorkspace_==1){
+        filterSurface.view=surface;
+        filterSurface.draw();
     }else{
-        static constexpr const char* kLabels[8]={
-            "R","ST","F","L","A","D","S","R"};
-
-        const auto shortValue=[](float v){
-            std::string s=std::to_string(v);
-            while(s.size()>1&&s.back()=='0')s.pop_back();
-            if(!s.empty()&&s.back()=='.')s.pop_back();
-            if(s.size()>6)s.resize(6);
-            return s;
-        };
-
-        for(int op=0;op<6;++op){
-            const auto card=operatorCardRect(op);
-            const auto& o=p.ops[static_cast<size_t>(op)];
-            const bool enabled=o.enabled;
-
-            fillRect(card,enabled?kCyan:kButton);
-            fillRect({
-                card.x+2.0f,card.y+2.0f,
-                card.w-4.0f,card.h-4.0f},
-                kPanel);
-
-            ov.addText(
-                "OP"+std::to_string(op+1),
-                card.x+16.0f,card.y+22.0f,
-                1.04f,overlayColor(kWhite));
-
-            const auto wave=operatorWaveFieldRect(op);
-            fillRect(wave,mix(kRollBg,kButton,0.25f));
-            const int waveIndex=std::clamp(static_cast<int>(o.wave),0,static_cast<int>(kWaveformLabels.size())-1);
-            ov.addText(
-                kWaveformLabels[static_cast<size_t>(waveIndex)],
-                wave.x+12.0f,wave.y+20.0f,
-                0.96f,overlayColor(kWhite));
-            ov.addDownChevron(
-                {wave.x+wave.w-38.0f,wave.y,38.0f,wave.h},
-                overlayColor(kWhite));
-
-            for(int paramIndex=0;paramIndex<8;++paramIndex){
-                const auto param=kOperatorParams[static_cast<size_t>(paramIndex)];
-                const auto rr=operatorCardParamRect(op,paramIndex);
-                const float value=operatorValue(p,op,param);
-                const float norm=normalized(value,operatorRange(param));
-
-                ov.addText(
-                    kLabels[paramIndex],
-                    rr.x,rr.y+rr.h*0.26f,
-                    paramIndex==1?0.72f:0.82f,
-                    overlayColor(kWhite));
-
-                const float labelW=38.0f;
-                const float valueW=62.0f;
-                const float trackX=rr.x+labelW;
-                const float trackW=
-                    std::max(20.0f,rr.w-labelW-valueW-6.0f);
-
-                if(param==OperatorParam::Ratio||
-                   param==OperatorParam::Semitone){
-                    const float editW=
-                        std::max(20.0f,rr.w-labelW-4.0f);
-                    fillRect(
-                        {trackX,rr.y+4.0f,editW,rr.h-8.0f},
-                        mix(kRollBg,kButton,0.22f));
-                    const float shown=param==OperatorParam::Semitone
-                        ?std::round(value):value;
-                    ov.addText(
-                        shortValue(shown),
-                        trackX+10.0f,rr.y+22.0f,
-                        1.00f,overlayColor(kWhite));
-                }else{
-                    const float cy=rr.y+rr.h*0.52f;
-                    fillRect({trackX,cy-3.0f,trackW,6.0f},kTrack);
-                    fillRect({
-                        trackX,cy-3.0f,trackW*norm,6.0f},
-                        paramIndex<4?kCyan:kOrange);
-                    const float knob=22.0f;
-                    fillRect({
-                        trackX+trackW*norm-knob*0.5f,
-                        cy-knob*0.5f,knob,knob},
-                        mix(
-                            kWhite,
-                            paramIndex<4?kCyan:kOrange,
-                            0.25f));
-
-                    const float shown=param==OperatorParam::Detune
-                        ?std::round(value):value;
-                    ov.addText(
-                        shortValue(shown),
-                        rr.x+rr.w-valueW+4.0f,
-                        rr.y+rr.h*0.26f,
-                        0.86f,overlayColor(kMuted));
-                }
-            }
-
-            const auto toggle=operatorCardToggleRect(op);
-            drawButton(toggle,enabled,enabled?kGreen:kRed);
-            ov.addTextCentered(
-                enabled?"ON":"OFF",
-                {toggle.x,toggle.y,toggle.w,toggle.h},
-                1.02f,overlayColor(kWhite));
-
-            if(o.wave==Wave::Custom){
-                for(int partial=0;partial<16;++partial){
-                    const auto hr=operatorCardHarmonicRect(op,partial);
-                    const float v=std::clamp(
-                        o.harm[static_cast<size_t>(partial)],0.0f,1.0f);
-                    fillRect(hr,kButton);
-                    fillRect({
-                        hr.x+hr.w*0.24f,
-                        hr.y+hr.h*(1.0f-v),
-                        hr.w*0.52f,
-                        std::max(3.0f,hr.h*v)},
-                        mix(kCyan,kPurple,0.40f));
-                }
-            }
+        const float subH=55.0f;
+        const Rect editor{surface.x,surface.y+subH+gap,
+            surface.w,std::max(0.0f,surface.h-subH-gap)};
+        if(ampSubtab_==0){
+            unisonSurface.ampMode=true;
+            unisonSurface.view=editor;
+            unisonSurface.draw();
+        }else{
+            ampModSurface.view=editor;
+            ampModSurface.draw();
         }
-
-        drawPatchTransfer(EditorPage::Synth);
+        for(int i=0;i<2;++i){
+            const Rect r{surface.x+12.0f+i*(surface.w-31.0f)*.5f+
+                            i*7.0f,surface.y+5.0f,
+                         (surface.w-31.0f)*.5f,subH};
+            ov.addRect({r.x,r.y,r.w,r.h},
+                overlayColor(ampSubtab_==i?kPurple:kButton));
+            ov.addTextCentered(i?"Mod":"Envelope",
+                {r.x,r.y,r.w,r.h},.90f,
+                overlayColor(ampSubtab_==i?kBg:kWhite));
+        }
     }
-
-    ov.clearClip();
-
-    // Solid sticky strip so scrolled controls cannot bleed through the tabs.
-    fillRect({
-        b.x,b.y,b.w,
-        std::max(0.0f,contentTop-b.y)},
-        kPanel);
-
-    static constexpr const char* kTabs[2]={"Operators","FM Matrix"};
-    for(int i=0;i<2;++i){
-        const auto rr=synthTabRect(i);
-        const bool active=(i==1)==matrixMode_;
-        drawButton(rr,active,i==1?kPurple:kCyan);
-        ov.addTextCentered(
-            kTabs[i],
-            {rr.x,rr.y,rr.w,rr.h},
-            1.08f,
-            overlayColor(active?kBg:kWhite));
+    // Fixed page tabs above each editor; never share the FM layout.
+    ov.addRect({b.x,b.y,b.w,std::max(0.0f,top-b.y)},
+               overlayColor(kPanel));
+    static constexpr const char* tabs[3]={"Operators","Filter","Amp"};
+    for(int i=0;i<3;++i){
+        const auto r=synthTabRect(i);
+        const bool selected=i==synthWorkspace_;
+        ov.addRect({r.x,r.y,r.w,r.h},
+            overlayColor(selected?i==1?kCyan:i==2?kPurple:kGreen:kButton));
+        ov.addRect({r.x+3,r.y+3,r.w-6,r.h-6},
+            overlayColor(selected?mix(kPanel,i==2?kPurple:kCyan,.34f):kPanel));
+        ov.addTextCentered(tabs[i],{r.x,r.y,r.w,r.h},.96f,
+            overlayColor(kWhite));
     }
 }
 
 void NativeEditor::renderFx() const noexcept {
     drawPadReservedBackground();
-    {
     auto& ov=NativeOverlay::instance();
     const auto b=bodyRect();
-    const auto workspace=std::clamp(fxWorkspace_,0,4);
-    if(workspace==0){
-        filterSurface.view=b;filterSurface.draw();
-    }else if(workspace==1||workspace==2){
-        unisonSurface.ampMode=workspace==1;
-        unisonSurface.view=b;unisonSurface.draw();
-    }else if(workspace==3){
-        const auto p=ProjectCore::instance().selectedPatch();
-        ov.addText("LFO - existing modulation controls",
-            b.x+24,b.y+109,1.0f,overlayColor(kCyan));
-        const auto target=lfoWorkspaceTargetRect();
-        drawButton(target,true,kPurple);
-        const char* labels[4]={"None","Pitch","Filter","Amp"};
-        ov.addTextCentered(
-            std::string("Target: ")+labels[std::clamp(static_cast<int>(p.lfo.target),0,3)],
-            {target.x,target.y,target.w,target.h},.85f,overlayColor(kBg));
-        static constexpr std::array<PatchParam,4> keys{
-            PatchParam::LfoRate,PatchParam::LfoAmount,
-            PatchParam::LfoAttack,PatchParam::LfoVelocity};
-        static constexpr const char* labels4[4]{
-            "Rate","Amount","Attack","Velocity"};
-        for(int i=0;i<4;++i){
-            const auto r=lfoWorkspaceRow(i);
-            const auto range=patchRange(keys[i]);
-            const float value=patchValue(p,keys[i]);
-            const float normalizedValue=normalized(value,range);
-            const float lw=std::clamp(r.w*.25f,104.0f,160.0f);
-            const float vw=70;
-            const float x=r.x+lw;
-            const float width=std::max(24.0f,r.w-lw-vw-8.0f);
-            const float y=r.y+r.h*.52f;
-            ov.addText(labels4[i],r.x,r.y+23,.89f,overlayColor(kWhite));
-            fillRect({x,y-3,width,6},kTrack);
-            fillRect({x,y-3,width*normalizedValue,6},kPurple);
-            fillRect({x+width*normalizedValue-10,y-10,20,20},
-                mix(kWhite,kPurple,.22f));
-            char shown[28];std::snprintf(shown,sizeof(shown),"%.3g",
-                static_cast<double>(value));
-            ov.addText(shown,r.x+r.w-vw,r.y+24,.85f,overlayColor(kCyan));
-        }
-    }else{
+    // Full-page FX rack; Pulsar and Binary are ordinary chain modules.
         const Fx rack=ProjectCore::instance().fxRack(false);
         const auto rackRect=fxRackRect();
-        ov.setClip({b.x,b.y+85,b.w,std::max(0.0f,b.h-85)});
+        ov.setClip({b.x,b.y+62,b.w,std::max(0.0f,b.h-62)});
         fillRect(rackRect,kButton);
         fillRect({rackRect.x+2,rackRect.y+2,rackRect.w-4,rackRect.h-4},kPanel);
         ov.addText("Instrument / Pad post-processing FX",
@@ -2471,30 +2264,11 @@ void NativeEditor::renderFx() const noexcept {
             overlayColor(kWhite));
         ov.addTextCentered("+ Add FX",{add.x,add.y,add.w,add.h},
             .90f,overlayColor(kWhite));
-        ov.clearClip();
-    }
-    // A fixed navigation strip; no Glide or legacy expression-link page.
-    fillRect({b.x,b.y,b.w,87},kPanel);
-    static constexpr const char* names[5]={"Filter","Amp","Unison","LFO","FX"};
-    for(int i=0;i<5;++i){
-        const auto r=fxWorkspaceTabRect(i);
-        const bool active=workspace==i;
-        const Rgb accent=i==3?kPurple:kCyan;
-        // Filter/Amp/Unison enqueue opaque overlay backgrounds, so their
-        // tabs must use the SAME overlay layer. Immediate glClear-based
-        // drawButton() would be painted over when the overlay flushes.
-        // Draw every tab consistently; inactive labels stay bright, and
-        // selected tabs use light text on a clearly highlighted surface.
-        ov.addRect({r.x,r.y,r.w,r.h},
-            overlayColor(active?accent:kButton));
-        const float inset=active?3.0f:2.0f;
-        ov.addRect({r.x+inset,r.y+inset,r.w-2.0f*inset,r.h-2.0f*inset},
-            overlayColor(active?mix(kPanel,accent,0.34f):kPanel));
-        ov.addTextCentered(names[i],{r.x,r.y,r.w,r.h},1.06f,
-            overlayColor(kWhite));
-    }
-    return;
-    }
+    ov.clearClip();
+    // Fixed rack heading; none of the old Filter/Amp/Unison/LFO tabs remain.
+    ov.addRect({b.x,b.y,b.w,63.0f},overlayColor(kPanel));
+    ov.addText("EFFECTS RACK",b.x+20.0f,b.y+15.0f,
+               1.04f,overlayColor(kCyan));
 }
 
 std::optional<int> NativeEditor::hitFactoryPreset(float,float) const noexcept {
@@ -2506,29 +2280,16 @@ bool NativeEditor::openDropdownAt(
     EditorPage page,float x,float y,NativeUi& ui) const {
     const auto anchor=[](Rect r){return NativeUi::Rect{r.x,r.y,r.w,r.h};};
     if(page==EditorPage::Fx){
-        if(fxWorkspace_==4){
-            const auto rr=fxRackAddRect(false);
-            if(rr.contains(x,y)){
-                std::vector<std::string> names;
-                for(const auto type:kAvailableFxTypes)
-                    names.emplace_back(fxTypeName(type));
-                ui.openDropdown(DropdownKind::FxType,0,anchor(rr),
-                    fxTypeMenuIndex(fxRackNewType_),std::move(names));
-                return true;
-            }
-        }else if(fxWorkspace_==3){
-            const auto rr=lfoWorkspaceTargetRect();
-            if(rr.contains(x,y)){
-                const auto p=ProjectCore::instance().selectedPatch();
-                ui.openDropdown(DropdownKind::LfoTarget,0,anchor(rr),
-                    static_cast<int>(p.lfo.target),
-                    {"none","pitch","filter","amp"});
-                return true;
-            }
-        }
-        return false;
+        const auto rr=fxRackAddRect(false);
+        if(!rr.contains(x,y))return false;
+        std::vector<std::string> names;
+        for(const auto type:kAvailableFxTypes)
+            names.emplace_back(fxTypeName(type));
+        ui.openDropdown(DropdownKind::FxType,0,anchor(rr),
+            fxTypeMenuIndex(fxRackNewType_),std::move(names));
+        return true;
     }
-    if(page!=EditorPage::Synth||matrixMode_||opSurface.page!=5)
+    if(page!=EditorPage::Synth||synthWorkspace_!=0||opSurface.page!=5)
         return false;
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
@@ -2573,16 +2334,22 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
 }
 
 std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcept {
-    if(matrixMode_)return std::nullopt;
-    opSurface.view=bodyRect();
+    if(synthWorkspace_!=0)return std::nullopt;
+    const auto b=bodyRect(),tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    const float top=tab.y+tab.h+gap;
+    opSurface.view={b.x,top,b.w,std::max(0.0f,b.y+b.h-top)};
     // Do not fall through to retired six-card geometry.
     if(opSurface.hitRatio(x,y))return opSurface.op;
     return std::nullopt;
 }
 
 std::optional<int> NativeEditor::hitOperatorSemitone(float x,float y) const noexcept {
-    if(matrixMode_)return std::nullopt;
-    opSurface.view=bodyRect();
+    if(synthWorkspace_!=0)return std::nullopt;
+    const auto b=bodyRect(),tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    const float top=tab.y+tab.h+gap;
+    opSurface.view={b.x,top,b.w,std::max(0.0f,b.y+b.h-top)};
     // Only the visible Base ST field can open the semitone editor.
     // Legacy semitone rows overlap the new Mod and shadow controls.
     if(opSurface.hitSemi(x,y))return opSurface.op;
@@ -2601,17 +2368,6 @@ std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const n
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
     const float contentTop=tab.y+tab.h+gap;
     if(y<contentTop)return std::nullopt;
-
-    if(matrixMode_){
-        for(int m=0;m<6;++m){
-            for(int carrier=0;carrier<6;++carrier){
-                const auto rr=matrixRect(m,carrier);
-                if(rr.contains(x,y))
-                    return Hit{HitKind::Matrix,m,carrier,rr};
-            }
-        }
-        return std::nullopt;
-    }
 
     const Patch p=ProjectCore::instance().selectedPatch();
     for(int op=0;op<6;++op){
@@ -2716,8 +2472,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             return true;
         }
         case HitKind::SynthTab:
-            matrixMode_=hit.a==1;
-            if(matrixMode_)synthScrollY_=0.0f;
+            synthWorkspace_=std::clamp(hit.a,0,2);
             return false;
 
         case HitKind::OperatorSelect:
@@ -2769,7 +2524,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
                 false);
 
         case HitKind::Matrix:
-            return project.setSelectedMatrixAmount(hit.a,hit.b,nx);
+            return false; // removed legacy FM routing
 
         case HitKind::FxGroup:
             fxGroup_=std::clamp(hit.a,0,3);
@@ -2839,68 +2594,67 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     scrolling_=false;
     activeHit_.reset();
 
-    opSurface.view=bodyRect();
-    filterSurface.view=bodyRect();
-    unisonSurface.view=bodyRect();
-    if(page==EditorPage::Fx){
-        for(int i=0;i<5;++i)if(fxWorkspaceTabRect(i).contains(x,y)){
-            fxWorkspace_=i;fxScrollY_=0;return true;
-        }
-        if(fxWorkspace_<=2){
-            if(scrollGutterRect().contains(x,y)){
-                scrolling_=true;scrollLastY_=y;
-                kineticScroll_.begin(y,kineticClockMs());return true;
-            }
-            unisonSurface.ampMode=fxWorkspace_==1;
-            const bool hit=fxWorkspace_==0?
-                filterSurface.down(x,y):unisonSurface.down(x,y);
-            if(hit){
-                activeHit_=Hit{fxWorkspace_==0?HitKind::FilterEditor:
-                    HitKind::UnisonEditor,-1,-1,{}};
+    const auto b=bodyRect();
+    const auto first=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    const float surfaceTop=first.y+first.h+gap;
+    const Rect surface{b.x,surfaceTop,b.w,
+        std::max(0.0f,b.y+b.h-surfaceTop)};
+    if(page==EditorPage::Synth){
+        for(int i=0;i<3;++i){
+            if(synthTabRect(i).contains(x,y)){
+                synthWorkspace_=i;
                 return true;
             }
-            return true;
-        }
-        if(fxWorkspace_==3){
-            const auto target=lfoWorkspaceTargetRect();
-            if(target.contains(x,y)){
-                const auto p=ProjectCore::instance().selectedPatch();
-                changed_=ProjectCore::instance().setSelectedLfoTarget(
-                    static_cast<LfoTarget>((static_cast<int>(p.lfo.target)+1)%4));
-                return true;
-            }
-            for(int i=0;i<4;++i)if(lfoWorkspaceRow(i).contains(x,y)){
-                activeHit_=Hit{HitKind::PatchParam,
-                    static_cast<int>(kLfoParams[static_cast<size_t>(i)]),
-                    -1,lfoWorkspaceRow(i)};
-                changed_=applyHit(*activeHit_,x,y);
-                return true;
-            }
-            return true;
         }
     }
-    // The spectrum lane is the dedicated vertical scroll control.
     if(scrollGutterRect().contains(x,y)){
         scrolling_=true;
         scrollLastY_=y;
         kineticScroll_.begin(y,kineticClockMs());
         return true;
     }
-
-     if(page==EditorPage::Synth&&!matrixMode_){
-        for(int i=0;i<2;++i){
-            const auto tab=synthTabRect(i);
-            if(tab.contains(x,y)){matrixMode_=i==1;return true;}
+    if(page==EditorPage::Synth){
+        if(synthWorkspace_==0){
+            opSurface.view=surface;
+            if(opSurface.down(x,y)){
+                activeHit_=Hit{HitKind::OperatorSelect,-1,-1,{}};
+                return true;
+            }
+        }else if(synthWorkspace_==1){
+            filterSurface.view=surface;
+            if(filterSurface.down(x,y)){
+                activeHit_=Hit{HitKind::FilterEditor,-1,-1,{}};
+                return true;
+            }
+        }else{
+            for(int i=0;i<2;++i){
+                const float w=(surface.w-31.0f)*.5f;
+                const Rect sub{surface.x+12.0f+i*(w+7.0f),
+                    surface.y+5.0f,w,55.0f};
+                if(sub.contains(x,y)){ampSubtab_=i;return true;}
+            }
+            const Rect editor{surface.x,surface.y+55.0f+gap,
+                surface.w,std::max(0.0f,surface.h-55.0f-gap)};
+            if(ampSubtab_==0){
+                unisonSurface.ampMode=true;
+                unisonSurface.view=editor;
+                if(unisonSurface.down(x,y)){
+                    activeHit_=Hit{HitKind::UnisonEditor,-1,-1,{}};
+                    return true;
+                }
+            }else{
+                ampModSurface.view=editor;
+                if(ampModSurface.down(x,y)){
+                    activeHit_=Hit{HitKind::AmpModEditor,-1,-1,{}};
+                    return true;
+                }
+            }
         }
-        if(opSurface.down(x,y)){activeHit_=Hit{HitKind::OperatorSelect,-1,-1,{}};return true;}
-        // The hidden six-card controls must never receive touches in the
-        // new operator editor viewport.
-        if(bodyRect().contains(x,y))return true;
+        // The retired six-card controls and FM matrix cannot receive taps.
+        if(b.contains(x,y))return true;
     }
-    activeHit_=page==EditorPage::Synth
-        ?hitSynth(x,y)
-        :hitFx(x,y);
-
+    activeHit_=hitFx(x,y);
     if(activeHit_){
         changed_=applyHit(*activeHit_,x,y)||changed_;
         return true;
@@ -2910,33 +2664,33 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
 }
 
 bool NativeEditor::applyKineticScrollDelta(float delta) noexcept {
-    if(activePage_==EditorPage::Synth&&!matrixMode_){
-        if(opSurface.page<4){
-            const float old=opSurface.scroll[opSurface.op][opSurface.page];
-            opSurface.scrollBy(delta);
-            return old!=opSurface.scroll[opSurface.op][opSurface.page];
-        }
-        if(opSurface.page==5){
-            const int index=opSurface.harmonicView==2?1:0;
-            const float old=opSurface.harmonicScroll[opSurface.op][index];
-            opSurface.scrollBy(delta);
-            return old!=opSurface.harmonicScroll[opSurface.op][index];
+    if(activePage_==EditorPage::Synth){
+        if(synthWorkspace_==0){
+            if(opSurface.page<4){
+                const float old=opSurface.scroll[opSurface.op][opSurface.page];
+                opSurface.scrollBy(delta);
+                return old!=opSurface.scroll[opSurface.op][opSurface.page];
+            }
+            if(opSurface.page==5){
+                const int i=opSurface.harmonicView==2?1:0;
+                const float old=opSurface.harmonicScroll[opSurface.op][i];
+                opSurface.scrollBy(delta);
+                return old!=opSurface.harmonicScroll[opSurface.op][i];
+            }
+        }else if(synthWorkspace_==1){
+            const float old=filterSurface.scroll;
+            filterSurface.scrollBy(delta);
+            return old!=filterSurface.scroll;
+        }else if(ampSubtab_==0){
+            const float old=unisonSurface.scroll;
+            unisonSurface.scrollBy(delta);
+            return old!=unisonSurface.scroll;
         }
         return false;
     }
-    if(activePage_==EditorPage::Fx&&fxWorkspace_==0){
-        const float old=filterSurface.scroll;
-        filterSurface.scrollBy(delta);
-        return old!=filterSurface.scroll;
-    }
-    if(activePage_==EditorPage::Fx&&(fxWorkspace_==1||fxWorkspace_==2)){
-        const float old=unisonSurface.scroll;
-        unisonSurface.scrollBy(delta);
-        return old!=unisonSurface.scroll;
-    }
-    const float old=activePage_==EditorPage::Synth?synthScrollY_:fxScrollY_;
-    scrollEditor(activePage_,delta);
-    return old!=(activePage_==EditorPage::Synth?synthScrollY_:fxScrollY_);
+    const float old=fxScrollY_;
+    scrollEditor(EditorPage::Fx,delta);
+    return old!=fxScrollY_;
 }
 void NativeEditor::advanceKineticScrolling(float dt) noexcept {
     if(!kineticScroll_.active())return;
@@ -2953,17 +2707,21 @@ bool NativeEditor::pointerMove(float x,float y){
     }
 
     if(!activeHit_)return false;
-    if(activePage_==EditorPage::Fx&&
+    if(activePage_==EditorPage::Synth&&
        activeHit_->kind==HitKind::FilterEditor){
         filterSurface.move(x,y);return true;
     }
-    if(activePage_==EditorPage::Fx&&
+    if(activePage_==EditorPage::Synth&&
        activeHit_->kind==HitKind::UnisonEditor){
         unisonSurface.move(x,y);return true;
     }
-    if(activePage_==EditorPage::Synth&&!matrixMode_&&
+    if(activePage_==EditorPage::Synth&&synthWorkspace_==0&&
        activeHit_->kind==HitKind::OperatorSelect){
         opSurface.move(x,y);return true;
+    }
+    if(activePage_==EditorPage::Synth&&
+       activeHit_->kind==HitKind::AmpModEditor){
+        ampModSurface.move(x,y);return true;
     }
     switch(activeHit_->kind){
         case HitKind::OperatorParam:
@@ -2980,15 +2738,18 @@ bool NativeEditor::pointerMove(float x,float y){
 }
 
 bool NativeEditor::pointerUp(){
-    if(activePage_==EditorPage::Fx&&activeHit_&&
+    if(activePage_==EditorPage::Synth&&activeHit_&&
        activeHit_->kind==HitKind::FilterEditor)
         changed_=filterSurface.up()||changed_;
-    if(activePage_==EditorPage::Fx&&activeHit_&&
+    if(activePage_==EditorPage::Synth&&activeHit_&&
        activeHit_->kind==HitKind::UnisonEditor)
         changed_=unisonSurface.up()||changed_;
-    if(activePage_==EditorPage::Synth&&!matrixMode_&&activeHit_&&
+    if(activePage_==EditorPage::Synth&&synthWorkspace_==0&&activeHit_&&
        activeHit_->kind==HitKind::OperatorSelect)
         changed_=opSurface.up()||changed_;
+    if(activePage_==EditorPage::Synth&&activeHit_&&
+       activeHit_->kind==HitKind::AmpModEditor)
+        changed_=ampModSurface.up()||changed_;
     const bool changed=changed_;
     activeHit_.reset();
     if(scrolling_)kineticScroll_.end(kineticClockMs());

@@ -143,6 +143,7 @@ public:
     bool setSelectedEvolvingFilter(const EvolvingFilter& model);
     bool setSelectedUnisonCurve(const OperatorCurve& curve);
     bool setSelectedMasterAmpCurve(const OperatorCurve& curve);
+    bool setSelectedAmpMod(int slot,const OperatorResponse& response);
     bool setSelectedPeakEnabled(bool enabled);
     bool setSelectedPeakFollowNote(bool followNote);
     bool setSelectedLfoTarget(LfoTarget target);
