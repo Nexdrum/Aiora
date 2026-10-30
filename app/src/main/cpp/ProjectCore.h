@@ -136,6 +136,8 @@ public:
     bool setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel);
     bool setSelectedKeyMapRange(int lowMidi,int highMidi);
     bool setSelectedOperatorWave(int opIndex, Wave wave, bool morph = false);
+    bool setSelectedWaveInteraction(int opIndex,WaveInteraction mode);
+    bool setSelectedWaveMorphRatio(int opIndex,float ratio);
     bool setSelectedTexturePitched(int opIndex,bool pitched,bool morph=false);
     bool setSelectedTextureParam(int opIndex,int parameter,float value,bool morph=false);
     bool setSelectedTextureSource(int opIndex,int source,bool morph=false);

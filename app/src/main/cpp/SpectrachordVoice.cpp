@@ -11,6 +11,20 @@ namespace {
 constexpr float kPi=3.14159265358979323846f;
 constexpr float kTwoPi=6.28318530717958647692f;
 constexpr float kEps=1.0e-6f;
+constexpr float kWaveInteractionMaxIndex=4.0f;
+float noiseCell(uint32_t cell,uint32_t seed) noexcept {
+    uint32_t x=cell^seed;
+    x^=x>>16;x*=0x7feb352du;
+    x^=x>>15;x*=0x846ca68bu;x^=x>>16;
+    return static_cast<float>(x>>8)*(2.0f/16777216.0f)-1.0f;
+}
+float wrapPhase(float p) noexcept {
+    // All call sites change phase by less than one full cycle per sample.
+    // Avoid an expensive fmod in the real-time audio callback.
+    if(p>=kTwoPi)p-=kTwoPi;
+    if(p<0.0f)p+=kTwoPi;
+    return p;
+}
 float secondsToSamples(float seconds,float sr) noexcept { return std::max(1.0f,seconds*sr); }
 
 // Iterative inverse FFT: build one oscillator cycle from the 128-partial
@@ -323,7 +337,9 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
         unisonTimeline_.reset(patch_.unisonCurve,true);
         unisonSmoothed_=std::clamp(patch_.unisonCurve.points[0].value,0.0f,1.0f);
     }else unisonSmoothed_=fixedUnison_;
-    rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);phase_={};lastOp_={};lfoPhase_=0;lfoAge_=0;peak_.reset();peakReady_=false;
+    rng_^=static_cast<uint32_t>(id*747796405u+midi*2891336453u);
+    noiseSeed_=rng_?rng_:0x91e10da5u;
+    phase_={};morphPhase_={};noiseCursor_={};lastOp_={};lfoPhase_=0;lfoAge_=0;peak_.reset();peakReady_=false;
     // Tables were generated once off the audio callback during patch
     // preparation. Here only per-note phase state is initialized.
     for(size_t i=0;i<6;++i){
@@ -343,6 +359,7 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
             phase_[i][u]=angle;
         }
     }
+    morphPhase_=phase_;
     if(patch_.filter.evolving.configured){
         for(int k=0;k<6;++k)
             filterTimeline_[k].reset(patch_.filter.evolving.lanes[k].curve,true);
@@ -396,11 +413,43 @@ float SpectrachordVoice::hissSample(size_t index,int unisonVoice,float pitchHz) 
 }
 float SpectrachordVoice::textureSample(
     Wave wave,const TextureParams& params,bool pitched,size_t index,
-    int unisonVoice,bool alternate,float pitchHz,float oscillatorPhase) noexcept {
-    if(wave==Wave::Hiss)return hissSample(index,unisonVoice,pitchHz);
-    if(wave==Wave::Noise){
-        if(pitched)return hissSample(index,unisonVoice,pitchHz);
-        return noise(); // preserve historical Noise exactly
+    int unisonVoice,bool alternate,float pitchHz,float oscillatorPhase,
+    float phaseOffset,bool modulatedCarrier,float nominalFrequency) noexcept {
+    // Every texture is evaluated by its existing procedural generator.
+    // Only the FM/PM carrier path provides alternate frequency/phase inputs.
+    const float base=pitched?pitchHz:
+        ((modulatedCarrier||alternate)?115.0f*pitchHz/
+            std::max(1.0f,nominalFrequency):115.0f);
+    const auto timeNoise=[&]()->float {
+        auto& cursor=noiseCursor_[index][static_cast<size_t>(unisonVoice)]
+                                 [alternate?1u:0u];
+        const float factor=pitched?8.5f:16.0f;
+        const double t=cursor+static_cast<double>(phaseOffset/kTwoPi*factor);
+        const double integer=std::floor(t);
+        const uint32_t cell=static_cast<uint32_t>(static_cast<int64_t>(integer));
+        float q=static_cast<float>(t-integer);
+        q=q*q*(3.0f-2.0f*q);
+        const uint32_t seed=noiseSeed_^static_cast<uint32_t>(
+            (index+1)*0x9e3779b9u+(unisonVoice+1)*0x85ebca6bu+
+            (alternate?0xc2b2ae35u:0u));
+        const float a=noiseCell(cell,seed),b=noiseCell(cell+1u,seed);
+        cursor+=static_cast<double>(base)*factor/sampleRate_;
+        return a+(b-a)*q;
+    };
+    if(wave==Wave::Hiss||wave==Wave::Noise){
+        if(!modulatedCarrier){
+            if(pitched||wave==Wave::Hiss)return hissSample(index,unisonVoice,pitchHz);
+            return noise(); // bit-identical CF/RM historical Noise path
+        }
+        const float sample=timeNoise();
+        if(!pitched&&wave!=Wave::Hiss)return sample;
+        const float cutoff=std::clamp(std::fabs(pitchHz)*8.5f,
+                                     100.0f,sampleRate_*0.42f);
+        const float omega=kTwoPi*cutoff;
+        const float alpha=omega/(omega+sampleRate_);
+        float& filtered=hissState_[index][static_cast<size_t>(unisonVoice)];
+        filtered+=alpha*(sample-filtered);
+        return filtered;
     }
     auto& state=textureState_[index][static_cast<size_t>(unisonVoice)]
                               [alternate?1u:0u];
@@ -412,24 +461,29 @@ float SpectrachordVoice::textureSample(
     const float chaos=custom?params.chaos:0.45f;
     const int source=custom?static_cast<int>(params.source):
         (wave==Wave::Grain?1:wave==Wave::Rasp?3:2);
-    const float base=pitched?pitchHz:115.0f;
-    // Pitched follows the full operator pitch path. Random uses a
-    // note-independent rate, but still has randomized internal events.
-    const float rate=std::clamp(base*(0.18f+density*2.0f),
-                                5.0f,sampleRate_*0.35f);
-    const float r=noise();
+    const float rate=modulatedCarrier?
+        std::clamp(base*(0.18f+density*2.0f),
+                   -sampleRate_*0.35f,sampleRate_*0.35f):
+        std::clamp(base*(0.18f+density*2.0f),5.0f,sampleRate_*0.35f);
+    const float pmCycles=phaseOffset/kTwoPi;
+    const float pmDelta=modulatedCarrier?pmCycles-state.pmPrevious:0.0f;
+    state.pmPrevious=modulatedCarrier?pmCycles:0.0f;
+    const float r=source==0&&modulatedCarrier?timeNoise():noise();
     if(source==0){ // colored stochastic excitation
         const float alpha=std::clamp(
-            (pitched?base*(1.0f+color*7.5f):120.0f+color*18000.0f)/
-                sampleRate_,0.002f,.48f);
+            (pitched?std::fabs(base)*(1.0f+color*7.5f):
+                120.0f+color*18000.0f)/sampleRate_,0.002f,.48f);
         state.filtered+=alpha*(r-state.filtered);
         return state.filtered*1.8f;
     }
     if(source==1){ // sample-and-hold grains, with adjustable smoothing
-        const float grainHz=std::clamp(rate*(0.5f+4.0f*(1.0f-size)),
-                                       4.0f,sampleRate_*.40f);
-        state.phase+=grainHz/sampleRate_;
-        if(state.phase>=1.0f){
+        const float grainHz=modulatedCarrier?
+            std::clamp(rate*(0.5f+4.0f*(1.0f-size)),
+                -sampleRate_*.40f,sampleRate_*.40f):
+            std::clamp(rate*(0.5f+4.0f*(1.0f-size)),
+                4.0f,sampleRate_*.40f);
+        state.phase+=grainHz/sampleRate_+pmDelta;
+        if(state.phase>=1.0f||state.phase<0.0f){
             state.phase-=std::floor(state.phase);
             state.held=noise();
         }
@@ -438,30 +492,34 @@ float SpectrachordVoice::textureSample(
         return state.held*(1.0f-size*.68f)+state.filtered*size*.68f;
     }
     if(source==2){ // impulse-driven metallic resonators
-        state.phase+=rate/sampleRate_;
-        if(state.phase>=1.0f){
+        state.phase+=rate/sampleRate_+pmDelta;
+        if(state.phase>=1.0f||state.phase<0.0f){
             state.phase-=std::floor(state.phase);
             state.ring+=(0.45f+chaos*.55f)*r;
         }
-        const float ringHz=std::clamp(base*(1.0f+resonance*.6f),
-                                      1.0f,sampleRate_*.37f);
+        const float ringHz=modulatedCarrier?
+            std::clamp(base*(1.0f+resonance*.6f),
+                -sampleRate_*.37f,sampleRate_*.37f):
+            std::clamp(base*(1.0f+resonance*.6f),
+                1.0f,sampleRate_*.37f);
         const float decay=1.0f-(0.00035f+0.012f*(1.0f-size));
         state.ring=std::clamp(state.ring*decay,-1.0f,1.0f);
-        // Inharmonic beating defines the Clang family.
-        state.color+=ringHz*6.28318530718f/sampleRate_;
-        if(state.color>=6.28318530718f)state.color-=6.28318530718f;
-        const float metal=std::sin(state.color)+
-            .47f*std::sin(state.color*1.41421356f)+
-            .24f*std::sin(state.color*2.7182818f);
+        state.color+=ringHz*kTwoPi/sampleRate_;
+        if(state.color>=kTwoPi)state.color-=kTwoPi;
+        if(state.color<0.0f)state.color+=kTwoPi;
+        const float angle=state.color+phaseOffset;
+        const float metal=std::sin(angle)+
+            .47f*std::sin(angle*1.41421356f)+
+            .24f*std::sin(angle*2.7182818f);
         return state.ring*metal*.57f;
     }
-    // Stick/slip friction: coherent fundamental with random abrasion.
+    // Stick/slip friction: coherent oscillator with random abrasion.
     const float frictionPhase=pitched?oscillatorPhase:
-        (state.phase+=rate/sampleRate_*6.28318530718f);
-    if(!pitched&&state.phase>=6.28318530718f)
-        state.phase-=6.28318530718f;
-    const float edge=std::sin(frictionPhase+
-        chaos*.8f*r+resonance*.5f*std::sin(frictionPhase*3.0f));
+        (state.phase+=rate/sampleRate_*kTwoPi);
+    if(!pitched)state.phase=wrapPhase(state.phase);
+    const float angle=frictionPhase+phaseOffset;
+    const float edge=std::sin(angle+
+        chaos*.8f*r+resonance*.5f*std::sin(angle*3.0f));
     state.filtered+=(.03f+size*.18f)*(r-state.filtered);
     return std::clamp(edge*(.7f+.3f*resonance)+
                       state.filtered*chaos*.55f,-1.0f,1.0f);
@@ -471,7 +529,7 @@ float SpectrachordVoice::waveSample(
     if(wave==Wave::Noise)return noise();
     // Pick the highest available harmonic-resolution table whose highest
     // partial remains below Nyquist at the actual post-FM frequency.
-    const float permitted=(sampleRate_*0.48f)/std::max(0.001f,frequency);
+    const float permitted=(sampleRate_*0.48f)/std::max(0.001f,std::fabs(frequency));
     if(permitted<1.0f)return 0.0f;
     size_t level=0;
     while(level+1<kWaveTableLevels&&
@@ -568,35 +626,94 @@ float SpectrachordVoice::render() noexcept {
             const float unboundedHz=baseF*std::pow(2.0f,cents/1200.0f);
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
-            float&ph=phase_[i][u];
+            float& ph=phase_[i][u];
+            float& altPhase=morphPhase_[i][u];
+            const float altRatio=std::clamp(op.waveMorphRatio,0.125f,16.0f);
+            const float altFrequency=std::clamp(f*altRatio,0.001f,maxHz);
+            const Wave alternate=effectiveWaveMorph(op);
+            const auto secondaryParams=op.waveMorphConfigured?
+                op.textureMorph:op.texture;
+            const bool secondaryPitched=op.waveMorphConfigured?
+                op.textureMorphPitched:op.texturePitched;
             const auto bankSample=[&](Wave wave,
-                const SharedSpectralBank& tables,
-                const TextureParams& params,bool pitched,bool alternate)->float {
+                const SharedSpectralBank& tables,const TextureParams& params,
+                bool pitched,bool alternateBank,float frequency,float phase,
+                float phaseOffset=0.0f,bool modulatedCarrier=false)->float {
                 if(isTextureWave(wave))
-                    return textureSample(wave,params,pitched,i,u,alternate,f,ph);
-                return tables?waveSample(wave,*tables,ph,f):0.0f;
+                    return textureSample(wave,params,pitched,i,u,alternateBank,
+                        frequency,phase,phaseOffset,modulatedCarrier,f);
+                return tables?waveSample(wave,*tables,
+                    phaseOffset==0.0f?phase:wrapPhase(phase+phaseOffset),
+                    frequency):0.0f;
             };
-            float sample=bankSample(op.wave,P.spectralBanks.primary[i],
-                                    op.texture,op.texturePitched,false);
-            if(waveMorph>0.0f){
-                const Wave alternate=effectiveWaveMorph(op);
-                const bool distinct=alternate!=op.wave||
-                    (alternate==Wave::Custom&&op.hasHarmMute)||
-                    (isTextureWave(alternate)&&
-                     (op.textureMorphPitched!=op.texturePitched||
-                      alternate==Wave::TextureCustom));
-                if(distinct){
-                    const float alternateSample=bankSample(
-                        alternate,P.spectralBanks.alternate[i],
-                        op.waveMorphConfigured?op.textureMorph:op.texture,
-                        op.waveMorphConfigured?op.textureMorphPitched:op.texturePitched,
-                        true);
-                    sample+=(alternateSample-sample)*waveMorph;
+            const auto primary=[&](float hz,float offset,bool modulation)->float {
+                return bankSample(op.wave,P.spectralBanks.primary[i],
+                    op.texture,op.texturePitched,false,hz,ph,offset,modulation);
+            };
+            const auto secondary=[&](float hz,float phase)->float {
+                return bankSample(alternate,P.spectralBanks.alternate[i],
+                    secondaryParams,secondaryPitched,true,hz,phase);
+            };
+            const auto secondaryPhase=altRatio==1.0f?ph:altPhase;
+            float sample=0.0f;
+            float phaseFrequency=f;
+            switch(op.waveInteraction){
+                case WaveInteraction::CF:{
+                    // Exactly preserve the historical linear crossfade at
+                    // the default 1:1 ratio, including legacy noise PRNG.
+                    sample=primary(f,0.0f,false);
+                    if(waveMorph>0.0f){
+                        const bool distinct=alternate!=op.wave||
+                            (alternate==Wave::Custom&&op.hasHarmMute)||
+                            (isTextureWave(alternate)&&
+                             (op.textureMorphPitched!=op.texturePitched||
+                              alternate==Wave::TextureCustom))||
+                            altRatio!=1.0f;
+                        if(distinct){
+                            const float other=secondary(altFrequency,secondaryPhase);
+                            sample+=(other-sample)*waveMorph;
+                        }
+                    }
+                    break;
+                }
+                case WaveInteraction::RM:{
+                    sample=primary(f,0.0f,false);
+                    if(waveMorph>0.0f){
+                        const float mod=std::clamp(
+                            secondary(altFrequency,secondaryPhase),-1.0f,1.0f);
+                        sample*=1.0f-waveMorph+waveMorph*mod;
+                    }
+                    break;
+                }
+                case WaveInteraction::FM:
+                case WaveInteraction::PM:{
+                    // Wave 2 is evaluated using its existing formula at its
+                    // own oscillator ratio. Its sample is substituted directly
+                    // into the carrier's frequency or phase equation.
+                    float modulation=0.0f;
+                    if(waveMorph>0.0f){
+                        modulation=std::clamp(
+                            secondary(altFrequency,secondaryPhase),-1.0f,1.0f);
+                    }
+                    if(op.waveInteraction==WaveInteraction::FM){
+                        const float deviation=kWaveInteractionMaxIndex*
+                            altFrequency*waveMorph*modulation;
+                        // Signed instantaneous frequency is legitimate FM;
+                        // a negative value reverses phase accumulation.
+                        phaseFrequency=std::clamp(f+deviation,-maxHz,maxHz);
+                        sample=primary(phaseFrequency,0.0f,waveMorph>0.0f);
+                    }else{
+                        const float offset=kWaveInteractionMaxIndex*
+                            waveMorph*modulation;
+                        sample=primary(f,offset,waveMorph>0.0f);
+                    }
+                    break;
                 }
             }
             opSum+=dynamicUnison&&u==1?sample*unison:sample;
-            ph+=kTwoPi*f/sampleRate_;
-            if(ph>=kTwoPi)ph-=kTwoPi;
+            ph=wrapPhase(ph+kTwoPi*phaseFrequency/sampleRate_);
+            // Keep Wave 2 phase continuous even at zero morph depth.
+            altPhase=wrapPhase(altPhase+kTwoPi*altFrequency/sampleRate_);
         }
         // A localized 1 ms smoothstep removes the potential discontinuity
         // of a random nonzero phase at note-on. Existing operators retain

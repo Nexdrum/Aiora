@@ -748,6 +748,25 @@ struct OpSurface {
                 (texture?kWaveformLabels[std::clamp(static_cast<int>(bank),0,10)]:
                  std::string("Select"))+" v",
                 textPreset,.72f,overlayColor(texture?kBg:kWhite));
+            // Shared Wave Interaction selector and independent Wave 2 ratio.
+            const auto modeRect=rect(10,2),ratioRect=rect(10,3);
+            button(modeRect,false,true);
+            text(std::string("Mode ")+kWaveInteractionLabels[
+                    static_cast<size_t>(o.waveInteraction)]+" v",
+                modeRect,.71f);
+            button(ratioRect,false,true);
+            char ratioText[32];
+            std::snprintf(ratioText,sizeof(ratioText),"W2 x%.2f",
+                static_cast<double>(o.waveMorphRatio));
+            text(ratioText,ratioRect,.69f);
+            const float ratioNorm=std::clamp(
+                (std::log2(std::clamp(o.waveMorphRatio,.125f,16.0f))+3.0f)/7.0f,
+                0.0f,1.0f);
+            ov.addRect({ratioRect.x+7.0f,ratioRect.y+ratioRect.h-8.0f,
+                std::max(1.0f,ratioRect.w-14.0f),3.0f},overlayColor(kMuted));
+            ov.addRect({ratioRect.x+7.0f,ratioRect.y+ratioRect.h-8.0f,
+                std::max(1.0f,(ratioRect.w-14.0f)*ratioNorm),3.0f},
+                overlayColor(kPurple));
             for(int mode=0;mode<2;++mode){
                 const auto r=rect(10,mode);
                 const bool active=texture?(mode==0?pitched:bank==Wave::TextureCustom):
@@ -1089,6 +1108,7 @@ struct OpSurface {
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
         if(page==5){
+            if(rect(10,3).contains(x,y)){drag=-13;return move(x,y);}
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
             const bool morph=harmonicView==2;
             if(isTextureWave(bank)){
@@ -1200,6 +1220,16 @@ struct OpSurface {
             changed=(harmonicPhaseView?
                 project.setSelectedHarmonicPhase(op,i,amount,harmonicView==2):
                 project.setSelectedHarmonic(op,i,amount,harmonicView==2))||changed;
+            return true;
+        }
+        if(drag==-13){
+            const auto r=rect(10,3);
+            const float norm=std::clamp(
+                (x-r.x-7.0f)/std::max(1.0f,r.w-14.0f),0.0f,1.0f);
+            float ratio=std::pow(2.0f,-3.0f+7.0f*norm);
+            if(std::fabs(ratio-1.0f)<.06f)ratio=1.0f;
+            changed=ProjectCore::instance().setSelectedWaveMorphRatio(
+                op,ratio)||changed;
             return true;
         }
         if(drag==-12){
@@ -2430,6 +2460,17 @@ bool NativeEditor::openDropdownAt(
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
     if(y<tab.y+tab.h+gap||y>=b.y+b.h)return false;
+    const auto modeRect=opSurface.rect(10,2);
+    if(modeRect.contains(x,y)){
+        const auto p=ProjectCore::instance().selectedPatch();
+        std::vector<std::string> modes{"CF - Crossfade",
+            "PM - Phase","FM - Frequency","RM - Ring"};
+        ui.openDropdown(DropdownKind::WaveInteraction,opSurface.op,
+            anchor(modeRect),
+            static_cast<int>(p.ops[static_cast<size_t>(opSurface.op)].waveInteraction),
+            std::move(modes));
+        return true;
+    }
     const auto waveRect=opSurface.rect(15);
     const auto textureRect=opSurface.rect(16);
     const bool tonal=waveRect.contains(x,y);
@@ -2460,6 +2501,11 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
                choice.option>=static_cast<int>(kAvailableFxTypes.size()))return false;
             fxRackNewType_=kAvailableFxTypes[static_cast<size_t>(choice.option)];
             return false;
+        case DropdownKind::WaveInteraction:
+            if(choice.context<0||choice.context>=6||
+               choice.option<0||choice.option>=4)return false;
+            return project.setSelectedWaveInteraction(choice.context,
+                static_cast<WaveInteraction>(choice.option));
         case DropdownKind::Wave:
         case DropdownKind::Texture:
             if(choice.context<0||choice.context>=12||choice.option<0||

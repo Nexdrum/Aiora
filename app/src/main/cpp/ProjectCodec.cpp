@@ -441,6 +441,8 @@ void writePatch(Writer& w,const Patch& p){
         if(o.waveMorphConfigured){
             w.raw(",\"waveMorph\":");w.string(waveName(o.waveMorph));
         }
+        w.raw(",\"waveInteraction\":");w.number(static_cast<int>(o.waveInteraction));
+        w.raw(",\"waveMorphRatio\":");w.number(o.waveMorphRatio);
         w.raw(",\"texturePitched\":");w.boolean(o.texturePitched);
         w.raw(",\"textureMorphPitched\":");w.boolean(o.textureMorphPitched);
         w.raw(",\"textureParams\":");writeTextureParams(w,o.texture);
@@ -650,6 +652,10 @@ bool readPatch(const Json& src,Patch& p){
             o.waveMorphConfigured=false;
             o.textureMorphPitched=o.texturePitched;
         }
+        o.waveInteraction=static_cast<WaveInteraction>(
+            clampi(num(jo.get("waveInteraction"),0),0,3,0));
+        o.waveMorphRatio=clampf(
+            num(jo.get("waveMorphRatio"),1.0f),0.125f,16.0f,1.0f);
         const auto readTexture=[&](const Json* raw,TextureParams& t){
             if(!raw||raw->type!=Json::Type::Object)return;
             t.source=static_cast<uint8_t>(clampi(num(raw->get("source"),t.source),0,3,t.source));

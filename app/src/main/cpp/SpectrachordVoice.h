@@ -59,7 +59,8 @@ private:
     float hissSample(size_t index, int unisonVoice, float pitchHz) noexcept;
     float textureSample(Wave wave,const TextureParams& params,bool pitched,
         size_t index,int unisonVoice,bool alternate,float pitchHz,
-        float oscillatorPhase) noexcept;
+        float oscillatorPhase,float phaseOffset=0.0f,
+        bool modulatedCarrier=false,float nominalFrequency=115.0f) noexcept;
     float waveSample(Wave wave,const SpectralWaveTables& tables,
         float phase,float frequency) noexcept;
     bool active_{false};
@@ -82,12 +83,17 @@ private:
     float filterFrequencySmoothed_{1000.0f},filterGainSmoothed_{0.0f},filterQSmoothed_{.5f};
     std::array<float,3> filterShapeSmoothed_{{0,1,0}};
     std::array<std::array<float,2>,6> phase_{};
+    // Wave 2 has an independent oscillator when a non-unity ratio is used.
+    std::array<std::array<float,2>,6> morphPhase_{};
+    // Only FM/PM noise carriers need a time-addressable stochastic waveform.
+    std::array<std::array<std::array<double,2>,2>,6> noiseCursor_{};
     std::array<float,6> lastOp_{};
     // Immutable band-limited cycles are referenced through patch_.
     // Voice start performs no FFT and copies no waveform samples.
     std::array<std::array<float,2>,6> hissState_{};
     struct TextureState {
         float phase{0},held{0},filtered{0},ring{0},color{0};
+        float pmPrevious{0};
     };
     // Independent primary/morph procedural generators; no audio allocations.
     std::array<std::array<std::array<TextureState,2>,2>,6> textureState_{};
@@ -95,6 +101,7 @@ private:
     float peakCenterSmoothed_{220.0f},peakQSmoothed_{1.0f},peakGainSmoothed_{0.0f};
     bool peakReady_{false};
     uint32_t rng_{0x91e10da5u};
+    uint32_t noiseSeed_{0x91e10da5u};
     float lfoPhase_{0.0f};
     float lfoAge_{0.0f};
     float modValue_{0.0f};

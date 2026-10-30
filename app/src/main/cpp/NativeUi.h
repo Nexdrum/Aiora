@@ -83,6 +83,7 @@ enum class DropdownKind : int {
     Patch,
     Wave,
     Texture,
+    WaveInteraction,
     LfoTarget,
     FxType,
     MasterFxType

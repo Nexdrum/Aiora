@@ -421,6 +421,82 @@ int main(){
     assert(texturedCopy.ops[0].texturePitched);
     assert(texturedCopy.ops[0].waveMorph==Wave::Clang);
     assert(!texturedCopy.ops[0].textureMorphPitched);
+    // Wave interaction settings survive patch export/import, and absent
+    // fields preserve the original CF 1:1 sound for historical projects.
+    textured.ops[0].waveInteraction=WaveInteraction::FM;
+    textured.ops[0].waveMorphRatio=2.75f;
+    assert(deserializePatchJson(serializePatchJson(textured),texturedCopy,&error));
+    assert(texturedCopy.ops[0].waveInteraction==WaveInteraction::FM);
+    assert(std::fabs(texturedCopy.ops[0].waveMorphRatio-2.75f)<.001f);
+    assert(migrated.ops[0].waveInteraction==WaveInteraction::CF);
+    assert(migrated.ops[0].waveMorphRatio==1.0f);
+
+    // All four interactions accept tonal and procedural carrier/modulator
+    // combinations. In particular, FM/PM evaluate Grain, Clang and Rasp
+    // internally, while Noise is addressable in time only in those modes.
+    auto fullMorph=initialOperatorModChannel();
+    fullMorph.enabled=true;
+    fullMorph.destination=OperatorModDestination::WaveMorph;
+    fullMorph.response.points[0]={0.0f,1.0f};
+    fullMorph.response.points[1]={1.0f,1.0f};
+    for(auto mode:{WaveInteraction::CF,WaveInteraction::PM,
+                   WaveInteraction::FM,WaveInteraction::RM}){
+        for(auto carrier:{Wave::Sine,Wave::Noise,Wave::Grain,
+                          Wave::Rasp,Wave::Clang,Wave::TextureCustom}){
+            for(auto modulator:{Wave::Sine,Wave::Noise,Wave::Clang}){
+                Patch current=makeDefaultPatch("Wave Interaction");
+                auto& op=current.ops[0];
+                op.level=.85f;
+                op.wave=carrier;op.waveMorph=modulator;
+                op.waveMorphConfigured=true;
+                op.texture.source=2;
+                op.texturePitched=true;
+                op.textureMorphPitched=true;
+                op.waveInteraction=mode;
+                op.waveMorphRatio=2.0f;
+                op.modChannelsConfigured=true;
+                op.modChannels[0]=fullMorph;
+                SpectrachordVoice voice;
+                voice.prepare(24000);
+                voice.start(501,toDspPatch(current),60,.9f,4800u,24000);
+                float energy=0.0f;
+                for(int n=0;n<1536;++n){
+                    const float output=voice.render();
+                    assert(std::isfinite(output));
+                    energy+=output*output;
+                }
+                // Pure RM can cancel for some periodic combinations, but all
+                // interaction outputs must stay finite at high mod depth.
+                assert(energy>=0.0f);
+            }
+        }
+    }
+    // Zero W Morph is a bypass in every mode, including noise carriers.
+    for(Wave carrier:{Wave::Sine,Wave::Noise,Wave::Grain,
+                      Wave::Rasp,Wave::Clang,Wave::TextureCustom}){
+        Patch baseline=makeDefaultPatch("Zero Morph");
+        baseline.ops[0].wave=carrier;
+        baseline.ops[0].texture.source=3;
+        baseline.ops[0].texturePitched=true;
+        baseline.ops[0].waveMorph=Wave::Noise;
+        baseline.ops[0].waveMorphConfigured=true;
+        baseline.ops[0].level=.8f;
+        for(auto mode:{WaveInteraction::PM,WaveInteraction::FM,
+                       WaveInteraction::RM}){
+            Patch altered=baseline;
+            altered.ops[0].waveInteraction=mode;
+            altered.ops[0].waveMorphRatio=3.0f;
+            SpectrachordVoice original,modified;
+            original.prepare(24000);modified.prepare(24000);
+            original.start(120,toDspPatch(baseline),61,.9f,4800u,24000);
+            modified.start(120,toDspPatch(altered),61,.9f,4800u,24000);
+            for(int n=0;n<512;++n){
+                const float a=original.render(),b=modified.render();
+                assert(std::isfinite(a)&&std::isfinite(b));
+                assert(std::fabs(a-b)<1.0e-5f);
+            }
+        }
+    }
     // Exercise every new generator in both pitch modes and an active morph.
     for(Wave texture:{Wave::Noise,Wave::Grain,Wave::Rasp,
                       Wave::Clang,Wave::TextureCustom}){

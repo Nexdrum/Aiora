@@ -180,6 +180,9 @@ struct TextureParams {
     float density{0.50f},size{0.35f},color{0.60f};
     float resonance{0.45f},chaos{0.30f};
 };
+enum class WaveInteraction : uint8_t { CF=0, PM=1, FM=2, RM=3 };
+inline constexpr std::array<const char*,4> kWaveInteractionLabels{
+    "CF","PM","FM","RM"};
 struct Operator {
     bool enabled{true};
     // Optional phase variation at note-on; disabled by default.
@@ -189,6 +192,9 @@ struct Operator {
     Wave wave{Wave::Sine};
     Wave waveMorph{Wave::Sine};
     bool waveMorphConfigured{false};
+    WaveInteraction waveInteraction{WaveInteraction::CF};
+    // Wave 2 has its own rate; unity retains the historical in-phase crossfade.
+    float waveMorphRatio{1.0f};
     bool texturePitched{false};
     bool textureMorphPitched{false};
     TextureParams texture{},textureMorph{};

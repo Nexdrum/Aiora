@@ -1844,6 +1844,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
             case aiora::DropdownKind::FxType:
             case aiora::DropdownKind::Wave:
             case aiora::DropdownKind::Texture:
+            case aiora::DropdownKind::WaveInteraction:
             case aiora::DropdownKind::LfoTarget:
                 changed=aiora::NativeEditor::instance().applyDropdownChoice(*choice);
                 break;

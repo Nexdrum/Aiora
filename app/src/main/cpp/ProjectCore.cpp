@@ -862,6 +862,22 @@ bool ProjectCore::setSelectedOperatorRandomPhaseDegrees(int opIndex,float degree
         std::clamp(degrees,0.0f,180.0f);
     return true;
 }
+bool ProjectCore::setSelectedWaveInteraction(int opIndex,WaveInteraction mode){
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();
+    if(!p||opIndex<0||opIndex>=6||
+       static_cast<int>(mode)<0||static_cast<int>(mode)>3)return false;
+    p->ops[static_cast<size_t>(opIndex)].waveInteraction=mode;
+    return true;
+}
+bool ProjectCore::setSelectedWaveMorphRatio(int opIndex,float ratio){
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();
+    if(!p||opIndex<0||opIndex>=6||!std::isfinite(ratio))return false;
+    p->ops[static_cast<size_t>(opIndex)].waveMorphRatio=
+        std::clamp(ratio,0.125f,16.0f);
+    return true;
+}
 bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
     std::scoped_lock lock(mutex_);
     auto* p=selectedPatchUnsafe();
