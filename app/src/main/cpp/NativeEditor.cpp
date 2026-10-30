@@ -509,7 +509,8 @@ struct OpSurface {
     Rect view{};
     Rect rect(int row,int index=0) const {
         const float x=view.x+10,w=view.w-20;
-        const float y=view.y+88;
+        // The Synth page owns the fixed tab strip; no legacy header is needed here.
+        const float y=view.y+12;
         switch(row){
             case 0: {const float ww=(w-25)/6;return {x+index*(ww+5),y,ww,54};}
             // Wider power/phase region makes both side-by-side buttons legible.
@@ -1176,11 +1177,12 @@ struct FilterSurface {
     Rect bar(int row,int i,int n)const{
         const float x=view.x+13,w=view.w-26;
         const float gap=6,cell=(w-gap*(n-1))/n;
-        const float y=view.y+(row==0?89:row==1?153:row==2?216:row==3?279:342);
+        // Compact filter rows begin directly beneath the Synth tab strip.
+        const float y=view.y+(row==0?13:row==1?77:row==2?140:row==3?203:266);
         return {x+i*(cell+gap),y,cell,row==0?54.0f:50.0f};
     }
     Rect graph()const{
-        const float y=view.y+405;
+        const float y=view.y+329;
         return {view.x+70,y,view.w-88,
             std::max(70.0f,view.y+view.h-82-y)};
     }
@@ -1886,14 +1888,14 @@ struct UnisonSurface {
         return ProjectCore::instance().setSelectedUnisonCurve(c);
     }
     Rect ampToggle()const{
-        return {view.x+view.w-165,view.y+90,140,54};
+        return {view.x+view.w-165,view.y+12,140,54};
     }
     Rect control(int i)const{
         const float w=view.w-32,gap=6,cw=(w-5*gap)/6;
-        return {view.x+16+i*(cw+gap),view.y+174,cw,54};
+        return {view.x+16+i*(cw+gap),view.y+96,cw,54};
     }
     Rect graph()const{
-        const float y=view.y+280.0f;
+        const float y=view.y+202.0f;
         return {view.x+75,y,view.w-98,
             std::max(75.0f,view.y+view.h-83-y)};
     }
@@ -1912,7 +1914,7 @@ struct UnisonSurface {
         o.addRect({view.x,view.y,view.w,view.h},overlayColor(kBg));
         o.addText(ampMode?"Master Amp":
             "Unison - per-note detune strength (0 to 100)",
-            view.x+24,view.y+105,.92f,overlayColor(kCyan));
+            view.x+24,view.y+27,.92f,overlayColor(kCyan));
         if(ampMode){
             const auto a=ampToggle();
             const bool active=ProjectCore::instance().selectedPatch().masterAmpCurve.enabled;
@@ -1927,7 +1929,7 @@ struct UnisonSurface {
                 "Flat detune. Drag the line; tap away to add envelope points."):
             (ampMode?"Post-synthesis envelope, independent of operator volume.":
                 "Envelope follows time and releases on note-off."),
-            view.x+24,view.y+140,.82f,overlayColor(kMuted));
+            view.x+24,view.y+62,.82f,overlayColor(kMuted));
         const char* label[6]={"D","R",c.sustain?"S Hold":"Dynamic","-",
                              "Zoom","+"};
         for(int i=0;i<6;++i){
