@@ -559,7 +559,7 @@ std::optional<DropdownChoice> NativeUi::hitDropdown(float x,float y){
 
 NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
     auto r=contentRect();
-    if(page_==NativePage::Tracks||page_==NativePage::Performance)return r;
+    if(page_==NativePage::Tracks)return r;
     const float gap=std::max(5.0f,std::min(width_,height_)*0.007f);
     const float h=trackSwitchRect(0).h;
     r.y+=h+gap;
@@ -568,8 +568,7 @@ NativeUi::Rect NativeUi::bodyContentRect() const noexcept {
 }
 
 NativeUi::Rect NativeUi::pageScrollViewportRect() const noexcept {
-    return (page_==NativePage::Tracks||page_==NativePage::Performance)
-        ?contentRect():bodyContentRect();
+    return page_==NativePage::Tracks?contentRect():bodyContentRect();
 }
 
 NativeUi::Rect NativeUi::pageScrollGutterRect() const noexcept {
@@ -616,6 +615,20 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
         x+=arrowW+gap;
         if(part>=3&&part<=7)
             return {x+(part-3)*(modeW+gap),content.y,modeW,h};
+        return {};
+    }
+
+    if(page_==NativePage::Performance){
+        // Share the standard track arrows/name, reserving a right-hand
+        // control for the Score-only highlighting toggle.
+        const float toggleW=std::clamp(content.w*.20f,94.0f,170.0f);
+        const float middle=std::max(72.0f,
+            content.w-prevW-nextW-toggleW-4.0f*gap);
+        const float x=content.x;
+        if(part==0)return {x,content.y,prevW,h};
+        if(part==1)return {x+prevW+gap,content.y,middle,h};
+        if(part==2)return {x+prevW+gap+middle+gap,content.y,nextW,h};
+        if(part==8)return {content.x+content.w-toggleW,content.y,toggleW,h};
         return {};
     }
 
@@ -1199,14 +1212,14 @@ float NativeUi::performanceHeaderPixels() const noexcept {
 }
 
 float NativeUi::performanceRowPixels() const noexcept {
-    const auto view=contentRect();
+    const auto view=bodyContentRect();
     const float available=std::max(
         1.0f,view.h-performanceHeaderPixels());
     return std::clamp(available/64.0f,14.0f,22.0f);
 }
 
 float NativeUi::performanceStartStep() const noexcept {
-    const auto view=contentRect();
+    const auto view=bodyContentRect();
     const float header=performanceHeaderPixels();
     const float rowH=performanceRowPixels();
     const int visibleRows=std::max(
@@ -1563,7 +1576,7 @@ void NativeUi::scrollPage(float deltaPixels) noexcept {
         drumScrollY_=std::clamp(
             drumScrollY_+deltaPixels,0.0f,maxScroll);
     }else if(page_==NativePage::Performance){
-        const auto view=contentRect();
+        const auto view=bodyContentRect();
         const float header=performanceHeaderPixels();
         const float rowH=performanceRowPixels();
         const int visibleRows=std::max(
@@ -1588,7 +1601,7 @@ void NativeUi::scrollPage(float deltaPixels) noexcept {
 
 bool NativeUi::hitScrollableBody(float x,float y) const noexcept {
     if(page_==NativePage::Performance)
-        return contentRect().contains(x,y);
+        return bodyContentRect().contains(x,y);
     if(page_!=NativePage::Tracks&&page_!=NativePage::Drums)return false;
     return pageScrollGutterRect().contains(x,y);
 }
@@ -1846,6 +1859,24 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
         ov.addDownChevron(
             {padR.x+padR.w-padR.h*0.72f,padR.y,padR.h*0.72f,padR.h},
             overlayColor(kWhite));
+    }
+
+    if(page_==NativePage::Performance){
+        const auto toggle=trackSwitchRect(8);
+        fillRect(toggle,scoreHighlight_?kGreen:kButton);
+        const float rim=3.0f;
+        fillRect({toggle.x+rim,toggle.y+rim,
+            std::max(1.0f,toggle.w-2*rim),
+            std::max(1.0f,toggle.h-2*rim)},
+            scoreHighlight_?mix(kPanel,kGreen,.28f):kRollBg);
+        const char* label=toggle.w<130.0f?
+            (scoreHighlight_?"HL ON":"HL OFF"):
+            (scoreHighlight_?"Highlight ON":"Highlight OFF");
+        ov.addTextCentered(label,
+            {toggle.x+2.0f,toggle.y+2.0f,
+             std::max(1.0f,toggle.w-4.0f),
+             std::max(1.0f,toggle.h-4.0f)},
+            .76f,overlayColor(scoreHighlight_?kGreen:kWhite));
     }
 
     if(page_==NativePage::Roll){
@@ -4008,7 +4039,7 @@ void NativeUi::drawRoll() const noexcept {
 void NativeUi::drawPerformance() const noexcept {
     auto& project=ProjectCore::instance();
     const auto snapshot=project.projectCopy();
-    const auto view=contentRect();
+    const auto view=bodyContentRect();
     const float header=performanceHeaderPixels();
     const float gridTop=view.y+header;
     const float gridBottom=view.y+view.h;
@@ -4021,6 +4052,9 @@ void NativeUi::drawPerformance() const noexcept {
         1,static_cast<int>(std::floor(
             (gridBottom-gridTop)/std::max(1.0f,rowH))));
     const float startStep=performanceStartStep();
+    const int selectedTrack=project.selectedTrack();
+    const bool focus=scoreHighlight_&&
+        selectedTrack>=0&&selectedTrack<static_cast<int>(snapshot.tracks.size());
 
     std::vector<int> columns;
     columns.reserve(121);
@@ -4097,7 +4131,8 @@ void NativeUi::drawPerformance() const noexcept {
 
         const int segments=std::clamp(
             static_cast<int>(std::ceil(length*8.0f)),6,360);
-        (void)sourceTrackIndex;
+        const bool selected=focus&&sourceTrackIndex==selectedTrack;
+        const float opacity=focus?(selected?0.99f:0.24f):0.90f;
         (void)noteIndex;
 
         for(int i=0;i<segments;++i){
@@ -4155,26 +4190,36 @@ void NativeUi::drawPerformance() const noexcept {
             y1=std::clamp(y1,gridTop,gridBottom);
             if(y1<=y0||x1<=x0||x2<=x3)continue;
 
+            // Preserve pitch hues. Focus changes opacity only,
+            // so other instruments remain visible without being muted.
             const auto topColor=
-                overlayColor(rollSpectrumColor(pitch0),0.90f);
+                overlayColor(rollSpectrumColor(pitch0),opacity);
             const auto bottomColor=
-                overlayColor(rollSpectrumColor(pitch1),0.90f);
+                overlayColor(rollSpectrumColor(pitch1),opacity);
             ov.addGradientQuad(
                 x0,y0,x1,y0,x2,y1,x3,y1,
                 topColor,bottomColor);
+            if(selected){
+                // Fine neutral edge accent makes the selected line
+                // identifiable even where two instruments overlap.
+                const auto edge=overlayColor(kWhite,.64f);
+                ov.addLine(x0,y0,x3,y1,0.95f,edge);
+                ov.addLine(x1,y0,x2,y1,0.95f,edge);
+            }
         }
     };
 
-    // Actual notes only: no harmonic shadows in Performance Display.
-    for(int t=0;t<static_cast<int>(snapshot.tracks.size());++t){
+    // Draw non-selected ribbons first. The focused instrument remains
+    // legible in overlapping counterpoint even when it is not the last track.
+    const auto paintTrack=[&](int t){
         const auto& sourceTrack=snapshot.tracks[static_cast<size_t>(t)];
-        for(int n=0;n<static_cast<int>(sourceTrack.notes.size());++n){
-            addPerformanceRibbon(
-                sourceTrack,
-                sourceTrack.notes[static_cast<size_t>(n)],
-                t,n);
-        }
-    }
+        for(int n=0;n<static_cast<int>(sourceTrack.notes.size());++n)
+            addPerformanceRibbon(sourceTrack,
+                sourceTrack.notes[static_cast<size_t>(n)],t,n);
+    };
+    for(int t=0;t<static_cast<int>(snapshot.tracks.size());++t)
+        if(!focus||t!=selectedTrack)paintTrack(t);
+    if(focus)paintTrack(selectedTrack);
 
     // Keep the current transport position fixed near the upper third while
     // follow mode scrolls the score beneath it.
@@ -4224,12 +4269,11 @@ void NativeUi::render() const noexcept {
 
 #include "NativeUiHeader.inl"
 
-    if(page_!=NativePage::Tracks&&page_!=NativePage::Performance)
+    if(page_!=NativePage::Tracks)
         drawTrackSwitchBar();
 
     const auto pageClip=
-        (page_==NativePage::Tracks||page_==NativePage::Performance)
-        ?contentRect():bodyContentRect();
+        page_==NativePage::Tracks?contentRect():bodyContentRect();
     overlay.setClip({pageClip.x,pageClip.y,pageClip.w,pageClip.h});
 
     switch (page_) {
@@ -4319,7 +4363,7 @@ std::optional<NativePage> NativeUi::hitNav(float x, float y) const noexcept {
 }
 
 std::optional<TrackSwitchAction> NativeUi::hitTrackSwitch(float x,float y) const noexcept {
-    if(page_==NativePage::Tracks||page_==NativePage::Performance)
+    if(page_==NativePage::Tracks)
         return std::nullopt;
     if(trackSwitchRect(0).contains(x,y))return TrackSwitchAction::PreviousTrack;
     if(trackSwitchRect(2).contains(x,y))return TrackSwitchAction::NextTrack;
@@ -4335,6 +4379,11 @@ std::optional<TrackSwitchAction> NativeUi::hitTrackSwitch(float x,float y) const
         }
     }
     return std::nullopt;
+}
+
+bool NativeUi::hitScoreHighlight(float x,float y) const noexcept {
+    return page_==NativePage::Performance&&
+        trackSwitchRect(8).contains(x,y);
 }
 
 std::optional<int> NativeUi::hitPitch(float x, float y) const noexcept {

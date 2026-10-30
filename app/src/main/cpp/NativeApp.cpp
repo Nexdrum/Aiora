@@ -1987,6 +1987,13 @@ bool handleUiTap(NativeState& state, float x, float y) {
         return true;
     }
 
+    // Score highlighting is a display-only focus switch. Do not touch
+    // the project, audio graph, or autosave when toggling it.
+    if(state.ui.hitScoreHighlight(x,y)){
+        state.ui.toggleScoreHighlight();
+        return true;
+    }
+
     if(const auto sw=state.ui.hitTrackSwitch(x,y)){
         const int count=project.trackCount();
         if(count>0){

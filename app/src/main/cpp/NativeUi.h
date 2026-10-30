@@ -317,6 +317,9 @@ public:
     [[nodiscard]] std::optional<HeaderAction> hitHeader(float x, float y) const noexcept;
     [[nodiscard]] std::optional<NativePage> hitNav(float x, float y) const noexcept;
     [[nodiscard]] std::optional<TrackSwitchAction> hitTrackSwitch(float x,float y) const noexcept;
+    [[nodiscard]] bool hitScoreHighlight(float x,float y) const noexcept;
+    void toggleScoreHighlight() noexcept {scoreHighlight_=!scoreHighlight_;}
+    [[nodiscard]] bool scoreHighlightEnabled() const noexcept {return scoreHighlight_;}
     [[nodiscard]] std::optional<int> hitPitch(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrack(float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitTrackName(float x,float y) const noexcept;
@@ -496,6 +499,8 @@ private:
     NativePage performanceReturnPage_{NativePage::Roll};
     bool performanceFollow_{true};
     float performanceScrollStep_{0.0f};
+    // Display-only Score focus; never changes note state or playback routing.
+    bool scoreHighlight_{true};
 
     DropdownKind dropdownKind_{DropdownKind::None};
     int dropdownContext_{-1};
