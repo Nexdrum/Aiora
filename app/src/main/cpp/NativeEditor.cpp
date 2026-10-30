@@ -612,6 +612,9 @@ struct OpSurface {
             r.y+pt.time*pixelsPerSecond()-scroll[op][page]};
     }
     bool hitRatio(float x,float y) const {return rect(2).contains(x,y);}
+    bool hitWave2Ratio(float x,float y) const {
+        return page==5&&rect(10,3).contains(x,y);
+    }
     bool hitSemi(float x,float y) const {return rect(3).contains(x,y);}
     bool hitWave(float x,float y) const {return rect(1).contains(x,y);}
     void draw() const {
@@ -756,17 +759,12 @@ struct OpSurface {
                 modeRect,.71f);
             button(ratioRect,false,true);
             char ratioText[32];
-            std::snprintf(ratioText,sizeof(ratioText),"W2 x%.2f",
+            std::snprintf(ratioText,sizeof(ratioText),"%.6g",
                 static_cast<double>(o.waveMorphRatio));
-            text(ratioText,ratioRect,.69f);
-            const float ratioNorm=std::clamp(
-                (std::log2(std::clamp(o.waveMorphRatio,.125f,16.0f))+3.0f)/7.0f,
-                0.0f,1.0f);
-            ov.addRect({ratioRect.x+7.0f,ratioRect.y+ratioRect.h-8.0f,
-                std::max(1.0f,ratioRect.w-14.0f),3.0f},overlayColor(kMuted));
-            ov.addRect({ratioRect.x+7.0f,ratioRect.y+ratioRect.h-8.0f,
-                std::max(1.0f,(ratioRect.w-14.0f)*ratioNorm),3.0f},
-                overlayColor(kPurple));
+            ov.addText("W2 Ratio",ratioRect.x+7.0f,ratioRect.y+4.0f,
+                .68f,overlayColor(kMuted));
+            ov.addText(ratioText,ratioRect.x+7.0f,ratioRect.y+21.0f,
+                .86f,overlayColor(kWhite));
             for(int mode=0;mode<2;++mode){
                 const auto r=rect(10,mode);
                 const bool active=texture?(mode==0?pitched:bank==Wave::TextureCustom):
@@ -1108,7 +1106,9 @@ struct OpSurface {
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
         if(page==5){
-            if(rect(10,3).contains(x,y)){drag=-13;return move(x,y);}
+            // W2 Ratio opens Android's numeric editor before pointerDown,
+            // just like the primary operator Ratio field.
+            if(rect(10,3).contains(x,y))return true;
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
             const bool morph=harmonicView==2;
             if(isTextureWave(bank)){
@@ -1220,16 +1220,6 @@ struct OpSurface {
             changed=(harmonicPhaseView?
                 project.setSelectedHarmonicPhase(op,i,amount,harmonicView==2):
                 project.setSelectedHarmonic(op,i,amount,harmonicView==2))||changed;
-            return true;
-        }
-        if(drag==-13){
-            const auto r=rect(10,3);
-            const float norm=std::clamp(
-                (x-r.x-7.0f)/std::max(1.0f,r.w-14.0f),0.0f,1.0f);
-            float ratio=std::pow(2.0f,-3.0f+7.0f*norm);
-            if(std::fabs(ratio-1.0f)<.06f)ratio=1.0f;
-            changed=ProjectCore::instance().setSelectedWaveMorphRatio(
-                op,ratio)||changed;
             return true;
         }
         if(drag==-12){
@@ -2535,6 +2525,16 @@ std::optional<int> NativeEditor::hitOperatorRatio(float x,float y) const noexcep
     opSurface.view={b.x,top,b.w,std::max(0.0f,b.y+b.h-top)};
     // Do not fall through to retired six-card geometry.
     if(opSurface.hitRatio(x,y))return opSurface.op;
+    return std::nullopt;
+}
+
+std::optional<int> NativeEditor::hitWave2Ratio(float x,float y) const noexcept {
+    if(synthWorkspace_!=0||opSurface.page!=5)return std::nullopt;
+    const auto b=bodyRect(),tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    const float top=tab.y+tab.h+gap;
+    opSurface.view={b.x,top,b.w,std::max(0.0f,b.y+b.h-top)};
+    if(opSurface.hitWave2Ratio(x,y))return opSurface.op;
     return std::nullopt;
 }
 

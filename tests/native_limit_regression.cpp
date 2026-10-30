@@ -387,6 +387,18 @@ int main(){
     assert(drumPlayback->fxBusParent[static_cast<size_t>(kitBus)]==-1);
     drums.reset();
 
+    // The Wave 2 text-entry setter uses the same numeric range as the
+    // previous slider, including sensible clamping at both endpoints.
+    const int numericTrack=drums.addTrack(false);
+    assert(numericTrack>=0&&drums.selectTrack(numericTrack));
+    assert(drums.setSelectedWaveMorphRatio(0,2.75f));
+    assert(std::fabs(drums.selectedPatch().ops[0].waveMorphRatio-2.75f)<1e-5f);
+    assert(drums.setSelectedWaveMorphRatio(0,100.0f));
+    assert(drums.selectedPatch().ops[0].waveMorphRatio==16.0f);
+    assert(drums.setSelectedWaveMorphRatio(0,0.01f));
+    assert(drums.selectedPatch().ops[0].waveMorphRatio==0.125f);
+    drums.reset();
+
 
     // Noise/Hiss legacy patch migration must preserve independently pitched
     // primary and morph endpoints without exposing Hiss as a new selection.

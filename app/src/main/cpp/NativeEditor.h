@@ -47,6 +47,7 @@ public:
         EditorPage page, float x, float y) const noexcept;
     [[nodiscard]] std::optional<int> hitFactoryPreset(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitOperatorRatio(float x,float y) const noexcept;
+    [[nodiscard]] std::optional<int> hitWave2Ratio(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitOperatorSemitone(float x,float y) const noexcept;
     bool openDropdownAt(EditorPage page,float x,float y,NativeUi& ui) const;
     bool applyDropdownChoice(const DropdownChoice& choice);

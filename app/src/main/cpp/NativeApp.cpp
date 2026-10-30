@@ -51,6 +51,7 @@ constexpr int kRequestRenameSong = 4206;
 constexpr int kRequestOperatorRatio = 4203;
 constexpr int kRequestNewProject = 4204;
 constexpr int kRequestOperatorSemitone = 4205;
+constexpr int kRequestWave2Ratio = 4207;
 
 struct PointerVoice {
     int32_t pointerId{-1};
@@ -651,7 +652,8 @@ void serviceDocumentResult(NativeState& state){
     }
 
     if(requestCode==kRequestOperatorRatio||
-       requestCode==kRequestOperatorSemitone){
+       requestCode==kRequestOperatorSemitone||
+       requestCode==kRequestWave2Ratio){
         if(!success)return;
 
         int op=0;
@@ -665,10 +667,16 @@ void serviceDocumentResult(NativeState& state){
         if(!std::isfinite(entered)||op<0||op>=6)return;
 
         auto& project=aiora::ProjectCore::instance();
-        const auto param=requestCode==kRequestOperatorRatio
-            ?aiora::OperatorParam::Ratio
-            :aiora::OperatorParam::Semitone;
-        if(project.setSelectedOperatorParam(op,param,entered)){
+        bool updated=false;
+        if(requestCode==kRequestWave2Ratio){
+            updated=project.setSelectedWaveMorphRatio(op,entered);
+        }else{
+            const auto param=requestCode==kRequestOperatorRatio
+                ?aiora::OperatorParam::Ratio
+                :aiora::OperatorParam::Semitone;
+            updated=project.setSelectedOperatorParam(op,param,entered);
+        }
+        if(updated){
             aiora::AudioEngine::instance().syncProject();
             previewEditorPatch(state);
             scheduleAutosave(state,0);
@@ -1894,6 +1902,24 @@ bool handleUiTap(NativeState& state, float x, float y) {
                 __android_log_print(
                     ANDROID_LOG_WARN,kTag,
                     "operator ratio editor could not start");
+            }
+            return true;
+        }
+
+        if(const auto op=editor.hitWave2Ratio(x,y)){
+            const auto patch=project.selectedPatch();
+            const float ratio=patch.ops[static_cast<size_t>(*op)].waveMorphRatio;
+            char value[32]{};
+            std::snprintf(value,sizeof(value),"%.6g",
+                static_cast<double>(ratio));
+            const std::string title=
+                "Operator "+std::to_string(*op+1)+" Wave 2 ratio";
+            if(!launchNumberEditor(
+                state.app?state.app->activity:nullptr,
+                kRequestWave2Ratio,*op,title.c_str(),value)){
+                __android_log_print(
+                    ANDROID_LOG_WARN,kTag,
+                    "Wave 2 ratio editor could not start");
             }
             return true;
         }
