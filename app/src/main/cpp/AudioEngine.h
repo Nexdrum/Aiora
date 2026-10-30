@@ -59,6 +59,7 @@ private:
         float value{0.8f};
         uintptr_t pointer{0};
         DspPatch patch{};
+        Fx kitFx{}; // Pad preview: drum-track bus after the pad FX
         float gainLeft{1.0f};
         float gainRight{1.0f};
     };
@@ -84,6 +85,7 @@ private:
     SpscQueue<PlaybackSnapshot*, 256> retiredSnapshots_;
     std::deque<VoiceSlot> voices_{};
     FxProcessor previewFx_{};
+    FxProcessor previewKitFx_{};
     FxProcessor masterFx_{};
     int32_t playbackFxCount_{0};
     PlaybackSnapshot* playback_{nullptr};

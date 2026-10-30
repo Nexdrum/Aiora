@@ -28,6 +28,8 @@ struct PlaybackSnapshot {
     float masterVolume{0.9f};
     Fx masterEffects{};
     std::vector<Fx> fxBuses;
+    // A pad FX bus may feed its drum-track FX bus before song master.
+    std::vector<int32_t> fxBusParent;
     std::vector<FxProcessor> preparedFx;
     std::vector<float> scratchLeft,scratchRight;
     std::vector<PlaybackStep> steps;

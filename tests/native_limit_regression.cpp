@@ -1,4 +1,5 @@
 #include "ProjectCore.h"
+#include "PlaybackSnapshot.h"
 #include "ProjectCodec.h"
 #include "FactoryPresets.h"
 #include "NexdrumKit.h"
@@ -358,6 +359,34 @@ int main(){
     assert(again.ops[0].modChannels[0].response.source==1);
     assert(again.filter.evolving.configured);
     assert(again.masterAmpCurve.enabled);
+
+    // FX selection on drum tracks must keep pad, kit, and song racks
+    // independent and feed processed pad buses into the kit bus.
+    auto& drums=ProjectCore::instance();
+    drums.reset();
+    const int drumTrack=drums.addTrack(true);
+    assert(drumTrack>=0&&drums.padCount(drumTrack)>0);
+    assert(drums.selectTrack(drumTrack));
+    assert(drums.addFxStage(false,FxType::Vastrel));
+    assert(drums.addFxStage(false,FxType::Recurra,true));
+    assert(drums.fxRack(false).count==1);
+    assert(drums.fxRack(false,true).count==1);
+    assert(drums.fxRack(true).count==0);
+    const int padMidi=drums.padCenter(drumTrack,0);
+    assert(drums.addNote(drumTrack,padMidi,0.0f,2.0f)>=0);
+    auto drumPlayback=drums.makePlaybackSnapshot();
+    assert(drumPlayback);
+    assert(!drumPlayback->steps[0].events.empty());
+    const int padBus=drumPlayback->steps[0].events[0].fxBus;
+    assert(padBus>=0);
+    assert(padBus<static_cast<int>(drumPlayback->fxBusParent.size()));
+    const int kitBus=drumPlayback->fxBusParent[static_cast<size_t>(padBus)];
+    assert(kitBus>padBus);
+    assert(kitBus<static_cast<int>(drumPlayback->fxBuses.size()));
+    assert(drumPlayback->fxBuses[static_cast<size_t>(kitBus)].count==1);
+    assert(drumPlayback->fxBusParent[static_cast<size_t>(kitBus)]==-1);
+    drums.reset();
+
 
     // Noise/Hiss legacy patch migration must preserve independently pitched
     // primary and morph endpoints without exposing Hiss as a new selection.

@@ -122,12 +122,12 @@ public:
     Fx selectedFx() const;
     DspPatch padDspPatch(int trackIndex, int padIndex) const;
     Fx padFx(int trackIndex, int padIndex) const;
-    Fx fxRack(bool master) const;
-    bool addFxStage(bool master,FxType type);
-    bool removeFxStage(bool master,int index);
-    bool moveFxStage(bool master,int index,int direction);
-    bool setFxStageEnabled(bool master,int index,bool enabled);
-    bool setFxStageParameter(bool master,int index,int parameter,float value);
+    Fx fxRack(bool master,bool drumMaster=false) const;
+    bool addFxStage(bool master,FxType type,bool drumMaster=false);
+    bool removeFxStage(bool master,int index,bool drumMaster=false);
+    bool moveFxStage(bool master,int index,int direction,bool drumMaster=false);
+    bool setFxStageEnabled(bool master,int index,bool enabled,bool drumMaster=false);
+    bool setFxStageParameter(bool master,int index,int parameter,float value,bool drumMaster=false);
 
     bool setSelectedOperatorEnabled(int opIndex, bool enabled);
     bool setSelectedOperatorRandomPhase(int opIndex, bool enabled);
@@ -163,6 +163,7 @@ private:
     bool validNote(int trackIndex, int noteIndex) const noexcept;
     bool rangeFree(int trackIndex, int padIndex, int low, int high) const noexcept;
     bool pitchAllowed(int trackIndex, int midi) const noexcept;
+    Fx* fxTargetUnsafe(bool songMaster,bool drumMaster) noexcept;
     Patch* selectedPatchUnsafe() noexcept;
     const Patch* selectedPatchUnsafe() const noexcept;
 

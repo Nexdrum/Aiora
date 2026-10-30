@@ -91,12 +91,16 @@ struct AmpModSurface {
         if(enableButton().contains(x,y)){
             c.enabled=!c.enabled;changed=save(c);return true;
         }
-        if(!graph().contains(x,y))return true;
-        float closest=24.0f*24.0f;
+        const auto r=graph();
+        if(x<r.x-20.0f||x>r.x+r.w+20.0f||
+           y<r.y-20.0f||y>r.y+r.h+20.0f)return true;
+        float closest=1.0e9f;
         for(int i=0;i<c.count;++i){
-            const auto p=position(c.points[i]);
-            const float d=(p.first-x)*(p.first-x)+(p.second-y)*(p.second-y);
-            if(d<closest){closest=d;drag=i;}
+            const auto pt=position(c.points[i]);
+            const float d=(pt.first-x)*(pt.first-x)+
+                          (pt.second-y)*(pt.second-y);
+            const float radius=(i==0||i==c.count-1)?37.0f:24.0f;
+            if(d<radius*radius&&d<closest){closest=d;drag=i;}
         }
         return true;
     }

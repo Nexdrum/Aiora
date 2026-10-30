@@ -34,6 +34,7 @@ bool AudioEngine::start(){
     while(voices_.size()<96)voices_.emplace_back();
     for(auto&slot:voices_)slot.voice.prepare(static_cast<float>(sr));
     previewFx_.prepare(static_cast<float>(sr),1.2f,true);
+    previewKitFx_.prepare(static_cast<float>(sr),1.2f,true);
     masterFx_.prepare(static_cast<float>(sr),1.2f,true);
     configureFxForPreset(selectedPreset_.load(std::memory_order_relaxed));
     const auto burst=stream_->getFramesPerBurst();if(burst>0)stream_->setBufferSizeInFrames(burst*3);
@@ -45,7 +46,7 @@ bool AudioEngine::start(){
 void AudioEngine::stop(){
     std::shared_ptr<oboe::AudioStream> old;{std::scoped_lock lock(streamMutex_);old=std::move(stream_);}if(old){old->requestStop();old->close();}
     transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)slot.voice.kill();
-    previewFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();playbackFxCount_=0;
+    previewFx_.reset();previewKitFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();playbackFxCount_=0;
     Event pending;while(events_.pop(pending))if(pending.type==EventType::Snapshot&&pending.pointer)delete reinterpret_cast<PlaybackSnapshot*>(pending.pointer);
     if(playback_){delete playback_;playback_=nullptr;}collectRetiredSnapshots();
 }
@@ -84,6 +85,7 @@ int AudioEngine::noteOnPad(int padIndex,int midi,float velocity) noexcept {
         const int hi=std::max(project.padLow(track,p),project.padHigh(track,p));
         e.midi=std::clamp(midi,lo,hi);
         e.patch=project.padDspPatch(track,p);
+        e.kitFx=project.fxRack(false,true);
         const float gain=project.trackVolume(track)*project.padVolume(track,p);
         const float pan=std::clamp(project.trackPan(track)+project.padPan(track,p),-1.0f,1.0f);
         const auto [l,r]=panGain(gain,pan);e.gainLeft=l;e.gainRight=r;
@@ -185,18 +187,20 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             return;
         case EventType::Panic:
             for(auto&slot:voices_)slot.voice.kill();
-            previewFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();
+            previewFx_.reset();previewKitFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();
             return;
         case EventType::Preset:configureFxForPreset(e.source);return;
         case EventType::NoteOff:
             for(auto&slot:voices_)if(slot.voice.active()&&slot.voice.id()==e.id){slot.voice.release();return;}return;
         case EventType::NoteOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;configureFx(e.patch.fx);return;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;
+            configureFx(e.patch.fx);previewKitFx_.set(Fx{});return;
         }
         case EventType::PadOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;configureFx(e.patch.fx);return;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;
+            configureFx(e.patch.fx);previewKitFx_.set(e.kitFx);return;
         }
         case EventType::Snapshot:{
             auto*incoming=reinterpret_cast<PlaybackSnapshot*>(e.pointer);if(!incoming)return;
@@ -292,14 +296,22 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
         for(int i=0;i<playbackFxCount_;++i){
             const auto wet=playback_->preparedFx[static_cast<size_t>(i)].processStereo(
                 (*busLeft)[static_cast<size_t>(i)],(*busRight)[static_cast<size_t>(i)]);
-            transportLeft+=wet[0];transportRight+=wet[1];
+            const int parent=playback_->fxBusParent[static_cast<size_t>(i)];
+            if(parent>i&&parent<playbackFxCount_){
+                (*busLeft)[static_cast<size_t>(parent)]+=wet[0];
+                (*busRight)[static_cast<size_t>(parent)]+=wet[1];
+            }else{
+                transportLeft+=wet[0];transportRight+=wet[1];
+            }
         }
         const auto masterWet=masterFx_.processStereo(transportLeft,transportRight);
         const float master=playback_->masterVolume;
         transportLeft=masterWet[0]*master;transportRight=masterWet[1]*master;
     }
 
-    const auto preview=previewFx_.processStereo(previewLeft*0.165f,previewRight*0.165f);
+    const auto padWet=previewFx_.processStereo(
+        previewLeft*0.165f,previewRight*0.165f);
+    const auto preview=previewKitFx_.processStereo(padWet[0],padWet[1]);
     return {std::tanh(transportLeft+preview[0]),std::tanh(transportRight+preview[1])};
 }
 

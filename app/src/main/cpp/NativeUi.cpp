@@ -497,7 +497,10 @@ bool NativeUi::openUiDropdownAt(float x,float y){
         if(track>=0&&project.trackIsDrums(track)&&field.contains(x,y)){
             std::vector<std::string> labels;
             const int count=project.padCount(track);
-            labels.reserve(static_cast<size_t>(std::max(0,count)));
+            const bool masterOption=page_==NativePage::Fx;
+            labels.reserve(static_cast<size_t>(std::max(0,count)+
+                (masterOption?1:0)));
+            if(masterOption)labels.emplace_back("Master (entire drum kit)");
             for(int i=0;i<count;++i){
                 std::string label=std::to_string(i+1)+" "+
                     drumIconName(project.padIcon(track,i))+" "+
@@ -506,7 +509,11 @@ bool NativeUi::openUiDropdownAt(float x,float y){
                 labels.push_back(std::move(label));
             }
             openDropdown(
-                DropdownKind::Pad,track,field,project.selectedPad(track),
+                DropdownKind::Pad,track,field,
+                masterOption?
+                    (NativeEditor::instance().fxDrumMasterActive()?0:
+                     project.selectedPad(track)+1):
+                    project.selectedPad(track),
                 std::move(labels));
             return dropdownOpen();
         }
@@ -1847,9 +1854,10 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
         fillRect(padR,kButton);
         fillRect({padR.x+inset,padR.y+inset,padR.w-inset*2.0f,padR.h-inset*2.0f},kRollBg);
         std::string pLabel="Pad";
-        if(pad>=0&&pad<project.padCount(track)){
+        if(page_==NativePage::Fx&&NativeEditor::instance().fxDrumMasterActive())
+            pLabel="Master";
+        else if(pad>=0&&pad<project.padCount(track))
             pLabel=std::to_string(pad+1)+" "+project.padIcon(track,pad);
-        }
         ov.addText(
             pLabel,
             padR.x+padR.h*0.20f,

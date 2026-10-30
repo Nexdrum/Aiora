@@ -94,6 +94,7 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
 
     auto addFxBus=[&](const Fx& fx)->int {
         snap->fxBuses.push_back(fx);
+        snap->fxBusParent.push_back(-1);
         return static_cast<int>(snap->fxBuses.size())-1;
     };
 
@@ -140,6 +141,14 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
             event.automation.velocity=levelCurve(note.velocity,note.lengthSteps);
             event.automation.mod=levelCurve(note.mod,note.lengthSteps);
             snap->steps[static_cast<size_t>(step)].events.push_back(std::move(event));
+        }
+        // Process the full-kit FX after all pad-specific FX.
+        // Appending its bus last preserves real-time, allocation-free routing.
+        if(track.drums&&track.patch.fx.count>0){
+            const int drumMasterBus=addFxBus(track.patch.fx);
+            for(int padBus:padBuses)
+                if(padBus>=0)
+                    snap->fxBusParent[static_cast<size_t>(padBus)]=drumMasterBus;
         }
     }
     for(auto& step:snap->steps){

@@ -272,13 +272,13 @@ NativeEditor::Rect NativeEditor::lfoWorkspaceTargetRect() const noexcept {
 }
 NativeEditor::Rect NativeEditor::fxRackRect() const noexcept {
     const auto b=bodyRect();const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
-    const Fx rack=ProjectCore::instance().fxRack(false);
+    const Fx rack=ProjectCore::instance().fxRack(false,fxDrumMasterActive());
     float height=175;
     for(int i=0;i<rack.count;++i){height+=82;if(i==fxRackExpanded_)height+=64.0f*fxParamCount(rack.chain[i].type);}
     return {b.x+gap,b.y+70.0f-fxScrollY_,b.w-2*gap,height};
 }
 NativeEditor::Rect NativeEditor::fxRackStageRect(int index) const noexcept {
-    const auto c=fxRackRect();const Fx rack=ProjectCore::instance().fxRack(false);
+    const auto c=fxRackRect();const Fx rack=ProjectCore::instance().fxRack(false,fxDrumMasterActive());
     float y=c.y+72;
     for(int i=0;i<index&&i<rack.count;++i){y+=82;if(i==fxRackExpanded_)y+=64.0f*fxParamCount(rack.chain[i].type);}
     return {c.x+18,y,c.w-36,75};
@@ -1129,7 +1129,10 @@ struct OpSurface {
                 }
             }
         }
-        if(!rect(11).contains(x,y))return false;
+        const auto gr=rect(11);
+        const bool inside=gr.contains(x,y);
+        if(!inside&&(x<gr.x-20.0f||x>gr.x+gr.w+20.0f||
+                     y<gr.y-20.0f||y>gr.y+gr.h+20.0f))return false;
         const auto c=env(o);
         const auto e=response(o);
         const auto*pts=page==4?e.points.data():c.points.data();
@@ -1137,13 +1140,19 @@ struct OpSurface {
         // Every visible orange X is independently draggable without
         // selecting an endpoint first. Pick the closest eligible target
         // rather than letting a 29 px node hitbox mask its curve handle.
-        float pointDistance=25.0f*25.0f;
+        float pointDistance=1.0e9f;
         int pointCandidate=-1;
         for(int i=0;i<count;++i){
             const auto at=position(pts[i]);
             const float dx=x-at.first,dy=y-at.second;
             const float d2=dx*dx+dy*dy;
-            if(d2<pointDistance){pointDistance=d2;pointCandidate=i;}
+            const float radius=(i==0||i==count-1)?37.0f:25.0f;
+            if(d2<radius*radius&&d2<pointDistance){
+                pointDistance=d2;pointCandidate=i;
+            }
+        }
+        if(pointCandidate==0||pointCandidate==count-1){
+            selected=drag=pointCandidate;return true;
         }
         float handleDistance=22.0f*22.0f;
         int handleCandidate=-1;
@@ -1161,6 +1170,7 @@ struct OpSurface {
             return true;
         }
         if(pointCandidate>=0){selected=drag=pointCandidate;return true;}
+        if(!inside)return true;
         drag=-2;return true;
     }
     bool move(float x,float y){
@@ -1783,15 +1793,19 @@ struct FilterSurface {
                 return true;
             }
             const auto r=graph();
-            if(!r.contains(x,y))return true;
+            const bool inside=r.contains(x,y);
+            if(x<r.x-20.0f||x>r.x+r.w+20.0f||
+               y<r.y-20.0f||y>r.y+r.h+20.0f)return true;
             const auto& c=m.slopes[slopeShape].profile;
-            float best=24.0f*24.0f;int near=-1;
+            float best=1.0e9f;int near=-1;
             for(int i=0;i<c.count;++i){
                 const float px=r.x+r.w*c.points[i].time;
                 const float py=r.y+r.h*(1.0f-c.points[i].value);
                 const float d=(x-px)*(x-px)+(y-py)*(y-py);
-                if(d<best){best=d;near=i;}
+                const float radius=(i==0||i==c.count-1)?37.0f:24.0f;
+                if(d<radius*radius&&d<best){best=d;near=i;}
             }
+            if(near==0||near==c.count-1){selected=drag=near;return true;}
             float bestBend=20.0f*20.0f;int nearBend=-1;
             for(int i=1;i<c.count;++i){
                 const auto& a=c.points[i-1],&b=c.points[i];
@@ -1803,6 +1817,7 @@ struct FilterSurface {
             }
             if(nearBend>=0&&(near<0||bestBend<best)){bend=nearBend;return true;}
             if(near>=0){selected=drag=near;return true;}
+            if(!inside)return true;
             drag=-2;return true;
         }
         if(page<2){
@@ -1869,7 +1884,9 @@ struct FilterSurface {
         }
         c=getCurve(m);
         const Rect r=page==2?graph():pane(lane);
-        if(!r.contains(x,y))return true;
+        const bool inside=r.contains(x,y);
+        if(x<r.x-20.0f||x>r.x+r.w+20.0f||
+           y<r.y-20.0f||y>r.y+r.h+20.0f)return true;
         if(page<2&&staticLine(c)){
             const float line=outputX(lane,c.points[0].value);
             if(std::fabs(x-line)<22.0f){
@@ -1877,11 +1894,17 @@ struct FilterSurface {
             }
             drag=-2;return true;
         }
-        float pointDistance=24*24;int nearest=-1;
+        float pointDistance=1.0e9f;int nearest=-1;
         for(int i=0;i<c.count;++i){
             const auto xy=location(c.points[i],lane);
             const float d=(x-xy.first)*(x-xy.first)+(y-xy.second)*(y-xy.second);
-            if(d<pointDistance){pointDistance=d;nearest=i;}
+            const float radius=(i==0||i==c.count-1)?37.0f:24.0f;
+            if(d<radius*radius&&d<pointDistance){
+                pointDistance=d;nearest=i;
+            }
+        }
+        if(nearest==0||nearest==c.count-1){
+            selected=drag=nearest;return true;
         }
         float bendDistance=20*20;int nearBend=-1;
         float transitionDistance=17*17;int nearTransition=-1;
@@ -1906,6 +1929,7 @@ struct FilterSurface {
             bend=nearBend;return true;
         }
         if(nearest>=0){selected=drag=nearest;return true;}
+        if(!inside)return true;
         drag=-2;return true;
     }
     bool move(float x,float y){
@@ -2181,7 +2205,9 @@ struct UnisonSurface {
             changed=setControl(i);return true;
         }
         const auto r=graph();
-        if(!r.contains(x,y))return true;
+        const bool inside=r.contains(x,y);
+        if(x<r.x-20.0f||x>r.x+r.w+20.0f||
+           y<r.y-20.0f||y>r.y+r.h+20.0f)return true;
         const auto c=curve();
         if(flat(c)){
             const float px=at(c.points[0]).first;
@@ -2189,12 +2215,18 @@ struct UnisonSurface {
             if(drag==-3)selected=0;
             return true;
         }
-        float nearestDistance=24*24;int nearest=-1;
+        float nearestDistance=1.0e9f;int nearest=-1;
         for(int i=0;i<c.count;++i){
             const auto atPoint=at(c.points[i]);
             const float distance=(x-atPoint.first)*(x-atPoint.first)+
                 (y-atPoint.second)*(y-atPoint.second);
-            if(distance<nearestDistance){nearestDistance=distance;nearest=i;}
+            const float radius=(i==0||i==c.count-1)?37.0f:24.0f;
+            if(distance<radius*radius&&distance<nearestDistance){
+                nearestDistance=distance;nearest=i;
+            }
+        }
+        if(nearest==0||nearest==c.count-1){
+            selected=drag=nearest;return true;
         }
         float nearestBend=20*20;int bendIndex=-1;
         for(int i=1;i<c.count;++i){
@@ -2210,6 +2242,7 @@ struct UnisonSurface {
             bend=bendIndex;return true;
         }
         if(nearest>=0){selected=drag=nearest;return true;}
+        if(!inside)return true;
         drag=-2;return true;
     }
     void move(float x,float y){
@@ -2312,12 +2345,14 @@ void NativeEditor::renderFx() const noexcept {
     auto& ov=NativeOverlay::instance();
     const auto b=bodyRect();
     // Full-page FX rack; Pulsar and Binary are ordinary chain modules.
-        const Fx rack=ProjectCore::instance().fxRack(false);
+        const Fx rack=ProjectCore::instance().fxRack(false,fxDrumMasterActive());
         const auto rackRect=fxRackRect();
         ov.setClip({b.x,b.y+62,b.w,std::max(0.0f,b.h-62)});
         fillRect(rackRect,kButton);
         fillRect({rackRect.x+2,rackRect.y+2,rackRect.w-4,rackRect.h-4},kPanel);
-        ov.addText("Instrument / Pad post-processing FX",
+        ov.addText(fxDrumMasterActive()?
+            "Drum kit master FX (after pad FX)":
+            "Instrument / Pad post-processing FX",
             rackRect.x+20,rackRect.y+18,1.02f,overlayColor(kCyan));
         for(int i=0;i<rack.count;++i){
             const auto& module=rack.chain[i];
@@ -2510,7 +2545,7 @@ std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const n
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitFx(float x,float y) const noexcept {
-    const auto rack=ProjectCore::instance().fxRack(false);
+    const auto rack=ProjectCore::instance().fxRack(false,fxDrumMasterActive());
     for(int i=0;i<rack.count;++i){
         const auto r=fxRackStageRect(i);
         const float bw=std::clamp(r.w*.10f,39.0f,67.0f);
@@ -2551,7 +2586,7 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
         case HitKind::RackUp:
         case HitKind::RackDown:{
             const int shift=hit.kind==HitKind::RackUp?-1:1;
-            if(project.moveFxStage(false,hit.a,shift)){
+            if(project.moveFxStage(false,hit.a,shift,fxDrumMasterActive())){
                 if(fxRackExpanded_==hit.a)fxRackExpanded_+=shift;
                 else if(fxRackExpanded_==hit.a+shift)fxRackExpanded_=hit.a;
                 return true;
@@ -2559,29 +2594,29 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             return false;
         }
         case HitKind::RackBypass:{
-            const Fx rack=project.fxRack(false);
+            const Fx rack=project.fxRack(false,fxDrumMasterActive());
             if(hit.a<0||hit.a>=rack.count)return false;
-            return project.setFxStageEnabled(false,hit.a,!rack.chain[hit.a].enabled);
+            return project.setFxStageEnabled(false,hit.a,!rack.chain[hit.a].enabled,fxDrumMasterActive());
         }
         case HitKind::RackDelete:{
-            if(!project.removeFxStage(false,hit.a))return false;
+            if(!project.removeFxStage(false,hit.a,fxDrumMasterActive()))return false;
             if(fxRackExpanded_==hit.a)fxRackExpanded_=-1;
             else if(fxRackExpanded_>hit.a)--fxRackExpanded_;
             return true;
         }
         case HitKind::RackParameter:{
-            const Fx rack=project.fxRack(false);
+            const Fx rack=project.fxRack(false,fxDrumMasterActive());
             if(hit.a<0||hit.a>=rack.count)return false;
             const auto d=fxParamDesc(rack.chain[hit.a].type,static_cast<size_t>(hit.b));
             const float lw=std::clamp(hit.rect.w*.27f,115.0f,182.0f),vw=71.0f;
             const float range=std::max(24.0f,hit.rect.w-lw-vw-9.0f);
             const float fraction=std::clamp((x-(hit.rect.x+lw))/range,0.0f,1.0f);
             return project.setFxStageParameter(false,hit.a,hit.b,
-                d.lo+fraction*(d.hi-d.lo));
+                d.lo+fraction*(d.hi-d.lo),fxDrumMasterActive());
         }
         case HitKind::RackAdd:{
-            if(!project.addFxStage(false,fxRackNewType_))return false;
-            fxRackExpanded_=project.fxRack(false).count-1;
+            if(!project.addFxStage(false,fxRackNewType_,fxDrumMasterActive()))return false;
+            fxRackExpanded_=project.fxRack(false,fxDrumMasterActive()).count-1;
             return true;
         }
         case HitKind::SynthTab:
@@ -2689,7 +2724,8 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
 
 std::optional<PatchTransferAction> NativeEditor::hitPatchTransfer(
     EditorPage page,float x,float y) const noexcept {
-    if(page==EditorPage::Fx)return std::nullopt;
+    // Patch File buttons exist only on Operators; no invisible Filter/Amp hits.
+    if(page!=EditorPage::Synth||synthWorkspace_!=0)return std::nullopt;
 
     const auto copy=patchTransferRect(page,1);
     if(copy.contains(x,y))return PatchTransferAction::CopyPatch;

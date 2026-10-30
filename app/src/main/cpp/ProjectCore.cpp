@@ -779,46 +779,61 @@ Fx ProjectCore::selectedFx() const {
     const auto& t=project_.tracks[selectedTrack_];if(t.drums&&validPad(selectedTrack_,t.selectedPad))return t.pads[t.selectedPad].patch.fx;return t.patch.fx;
 }
 
-Fx ProjectCore::fxRack(bool master) const {
+Fx* ProjectCore::fxTargetUnsafe(bool songMaster,bool drumMaster) noexcept {
+    if(songMaster)return &project_.masterFx;
+    if(drumMaster){
+        if(!validTrack(selectedTrack_)||!project_.tracks[selectedTrack_].drums)
+            return nullptr;
+        return &project_.tracks[selectedTrack_].patch.fx;
+    }
+    auto* patch=selectedPatchUnsafe();
+    return patch?&patch->fx:nullptr;
+}
+Fx ProjectCore::fxRack(bool master,bool drumMaster) const {
     std::scoped_lock lock(mutex_);
     if(master)return project_.masterFx;
+    if(drumMaster){
+        if(!validTrack(selectedTrack_)||!project_.tracks[selectedTrack_].drums)
+            return Fx{};
+        return project_.tracks[selectedTrack_].patch.fx;
+    }
     const auto* patch=selectedPatchUnsafe();
     return patch?patch->fx:Fx{};
 }
-bool ProjectCore::addFxStage(bool master,FxType type){
+bool ProjectCore::addFxStage(bool master,FxType type,bool drumMaster){
     std::scoped_lock lock(mutex_);
-    Fx* fx=master?&project_.masterFx:nullptr;
-    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    Fx* fx=fxTargetUnsafe(master,drumMaster);
+    if(!fx)return false;
     if(fx->count>=kMaxFxStages||!isAvailableFxType(type))return false;
     fx->chain[fx->count++]=makeFxModule(type);return true;
 }
-bool ProjectCore::removeFxStage(bool master,int index){
+bool ProjectCore::removeFxStage(bool master,int index,bool drumMaster){
     std::scoped_lock lock(mutex_);
-    Fx* fx=master?&project_.masterFx:nullptr;
-    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    Fx* fx=fxTargetUnsafe(master,drumMaster);
+    if(!fx)return false;
     if(index<0||index>=fx->count)return false;
     for(int i=index;i+1<fx->count;++i)fx->chain[i]=fx->chain[i+1];
     --fx->count;return true;
 }
-bool ProjectCore::moveFxStage(bool master,int index,int direction){
+bool ProjectCore::moveFxStage(bool master,int index,int direction,bool drumMaster){
     std::scoped_lock lock(mutex_);
-    Fx* fx=master?&project_.masterFx:nullptr;
-    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    Fx* fx=fxTargetUnsafe(master,drumMaster);
+    if(!fx)return false;
     const int other=index+direction;
     if(index<0||other<0||index>=fx->count||other>=fx->count)return false;
     std::swap(fx->chain[index],fx->chain[other]);return true;
 }
-bool ProjectCore::setFxStageEnabled(bool master,int index,bool enabled){
+bool ProjectCore::setFxStageEnabled(bool master,int index,bool enabled,bool drumMaster){
     std::scoped_lock lock(mutex_);
-    Fx* fx=master?&project_.masterFx:nullptr;
-    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    Fx* fx=fxTargetUnsafe(master,drumMaster);
+    if(!fx)return false;
     if(index<0||index>=fx->count)return false;
     fx->chain[index].enabled=enabled;return true;
 }
-bool ProjectCore::setFxStageParameter(bool master,int index,int parameter,float value){
+bool ProjectCore::setFxStageParameter(bool master,int index,int parameter,float value,bool drumMaster){
     std::scoped_lock lock(mutex_);
-    Fx* fx=master?&project_.masterFx:nullptr;
-    if(!master){auto* p=selectedPatchUnsafe();if(!p)return false;fx=&p->fx;}
+    Fx* fx=fxTargetUnsafe(master,drumMaster);
+    if(!fx)return false;
     if(index<0||index>=fx->count)return false;
     auto& mod=fx->chain[index];
     if(parameter<0||static_cast<size_t>(parameter)>=fxParamCount(mod.type))return false;

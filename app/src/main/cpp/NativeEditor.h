@@ -50,6 +50,20 @@ public:
     [[nodiscard]] std::optional<int> hitOperatorSemitone(float x,float y) const noexcept;
     bool openDropdownAt(EditorPage page,float x,float y,NativeUi& ui) const;
     bool applyDropdownChoice(const DropdownChoice& choice);
+    [[nodiscard]] bool fxDrumMasterSelected() const noexcept {
+        return fxDrumMaster_;
+    }
+    [[nodiscard]] bool fxDrumMasterActive() const noexcept {
+        const auto& project=ProjectCore::instance();
+        const int track=project.selectedTrack();
+        return fxDrumMaster_&&track>=0&&project.trackIsDrums(track);
+    }
+    void setFxDrumMasterSelected(bool enabled) noexcept {
+        if(fxDrumMaster_==enabled)return;
+        fxDrumMaster_=enabled;
+        fxRackExpanded_=-1;
+        fxScrollY_=0.0f;
+    }
 
 private:
     NativeEditor() = default;
@@ -132,6 +146,7 @@ private:
     int ampSubtab_{0};      // Envelope / Mod
     int fxGroup_{0};
     int fxRackExpanded_{-1};
+    bool fxDrumMaster_{false}; // Only FX page; Synth keeps the selected pad
     FxType fxRackNewType_{FxType::Embera};
     float synthScrollY_{0.0f};
     float fxScrollY_{0.0f};

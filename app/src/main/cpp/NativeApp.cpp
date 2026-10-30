@@ -1786,15 +1786,22 @@ bool handleUiTap(NativeState& state, float x, float y) {
 
             case aiora::DropdownKind::Pad:{
                 const int track=choice->context;
+                const bool fxPage=state.ui.page()==aiora::NativePage::Fx;
                 if(track>=0&&track<project.trackCount()&&
-                   project.trackIsDrums(track)&&
-                   choice->option>=0&&choice->option<project.padCount(track)){
-                    project.selectTrack(track);
-                    project.selectPad(track,choice->option);
-                    state.ui.resetDrumRangeArm();
-                    if(state.ui.page()==aiora::NativePage::Synth||
-                       state.ui.page()==aiora::NativePage::Fx)
-                        previewEditorPatch(state);
+                   project.trackIsDrums(track)){
+                    // FX has a Master entry before individual pad entries.
+                    if(fxPage&&choice->option==0){
+                        aiora::NativeEditor::instance().setFxDrumMasterSelected(true);
+                    }else{
+                        const int pad=choice->option-(fxPage?1:0);
+                        if(pad>=0&&pad<project.padCount(track)){
+                            project.selectTrack(track);
+                            project.selectPad(track,pad);
+                            aiora::NativeEditor::instance().setFxDrumMasterSelected(false);
+                            state.ui.resetDrumRangeArm();
+                            previewEditorPatch(state);
+                        }
+                    }
                 }
                 return true;
             }
@@ -2014,9 +2021,16 @@ bool handleUiTap(NativeState& state, float x, float y) {
             }else if(project.trackIsDrums(track)){
                 const int pads=project.padCount(track);
                 if(pads>0){
+                    const bool master=state.ui.page()==aiora::NativePage::Fx&&
+                        aiora::NativeEditor::instance().fxDrumMasterActive();
                     int pad=std::clamp(project.selectedPad(track),0,pads-1);
-                    if(*sw==aiora::TrackSwitchAction::PreviousPad)pad=(pad+pads-1)%pads;
-                    else pad=(pad+1)%pads;
+                    if(master){
+                        pad=*sw==aiora::TrackSwitchAction::PreviousPad?pads-1:0;
+                        aiora::NativeEditor::instance().setFxDrumMasterSelected(false);
+                    }else{
+                        pad=*sw==aiora::TrackSwitchAction::PreviousPad?
+                            (pad+pads-1)%pads:(pad+1)%pads;
+                    }
                     project.selectPad(track,pad);
                 }
             }
