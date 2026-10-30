@@ -1553,7 +1553,7 @@ inline constexpr std::string_view nebularSteelPhysicsV2 = R"NEBULARV2({
     },
     {
       "enabled": true,
-      "wave": "hiss",
+      "wave": "noise", "texturePitched": true,
       "ratio": 5.5,
       "semi": 0,
       "detune": 0,
@@ -1872,7 +1872,7 @@ inline constexpr std::string_view nebularSteelPhysicsV2 = R"NEBULARV2({
           }
         }
       ],
-      "waveMorph": "hiss",
+      "waveMorph": "noise", "textureMorphPitched": true,
       "randomPhase": false,
       "randomPhaseDegrees": 10.0
     },
@@ -5926,7 +5926,7 @@ inline constexpr std::string_view subulaMetalFretlessV4 = R"SUBULAV4({
     },
     {
       "enabled": true,
-      "wave": "hiss",
+      "wave": "noise", "texturePitched": true,
       "ratio": 16.0,
       "semi": 12.0,
       "detune": 0,

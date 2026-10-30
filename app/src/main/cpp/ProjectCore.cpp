@@ -852,6 +852,7 @@ bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
     auto* p=selectedPatchUnsafe();
     if(!p||opIndex<0||opIndex>=6)return false;
     auto& op=p->ops[static_cast<size_t>(opIndex)];
+    if(wave==Wave::Hiss)wave=Wave::Noise;
     if(morph){
         const Wave old=effectiveWaveMorph(op);
         if(wave==Wave::Custom&&(old!=Wave::Custom||!op.hasHarmMute)){
@@ -859,6 +860,10 @@ bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
             op.harmMute=presetWaveHarmonics(source);
             op.harmMutePhase=presetWavePhases(source);
             op.hasHarmMute=true;
+        }
+        if(!op.waveMorphConfigured){
+            op.textureMorphPitched=op.texturePitched;
+            op.textureMorph=op.texture;
         }
         op.waveMorph=wave;
         op.waveMorphConfigured=true;
@@ -872,6 +877,42 @@ bool ProjectCore::setSelectedOperatorWave(int opIndex,Wave wave,bool morph){
         }
         op.wave=wave;
     }
+    return true;
+}
+bool ProjectCore::setSelectedTexturePitched(int opIndex,bool pitched,bool morph){
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();
+    if(!p||opIndex<0||opIndex>=6)return false;
+    auto& o=p->ops[static_cast<size_t>(opIndex)];
+    if(!isTextureWave(morph?effectiveWaveMorph(o):o.wave))return false;
+    if(morph){
+        if(!o.waveMorphConfigured){
+            o.waveMorph=o.wave;o.waveMorphConfigured=true;
+            o.textureMorph=o.texture;
+        }
+        o.textureMorphPitched=pitched;
+    }else o.texturePitched=pitched;
+    return true;
+}
+bool ProjectCore::setSelectedTextureParam(int opIndex,int parameter,float value,bool morph){
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();
+    if(!p||opIndex<0||opIndex>=6||parameter<0||parameter>=5||
+       !std::isfinite(value))return false;
+    auto& o=p->ops[static_cast<size_t>(opIndex)];
+    if((morph?effectiveWaveMorph(o):o.wave)!=Wave::TextureCustom)return false;
+    auto& t=morph?o.textureMorph:o.texture;
+    float* values[5]{&t.density,&t.size,&t.color,&t.resonance,&t.chaos};
+    *values[parameter]=std::clamp(value,0.0f,1.0f);
+    return true;
+}
+bool ProjectCore::setSelectedTextureSource(int opIndex,int source,bool morph){
+    std::scoped_lock lock(mutex_);
+    auto* p=selectedPatchUnsafe();
+    if(!p||opIndex<0||opIndex>=6||source<0||source>3)return false;
+    auto& o=p->ops[static_cast<size_t>(opIndex)];
+    if((morph?effectiveWaveMorph(o):o.wave)!=Wave::TextureCustom)return false;
+    (morph?o.textureMorph:o.texture).source=static_cast<uint8_t>(source);
     return true;
 }
 bool ProjectCore::setSelectedOperatorParam(int opIndex,OperatorParam param,float value){

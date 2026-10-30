@@ -251,6 +251,10 @@ const char* waveName(Wave w){
         case Wave::Custom:return "custom";
         case Wave::Noise:return "noise";
         case Wave::Hiss:return "hiss";
+        case Wave::Grain:return "grain";
+        case Wave::Rasp:return "rasp";
+        case Wave::Clang:return "clang";
+        case Wave::TextureCustom:return "texture-custom";
     }
     return "sine";
 }
@@ -260,7 +264,11 @@ Wave parseWave(std::string_view s){
     if(s=="triangle")return Wave::Triangle;
     if(s=="custom")return Wave::Custom;
     if(s=="noise")return Wave::Noise;
-    if(s=="hiss")return Wave::Hiss;
+    if(s=="hiss")return Wave::Hiss; // legacy loader migrates to Noise/Pitched
+    if(s=="grain")return Wave::Grain;
+    if(s=="rasp")return Wave::Rasp;
+    if(s=="clang")return Wave::Clang;
+    if(s=="texture-custom")return Wave::TextureCustom;
     return Wave::Sine;
 }
 const char* lfoName(LfoTarget t){
@@ -412,6 +420,15 @@ void writeOperatorResponse(Writer& w,const OperatorResponse& c){
     }
     w.raw("]}");
 }
+void writeTextureParams(Writer& w,const TextureParams& t){
+    w.raw("{\"source\":");w.number(t.source);
+    w.raw(",\"density\":");w.number(t.density);
+    w.raw(",\"size\":");w.number(t.size);
+    w.raw(",\"color\":");w.number(t.color);
+    w.raw(",\"resonance\":");w.number(t.resonance);
+    w.raw(",\"chaos\":");w.number(t.chaos);
+    w.raw("}");
+}
 void writePatch(Writer& w,const Patch& p){
     w.raw("{\"name\":");w.string(p.name);
     w.raw(",\"ops\":[");
@@ -424,6 +441,10 @@ void writePatch(Writer& w,const Patch& p){
         if(o.waveMorphConfigured){
             w.raw(",\"waveMorph\":");w.string(waveName(o.waveMorph));
         }
+        w.raw(",\"texturePitched\":");w.boolean(o.texturePitched);
+        w.raw(",\"textureMorphPitched\":");w.boolean(o.textureMorphPitched);
+        w.raw(",\"textureParams\":");writeTextureParams(w,o.texture);
+        w.raw(",\"textureMorphParams\":");writeTextureParams(w,o.textureMorph);
         w.raw(",\"ratio\":");w.number(o.ratio);
         w.raw(",\"semi\":");w.number(o.semitoneOffset);
         w.raw(",\"detune\":");w.number(o.detuneCents);
@@ -614,13 +635,33 @@ bool readPatch(const Json& src,Patch& p){
         o.randomPhaseDegrees=clampf(num(jo.get("randomPhaseDegrees"),10.0f),
             0.0f,180.0f,10.0f);
         o.wave=parseWave(str(jo.get("wave"),"sine"));
+        const bool legacyPitch=o.wave==Wave::Hiss;
+        if(legacyPitch)o.wave=Wave::Noise;
+        o.texturePitched=boolean(jo.get("texturePitched"),legacyPitch);
         if(const Json* altWave=jo.get("waveMorph")){
             o.waveMorph=parseWave(str(altWave,"sine"));
             o.waveMorphConfigured=true;
+            const bool legacyMorphPitch=o.waveMorph==Wave::Hiss;
+            if(legacyMorphPitch)o.waveMorph=Wave::Noise;
+            o.textureMorphPitched=boolean(jo.get("textureMorphPitched"),
+                                         legacyMorphPitch);
         }else{
             o.waveMorph=o.wave;
             o.waveMorphConfigured=false;
+            o.textureMorphPitched=o.texturePitched;
         }
+        const auto readTexture=[&](const Json* raw,TextureParams& t){
+            if(!raw||raw->type!=Json::Type::Object)return;
+            t.source=static_cast<uint8_t>(clampi(num(raw->get("source"),t.source),0,3,t.source));
+            t.density=clampf(num(raw->get("density"),t.density),0,1,t.density);
+            t.size=clampf(num(raw->get("size"),t.size),0,1,t.size);
+            t.color=clampf(num(raw->get("color"),t.color),0,1,t.color);
+            t.resonance=clampf(num(raw->get("resonance"),t.resonance),0,1,t.resonance);
+            t.chaos=clampf(num(raw->get("chaos"),t.chaos),0,1,t.chaos);
+        };
+        readTexture(jo.get("textureParams"),o.texture);
+        o.textureMorph=o.texture;
+        readTexture(jo.get("textureMorphParams"),o.textureMorph);
         o.ratio=clampf(num(jo.get("ratio"),o.ratio),.125f,16.0f,o.ratio);
 
         o.semitoneOffset=std::round(clampf(

@@ -540,12 +540,12 @@ struct OpSurface {
                 return {r.x+42,r.y+57,std::max(0.0f,r.w-67),
                     std::max(0.0f,r.h-78)};
             }
-            case 14:{ // Preset selector shares the Wave / Wave Morph row.
-                // The four unused cells on its right form one touch target;
-                // leave the graph header free for the harmonic instructions.
+            case 14:{ // Both selectors share the Wave / Morph row.
                 const auto first=rect(8,2),last=rect(8,5);
                 return {first.x,first.y,last.x+last.w-first.x,first.h};
             }
+            case 15:{const auto r=rect(14);return {r.x,r.y,(r.w-6)*.5f,r.h};}
+            case 16:{const auto r=rect(14);return {r.x+(r.w+6)*.5f,r.y,(r.w-6)*.5f,r.h};}
         }
         return {};
     }
@@ -634,7 +634,9 @@ struct OpSurface {
             ov.addText(value,r.x+7,r.y+26,.91f,overlayColor(kWhite));
         };
         char buff[32];
-        field(rect(1),"Wave / Edit",kWaveformLabels[std::clamp(static_cast<int>(o.wave),0,6)]);
+        field(rect(1),"Wave / Edit",
+            std::string(kWaveformLabels[std::clamp(static_cast<int>(o.wave),0,10)])+
+            (isTextureWave(o.wave)?(o.texturePitched?" · Pitch":" · Random"):""));
         std::snprintf(buff,sizeof(buff),"%.4g",static_cast<double>(o.ratio));field(rect(2),"Ratio",buff);
         std::snprintf(buff,sizeof(buff),"%+.0f",static_cast<double>(o.semitoneOffset));field(rect(3),"Base ST",buff);
         if(page==4){
@@ -732,22 +734,36 @@ struct OpSurface {
                 plot.x,plot.y-18,.8f,overlayColor(kMuted));
         }else{
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
-            const auto selector=rect(14);
-            button(selector,true,true);
-            text(std::string("Preset: ")+
-                kWaveformLabels[std::clamp(static_cast<int>(bank),0,6)]+
-                "  v",selector,.87f,overlayColor(kBg));
-            const bool noise=bank==Wave::Noise||bank==Wave::Hiss;
+            const bool texture=isTextureWave(bank);
+            const bool pitched=harmonicView==2&&o.waveMorphConfigured?
+                o.textureMorphPitched:o.texturePitched;
+            const auto preset=rect(15),textPreset=rect(16);
+            button(preset,!texture,true);
+            button(textPreset,texture,true);
+            text(std::string("Wave: ")+
+                 (texture?std::string("Select"):kWaveformLabels[
+                    std::clamp(static_cast<int>(bank),0,4)])+" v",
+                 preset,.72f,overlayColor(!texture?kBg:kWhite));
+            text(std::string("Texture: ")+
+                (texture?kWaveformLabels[std::clamp(static_cast<int>(bank),0,10)]:
+                 std::string("Select"))+" v",
+                textPreset,.72f,overlayColor(texture?kBg:kWhite));
             for(int mode=0;mode<2;++mode){
                 const auto r=rect(10,mode);
-                const bool active=(mode==1)==harmonicPhaseView;
+                const bool active=texture?(mode==0?pitched:bank==Wave::TextureCustom):
+                    (mode==1)==harmonicPhaseView;
                 button(r,active,true);
-                text(mode==0?"Amplitude":"Phase",r,.76f,
-                    overlayColor(active?kBg:kWhite));
+                const char* label=texture?
+                    (mode==0?(pitched?"Pitched":"Random"):
+                     bank==Wave::TextureCustom?"Source +":"Texture"):
+                    mode==0?"Amplitude":"Phase";
+                text(label,r,.73f,overlayColor(active?kBg:kWhite));
             }
-            ov.addText(noise?"Noise phase and amplitude unavailable":
+            ov.addText(texture?
+                (bank==Wave::TextureCustom?"Custom procedural texture controls":
+                 "Texture: harmonic amplitudes and phases disabled"):
                 (harmonicPhaseView?"Phase: 0-100% of cycle":"Amplitude: 0-100%"),
-                plot.x,plot.y-18,.76f,overlayColor(kMuted));
+                plot.x,plot.y-18,.73f,overlayColor(kMuted));
         }
         ov.setClip({plot.x-11,plot.y-9,plot.w+22,plot.h+18});
         for(int i=0;i<=4;++i){
@@ -760,7 +776,42 @@ struct OpSurface {
         }
         if(page==5){
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
-            const bool editable=bank!=Wave::Noise&&bank!=Wave::Hiss;
+            if(isTextureWave(bank)){
+                const auto& params=harmonicView==2&&o.waveMorphConfigured?
+                    o.textureMorph:o.texture;
+                const float levels[5]{
+                    params.density,params.size,params.color,
+                    params.resonance,params.chaos};
+                static constexpr const char* names[5]{
+                    "Density","Size","Color","Resonance","Chaos"};
+                if(bank==Wave::TextureCustom){
+                    for(int i=0;i<5;++i){
+                        const float rowH=plot.h/5.0f;
+                        const float py=plot.y+i*rowH;
+                        const float barX=plot.x+std::min(100.0f,plot.w*.32f);
+                        const float barW=std::max(20.0f,plot.x+plot.w-barX-13.0f);
+                        ov.addText(names[i],plot.x+3,py+rowH*.28f,
+                            .72f,overlayColor(kWhite));
+                        ov.addRect({barX,py+rowH*.50f,barW,6},overlayColor(kMuted));
+                        ov.addRect({barX,py+rowH*.50f,barW*levels[i],6},
+                            overlayColor(kPurple));
+                        ov.addFilledCircle(barX+barW*levels[i],
+                            py+rowH*.50f+3,7,overlayColor(kWhite));
+                    }
+                    static constexpr const char* sources[4]{
+                        "Noise","Grains","Impulses","Friction"};
+                    ov.addText(std::string("Source: ")+
+                        sources[std::min<int>(3,params.source)],
+                        plot.x+3,plot.y+plot.h-18,.70f,overlayColor(kCyan));
+                }else{
+                    ov.addText("Pitched or Random texture",
+                        plot.x+12,plot.y+20,.86f,overlayColor(kWhite));
+                    ov.addText("Select Custom for editable texture parameters",
+                        plot.x+12,plot.y+55,.72f,overlayColor(kMuted));
+                }
+                ov.clearClip();return;
+            }
+            const bool editable=true;
             const auto amplitude=(bank==Wave::Custom&&
                 (harmonicView==2?o.hasHarmMute:o.hasHarm))?
                 (harmonicView==2?o.harmMute:o.harm):presetWaveHarmonics(bank);
@@ -1038,15 +1089,44 @@ struct OpSurface {
             changed=core.setSelectedOperatorCurve(op,page,c);return true;
         }
         if(page==5){
-            if(rect(10,0).contains(x,y)){harmonicPhaseView=false;return true;}
-            if(rect(10,1).contains(x,y)){harmonicPhaseView=true;return true;}
             const Wave bank=harmonicView==2?effectiveWaveMorph(o):o.wave;
-            if(bank!=Wave::Noise&&bank!=Wave::Hiss&&rect(11).contains(x,y)){
-                auto plot=rect(11);
-                const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
-                const float relativeY=y-plot.y+harmonicScroll[op][harmonicView==2?1:0];
-                const int row=std::clamp(static_cast<int>(relativeY/harmonicRowHeight()),0,7);
-                drag=-50-(row*8+col);return move(x,y);
+            const bool morph=harmonicView==2;
+            if(isTextureWave(bank)){
+                if(rect(10,0).contains(x,y)){
+                    const bool pitched=morph&&o.waveMorphConfigured?
+                        o.textureMorphPitched:o.texturePitched;
+                    changed=core.setSelectedTexturePitched(op,!pitched,morph);
+                    return true;
+                }
+                if(rect(10,1).contains(x,y)){
+                    if(bank==Wave::TextureCustom){
+                        const auto& params=morph&&o.waveMorphConfigured?
+                            o.textureMorph:o.texture;
+                        changed=core.setSelectedTextureSource(
+                            op,(static_cast<int>(params.source)+1)%4,morph);
+                    }
+                    return true;
+                }
+                const auto plot=rect(11);
+                if(plot.contains(x,y)){
+                    if(bank==Wave::TextureCustom){
+                        const int row=std::clamp(static_cast<int>(
+                            (y-plot.y)/std::max(1.0f,plot.h)*5.0f),0,4);
+                        drag=-100-row;
+                        return move(x,y);
+                    }
+                    return true;
+                }
+            }else{
+                if(rect(10,0).contains(x,y)){harmonicPhaseView=false;return true;}
+                if(rect(10,1).contains(x,y)){harmonicPhaseView=true;return true;}
+                if(rect(11).contains(x,y)){
+                    auto plot=rect(11);
+                    const int col=std::clamp(static_cast<int>((x-plot.x)/plot.w*8),0,7);
+                    const float relativeY=y-plot.y+harmonicScroll[op][harmonicView==2?1:0];
+                    const int row=std::clamp(static_cast<int>(relativeY/harmonicRowHeight()),0,7);
+                    drag=-50-(row*8+col);return move(x,y);
+                }
             }
         }
         if(!rect(11).contains(x,y))return false;
@@ -1084,6 +1164,16 @@ struct OpSurface {
         drag=-2;return true;
     }
     bool move(float x,float y){
+        if(drag<=-100&&drag>=-104){
+            const int param=-100-drag;
+            const auto r=rect(11);
+            const float barX=r.x+std::min(100.0f,r.w*.32f);
+            const float barW=std::max(20.0f,r.x+r.w-barX-13.0f);
+            changed=ProjectCore::instance().setSelectedTextureParam(
+                op,param,std::clamp((x-barX)/barW,0.0f,1.0f),
+                harmonicView==2)||changed;
+            return true;
+        }
         if(drag==-2){
             // Graph gestures edit points and X handles only. Vertical
             // scrolling belongs exclusively to the colored side gutter.
@@ -2305,16 +2395,25 @@ bool NativeEditor::openDropdownAt(
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
     if(y<tab.y+tab.h+gap||y>=b.y+b.h)return false;
-    const auto rr=opSurface.rect(14);
-    if(!rr.contains(x,y))return false;
+    const auto waveRect=opSurface.rect(15);
+    const auto textureRect=opSurface.rect(16);
+    const bool tonal=waveRect.contains(x,y);
+    if(!tonal&&!textureRect.contains(x,y))return false;
     const auto p=ProjectCore::instance().selectedPatch();
     const int index=opSurface.op;
     const bool morph=opSurface.harmonicView==2;
     const Wave selected=morph?effectiveWaveMorph(p.ops[index]):p.ops[index].wave;
-    static const std::vector<std::string> labels{
-        kWaveformLabels.begin(),kWaveformLabels.end()};
-    ui.openDropdown(DropdownKind::Wave,index+(morph?6:0),anchor(rr),
-        static_cast<int>(selected),labels);
+    std::vector<std::string> labels;
+    const auto& choices=tonal?kTonalWaves:kTextureWaves;
+    int active=-1;
+    for(int i=0;i<5;++i){
+        labels.emplace_back(tonal?kTonalLabels[i]:kTextureLabels[i]);
+        if(selected==choices[static_cast<size_t>(i)]||
+           (!tonal&&selected==Wave::Hiss&&i==0))active=i;
+    }
+    ui.openDropdown(tonal?DropdownKind::Wave:DropdownKind::Texture,
+        index+(morph?6:0),anchor(tonal?waveRect:textureRect),active,
+        std::move(labels));
     return true;
 }
 
@@ -2327,11 +2426,14 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
             fxRackNewType_=kAvailableFxTypes[static_cast<size_t>(choice.option)];
             return false;
         case DropdownKind::Wave:
+        case DropdownKind::Texture:
             if(choice.context<0||choice.context>=12||choice.option<0||
-               choice.option>=static_cast<int>(kWaveformLabels.size()))
-                return false;
+               choice.option>=5)return false;
             return project.setSelectedOperatorWave(
-                choice.context%6,static_cast<Wave>(choice.option),
+                choice.context%6,
+                choice.kind==DropdownKind::Wave?
+                    kTonalWaves[static_cast<size_t>(choice.option)]:
+                    kTextureWaves[static_cast<size_t>(choice.option)],
                 choice.context>=6);
 
         case DropdownKind::LfoTarget:
@@ -2491,13 +2593,16 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             return false;
 
         case HitKind::WaveSelect:{
+            // Legacy one-tap control cycles tonal presets only; the
+            // visible editor uses separate five-item Wave/Texture menus.
             const int op=std::clamp(hit.a,0,5);
             const auto p=project.selectedPatch();
-            const int current=std::clamp(
-                static_cast<int>(p.ops[static_cast<size_t>(op)].wave),
-                0,static_cast<int>(kWaveformLabels.size())-1);
+            const Wave current=p.ops[static_cast<size_t>(op)].wave;
+            int index=-1;
+            for(int i=0;i<5;++i)
+                if(kTonalWaves[static_cast<size_t>(i)]==current)index=i;
             return project.setSelectedOperatorWave(
-                op,static_cast<Wave>((current+1)%static_cast<int>(kWaveformLabels.size())));
+                op,kTonalWaves[static_cast<size_t>((index+1)%5)]);
         }
 
         case HitKind::OperatorToggle:{

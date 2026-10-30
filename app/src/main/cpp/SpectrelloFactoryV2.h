@@ -2816,7 +2816,7 @@ inline constexpr std::string_view spectrelloCarbonFiberV2 = R"SPECTRELLOV2({
       "enabled": true,
       "randomPhase": false,
       "randomPhaseDegrees": 7,
-      "wave": "hiss",
+      "wave": "noise", "texturePitched": true,
       "waveMorph": "noise",
       "ratio": 3.15,
       "semi": 0,

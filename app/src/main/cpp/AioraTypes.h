@@ -10,7 +10,23 @@
 
 namespace aiora {
 
-enum class Wave : uint8_t { Sine, Saw, Square, Triangle, Custom, Noise, Hiss };
+// Retain Hiss=6 as a legacy serialized/runtime value. New selectors never
+// expose it; old patches migrate Hiss to Noise with pitched mode enabled.
+enum class Wave : uint8_t {
+    Sine, Saw, Square, Triangle, Custom, Noise, Hiss, Grain, Rasp, Clang, TextureCustom
+};
+inline bool isTextureWave(Wave w) noexcept {
+    return w==Wave::Noise||w==Wave::Hiss||w==Wave::Grain||
+        w==Wave::Rasp||w==Wave::Clang||w==Wave::TextureCustom;
+}
+inline constexpr std::array<Wave,5> kTonalWaves{
+    Wave::Sine,Wave::Saw,Wave::Square,Wave::Triangle,Wave::Custom};
+inline constexpr std::array<const char*,5> kTonalLabels{
+    "Sine","Sawtooth","Square","Triangle","Custom"};
+inline constexpr std::array<Wave,5> kTextureWaves{
+    Wave::Noise,Wave::Grain,Wave::Rasp,Wave::Clang,Wave::TextureCustom};
+inline constexpr std::array<const char*,5> kTextureLabels{
+    "Noise","Grain","Rasp","Clang","Custom"};
 // Single source of truth for selectable operator waveforms and their menu names.
 // 64 authored harmonics per bank, extended to 128 during wavetable construction.
 constexpr size_t kEditableHarmonics=64;
@@ -79,10 +95,11 @@ inline void extrapolateHarmonics(const HarmonicBank& amplitude,
         outPhase[n-1]=midpoint(outPhase[n-2],outPhase[n]);
     }
 }
-inline constexpr std::array<const char*,7> kWaveformLabels{
-    "sine","sawtooth","square","triangle","custom","noise","hiss"
+inline constexpr std::array<const char*,11> kWaveformLabels{
+    "sine","sawtooth","square","triangle","custom","noise","hiss",
+    "grain","rasp","clang","texture custom"
 };
-static_assert(kWaveformLabels.size()==static_cast<size_t>(Wave::Hiss)+1);
+static_assert(kWaveformLabels.size()==static_cast<size_t>(Wave::TextureCustom)+1);
 
 enum class LfoTarget : uint8_t { None, Pitch, Filter, Amp };
 // Fixed-capacity curves: no allocation during synthesis or note scheduling.
@@ -157,6 +174,12 @@ inline OperatorCurve initialOperatorPitch() noexcept {
 inline OperatorResponse initialOperatorResponse() noexcept {
     OperatorResponse c;c.enabled=true;c.count=2;c.points[0]={0,0};c.points[1]={1,1};return c;
 }
+struct TextureParams {
+    // 0 noise, 1 grains, 2 impulses, 3 friction. All normalized 0..1.
+    uint8_t source{1};
+    float density{0.50f},size{0.35f},color{0.60f};
+    float resonance{0.45f},chaos{0.30f};
+};
 struct Operator {
     bool enabled{true};
     // Optional phase variation at note-on; disabled by default.
@@ -166,6 +189,9 @@ struct Operator {
     Wave wave{Wave::Sine};
     Wave waveMorph{Wave::Sine};
     bool waveMorphConfigured{false};
+    bool texturePitched{false};
+    bool textureMorphPitched{false};
+    TextureParams texture{},textureMorph{};
     float ratio{1.0f};
     float semitoneOffset{0.0f};
     float detuneCents{0.0f};

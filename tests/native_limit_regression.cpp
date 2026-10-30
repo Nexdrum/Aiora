@@ -358,5 +358,62 @@ int main(){
     assert(again.ops[0].modChannels[0].response.source==1);
     assert(again.filter.evolving.configured);
     assert(again.masterAmpCurve.enabled);
+
+    // Noise/Hiss legacy patch migration must preserve independently pitched
+    // primary and morph endpoints without exposing Hiss as a new selection.
+    const std::string legacy=R"({"name":"Legacy Hiss","ops":[{"wave":"hiss",
+        "waveMorph":"noise","level":0.8}]})";
+    Patch migrated;
+    assert(deserializePatchJson(legacy,migrated,&error));
+    assert(migrated.ops[0].wave==Wave::Noise);
+    assert(migrated.ops[0].texturePitched);
+    assert(migrated.ops[0].waveMorph==Wave::Noise);
+    assert(!migrated.ops[0].textureMorphPitched);
+    Patch reloaded;
+    assert(deserializePatchJson(serializePatchJson(migrated),reloaded,&error));
+    assert(reloaded.ops[0].texturePitched);
+    assert(!reloaded.ops[0].textureMorphPitched);
+
+    // Custom procedural texture parameters and both morph modes round-trip.
+    Patch textured=makeDefaultPatch("Texture Test");
+    textured.ops[0].wave=Wave::TextureCustom;
+    textured.ops[0].texture.source=3;
+    textured.ops[0].texture.density=0.82f;
+    textured.ops[0].texturePitched=true;
+    textured.ops[0].waveMorph=Wave::Clang;
+    textured.ops[0].waveMorphConfigured=true;
+    textured.ops[0].textureMorphPitched=false;
+    Patch texturedCopy;
+    assert(deserializePatchJson(serializePatchJson(textured),texturedCopy,&error));
+    assert(texturedCopy.ops[0].wave==Wave::TextureCustom);
+    assert(texturedCopy.ops[0].texture.source==3);
+    assert(std::fabs(texturedCopy.ops[0].texture.density-.82f)<.001f);
+    assert(texturedCopy.ops[0].texturePitched);
+    assert(texturedCopy.ops[0].waveMorph==Wave::Clang);
+    assert(!texturedCopy.ops[0].textureMorphPitched);
+    // Exercise every new generator in both pitch modes and an active morph.
+    for(Wave texture:{Wave::Noise,Wave::Grain,Wave::Rasp,
+                      Wave::Clang,Wave::TextureCustom}){
+        for(bool pitched:{false,true}){
+            Patch current=makeDefaultPatch("Audio Texture");
+            current.ops[0].wave=texture;
+            current.ops[0].texturePitched=pitched;
+            current.ops[0].waveMorph=Wave::Noise;
+            current.ops[0].waveMorphConfigured=true;
+            current.ops[0].textureMorphPitched=!pitched;
+            current.ops[0].texture.source=2;
+            current.ops[0].level=.85f;
+            SpectrachordVoice v;
+            v.prepare(24000);
+            v.start(321,toDspPatch(current),62,.9f,4800u,24000);
+            float energy=0.0f;
+            for(int n=0;n<4096;++n){
+                const float sample=v.render();
+                assert(std::isfinite(sample));
+                energy+=sample*sample;
+            }
+            assert(energy>0.0f);
+        }
+    }
     return 0;
 }

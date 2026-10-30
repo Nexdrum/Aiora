@@ -57,6 +57,9 @@ private:
     static float curveMean(const DspCurve& curve, float fallback) noexcept;
     float noise() noexcept;
     float hissSample(size_t index, int unisonVoice, float pitchHz) noexcept;
+    float textureSample(Wave wave,const TextureParams& params,bool pitched,
+        size_t index,int unisonVoice,bool alternate,float pitchHz,
+        float oscillatorPhase) noexcept;
     float waveSample(Wave wave,const SpectralWaveTables& tables,
         float phase,float frequency) noexcept;
     bool active_{false};
@@ -83,6 +86,11 @@ private:
     // Immutable band-limited cycles are referenced through patch_.
     // Voice start performs no FFT and copies no waveform samples.
     std::array<std::array<float,2>,6> hissState_{};
+    struct TextureState {
+        float phase{0},held{0},filtered{0},ring{0},color{0};
+    };
+    // Independent primary/morph procedural generators; no audio allocations.
+    std::array<std::array<std::array<TextureState,2>,2>,6> textureState_{};
     Biquad peak_{};
     float peakCenterSmoothed_{220.0f},peakQSmoothed_{1.0f},peakGainSmoothed_{0.0f};
     bool peakReady_{false};

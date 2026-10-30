@@ -136,6 +136,9 @@ public:
     bool setSelectedOperatorModChannel(int opIndex,int slot,const OperatorModChannel& channel);
     bool setSelectedKeyMapRange(int lowMidi,int highMidi);
     bool setSelectedOperatorWave(int opIndex, Wave wave, bool morph = false);
+    bool setSelectedTexturePitched(int opIndex,bool pitched,bool morph=false);
+    bool setSelectedTextureParam(int opIndex,int parameter,float value,bool morph=false);
+    bool setSelectedTextureSource(int opIndex,int source,bool morph=false);
     bool setSelectedOperatorParam(int opIndex, OperatorParam param, float value);
     bool setSelectedHarmonic(int opIndex, int partialIndex, float value, bool muted = false);
     bool setSelectedHarmonicPhase(int opIndex, int partialIndex, float value, bool muted = false);
