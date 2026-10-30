@@ -584,8 +584,17 @@ struct OpSurface {
         return o.volumeCurve.enabled?o.volumeCurve:initialOperatorVolume();
     }
     OperatorModChannel channel(const Operator&o) const {
-        if(o.modChannelsConfigured)return o.modChannels[modSlot];
-        auto c=initialOperatorModChannel();
+        // A previously configured operator may contain empty Mod slots
+        // (for example when imported from an older patch). They must still
+        // expose the same editable 0-to-100 response as a new operator.
+        // Preserve the slot's enabled state, source and destination.
+        auto c=o.modChannelsConfigured?
+            o.modChannels[modSlot]:initialOperatorModChannel();
+        if(c.response.count<2){
+            c.response.count=2;
+            c.response.points[0]={0.0f,0.0f};
+            c.response.points[1]={1.0f,1.0f};
+        }
         return c;
     }
     OperatorResponse response(const Operator&o) const {
