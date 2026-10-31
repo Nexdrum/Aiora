@@ -40,6 +40,9 @@ public:
     static constexpr size_t kScopeSamples = 2048;
     static constexpr size_t kScopeReadSamples = 1024;
     void copyScope(std::array<float, kScopeReadSamples>& out) const noexcept;
+    // Pitch-class activity published by the audio thread once per callback.
+    // This drives additive note light on the oscilloscope without FFT guesses.
+    void copyScopeNoteLevels(std::array<float,12>& out) const noexcept;
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* audioData, int32_t numFrames) override;
     void onErrorAfterClose(oboe::AudioStream*, oboe::Result error) override;
@@ -68,6 +71,7 @@ private:
         float gainLeft{1.0f};
         float gainRight{1.0f};
         int32_t fxBus{-1};
+        int32_t midi{62};
         bool transport{false};
     };
 
@@ -103,6 +107,8 @@ private:
 
     std::array<std::atomic<int32_t>, kScopeSamples> scope_{};
     std::atomic<uint32_t> scopeWrite_{0};
+    std::array<float,12> scopeNoteAccum_{}; // audio thread only
+    std::array<std::atomic<uint16_t>,12> scopeNoteLevels_{};
 };
 
 } // namespace aiora

@@ -1,4 +1,5 @@
 #include "ProjectCore.h"
+#include "ScopePitchColor.h"
 #include "PlaybackSnapshot.h"
 #include "ProjectCodec.h"
 #include "FactoryPresets.h"
@@ -114,6 +115,26 @@ static void checkDrawSimplification(){
 }
 
 int main(){
+    // Additive note-light mixing: multiple pitches add channels rather than
+    // averaging them, with clipping at maximum brightness.
+    struct Light {float r,g,b;};
+    std::array<Light,12> palette{};
+    palette[0]={1.0f,0.0f,0.0f};
+    palette[4]={0.0f,0.5f,0.0f};
+    palette[7]={0.5f,0.0f,1.0f};
+    std::array<float,12> levels{};
+    const auto idle=additiveScopePitchColor(palette,levels);
+    assert(idle.r==0.0f&&idle.g==0.0f&&idle.b==0.0f);
+    levels[0]=0.6f;
+    levels[4]=1.0f;
+    levels[7]=1.0f;
+    const auto mixed=additiveScopePitchColor(palette,levels);
+    assert(std::fabs(mixed.r-1.0f)<1.0e-5f);
+    assert(std::fabs(mixed.g-0.5f)<1.0e-5f);
+    assert(std::fabs(mixed.b-1.0f)<1.0e-5f);
+    levels[0]=2.0f;
+    const auto clipped=additiveScopePitchColor(palette,levels);
+    assert(clipped.r==1.0f&&clipped.g==0.5f&&clipped.b==1.0f);
     checkDrawSimplification();
     // A resumed note must accept Android POINTER_DOWN while V/M stay held.
     // PRIMARY DOWN still works if the draw finger is alone.

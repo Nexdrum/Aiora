@@ -47,6 +47,7 @@ void AudioEngine::stop(){
     std::shared_ptr<oboe::AudioStream> old;{std::scoped_lock lock(streamMutex_);old=std::move(stream_);}if(old){old->requestStop();old->close();}
     transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)slot.voice.kill();
     previewFx_.reset();previewKitFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();playbackFxCount_=0;
+    for(auto& level:scopeNoteLevels_)level.store(0,std::memory_order_relaxed);
     Event pending;while(events_.pop(pending))if(pending.type==EventType::Snapshot&&pending.pointer)delete reinterpret_cast<PlaybackSnapshot*>(pending.pointer);
     if(playback_){delete playback_;playback_=nullptr;}collectRetiredSnapshots();
 }
@@ -130,6 +131,12 @@ bool AudioEngine::playTransport(int startStep){
 void AudioEngine::stopTransport() noexcept {events_.push({EventType::StopTransport,-1,0,0,0,0});}
 void AudioEngine::collectRetiredSnapshots() noexcept {PlaybackSnapshot*p=nullptr;while(retiredSnapshots_.pop(p))delete p;}
 
+void AudioEngine::copyScopeNoteLevels(std::array<float,12>& out) const noexcept {
+    for(size_t i=0;i<out.size();++i)
+        out[i]=static_cast<float>(scopeNoteLevels_[i].load(
+            std::memory_order_relaxed))/65535.0f;
+}
+
 void AudioEngine::copyScope(std::array<float,kScopeReadSamples>& out) const noexcept {
     const uint32_t published=scopeWrite_.load(std::memory_order_acquire);
     const uint32_t begin=published-static_cast<uint32_t>(kScopeReadSamples);
@@ -159,7 +166,8 @@ void AudioEngine::triggerStep(int step,double phase) noexcept {
         const uint64_t gate=static_cast<uint64_t>(std::max<double>(sampleRate_.load(std::memory_order_relaxed)*0.09,e.lengthSteps*transportSamplesPerStep_));
         const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
         slot.voice.start(id,e.patch,e.midi,pressure,gate,static_cast<float>(transportSamplesPerStep_),e.automation);slot.voice.setAge(++ageCounter_);
-        slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=e.fxBus;slot.transport=true;
+        slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=e.fxBus;
+        slot.midi=e.midi;slot.transport=true;
     }
 }
 
@@ -194,12 +202,14 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             for(auto&slot:voices_)if(slot.voice.active()&&slot.voice.id()==e.id){slot.voice.release();return;}return;
         case EventType::NoteOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;
+            slot.fxBus=-1;slot.midi=e.midi;slot.transport=false;
             configureFx(e.patch.fx);previewKitFx_.set(Fx{});return;
         }
         case EventType::PadOn:{
             auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
-            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=-1;slot.transport=false;
+            slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;
+            slot.fxBus=-1;slot.midi=e.midi;slot.transport=false;
             configureFx(e.patch.fx);previewKitFx_.set(e.kitFx);return;
         }
         case EventType::Snapshot:{
@@ -278,6 +288,13 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
     for(auto&slot:voices_){
         if(!slot.voice.active())continue;
         const float sample=slot.voice.render();
+        // Accumulate actual sounding voices, not a rainbow sweep across X.
+        // Notes of the same pitch class share light; simultaneous notes mix
+        // by adding their per-channel brightness, just like Spectrachord.
+        const int pitchClass=((slot.midi%12)+12)%12;
+        const float audible=std::fabs(sample)*0.5f*
+            (std::fabs(slot.gainLeft)+std::fabs(slot.gainRight));
+        scopeNoteAccum_[static_cast<size_t>(pitchClass)]+=audible;
         const float l=sample*slot.gainLeft;
         const float r=sample*slot.gainRight;
         if(slot.transport&&transportPlaying_.load(std::memory_order_relaxed)){
@@ -318,6 +335,7 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audioData,int32_t numFrames){
     Event e;while(events_.pop(e))applyEvent(e);auto*out=static_cast<float*>(audioData);
     uint32_t scopeWrite=scopeWrite_.load(std::memory_order_relaxed);
+    scopeNoteAccum_.fill(0.0f);
     for(int32_t i=0;i<numFrames;++i){
         const auto s=renderFrame();
         out[i*2]=s[0];out[i*2+1]=s[1];
@@ -329,6 +347,16 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audio
         advanceTransport();
     }
     scopeWrite_.store(scopeWrite,std::memory_order_release);
+    // Publish 12 small atomic brightness values once per buffer, rather
+    // than doing any UI/color work on the low-latency audio thread.
+    const float invFrames=1.0f/static_cast<float>(std::max(1,numFrames));
+    for(size_t i=0;i<scopeNoteAccum_.size();++i){
+        const float brightness=std::clamp(
+            scopeNoteAccum_[i]*invFrames*12.0f,0.0f,1.0f);
+        scopeNoteLevels_[i].store(
+            static_cast<uint16_t>(std::lround(brightness*65535.0f)),
+            std::memory_order_relaxed);
+    }
     if(transportPlaying_.load(std::memory_order_relaxed)&&playback_){
         const double phase=transportSamplesPerStep_>0.0
             ?std::clamp(samplesIntoStep_/transportSamplesPerStep_,0.0,1.0)

@@ -24,12 +24,7 @@ const NativeOverlay::Rect logoR{
 overlay.addSpectrumLogo(logoR);
 overlay.addText("A I O R A",logoR.x+logoSize+9.f,
                 logoR.y+logoSize*.25f,.92f,overlayColor(kWhite));
-overlay.addLine(transport.x+transport.w*.16f,
-                transport.y+transport.h*.25f,
-                transport.x+transport.w*.84f,
-                transport.y+transport.h*.25f,
-                1.4f,overlayColor(kPurple,.46f));
-auto& project=ProjectCore::instance();
+ auto& project=ProjectCore::instance();
 auto& audio=AudioEngine::instance();
 const auto startR=headerControlRect(0),playR=headerControlRect(1),
            endR=headerControlRect(2);
@@ -55,15 +50,6 @@ if(audio.transportPlaying()){
 overlay.addTextCentered(">|",{endR.x,endR.y,endR.w,endR.h},
                         1.32f,overlayColor(kWhite));
 drawScope();
-// Compact 12-tone spectrum strip beneath the oscilloscope.
-const auto scope=headerScopeRect();
-const float stripY=scope.y+scope.h+4.0f;
-const float stripW=scope.w/12.0f;
-for(int i=0;i<12;++i){
-    fillRect({scope.x+i*stripW,stripY,
-              std::max(1.0f,stripW-1.0f),2.4f},
-             mix(kTop,kPitchColors[static_cast<size_t>(i)],.75f));
-}
 static constexpr std::array<Rgb,7> accents{
     kCyan,kOrange,kPurple,kRed,kBlue,kGreen,kGold};
 // These are the displayed navigation names; the stable NativePage enum

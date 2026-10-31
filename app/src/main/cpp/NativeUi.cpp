@@ -1,4 +1,5 @@
 #include "NativeUi.h"
+#include "ScopePitchColor.h"
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
 #include "FactoryPresets.h"
@@ -1704,16 +1705,18 @@ void NativeUi::drawScope() const noexcept {
     std::array<float,AudioEngine::kScopeReadSamples> samples{};
     auto& audio=AudioEngine::instance();
     audio.copyScope(samples);
+    std::array<float,12> noteLevels{};
+    audio.copyScopeNoteLevels(noteLevels);
+    const auto additive=additiveScopePitchColor(kPitchColors,noteLevels);
+    const float peakLight=std::max({additive.r,additive.g,additive.b});
+    // Idle scope uses a subdued neutral trace. Sounding notes illuminate
+    // the entire waveform with their *combined* additive pitch light.
+    const Rgb traceColor=peakLight>0.002f?additive:mix(kTop,kMuted,.65f);
+    const Rgb glowColor{
+        traceColor.r*.62f,traceColor.g*.62f,traceColor.b*.62f};
     auto& ov=NativeOverlay::instance();
 
     fillRect(r,mix(kTop,kBg,0.70f));
-
-    // Quiet center reference only; the waveform is the primary visual.
-    fillRect({
-        r.x,
-        r.y+r.h*0.5f-0.5f,
-        r.w,1.0f},
-        mix(kMuted,kTop,0.70f));
 
     // AIORA is D-centered. Calibrate the horizontal scope window so one
     // complete D4 reference cycle (293.66 Hz) fills the scope width.
@@ -1796,17 +1799,12 @@ void NativeUi::drawScope() const noexcept {
         const float x=r.x+t*r.w;
         const float s=std::clamp(sampleAt(t)*gain,-1.0f,1.0f);
         const float y=r.y+r.h*0.5f-s*(r.h*0.43f);
-        const auto color=pitchColor((i*12)/std::max(1,points-1));
-
-        // Soft glow plus crisp center trace.
-        ov.addLine(
-            prevX,prevY,x,y,
-            4.5f,
-            overlayColor(mix(kTop,color,0.58f),0.62f));
-        ov.addLine(
-            prevX,prevY,x,y,
-            1.8f,
-            overlayColor(mix(color,kWhite,0.12f),0.98f));
+        // One oscilloscope trace, not a color ramp across screen X.
+        // Width and soft glow only; no separate top/bottom guide lines.
+        ov.addLine(prevX,prevY,x,y,4.5f,
+                   overlayColor(glowColor,0.56f));
+        ov.addLine(prevX,prevY,x,y,1.8f,
+                   overlayColor(traceColor,0.98f));
 
         prevX=x;
         prevY=y;
