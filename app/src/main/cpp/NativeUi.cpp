@@ -1703,7 +1703,10 @@ void NativeUi::drawDropdown() const noexcept {
 #include "NativeUiXY.inl"
 
 void NativeUi::drawScope() const noexcept {
-    const auto r=headerScopeRect();
+    drawScopeInRect(headerScopeRect());
+}
+
+void NativeUi::drawScopeInRect(Rect r) const noexcept {
     if(r.w<56.0f||r.h<20.0f)return;
 
     std::array<float,AudioEngine::kScopeReadSamples> samples{};
@@ -1815,6 +1818,68 @@ void NativeUi::drawScope() const noexcept {
     }
 }
 
+NativeUi::Rect NativeUi::scopeFullscreenButtonRect() const noexcept {
+    const auto end=headerControlRect(2);
+    const float gap=std::max(5.0f,end.w*0.16f);
+    return {end.x+end.w+gap,end.y,end.w,end.h};
+}
+NativeUi::Rect NativeUi::fullscreenScopeRect() const noexcept {
+    const float margin=0.0f;
+    const float targetAspect=3.0f;
+    const float w=std::max(1.0f,static_cast<float>(width_)-2.0f*margin);
+    const float h=std::max(1.0f,static_cast<float>(height_)-2.0f*margin);
+    const float scopeW=std::min(w,h*targetAspect);
+    const float scopeH=scopeW/targetAspect;
+    return {(width_-scopeW)*0.5f,(height_-scopeH)*0.5f,scopeW,scopeH};
+}
+NativeUi::Rect NativeUi::fullscreenScopeControlRect(int index) const noexcept {
+    if(index<0||index>4)return {};
+    const float gap=std::clamp(std::min(width_,height_)*0.014f,6.0f,14.0f);
+    const float size=std::clamp(std::min(width_,height_)*0.105f,48.0f,82.0f);
+    const float total=5.0f*size+4.0f*gap;
+    const float left=(width_-total)*0.5f;
+    const float y=height_-size-gap-std::max(0,safeBottom_);
+    return {left+index*(size+gap),y,size,size};
+}
+int NativeUi::hitFullscreenScopeControl(float x,float y) const noexcept {
+    if(!scopeFullscreen_||!scopeControlsVisible_)return -1;
+    for(int i=0;i<5;++i)
+        if(fullscreenScopeControlRect(i).contains(x,y))return i;
+    return -1;
+}
+bool NativeUi::hitScopeFullscreenButton(float x,float y) const noexcept {
+    return !scopeFullscreen_&&scopeFullscreenButtonRect().contains(x,y);
+}
+void NativeUi::drawFullscreenScope() const noexcept {
+    const Rgb scopeBackground=mix(kTop,kBg,0.70f);
+    fillRect({0.0f,0.0f,static_cast<float>(width_),static_cast<float>(height_)},
+        scopeBackground);
+    drawScopeInRect(fullscreenScopeRect());
+    if(!scopeControlsVisible_)return;
+    auto& ov=NativeOverlay::instance();
+    const char* labels[5]={"EYE","|<",AudioEngine::instance().transportPlaying()?"II":">",">|","[]"};
+    for(int i=0;i<5;++i){
+        const auto rr=fullscreenScopeControlRect(i);
+        fillRect(rr,mix(kButton,kPanel,0.42f));
+        fillRect({rr.x+2.0f,rr.y+2.0f,rr.w-4.0f,rr.h-4.0f},mix(kPanel,kBg,0.35f));
+        if(i==0){
+            // Eye pictogram with almond outline and pupil.
+            const float cx=rr.x+rr.w*.5f,cy=rr.y+rr.h*.5f;
+            for(int j=0;j<16;++j){
+                const float a=6.2831853f*j/16.0f;
+                const float b=6.2831853f*(j+1)/16.0f;
+                const auto pos=[&](float angle){
+                    const float x=rr.w*.28f*std::cos(angle);
+                    const float y=rr.h*.13f*std::sin(angle);
+                    return std::pair<float,float>{cx+x,cy+y};
+                };
+                const auto p0=pos(a),p1=pos(b);
+                ov.addLine(p0.first,p0.second,p1.first,p1.second,2.5f,overlayColor(kWhite));
+            }
+            ov.addFilledCircle(cx,cy,rr.h*.075f,overlayColor(kWhite));
+        }else ov.addTextCentered(labels[i],{rr.x,rr.y,rr.w,rr.h},1.15f,overlayColor(kWhite));
+    }
+}
 void NativeUi::drawTrackSwitchBar() const noexcept {
     if(page_==NativePage::Tracks)return;
     auto& project=ProjectCore::instance();
@@ -4323,6 +4388,20 @@ void NativeUi::drawPlaceholder() const noexcept {
 
 void NativeUi::render() const noexcept {
     if (width_ <= 0 || height_ <= 0) return;
+    if(scopeFullscreen_){
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_SCISSOR_TEST);
+        auto& overlay=NativeOverlay::instance();
+        overlay.begin(width_,height_);
+        glScissor(0,0,width_,height_);
+        const auto bg=mix(kTop,kBg,0.70f);
+        glClearColor(bg.r,bg.g,bg.b,1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        drawFullscreenScope();
+        glDisable(GL_SCISSOR_TEST);
+        overlay.flush();
+        return;
+    }
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_SCISSOR_TEST);
@@ -4425,6 +4504,7 @@ std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept 
     if(headerControlRect(0).contains(x,y))return HeaderAction::TransportStart;
     if(headerControlRect(1).contains(x,y))return HeaderAction::TransportToggle;
     if(headerControlRect(2).contains(x,y))return HeaderAction::TransportEnd;
+    if(hitScopeFullscreenButton(x,y))return HeaderAction::ScopeFullscreen;
     return std::nullopt;
 }
 
