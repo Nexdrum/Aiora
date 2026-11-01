@@ -87,10 +87,15 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
     snap->lengthSteps=anyNote
         ?static_cast<int>(std::ceil(end/static_cast<float>(bar)))*bar
         :bar;
+    for(const auto& p:project_.tempoPoints)
+        snap->lengthSteps=std::max(snap->lengthSteps,((p.step+bar-1)/bar)*bar);
     snap->lengthSteps=std::max(bar,snap->lengthSteps);
     snap->masterVolume=project_.masterVolume;
     snap->masterEffects=project_.masterFx;
     snap->steps.resize(static_cast<size_t>(snap->lengthSteps));
+    snap->secondsPerStep.reserve(static_cast<size_t>(snap->lengthSteps));
+    for(int s=0;s<snap->lengthSteps;++s)
+        snap->secondsPerStep.push_back(tempoStepSeconds(project_,s));
 
     auto addFxBus=[&](const Fx& fx)->int {
         snap->fxBuses.push_back(fx);
