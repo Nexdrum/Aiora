@@ -3267,6 +3267,7 @@ void NativeUi::drawRoll() const noexcept {
     for(int cc=0;
         cc<visibleCols&&pitchOffset+cc<static_cast<int>(columns.size());
         ++cc){
+        if(tempoMode_&&cc==0)continue;
         const int midi=columns[static_cast<size_t>(pitchOffset+cc)];
         const float rawLeft=viewport.x+gutter+cc*colW;
         const float rawRight=viewport.x+gutter+(cc+1)*colW;
@@ -4065,12 +4066,18 @@ void NativeUi::drawRoll() const noexcept {
             fillRect({rr.x,top,rr.w,bottom-top},tone);
             fillRect({rr.x,top,rr.w,std::min(4.0f,bottom-top)},kWhite);
             rollOverlay.addTextCentered(std::to_string(static_cast<int>(std::lround(p.bpm))),
-                {rr.x,gridTop>rr.y?gridTop:rr.y,rr.w,std::min(rowH*0.82f,bottom-top)},
+                {rr.x,std::max(gridTop,rr.y+(p.step-p.rampStart)*rowH),
+                 rr.w,std::min(rowH*0.82f,bottom-std::max(gridTop,rr.y+(p.step-p.rampStart)*rowH))},
                 0.62f,overlayColor(kRollBg));
         }
     }
 
-    if(tempoEditing_>=0){
+
+}
+
+void NativeUi::drawTempoEditor() const noexcept {
+    const auto viewport=rollViewportRect();
+    auto& rollOverlay=NativeOverlay::instance();
         const float w=std::min(360.0f,viewport.w*0.90f);
         const float h=std::min(430.0f,viewport.h*0.90f);
         const float left=viewport.x+(viewport.w-w)*0.5f;
@@ -4092,8 +4099,6 @@ void NativeUi::drawRoll() const noexcept {
             fillRect(rr,kButton);
             rollOverlay.addTextCentered(keys[i],{rr.x,rr.y,rr.w,rr.h},0.86f,overlayColor(kWhite));
         }
-    }
-
 }
 
 void NativeUi::drawPerformance() const noexcept {
@@ -4390,6 +4395,16 @@ void NativeUi::render() const noexcept {
     }
 
     overlay.clearClip();
+    if(page_==NativePage::Roll&&tempoEditing_>=0){
+        // Flush all underlying notes, text and glyphs before drawing the modal.
+        overlay.flush();
+        overlay.begin(width_,height_);
+        glEnable(GL_SCISSOR_TEST);
+        drawTempoEditor();
+        glDisable(GL_SCISSOR_TEST);
+        overlay.flush();
+        return;
+    }
     if(dropdownOpen()){
         // The page contains deferred overlay geometry (glyphs/text). Flush it
         // before painting the popup so nothing from underneath can be drawn
