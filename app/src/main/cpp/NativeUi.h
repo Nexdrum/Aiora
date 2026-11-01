@@ -442,6 +442,7 @@ private:
     void drawDrumEditor() const noexcept;
     void drawDrums() const noexcept;
     void drawRoll() const noexcept;
+    void drawTempoEditor() const noexcept;
     void drawPerformance() const noexcept;
     void drawPlaceholder() const noexcept;
     void drawDropdown() const noexcept;
