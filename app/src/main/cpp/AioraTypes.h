@@ -555,4 +555,34 @@ struct Project {
     std::vector<Track> tracks;
 };
 
+
+inline float tempoAtStep(const Project& project,float step) noexcept {
+    float previous=std::clamp(project.bpm,12.0f,288.0f);
+    for(const auto& point:project.tempoPoints){
+        if(point.step<=0)continue;
+        if(step>=point.step){previous=std::clamp(point.bpm,12.0f,288.0f);continue;}
+        if(point.rampStart<point.step&&step>=point.rampStart){
+            const float fraction=std::clamp(
+                (step-point.rampStart)/static_cast<float>(point.step-point.rampStart),0.0f,1.0f);
+            return previous+(std::clamp(point.bpm,12.0f,288.0f)-previous)*fraction;
+        }
+        return previous;
+    }
+    return previous;
+}
+inline double tempoStepSeconds(const Project& project,int step) noexcept {
+    double sum=0.0;
+    for(int i=0;i<8;++i){
+        const float at=static_cast<float>(step)+(static_cast<float>(i)+0.5f)/8.0f;
+        sum+=60.0/std::max(12.0f,tempoAtStep(project,at));
+    }
+    return sum/(8.0*std::max(1,project.divisions));
+}
+inline double tempoTimeSeconds(const Project& project,double step) noexcept {
+    if(step<=0.0)return 0.0;
+    const int whole=static_cast<int>(std::floor(step));
+    double seconds=0.0;
+    for(int i=0;i<whole;++i)seconds+=tempoStepSeconds(project,i);
+    return seconds+(step-whole)*tempoStepSeconds(project,whole);
+}
 } // namespace aiora
