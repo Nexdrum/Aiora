@@ -1400,8 +1400,15 @@ void serviceRollLongPress(NativeState& state){
             const auto points=aiora::ProjectCore::instance().tempoPoints();
             if(g.tempoIndex<static_cast<int>(points.size())){
                 state.ui.setTempoEditing(g.tempoIndex);
-                state.ui.setTempoEditText(std::to_string(
-                    static_cast<int>(std::lround(points[static_cast<size_t>(g.tempoIndex)].bpm))));
+                int display=static_cast<int>(std::lround(points[static_cast<size_t>(g.tempoIndex)].bpm));
+                std::string digits;
+                const bool dozenal=aiora::ProjectCore::instance().dozenal();
+                const char* alphabet="0123456789XE";
+                do{
+                    digits.insert(digits.begin(),alphabet[display%(dozenal?12:10)]);
+                    display/=(dozenal?12:10);
+                }while(display>0);
+                state.ui.setTempoEditText(digits);
                 g.longPressTriggered=true;
             }
         }
