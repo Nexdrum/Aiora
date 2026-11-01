@@ -752,7 +752,7 @@ bool ProjectCore::replaceNoteCurves(int track,int note,
 }
 bool ProjectCore::deleteCurvePoint(int t,int n,int kind,int p){std::scoped_lock lock(mutex_);if(!validNote(t,n))return false;auto*c=curveFor(project_.tracks[t].notes[n],kind);if(!c||p<0||p>=static_cast<int>(c->size()))return false;c->erase(c->begin()+p);return true;}
 float ProjectCore::lastStep() const {std::scoped_lock lock(mutex_);float mx=-1;for(const auto&t:project_.tracks)for(const auto&n:t.notes)mx=std::max(mx,n.startStep+std::max(1.0f,n.lengthSteps)-1.0f);return mx;}
-int ProjectCore::playLengthSteps() const {std::scoped_lock lock(mutex_);const int bar=std::max(1,project_.beats)*std::max(1,project_.divisions);float end=0.0f;bool any=false;for(const auto&t:project_.tracks)for(const auto&n:t.notes){end=std::max(end,n.startStep+std::max(1.0f,n.lengthSteps));any=true;}if(!any)return bar;return std::max(bar,static_cast<int>(std::ceil(end/static_cast<float>(bar)))*bar);}
+int ProjectCore::playLengthSteps() const {std::scoped_lock lock(mutex_);const int bar=std::max(1,project_.beats)*std::max(1,project_.divisions);float end=0.0f;bool any=false;for(const auto&t:project_.tracks)for(const auto&n:t.notes){end=std::max(end,n.startStep+std::max(1.0f,n.lengthSteps));any=true;}for(const auto& point:project_.tempoPoints){end=std::max(end,static_cast<float>(point.step+1));any=true;}if(!any)return bar;return std::max(bar,static_cast<int>(std::ceil(end/static_cast<float>(bar)))*bar);}
 
 
 std::vector<TempoPoint> ProjectCore::tempoPoints() const {
