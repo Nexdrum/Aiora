@@ -2891,7 +2891,7 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }
 
     if(g.kind==RollGestureKind::TempoEdit){
-        if(!g.moved||g.tempoIndex<=0)return;
+        if(g.longPressTriggered||!g.moved||g.tempoIndex<=0)return;
         const auto hit=state.ui.hitRollTempoStep(x,y);
         if(!hit)return;
         auto& project=aiora::ProjectCore::instance();
