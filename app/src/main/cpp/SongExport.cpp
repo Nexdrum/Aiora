@@ -386,6 +386,19 @@ bool exportProjectMidi(
              static_cast<uint8_t>((micros>>16)&0xffu),
              static_cast<uint8_t>((micros>>8)&0xffu),
              static_cast<uint8_t>(micros&0xffu)}});
+        const int last=std::max(1,static_cast<int>(std::ceil(projectEndSteps(project))));
+        for(int step=1;step<=last;++step){
+            const float current=tempoAtStep(project,static_cast<float>(step));
+            const float preceding=tempoAtStep(project,static_cast<float>(step-1));
+            if(std::fabs(current-preceding)<0.0001f)continue;
+            const uint32_t target=static_cast<uint32_t>(std::clamp(
+                std::lround(60000000.0/std::max(12.0f,current)),1l,16777215l));
+            const uint32_t tick=static_cast<uint32_t>(std::lround(step*ticksPerStep));
+            meta.push_back({tick,1u,{0xffu,0x51u,0x03u,
+                static_cast<uint8_t>((target>>16)&0xffu),
+                static_cast<uint8_t>((target>>8)&0xffu),
+                static_cast<uint8_t>(target&0xffu)}});
+        }
         addMetaText(meta,0u,0x03u,"AIORA tempo");
         tracks.push_back(makeMidiTrack(std::move(meta)));
     }
