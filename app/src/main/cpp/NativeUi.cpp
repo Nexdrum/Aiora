@@ -1956,8 +1956,12 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
 
     if(page_==NativePage::Roll){
         const auto tempoToggle=rollTempoToggleRect();
-        fillRect(tempoToggle,tempoMode_?mix(kButton,kMuted,0.65f):kButton);
-        ov.addTextCentered("T",{tempoToggle.x,tempoToggle.y,tempoToggle.w,tempoToggle.h},1.12f,overlayColor(kWhite));
+        const bool averaging=groupAverageAvailable();
+        const bool highlighted=averaging?groupAverageMode_:tempoMode_;
+        fillRect(tempoToggle,highlighted?mix(kButton,kCyan,0.52f):kButton);
+        ov.addTextCentered(averaging?"A":"T",
+            {tempoToggle.x,tempoToggle.y,tempoToggle.w,tempoToggle.h},
+            1.12f,overlayColor(kWhite));
         const auto zoom=rollZoomRect();
         fillRect(zoom,kButton);
         // Changing-density grid icon: 2x2 near, 3x3 default, 4x4 far.
