@@ -607,13 +607,13 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
     const float prevW=h,nextW=h;
 
     if(page_==NativePage::Roll){
-        const float modeW=h*0.82f;
+        const float modeW=h*0.72f;
         // Split the extra zoom button width across both track arrows.
         // The track name field remains as wide as before.
         const float arrowW=h-(modeW+gap)*0.5f;
         const float mainW=std::max(
             90.0f,
-            content.w-arrowW*2.0f-modeW*5.0f-gap*7.0f);
+            content.w-arrowW*2.0f-modeW*6.0f-gap*8.0f);
         float x=content.x;
         if(part==0)return {x,content.y,arrowW,h};
         x+=arrowW+gap;
@@ -621,6 +621,8 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
         x+=mainW+gap;
         if(part==2)return {x,content.y,arrowW,h};
         x+=arrowW+gap;
+        if(part==9)return {x,content.y,modeW,h};
+        x+=modeW+gap;
         if(part>=3&&part<=7)
             return {x+(part-3)*(modeW+gap),content.y,modeW,h};
         return {};
@@ -1043,6 +1045,8 @@ NativeUi::Rect NativeUi::drumIconRect(int index) const noexcept {
         w,94.0f
     };
 }
+
+NativeUi::Rect NativeUi::rollTempoToggleRect() const noexcept {return trackSwitchRect(9);}
 
 NativeUi::Rect NativeUi::rollZoomRect() const noexcept {
     return trackSwitchRect(3);
@@ -1886,6 +1890,9 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
     }
 
     if(page_==NativePage::Roll){
+        const auto tempoToggle=rollTempoToggleRect();
+        fillRect(tempoToggle,tempoMode_?mix(kButton,kMuted,0.65f):kButton);
+        ov.addTextCentered("T",tempoToggle,1.12f,overlayColor(kWhite));
         const auto zoom=rollZoomRect();
         fillRect(zoom,kButton);
         // Changing-density grid icon: 2x2 near, 3x3 default, 4x4 far.
@@ -3411,6 +3418,29 @@ void NativeUi::drawRoll() const noexcept {
         return minHalf+(maxHalf-minHalf)*velocity;
     };
 
+
+    if(tempoMode_){
+        const float tempoX=viewport.x+gutter;
+        const auto grey=mix(kPanel,kMuted,0.45f);
+        fillRect({tempoX,viewport.y,colW,header-1.0f},grey);
+        rollOverlay.addTextCentered("T",{tempoX,viewport.y,colW,header},1.15f,overlayColor(kWhite));
+        fillRect({tempoX,gridTop,colW,gridBottom-gridTop},mix(kRollBg,kMuted,0.22f));
+        const auto points=project.tempoPoints();
+        for(int i=0;i<static_cast<int>(points.size());++i){
+            const auto& p=points[static_cast<size_t>(i)];
+            const auto rr=rollTempoBoxRect(p.rampStart,p.step);
+            const float top=std::max(gridTop,rr.y);
+            const float bottom=std::min(gridBottom,rr.y+rr.h);
+            if(bottom<=top)continue;
+            const Rgb tone=i==0?mix(kMuted,kWhite,0.18f):mix(kMuted,kWhite,0.38f);
+            fillRect({rr.x,top,rr.w,bottom-top},tone);
+            fillRect({rr.x,top,rr.w,std::min(4.0f,bottom-top)},kWhite);
+            rollOverlay.addTextCentered(std::to_string(static_cast<int>(std::lround(p.bpm))),
+                {rr.x,gridTop>rr.y?gridTop:rr.y,rr.w,std::min(rowH*0.82f,bottom-top)},
+                0.62f,overlayColor(kRollBg));
+        }
+    }
+
     const auto& activeTrack=projectSnapshot.tracks[static_cast<size_t>(track)];
     const int stackNoteCount=static_cast<int>(activeTrack.notes.size());
     std::vector<int> stackDepth(static_cast<size_t>(stackNoteCount),0);
@@ -4508,6 +4538,34 @@ std::optional<RollMode> NativeUi::hitRollMode(float x, float y) const noexcept {
     return std::nullopt;
 }
 
+bool NativeUi::hitRollTempoToggle(float x,float y) const noexcept {
+    return page_==NativePage::Roll&&rollTempoToggleRect().contains(x,y);
+}
+std::optional<int> NativeUi::hitRollTempoStep(float x,float y) const noexcept {
+    if(!tempoMode_||!hitRollNoteArea(x,y))return std::nullopt;
+    const auto vp=rollViewportRect();
+    const float left=vp.x+rollGutterPixels();
+    if(x>=left+rollColumnPixels())return std::nullopt;
+    const int row=rollStepOffset_+static_cast<int>(
+        std::floor((y-vp.y-rollHeaderPixels())/rollCellPixels()));
+    return row>=0&&row<rollTotalRows()?std::optional<int>{row}:std::nullopt;
+}
+NativeUi::Rect NativeUi::rollTempoBoxRect(int start,int end) const noexcept {
+    const auto vp=rollViewportRect();
+    const float row=rollCellPixels(),left=vp.x+rollGutterPixels();
+    const float top=vp.y+rollHeaderPixels()+(start-rollStepOffset_)*row;
+    return {left+2.0f,top+1.0f,std::max(1.0f,rollColumnPixels()-4.0f),
+        std::max(row-2.0f,(end-start+1)*row-2.0f)};
+}
+int NativeUi::tempoBoxAt(float x,float y) const noexcept {
+    if(!tempoMode_)return -1;
+    const auto points=ProjectCore::instance().tempoPoints();
+    for(int i=static_cast<int>(points.size())-1;i>=0;--i)
+        if(rollTempoBoxRect(points[i].rampStart,points[i].step).contains(x,y))
+            return i;
+    return -1;
+}
+bool NativeUi::hitTempoEditorKey(float,float,int&) const noexcept {return false;}
 bool NativeUi::hitRollZoom(float x,float y) const noexcept {
     return page_==NativePage::Roll&&rollZoomRect().contains(x,y);
 }
