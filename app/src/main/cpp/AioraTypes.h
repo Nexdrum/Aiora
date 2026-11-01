@@ -545,11 +545,13 @@ struct Track {
     std::string name; bool drums{false},mute{false},solo{false}; float volume{0.8f},pan{0}; Patch patch{};
     std::vector<DrumPad> pads; int32_t selectedPad{0},drumZoneLow{-1},drumZoneHigh{-1}; std::vector<Note> notes;
 };
+struct TempoPoint { int32_t step{0}; int32_t rampStart{0}; float bpm{112.0f}; };
 struct Project {
     std::string name{"Untitled Song"};
     float bpm{112}; int32_t beats{4},divisions{4}; bool dozenal{false};
     float masterVolume{0.9f};
     Fx masterFx{};
+    std::vector<TempoPoint> tempoPoints;
     std::vector<Track> tracks;
 };
 
