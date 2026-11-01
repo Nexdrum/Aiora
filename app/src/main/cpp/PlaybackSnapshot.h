@@ -23,6 +23,7 @@ struct PlaybackStep {
 
 struct PlaybackSnapshot {
     float bpm{112.0f};
+    std::vector<double> secondsPerStep;
     int32_t divisions{4};
     int32_t lengthSteps{16};
     float masterVolume{0.9f};
