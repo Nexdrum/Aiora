@@ -4052,9 +4052,9 @@ void NativeUi::drawRoll() const noexcept {
     if(tempoMode_){
         const float tempoX=viewport.x+gutter;
         const auto grey=mix(kPanel,kMuted,0.45f);
-        fillRect({tempoX,viewport.y,colW,header-1.0f},grey);
+        rollOverlay.addRect({tempoX,viewport.y,colW,header-1.0f},overlayColor(grey));
         rollOverlay.addTextCentered("T",{tempoX,viewport.y,colW,header},1.15f,overlayColor(kWhite));
-        fillRect({tempoX,gridTop,colW,gridBottom-gridTop},mix(kRollBg,kMuted,0.22f));
+        rollOverlay.addRect({tempoX,gridTop,colW,gridBottom-gridTop},overlayColor(mix(kRollBg,kMuted,0.22f)));
         const auto points=project.tempoPoints();
         for(int i=0;i<static_cast<int>(points.size());++i){
             const auto& p=points[static_cast<size_t>(i)];
@@ -4063,8 +4063,8 @@ void NativeUi::drawRoll() const noexcept {
             const float bottom=std::min(gridBottom,rr.y+rr.h);
             if(bottom<=top)continue;
             const Rgb tone=i==0?mix(kMuted,kWhite,0.18f):mix(kMuted,kWhite,0.38f);
-            fillRect({rr.x,top,rr.w,bottom-top},tone);
-            fillRect({rr.x,top,rr.w,std::min(4.0f,bottom-top)},kWhite);
+            rollOverlay.addRect({rr.x,top,rr.w,bottom-top},overlayColor(tone));
+            rollOverlay.addRect({rr.x,top,rr.w,std::min(4.0f,bottom-top)},overlayColor(kWhite));
             rollOverlay.addTextCentered(std::to_string(static_cast<int>(std::lround(p.bpm))),
                 {rr.x,std::max(gridTop,rr.y+(p.step-p.rampStart)*rowH),
                  rr.w,std::min(rowH*0.82f,bottom-std::max(gridTop,rr.y+(p.step-p.rampStart)*rowH))},
