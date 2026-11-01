@@ -175,6 +175,19 @@ public:
     [[nodiscard]] bool drumRangeMode() const noexcept;
 
     void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
+    void toggleTempoMode() noexcept { tempoMode_=!tempoMode_; }
+    bool tempoMode() const noexcept {return tempoMode_;}
+    bool hitRollTempoToggle(float x,float y) const noexcept;
+    std::optional<int> hitRollTempoStep(float x,float y) const noexcept;
+    Rect rollTempoBoxRect(int start,int end) const noexcept;
+    int tempoBoxAt(float x,float y) const noexcept;
+    void setTempoEditing(int index) noexcept {tempoEditing_=index;}
+    int tempoEditing() const noexcept {return tempoEditing_;}
+    void setTempoEditText(std::string s){tempoEditText_=std::move(s);}
+    const std::string& tempoEditText() const noexcept {return tempoEditText_;}
+    bool hitTempoEditorKey(float x,float y,int& key) const noexcept;
+    void closeTempoEditor() noexcept {tempoEditing_=-1;}
+
     [[nodiscard]] RollMode rollMode() const noexcept { return rollMode_; }
     [[nodiscard]] bool rollDrawMode(int kind) const noexcept {
         return kind>=0&&kind<3&&rollDrawModes_[static_cast<size_t>(kind)];
@@ -402,6 +415,7 @@ private:
     [[nodiscard]] Rect drumIconRect(int index) const noexcept;
 
     [[nodiscard]] Rect rollZoomRect() const noexcept;
+    [[nodiscard]] Rect rollTempoToggleRect() const noexcept;
     [[nodiscard]] Rect rollSelectionToolRect() const noexcept;
     [[nodiscard]] Rect rollModeRect(int index) const noexcept;
     [[nodiscard]] Rect rollGroupAutomationRect() const noexcept;
@@ -435,6 +449,9 @@ private:
     [[nodiscard]] Rect dropdownItemRect(int index) const noexcept;
     [[nodiscard]] int dropdownColumns() const noexcept;
 
+    bool tempoMode_{false};
+    int tempoEditing_{-1};
+    std::string tempoEditText_{};
     float expressionV_{0.5f};
     float expressionM_{0.5f};
     int width_{0};
