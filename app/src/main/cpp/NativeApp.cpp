@@ -243,6 +243,19 @@ void pulseCurveModeHaptic(ANativeActivity* activity) {
     detachAndroidEnv(activity,attached);
 }
 
+void setScopeImmersive(ANativeActivity* activity,bool enabled) {
+    if(!activity)return;
+    bool attached=false;
+    JNIEnv* env=androidEnv(activity,attached);
+    if(!env)return;
+    jclass cls=env->GetObjectClass(activity->clazz);
+    const jmethodID method=cls?env->GetMethodID(cls,"setScopeImmersive","(Z)V"):nullptr;
+    if(method)env->CallVoidMethod(activity->clazz,method,enabled?JNI_TRUE:JNI_FALSE);
+    if(env->ExceptionCheck())env->ExceptionClear();
+    if(cls)env->DeleteLocalRef(cls);
+    detachAndroidEnv(activity,attached);
+}
+
 bool clipboardSetText(ANativeActivity* activity,const std::string& text) {
     bool attached=false;
     JNIEnv* env=androidEnv(activity,attached);
@@ -1794,6 +1807,36 @@ void handleRollTap(NativeState& state, float x, float y, bool longPress) {
 }
 
 bool handleUiTap(NativeState& state, float x, float y) {
+    if(state.ui.scopeFullscreen()){
+        if(!state.ui.scopeControlsVisible()){
+            state.ui.toggleScopeControls();
+            return true;
+        }
+        const int control=state.ui.hitFullscreenScopeControl(x,y);
+        auto& audio=aiora::AudioEngine::instance();
+        switch(control){
+            case 0:state.ui.toggleScopeControls();break;
+            case 1:
+                state.ui.setRollStartStep(0);
+                audio.playTransport(0);
+                break;
+            case 2:
+                if(audio.transportPlaying())audio.stopTransport();
+                else audio.playTransport(state.ui.rollStartStep());
+                break;
+            case 3:
+                audio.stopTransport();
+                state.ui.setRollStartStep(aiora::ProjectCore::instance().playLengthSteps());
+                break;
+            case 4:
+                state.ui.setScopeFullscreen(false);
+                setScopeImmersive(state.app?state.app->activity:nullptr,false);
+                break;
+            default:break;
+        }
+        return true;
+    }
+
     auto& project = aiora::ProjectCore::instance();
     auto& audio = aiora::AudioEngine::instance();
 
@@ -2000,6 +2043,10 @@ bool handleUiTap(NativeState& state, float x, float y) {
             case aiora::HeaderAction::DozenalToggle:
                 project.setDozenal(!project.dozenal());
                 break;
+            case aiora::HeaderAction::ScopeFullscreen:
+                state.ui.setScopeFullscreen(true);
+                setScopeImmersive(state.app?state.app->activity:nullptr,true);
+                return true;
             case aiora::HeaderAction::TransportStart:
                 state.ui.setRollStartStep(0);
                 state.ui.setPerformanceFollow(true);
@@ -3075,6 +3122,10 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             stopAllKineticScroll(state);
 
             if(state.ui.tempoEditing()>=0){
+                if(action==AMOTION_EVENT_ACTION_DOWN)handleUiTap(state,x,y);
+                return 1;
+            }
+            if(state.ui.scopeFullscreen()){
                 if(action==AMOTION_EVENT_ACTION_DOWN)handleUiTap(state,x,y);
                 return 1;
             }
