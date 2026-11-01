@@ -51,6 +51,24 @@ public class AioraActivity extends NativeActivity {
         });
     }
 
+    public void setScopeImmersive(boolean enabled) {
+        runOnUiThread(() -> {
+            View decor = getWindow().getDecorView();
+            if (decor == null) return;
+            if (enabled) {
+                decor.setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN |
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            } else {
+                decor.setSystemUiVisibility(0);
+            }
+        });
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
