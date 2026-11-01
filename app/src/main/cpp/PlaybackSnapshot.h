@@ -9,6 +9,7 @@ namespace aiora {
 struct PlaybackEvent {
     int32_t midi{62};
     float lengthSteps{1.0f};
+    double durationSeconds{0.0};
     float offsetSteps{0.0f}; // fractional note onset within its time-grid step
     DspPatch patch{};
     VoiceAutomation automation{};
