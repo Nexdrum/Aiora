@@ -123,6 +123,7 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
             event.midi=note.midi;
             event.lengthSteps=std::max(1.0f,note.lengthSteps);
             event.offsetSteps=std::clamp(start-static_cast<float>(step),0.0f,0.999999f);
+            event.durationSeconds=tempoTimeSeconds(project_,static_cast<double>(start)+event.lengthSteps)-tempoTimeSeconds(project_,start);
 
             const int padIndex=track.drums?padIndexFor(track,note.midi):-1;
             if(track.drums && padIndex<0)continue;
