@@ -918,7 +918,9 @@ SystemInsets querySystemInsets(ANativeActivity* activity) {
 void updateSafeInsets(NativeState& state) {
     SystemInsets insets=querySystemInsets(state.app?state.app->activity:nullptr);
 
-    if(state.app){
+    // Android's contentRect can lag behind system-bar visibility changes
+    // after rotation. Prefer the live WindowInsets while restoring normal UI.
+    if(state.app&&state.scopeRestoreUntilMs==0){
         const auto& rect=state.app->contentRect;
         if(rect.right>rect.left&&rect.bottom>rect.top){
             insets.left=std::max(insets.left,rect.left);
