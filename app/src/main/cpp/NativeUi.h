@@ -177,6 +177,13 @@ public:
 
     void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
     void toggleTempoMode() noexcept { tempoMode_=!tempoMode_; }
+    bool groupAverageAvailable() const noexcept {
+        return page_==NativePage::Roll&&rollSelectionTool_==RollSelectionTool::Pencil&&
+            rollSelectedNotes_.size()>1&&
+            (rollMode_==RollMode::Velocity||rollMode_==RollMode::Mod);
+    }
+    bool groupAverageMode() const noexcept {return groupAverageMode_;}
+    void setGroupAverageMode(bool enabled) noexcept {groupAverageMode_=enabled;}
     bool tempoMode() const noexcept {return tempoMode_;}
     bool hitRollTempoToggle(float x,float y) const noexcept;
     std::optional<int> hitRollTempoStep(float x,float y) const noexcept;
@@ -463,6 +470,7 @@ private:
     [[nodiscard]] int dropdownColumns() const noexcept;
 
     bool tempoMode_{false};
+    bool groupAverageMode_{false};
     int tempoEditing_{-1};
     std::string tempoEditText_{};
     bool scopeFullscreen_{false};
