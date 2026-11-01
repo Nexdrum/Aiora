@@ -591,7 +591,7 @@ bool ProjectCore::moveNotes(
 }
 bool ProjectCore::applyGroupAutomation(
     int t,const std::vector<int>& noteIndices,int kind,
-    float groupStart,const std::vector<CurvePoint>& groupPoints){
+    float groupStart,const std::vector<CurvePoint>& groupPoints,bool average){
     std::scoped_lock lock(mutex_);
     if(!validTrack(t)||(kind!=1&&kind!=2)||
        noteIndices.empty()||groupPoints.empty())return false;
@@ -647,7 +647,47 @@ bool ProjectCore::applyGroupAutomation(
             std::clamp(groupCurveValue(points,groupB,fallback),0.0f,1.0f),
             true});
 
-        *curve=std::move(projected);
+        if(average){
+            const auto original=*curve;
+            const auto sampleOriginal=[&](float time){
+                if(original.empty())return fallback;
+                if(time<=original.front().step)return original.front().value;
+                for(size_t i=1;i<original.size();++i){
+                    if(time<=original[i].step){
+                        const float d=original[i].step-original[i-1].step;
+                        const float f=d>1.0e-6f?
+                            std::clamp((time-original[i-1].step)/d,0.0f,1.0f):1.0f;
+                        return original[i-1].value+
+                            (original[i].value-original[i-1].value)*f;
+                    }
+                }
+                return original.back().value;
+            };
+            const auto sampleProjected=[&](float time){
+                if(time<=projected.front().step)return projected.front().value;
+                for(size_t i=1;i<projected.size();++i){
+                    if(time<=projected[i].step){
+                        const float d=projected[i].step-projected[i-1].step;
+                        const float f=d>1.0e-6f?
+                            std::clamp((time-projected[i-1].step)/d,0.0f,1.0f):1.0f;
+                        return projected[i-1].value+
+                            (projected[i].value-projected[i-1].value)*f;
+                    }
+                }
+                return projected.back().value;
+            };
+            std::vector<float> times{-0.5f,length-0.5f};
+            for(const auto& p:original)times.push_back(std::clamp(p.step,-0.5f,length-0.5f));
+            for(const auto& p:projected)times.push_back(p.step);
+            std::sort(times.begin(),times.end());
+            times.erase(std::unique(times.begin(),times.end(),
+                [](float a,float b){return std::fabs(a-b)<1.0e-5f;}),times.end());
+            std::vector<CurvePoint> blended;
+            blended.reserve(times.size());
+            for(float t:times)blended.push_back({
+                t,std::clamp((sampleOriginal(t)+sampleProjected(t))*0.5f,0.0f,1.0f),true});
+            *curve=std::move(blended);
+        }else *curve=std::move(projected);
         normalizeNoteCurves(note);
         changed=true;
     }
