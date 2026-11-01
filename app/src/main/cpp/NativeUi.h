@@ -61,7 +61,8 @@ enum class HeaderAction : int {
     TransportStart,
     TransportToggle,
     TransportEnd,
-    PerformanceView
+    PerformanceView,
+    ScopeFullscreen
 };
 
 enum class ProjectTransferAction : int {
@@ -319,6 +320,12 @@ public:
     }
 
     void render() const noexcept;
+    bool scopeFullscreen() const noexcept {return scopeFullscreen_;}
+    bool scopeControlsVisible() const noexcept {return scopeControlsVisible_;}
+    void setScopeFullscreen(bool enabled) noexcept {scopeFullscreen_=enabled;scopeControlsVisible_=true;}
+    void toggleScopeControls() noexcept {scopeControlsVisible_=!scopeControlsVisible_;}
+    int hitFullscreenScopeControl(float x,float y) const noexcept;
+    bool hitScopeFullscreenButton(float x,float y) const noexcept;
 
     void openDropdown(
         DropdownKind kind,int context,Rect anchor,int selected,
@@ -375,6 +382,9 @@ private:
     [[nodiscard]] Rect expressionShellRect() const noexcept;
     [[nodiscard]] Rect transportShellRect() const noexcept;
     [[nodiscard]] Rect headerScopeRect() const noexcept;
+    [[nodiscard]] Rect scopeFullscreenButtonRect() const noexcept;
+    [[nodiscard]] Rect fullscreenScopeRect() const noexcept;
+    [[nodiscard]] Rect fullscreenScopeControlRect(int index) const noexcept;
     [[nodiscard]] Rect headerPerformanceRect() const noexcept;
     [[nodiscard]] Rect headerControlRect(int index) const noexcept;
     [[nodiscard]] Rect navRect(int index) const noexcept;
@@ -433,6 +443,8 @@ private:
 
     void fillRect(const Rect& rect, Rgb color) const noexcept;
     void drawScope() const noexcept;
+    void drawScopeInRect(Rect r) const noexcept;
+    void drawFullscreenScope() const noexcept;
     void drawExpressionPad() const noexcept;
     void drawTrackSwitchBar() const noexcept;
     void drawPageScrollGutter() const noexcept;
@@ -453,6 +465,8 @@ private:
     bool tempoMode_{false};
     int tempoEditing_{-1};
     std::string tempoEditText_{};
+    bool scopeFullscreen_{false};
+    bool scopeControlsVisible_{true};
     float expressionV_{0.5f};
     float expressionM_{0.5f};
     int width_{0};
