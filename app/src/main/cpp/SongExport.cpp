@@ -235,10 +235,10 @@ bool exportProjectWav(
                 :0.8f;
             const uint64_t gate=static_cast<uint64_t>(std::max<double>(
                 sampleRate*0.09,
-                std::max(1.0f,event.lengthSteps)*snapshot->secondsPerStep[step]*sampleRate));
+                event.durationSeconds*sampleRate));
             slot.voice.start(
                 nextId++,event.patch,event.midi,pressure,gate,
-                static_cast<float>(snapshot->secondsPerStep[step]*sampleRate),event.automation);
+                static_cast<float>(std::max(1.0,event.durationSeconds*sampleRate/std::max(1.0f,event.lengthSteps))),event.automation);
             slot.voice.setAge(++age);
             slot.gainLeft=event.gainLeft;
             slot.gainRight=event.gainRight;
