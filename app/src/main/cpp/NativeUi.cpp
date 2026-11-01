@@ -4070,6 +4070,30 @@ void NativeUi::drawRoll() const noexcept {
                 std::max(0.0f,viewport.w-gutter),2.0f},kCyan);
         }
     }
+    if(tempoEditing_>=0){
+        const float w=std::min(360.0f,viewport.w*0.90f);
+        const float h=std::min(430.0f,viewport.h*0.90f);
+        const float left=viewport.x+(viewport.w-w)*0.5f;
+        const float top=viewport.y+(viewport.h-h)*0.5f;
+        const Rect dialog{left,top,w,h};
+        fillRect(dialog,kMuted);
+        fillRect({left+2.0f,top+2.0f,w-4.0f,h-4.0f},kPanel);
+        rollOverlay.addTextCentered("TEMPO BPM",{left,top+8.0f,w,30.0f},
+            0.95f,overlayColor(kWhite));
+        fillRect({left+12.0f,top+44.0f,w-24.0f,46.0f},kRollBg);
+        rollOverlay.addTextCentered(tempoEditText_,{left+14.0f,top+46.0f,w-28.0f,42.0f},
+            1.25f,overlayColor(kWhite));
+        const float gap=5.0f,cw=(w-4*gap)/3.0f;
+        const float rh=(h-100.0f-6*gap)/5.0f;
+        static const char* keys[15]={"1","2","3","4","5","6","7","8","9","X","0","E","DEL","CANCEL","OK"};
+        for(int i=0;i<15;++i){
+            const int row=i/3,col=i%3;
+            const Rect rr{left+gap+col*(cw+gap),top+100.0f+gap+row*(rh+gap),cw,rh};
+            fillRect(rr,kButton);
+            rollOverlay.addTextCentered(keys[i],rr,0.86f,overlayColor(kWhite));
+        }
+    }
+
 }
 
 void NativeUi::drawPerformance() const noexcept {
@@ -4565,7 +4589,21 @@ int NativeUi::tempoBoxAt(float x,float y) const noexcept {
             return i;
     return -1;
 }
-bool NativeUi::hitTempoEditorKey(float,float,int&) const noexcept {return false;}
+bool NativeUi::hitTempoEditorKey(float x,float y,int& key) const noexcept {
+    if(page_!=NativePage::Roll||tempoEditing_<0)return false;
+    const auto vp=rollViewportRect();
+    const float w=std::min(360.0f,vp.w*0.90f);
+    const float h=std::min(430.0f,vp.h*0.90f);
+    const float left=vp.x+(vp.w-w)*0.5f,top=vp.y+(vp.h-h)*0.5f;
+    const float gap=5.0f,cw=(w-4*gap)/3.0f,rh=(h-100.0f-6*gap)/5.0f;
+    for(int i=0;i<15;++i){
+        const int row=i/3,col=i%3;
+        Rect rr{left+gap+col*(cw+gap),top+100.0f+gap+row*(rh+gap),cw,rh};
+        if(rr.contains(x,y)){key=i;return true;}
+    }
+    key=-1;
+    return true;
+}
 bool NativeUi::hitRollZoom(float x,float y) const noexcept {
     return page_==NativePage::Roll&&rollZoomRect().contains(x,y);
 }
