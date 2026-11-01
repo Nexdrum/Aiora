@@ -39,10 +39,6 @@ const auto bezel=[&](Rect r,Rgb accent){
 bezel(startR,kBlue);
 bezel(playR,audio.transportPlaying()?kOrange:kGreen);
 bezel(endR,kPurple);
-const auto scopeFull=scopeFullscreenButtonRect();
-bezel(scopeFull,kCyan);
-overlay.addTextCentered("[]",{scopeFull.x,scopeFull.y,scopeFull.w,scopeFull.h},
-                        1.03f,overlayColor(kWhite));
 overlay.addTextCentered("|<",{startR.x,startR.y,startR.w,startR.h},
                         1.32f,overlayColor(kWhite));
 if(audio.transportPlaying()){
