@@ -754,6 +754,55 @@ bool ProjectCore::deleteCurvePoint(int t,int n,int kind,int p){std::scoped_lock 
 float ProjectCore::lastStep() const {std::scoped_lock lock(mutex_);float mx=-1;for(const auto&t:project_.tracks)for(const auto&n:t.notes)mx=std::max(mx,n.startStep+std::max(1.0f,n.lengthSteps)-1.0f);return mx;}
 int ProjectCore::playLengthSteps() const {std::scoped_lock lock(mutex_);const int bar=std::max(1,project_.beats)*std::max(1,project_.divisions);float end=0.0f;bool any=false;for(const auto&t:project_.tracks)for(const auto&n:t.notes){end=std::max(end,n.startStep+std::max(1.0f,n.lengthSteps));any=true;}if(!any)return bar;return std::max(bar,static_cast<int>(std::ceil(end/static_cast<float>(bar)))*bar);}
 
+
+std::vector<TempoPoint> ProjectCore::tempoPoints() const {
+    std::scoped_lock lock(mutex_);
+    std::vector<TempoPoint> points{{0,0,project_.bpm}};
+    points.insert(points.end(),project_.tempoPoints.begin(),project_.tempoPoints.end());
+    return points;
+}
+bool ProjectCore::addTempoPoint(int step) {
+    if(step<=0)return false;
+    std::scoped_lock lock(mutex_);
+    if(std::any_of(project_.tempoPoints.begin(),project_.tempoPoints.end(),
+        [step](const TempoPoint& p){return p.step==step;}))return false;
+    const float bpm=tempoAtStep(project_,static_cast<float>(step));
+    project_.tempoPoints.push_back({step,step,bpm});
+    std::sort(project_.tempoPoints.begin(),project_.tempoPoints.end(),
+        [](const TempoPoint&a,const TempoPoint&b){return a.step<b.step;});
+    return true;
+}
+bool ProjectCore::updateTempoPoint(int index,int step,int rampStart,float bpm) {
+    if(index<=0||step<=0||!std::isfinite(bpm))return false;
+    std::scoped_lock lock(mutex_);
+    if(index>static_cast<int>(project_.tempoPoints.size()))return false;
+    const size_t selected=static_cast<size_t>(index-1);
+    for(size_t i=0;i<project_.tempoPoints.size();++i)
+        if(i!=selected&&project_.tempoPoints[i].step==step)return false;
+    int preceding=0;
+    for(size_t i=0;i<project_.tempoPoints.size();++i)
+        if(i!=selected&&project_.tempoPoints[i].step<step)
+            preceding=std::max(preceding,project_.tempoPoints[i].step);
+    project_.tempoPoints[selected]={
+        step,std::clamp(rampStart,preceding,step),
+        std::clamp(bpm,12.0f,288.0f)};
+    std::sort(project_.tempoPoints.begin(),project_.tempoPoints.end(),
+        [](const TempoPoint&a,const TempoPoint&b){return a.step<b.step;});
+    int last=0;
+    for(auto& p:project_.tempoPoints){
+        p.rampStart=std::clamp(p.rampStart,last,p.step);
+        last=p.step;
+    }
+    return true;
+}
+bool ProjectCore::deleteTempoPoint(int index) {
+    if(index<=0)return false;
+    std::scoped_lock lock(mutex_);
+    if(index>static_cast<int>(project_.tempoPoints.size()))return false;
+    project_.tempoPoints.erase(project_.tempoPoints.begin()+index-1);
+    return true;
+}
+
 float ProjectCore::bpm() const {std::scoped_lock lock(mutex_);return project_.bpm;}
 int ProjectCore::beats() const {std::scoped_lock lock(mutex_);return project_.beats;}
 int ProjectCore::divisions() const {std::scoped_lock lock(mutex_);return project_.divisions;}
