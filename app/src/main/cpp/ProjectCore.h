@@ -108,6 +108,10 @@ public:
     int playLengthSteps() const;
 
     float bpm() const;
+    std::vector<TempoPoint> tempoPoints() const;
+    bool addTempoPoint(int step);
+    bool updateTempoPoint(int index,int step,int rampStart,float bpm);
+    bool deleteTempoPoint(int index);
     int beats() const;
     int divisions() const;
     bool dozenal() const;
