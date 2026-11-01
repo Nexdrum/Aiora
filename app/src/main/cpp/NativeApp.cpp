@@ -2403,6 +2403,52 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
     }
 
+    if(state.ui.tempoEditing()>=0){
+        int key=-1;
+        if(state.ui.hitTempoEditorKey(x,y,key)){
+            if(key==13){state.ui.closeTempoEditor();return true;}
+            if(key==12){
+                auto value=state.ui.tempoEditText();
+                if(!value.empty())value.pop_back();
+                state.ui.setTempoEditText(value);
+            }else if(key==14){
+                const auto value=state.ui.tempoEditText();
+                int bpm=0;
+                const bool dozenal=project.dozenal();
+                const std::string digits=dozenal?"0123456789XE":"0123456789";
+                bool valid=!value.empty();
+                for(char c:value){
+                    const auto place=digits.find(c);
+                    if(place==std::string::npos){valid=false;break;}
+                    bpm=bpm*(dozenal?12:10)+static_cast<int>(place);
+                    if(bpm>288){valid=false;break;}
+                }
+                if(valid&&bpm>=12&&bpm<=288){
+                    const auto points=project.tempoPoints();
+                    const int index=state.ui.tempoEditing();
+                    if(index==0)project.setBpm(static_cast<float>(bpm));
+                    else if(index>0&&index<static_cast<int>(points.size())){
+                        const auto& pt=points[static_cast<size_t>(index)];
+                        project.updateTempoPoint(index,pt.step,pt.rampStart,
+                            static_cast<float>(bpm));
+                    }
+                    audio.syncProject();
+                    scheduleAutosave(state,0);
+                    state.ui.closeTempoEditor();
+                }
+            }else if(key>=0&&key<=11){
+                static const char* keys[12]={"1","2","3","4","5","6","7","8","9","X","0","E"};
+                const char digit=keys[key][0];
+                if((digit!='X'&&digit!='E')||project.dozenal()){
+                    auto value=state.ui.tempoEditText();
+                    if(value.size()<4)value.push_back(digit);
+                    state.ui.setTempoEditText(value);
+                }
+            }
+            return true;
+        }
+        return true;
+    }
     if(state.ui.hitRollTempoToggle(x,y)){
         state.ui.toggleTempoMode();
         return true;
@@ -3021,6 +3067,10 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
             // starting an unrelated edit gesture on the visible surface.
             stopAllKineticScroll(state);
 
+            if(state.ui.tempoEditing()>=0){
+                if(action==AMOTION_EVENT_ACTION_DOWN)handleUiTap(state,x,y);
+                return 1;
+            }
             // Dropdowns are modal: never let a menu tap leak through to
             // sliders, scrolling, notes, or other controls beneath it.
             if(state.ui.dropdownOpen()){
