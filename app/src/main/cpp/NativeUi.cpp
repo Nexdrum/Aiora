@@ -3419,28 +3419,6 @@ void NativeUi::drawRoll() const noexcept {
     };
 
 
-    if(tempoMode_){
-        const float tempoX=viewport.x+gutter;
-        const auto grey=mix(kPanel,kMuted,0.45f);
-        fillRect({tempoX,viewport.y,colW,header-1.0f},grey);
-        rollOverlay.addTextCentered("T",{tempoX,viewport.y,colW,header},1.15f,overlayColor(kWhite));
-        fillRect({tempoX,gridTop,colW,gridBottom-gridTop},mix(kRollBg,kMuted,0.22f));
-        const auto points=project.tempoPoints();
-        for(int i=0;i<static_cast<int>(points.size());++i){
-            const auto& p=points[static_cast<size_t>(i)];
-            const auto rr=rollTempoBoxRect(p.rampStart,p.step);
-            const float top=std::max(gridTop,rr.y);
-            const float bottom=std::min(gridBottom,rr.y+rr.h);
-            if(bottom<=top)continue;
-            const Rgb tone=i==0?mix(kMuted,kWhite,0.18f):mix(kMuted,kWhite,0.38f);
-            fillRect({rr.x,top,rr.w,bottom-top},tone);
-            fillRect({rr.x,top,rr.w,std::min(4.0f,bottom-top)},kWhite);
-            rollOverlay.addTextCentered(std::to_string(static_cast<int>(std::lround(p.bpm))),
-                {rr.x,gridTop>rr.y?gridTop:rr.y,rr.w,std::min(rowH*0.82f,bottom-top)},
-                0.62f,overlayColor(kRollBg));
-        }
-    }
-
     const auto& activeTrack=projectSnapshot.tracks[static_cast<size_t>(track)];
     const int stackNoteCount=static_cast<int>(activeTrack.notes.size());
     std::vector<int> stackDepth(static_cast<size_t>(stackNoteCount),0);
@@ -4070,6 +4048,28 @@ void NativeUi::drawRoll() const noexcept {
                 std::max(0.0f,viewport.w-gutter),2.0f},kCyan);
         }
     }
+    if(tempoMode_){
+        const float tempoX=viewport.x+gutter;
+        const auto grey=mix(kPanel,kMuted,0.45f);
+        fillRect({tempoX,viewport.y,colW,header-1.0f},grey);
+        rollOverlay.addTextCentered("T",{tempoX,viewport.y,colW,header},1.15f,overlayColor(kWhite));
+        fillRect({tempoX,gridTop,colW,gridBottom-gridTop},mix(kRollBg,kMuted,0.22f));
+        const auto points=project.tempoPoints();
+        for(int i=0;i<static_cast<int>(points.size());++i){
+            const auto& p=points[static_cast<size_t>(i)];
+            const auto rr=rollTempoBoxRect(p.rampStart,p.step);
+            const float top=std::max(gridTop,rr.y);
+            const float bottom=std::min(gridBottom,rr.y+rr.h);
+            if(bottom<=top)continue;
+            const Rgb tone=i==0?mix(kMuted,kWhite,0.18f):mix(kMuted,kWhite,0.38f);
+            fillRect({rr.x,top,rr.w,bottom-top},tone);
+            fillRect({rr.x,top,rr.w,std::min(4.0f,bottom-top)},kWhite);
+            rollOverlay.addTextCentered(std::to_string(static_cast<int>(std::lround(p.bpm))),
+                {rr.x,gridTop>rr.y?gridTop:rr.y,rr.w,std::min(rowH*0.82f,bottom-top)},
+                0.62f,overlayColor(kRollBg));
+        }
+    }
+
     if(tempoEditing_>=0){
         const float w=std::min(360.0f,viewport.w*0.90f);
         const float h=std::min(430.0f,viewport.h*0.90f);
