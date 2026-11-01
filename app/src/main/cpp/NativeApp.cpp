@@ -1614,11 +1614,11 @@ void drawFrame(NativeState& state) {
     advanceKineticScrolls(state,dt);
     refreshSurfaceGeometry(state);
     if(state.scopeRestoreUntilMs>0){
-        const int64_t nowMs=nowMilliseconds();
-        if(nowMs<=state.scopeRestoreUntilMs){
-            if(nowMs-state.scopeRestoreLastRefreshMs>=120){
+        const int64_t currentMs=nowMs();
+        if(currentMs<=state.scopeRestoreUntilMs){
+            if(currentMs-state.scopeRestoreLastRefreshMs>=120){
                 updateSafeInsets(state);
-                state.scopeRestoreLastRefreshMs=nowMs;
+                state.scopeRestoreLastRefreshMs=currentMs;
             }
         }else{
             updateSafeInsets(state);
@@ -1845,7 +1845,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
             case 4:
                 state.ui.setScopeFullscreen(false);
                 setScopeImmersive(state.app?state.app->activity:nullptr,false);
-                state.scopeRestoreUntilMs=nowMilliseconds()+2000;
+                state.scopeRestoreUntilMs=nowMs()+2000;
                 state.scopeRestoreLastRefreshMs=0;
                 break;
             default:break;
