@@ -179,6 +179,9 @@ void AudioEngine::advanceTransport() noexcept {
         triggerStep(transportStep_,1.0);
         samplesIntoStep_-=transportSamplesPerStep_;
         transportStep_=(transportStep_+1)%std::max(1,playback_->lengthSteps);
+        if(transportStep_<static_cast<int>(playback_->secondsPerStep.size()))
+            transportSamplesPerStep_=playback_->secondsPerStep[static_cast<size_t>(transportStep_)]*
+                static_cast<double>(sampleRate_.load(std::memory_order_relaxed));
         playheadStep_.store(transportStep_,std::memory_order_relaxed);
         stepEventCursor_=0;
         triggerStep(transportStep_,0.0);
@@ -224,6 +227,11 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             playbackFxCount_=static_cast<int32_t>(playback_->preparedFx.size());
             masterFx_.reset();masterFx_.set(playback_->masterEffects);
             transportSamplesPerStep_=static_cast<double>(std::max(1,sampleRate_.load(std::memory_order_relaxed)))*60.0/(std::max(12.0f,playback_->bpm)*std::max(1,playback_->divisions));
+            if(!playback_->secondsPerStep.empty()){
+                const int stepIndex=std::clamp(previousStep,0,static_cast<int>(playback_->secondsPerStep.size())-1);
+                transportSamplesPerStep_=playback_->secondsPerStep[static_cast<size_t>(stepIndex)]*
+                    static_cast<double>(sampleRate_.load(std::memory_order_relaxed));
+            }
             stepEventCursor_=0;
             if(wasPlaying){
                 transportStep_=std::clamp(
@@ -255,6 +263,9 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             masterFx_.set(playback_->masterEffects);
             transportStep_=std::clamp(e.source,0,std::max(0,playback_->lengthSteps-1));
             samplesIntoStep_=0;
+            if(transportStep_<static_cast<int>(playback_->secondsPerStep.size()))
+                transportSamplesPerStep_=playback_->secondsPerStep[static_cast<size_t>(transportStep_)]*
+                    static_cast<double>(sampleRate_.load(std::memory_order_relaxed));
             stepEventCursor_=0;
             playheadStep_.store(transportStep_,std::memory_order_relaxed);
             playheadPosition_.store(
