@@ -84,7 +84,7 @@ public:
         int midiDelta,float stepDelta);
     bool applyGroupAutomation(
         int trackIndex,const std::vector<int>& noteIndices,int curveKind,
-        float groupStart,const std::vector<CurvePoint>& groupPoints);
+        float groupStart,const std::vector<CurvePoint>& groupPoints,bool average=false);
     bool deleteNote(int trackIndex, int noteIndex);
     bool updateNote(int trackIndex, int noteIndex, int midi, float startStep, float lengthSteps);
     int noteMidi(int trackIndex, int noteIndex) const;
