@@ -883,6 +883,7 @@ bool deserializeDrumKitJson(std::string_view json,
 std::string serializeProjectJson(const Project& project){
     Writer w;
     w.raw("{\"name\":");w.string(project.name);w.raw(",\"bpm\":");w.number(project.bpm);w.raw(",\"beats\":");w.number(project.beats);w.raw(",\"div\":");w.number(project.divisions);w.raw(",\"dz\":");w.boolean(project.dozenal);
+    w.raw(",\"tempo\":[");for(size_t i=0;i<project.tempoPoints.size();++i){const auto&p=project.tempoPoints[i];if(i)w.raw(",");w.raw("{\"s\":");w.number(p.step);w.raw(",\"from\":");w.number(p.rampStart);w.raw(",\"bpm\":");w.number(p.bpm);w.raw("}");}w.raw("]");
     w.raw(",\"mvol\":");w.number(project.masterVolume);
     w.raw(",\"masterFxChain\":");
     writeFxRack(w,project.masterFx);
@@ -917,6 +918,25 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
         if(out.name.empty())out.name="Untitled Song";
         if(out.name.size()>80)out.name.resize(80);
         out.bpm=clampf(num(root.get("bpm"),112),12,288,112);out.beats=clampi(num(root.get("beats"),4),1,12,4);out.divisions=clampi(num(root.get("div"),4),1,12,4);out.dozenal=boolean(root.get("dz"),false);out.masterVolume=clampf(num(root.get("mvol"),.9),0,1,.9f);
+        if(const Json* tempo=root.get("tempo");tempo&&tempo->type==Json::Type::Array){
+            for(const auto& j:tempo->array){
+                if(j.type!=Json::Type::Object)continue;
+                const int step=clampi(num(j.get("s"),0),0,1000000,0);
+                if(step<=0)continue;
+                if(std::any_of(out.tempoPoints.begin(),out.tempoPoints.end(),
+                    [step](const TempoPoint& p){return p.step==step;}))continue;
+                out.tempoPoints.push_back({
+                    step,clampi(num(j.get("from"),step),0,step,step),
+                    clampf(num(j.get("bpm"),out.bpm),12,288,out.bpm)});
+            }
+            std::sort(out.tempoPoints.begin(),out.tempoPoints.end(),
+                [](const TempoPoint&a,const TempoPoint&b){return a.step<b.step;});
+            int previous=0;
+            for(auto& p:out.tempoPoints){
+                p.rampStart=std::clamp(p.rampStart,previous,p.step);
+                previous=p.step;
+            }
+        }
         readFxRack(root.get("masterFxChain"),out.masterFx);
         for(size_t ti=0;ti<tracks->array.size();++ti){
             const auto& jt=tracks->array[ti];if(jt.type!=Json::Type::Object)continue;
