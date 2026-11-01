@@ -325,7 +325,7 @@ public:
     void setScopeFullscreen(bool enabled) noexcept {scopeFullscreen_=enabled;scopeControlsVisible_=true;}
     void toggleScopeControls() noexcept {scopeControlsVisible_=!scopeControlsVisible_;}
     int hitFullscreenScopeControl(float x,float y) const noexcept;
-    bool hitScopeFullscreenButton(float x,float y) const noexcept;
+    bool hitNormalScope(float x,float y) const noexcept;
 
     void openDropdown(
         DropdownKind kind,int context,Rect anchor,int selected,
