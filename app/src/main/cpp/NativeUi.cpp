@@ -1892,7 +1892,7 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
     if(page_==NativePage::Roll){
         const auto tempoToggle=rollTempoToggleRect();
         fillRect(tempoToggle,tempoMode_?mix(kButton,kMuted,0.65f):kButton);
-        ov.addTextCentered("T",tempoToggle,1.12f,overlayColor(kWhite));
+        ov.addTextCentered("T",{tempoToggle.x,tempoToggle.y,tempoToggle.w,tempoToggle.h},1.12f,overlayColor(kWhite));
         const auto zoom=rollZoomRect();
         fillRect(zoom,kButton);
         // Changing-density grid icon: 2x2 near, 3x3 default, 4x4 far.
@@ -4090,7 +4090,7 @@ void NativeUi::drawRoll() const noexcept {
             const int row=i/3,col=i%3;
             const Rect rr{left+gap+col*(cw+gap),top+100.0f+gap+row*(rh+gap),cw,rh};
             fillRect(rr,kButton);
-            rollOverlay.addTextCentered(keys[i],rr,0.86f,overlayColor(kWhite));
+            rollOverlay.addTextCentered(keys[i],{rr.x,rr.y,rr.w,rr.h},0.86f,overlayColor(kWhite));
         }
     }
 
