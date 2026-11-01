@@ -65,6 +65,8 @@ public class AioraActivity extends NativeActivity {
                     View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
             } else {
                 decor.setSystemUiVisibility(0);
+                decor.requestApplyInsets();
+                decor.requestLayout();
             }
         });
     }
