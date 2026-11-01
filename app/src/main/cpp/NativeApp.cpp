@@ -920,7 +920,9 @@ void updateSafeInsets(NativeState& state) {
 
     // Android's contentRect can lag behind system-bar visibility changes
     // after rotation. Prefer the live WindowInsets while restoring normal UI.
-    if(state.app&&state.scopeRestoreUntilMs==0){
+    const bool hasLiveInsets=insets.left>0||insets.top>0||
+        insets.right>0||insets.bottom>0;
+    if(state.app&&state.scopeRestoreUntilMs==0&&!hasLiveInsets){
         const auto& rect=state.app->contentRect;
         if(rect.right>rect.left&&rect.bottom>rect.top){
             insets.left=std::max(insets.left,rect.left);
