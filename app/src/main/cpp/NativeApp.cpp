@@ -71,7 +71,8 @@ enum class RollGestureKind : uint8_t {
     Lasso,
     NoteEdit,
     AutomationEdit,
-    GroupAutomation
+    GroupAutomation,
+    TempoEdit
 };
 
 enum class RollNoteEdit : uint8_t {
@@ -112,6 +113,12 @@ struct RollGesture {
 
     int track{-1};
     int noteIndex{-1};
+    int tempoIndex{-1};
+    bool tempoNew{false};
+    bool tempoResize{false};
+    int tempoOriginalStep{0};
+    int tempoOriginalStart{0};
+    float tempoValue{112.0f};
     int curveKind{-1};
     int curvePoint{-1};
     bool curveIsNew{false};
@@ -1388,6 +1395,18 @@ void serviceRollLongPress(NativeState& state){
         return;
     }
 
+    if(g.kind==RollGestureKind::TempoEdit){
+        if(g.tempoIndex>=0){
+            const auto points=aiora::ProjectCore::instance().tempoPoints();
+            if(g.tempoIndex<static_cast<int>(points.size())){
+                state.ui.setTempoEditing(g.tempoIndex);
+                state.ui.setTempoEditText(std::to_string(
+                    static_cast<int>(std::lround(points[static_cast<size_t>(g.tempoIndex)].bpm))));
+                g.longPressTriggered=true;
+            }
+        }
+        return;
+    }
     if(g.kind==RollGestureKind::CurveMidpoint){
         // Holding prepares curve manipulation. Merely tapping an X still
         // creates a normal point on finger-up.
@@ -2384,6 +2403,10 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
     }
 
+    if(state.ui.hitRollTempoToggle(x,y)){
+        state.ui.toggleTempoMode();
+        return true;
+    }
     if(state.ui.hitRollZoom(x,y)){
         state.ui.cycleRollZoom();
         return true;
@@ -2814,6 +2837,25 @@ void moveRollGesture(NativeState& state, float x, float y) {
         return;
     }
 
+    if(g.kind==RollGestureKind::TempoEdit){
+        if(!g.moved||g.tempoIndex<=0)return;
+        const auto hit=state.ui.hitRollTempoStep(x,y);
+        if(!hit)return;
+        auto& project=aiora::ProjectCore::instance();
+        const int target=g.tempoResize?g.tempoOriginalStep:*hit;
+        const int ramp=g.tempoResize?std::min(*hit,target):
+            std::max(0,g.tempoOriginalStart+target-g.tempoOriginalStep);
+        project.updateTempoPoint(g.tempoIndex,target,ramp,g.tempoValue);
+        // Retrieve the current sorted index after a move.
+        const auto points=project.tempoPoints();
+        for(int i=1;i<static_cast<int>(points.size());++i){
+            if(points[static_cast<size_t>(i)].step==target){
+                g.tempoIndex=i;
+                break;
+            }
+        }
+        return;
+    }
     if(g.kind==RollGestureKind::SelectTool||
        g.kind==RollGestureKind::DrawModeButton||
        g.kind==RollGestureKind::CornerButton){
@@ -3112,6 +3154,37 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 }
 
                 if(state.ui.hitRollNoteArea(x,y)){
+                    if(state.ui.tempoMode()){
+                        if(const auto at=state.ui.hitRollTempoStep(x,y)){
+                            auto& project=aiora::ProjectCore::instance();
+                            auto points=project.tempoPoints();
+                            int selected=state.ui.tempoBoxAt(x,y);
+                            bool fresh=false;
+                            if(selected<0 && *at>0 && project.addTempoPoint(*at)){
+                                selected=state.ui.tempoBoxAt(x,y);
+                                fresh=true;
+                                points=project.tempoPoints();
+                                aiora::AudioEngine::instance().syncProject();
+                                scheduleAutosave(state);
+                            }
+                            if(selected>=0&&selected<static_cast<int>(points.size())){
+                                beginRollGesture(state,pointerId,x,y,timeMs,RollGestureKind::TempoEdit);
+                                auto& g=state.rollGesture;
+                                g.tempoIndex=selected;
+                                g.tempoNew=fresh;
+                                const auto& point=points[static_cast<size_t>(selected)];
+                                g.tempoOriginalStep=point.step;
+                                g.tempoOriginalStart=point.rampStart;
+                                g.tempoValue=point.bpm;
+                                const auto rect=state.ui.rollTempoBoxRect(point.rampStart,point.step);
+                                g.tempoResize=selected>0 && point.step>point.rampStart &&
+                                    y<rect.y+std::min(state.ui.rollCellPixels()*0.4f,24.0f);
+                                if(selected>0&&point.step==point.rampStart)
+                                    g.tempoResize=y<rect.y+state.ui.rollCellPixels()*0.25f;
+                            }
+                            return 1;
+                        }
+                    }
                     if(state.ui.rollStackMode()){
                         const auto hit=state.ui.hitRollNote(x,y);
                         const int track=aiora::ProjectCore::instance().selectedTrack();
@@ -3454,6 +3527,11 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                             clearRollNoteSelection(state);
                         }
                     }
+                }else if(g.kind==RollGestureKind::TempoEdit){
+                    if(!g.moved&&!g.longPressTriggered&&!g.tempoNew&&g.tempoIndex>0)
+                        aiora::ProjectCore::instance().deleteTempoPoint(g.tempoIndex);
+                    aiora::AudioEngine::instance().syncProject();
+                    scheduleAutosave(state);
                 }else if(g.kind==RollGestureKind::NoteEdit){
                     if(state.rollDraw.active&&g.noteEdit==RollNoteEdit::Create){
                         // A long boundary dwell followed by release pauses
