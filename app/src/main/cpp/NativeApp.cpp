@@ -175,6 +175,7 @@ struct NativeState {
     std::vector<RollClipboardTrack> rollClipboard{};
     bool rollClipboardAllTracks{false};
     std::array<GroupAutomationCurve,2> rollGroupAutomation{};
+    std::array<bool,2> rollAveragePending{{false,false}};
     int64_t rollLastBeatTapMs{0};
     int rollLastBeatTapStep{-1};
     int32_t editorPointerId{-1};
@@ -1157,7 +1158,11 @@ int findCurvePointIndex(
     return best;
 }
 
+void commitRollAverage(NativeState& state);
+
 void resetRollGroupAutomation(NativeState& state){
+    commitRollAverage(state);
+    state.ui.setGroupAverageMode(false);
     state.rollGroupAutomation={};
     state.ui.clearRollGroupAutomation();
 }
@@ -1244,10 +1249,37 @@ bool ensureRollGroupAutomation(NativeState& state,int kind){
     return true;
 }
 
+void commitRollAverage(NativeState& state){
+    if(!state.ui.rollNoteSelectionActive()){
+        state.rollAveragePending={false,false};
+        return;
+    }
+    bool changed=false;
+    for(int kind=1;kind<=2;++kind){
+        if(!state.rollAveragePending[static_cast<size_t>(kind-1)])continue;
+        auto* curve=groupAutomationForKind(state,kind);
+        if(!curve||!curve->initialized)continue;
+        std::vector<aiora::CurvePoint> points;
+        for(const auto& p:curve->points)points.push_back({p.step,p.value,true});
+        changed=aiora::ProjectCore::instance().applyGroupAutomation(
+            state.ui.rollSelectedTrack(),state.ui.rollSelectedNotes(),
+            kind,curve->start,points,true)||changed;
+    }
+    state.rollAveragePending={false,false};
+    if(changed){
+        aiora::AudioEngine::instance().syncProject();
+        scheduleAutosave(state);
+    }
+}
+
 bool applyRollGroupAutomation(NativeState& state,int kind){
     auto* curve=groupAutomationForKind(state,kind);
     if(!curve||!curve->initialized||
        !state.ui.rollNoteSelectionActive())return false;
+    if(state.ui.groupAverageMode()){
+        state.rollAveragePending[static_cast<size_t>(kind-1)]=true;
+        return false;
+    }
     std::vector<aiora::CurvePoint> points;
     points.reserve(curve->points.size());
     for(const auto& p:curve->points)
@@ -1275,6 +1307,7 @@ void refreshRollGroupAutomationBounds(NativeState& state){
 void setRollNoteSelection(
     NativeState& state,int track,std::vector<int> indices,
     bool preserveGroupAutomation=false){
+    if(!preserveGroupAutomation)commitRollAverage(state);
     state.ui.setRollNoteSelection(track,std::move(indices));
     if(!preserveGroupAutomation)resetRollGroupAutomation(state);
     else refreshRollGroupAutomationBounds(state);
@@ -1285,6 +1318,7 @@ void setRollNoteSelection(
 }
 
 void clearRollNoteSelection(NativeState& state){
+    commitRollAverage(state);
     state.ui.clearRollNoteSelection();
     resetRollGroupAutomation(state);
 }
@@ -2527,6 +2561,12 @@ bool handleUiTap(NativeState& state, float x, float y) {
         return true;
     }
     if(state.ui.hitRollTempoToggle(x,y)){
+        if(state.ui.groupAverageAvailable()){
+            // Switching out of Average Mode explicitly applies its draft.
+            if(state.ui.groupAverageMode())commitRollAverage(state);
+            state.ui.setGroupAverageMode(!state.ui.groupAverageMode());
+            return true;
+        }
         state.ui.toggleTempoMode();
         return true;
     }
@@ -2659,6 +2699,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
     if (const auto mode = state.ui.hitRollMode(x, y)) {
         const auto next=state.ui.rollMode()==*mode
             ?aiora::RollMode::Notes:*mode;
+        if(next!=state.ui.rollMode())commitRollAverage(state);
         state.ui.setRollMode(next);
         if(state.ui.rollNoteSelectionActive()&&
            state.ui.rollSelectionTool()==aiora::RollSelectionTool::Pencil&&
