@@ -205,6 +205,9 @@ struct NativeState {
     bool autosaveDirty{false};
     int64_t scopeRestoreUntilMs{0};
     int64_t scopeRestoreLastRefreshMs{0};
+    int64_t lastScopeTapMs{0};
+    float lastScopeTapX{0.0f};
+    float lastScopeTapY{0.0f};
 };
 
 void createBlankProject() {
@@ -3149,6 +3152,23 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 if(action==AMOTION_EVENT_ACTION_DOWN)handleUiTap(state,x,y);
                 return 1;
             }
+            if(action==AMOTION_EVENT_ACTION_DOWN&&state.ui.hitNormalScope(x,y)){
+                const int64_t tick=nowMs();
+                const float dx=x-state.lastScopeTapX,dy=y-state.lastScopeTapY;
+                const float distanceSq=dx*dx+dy*dy;
+                if(state.lastScopeTapMs>0&&tick-state.lastScopeTapMs<=360&&
+                   distanceSq<=48.0f*48.0f){
+                    state.lastScopeTapMs=0;
+                    state.ui.setScopeFullscreen(true);
+                    setScopeImmersive(state.app?state.app->activity:nullptr,true);
+                }else{
+                    state.lastScopeTapMs=tick;
+                    state.lastScopeTapX=x;
+                    state.lastScopeTapY=y;
+                }
+                return 1;
+            }
+
             // Dropdowns are modal: never let a menu tap leak through to
             // sliders, scrolling, notes, or other controls beneath it.
             if(state.ui.dropdownOpen()){
