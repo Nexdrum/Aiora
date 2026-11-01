@@ -1847,8 +1847,8 @@ int NativeUi::hitFullscreenScopeControl(float x,float y) const noexcept {
         if(fullscreenScopeControlRect(i).contains(x,y))return i;
     return -1;
 }
-bool NativeUi::hitScopeFullscreenButton(float x,float y) const noexcept {
-    return !scopeFullscreen_&&scopeFullscreenButtonRect().contains(x,y);
+bool NativeUi::hitNormalScope(float x,float y) const noexcept {
+    return !scopeFullscreen_&&headerScopeRect().contains(x,y);
 }
 void NativeUi::drawFullscreenScope() const noexcept {
     const Rgb scopeBackground=mix(kTop,kBg,0.70f);
@@ -4504,7 +4504,6 @@ std::optional<HeaderAction> NativeUi::hitHeader(float x,float y) const noexcept 
     if(headerControlRect(0).contains(x,y))return HeaderAction::TransportStart;
     if(headerControlRect(1).contains(x,y))return HeaderAction::TransportToggle;
     if(headerControlRect(2).contains(x,y))return HeaderAction::TransportEnd;
-    if(hitScopeFullscreenButton(x,y))return HeaderAction::ScopeFullscreen;
     return std::nullopt;
 }
 
