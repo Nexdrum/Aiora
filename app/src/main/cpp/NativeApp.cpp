@@ -203,6 +203,8 @@ struct NativeState {
     int pendingKitTrack{-1};
     int64_t autosaveDueMs{0};
     bool autosaveDirty{false};
+    int64_t scopeRestoreUntilMs{0};
+    int64_t scopeRestoreLastRefreshMs{0};
 };
 
 void createBlankProject() {
@@ -1611,6 +1613,18 @@ void drawFrame(NativeState& state) {
     state.lastScrollFrame=now;
     advanceKineticScrolls(state,dt);
     refreshSurfaceGeometry(state);
+    if(state.scopeRestoreUntilMs>0){
+        const int64_t nowMs=nowMilliseconds();
+        if(nowMs<=state.scopeRestoreUntilMs){
+            if(nowMs-state.scopeRestoreLastRefreshMs>=120){
+                updateSafeInsets(state);
+                state.scopeRestoreLastRefreshMs=nowMs;
+            }
+        }else{
+            updateSafeInsets(state);
+            state.scopeRestoreUntilMs=0;
+        }
+    }
     serviceEditorPreview(state);
     serviceAutosave(state);
     serviceRollLongPress(state);
@@ -1831,6 +1845,8 @@ bool handleUiTap(NativeState& state, float x, float y) {
             case 4:
                 state.ui.setScopeFullscreen(false);
                 setScopeImmersive(state.app?state.app->activity:nullptr,false);
+                state.scopeRestoreUntilMs=nowMilliseconds()+2000;
+                state.scopeRestoreLastRefreshMs=0;
                 break;
             default:break;
         }
