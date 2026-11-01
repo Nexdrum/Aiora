@@ -163,10 +163,12 @@ bool exportProjectWav(
     const float endSteps=std::max(
         static_cast<float>(snapshot->lengthSteps),
         projectEndSteps(project));
+    std::vector<double> boundaries(snapshot->secondsPerStep.size()+1,0.0);
+    for(size_t i=0;i<snapshot->secondsPerStep.size();++i)boundaries[i+1]=boundaries[i]+snapshot->secondsPerStep[i]*sampleRate;
     // Write an extensible WAV header. If output crosses 4 GB, the
     // reserved JUNK chunk becomes RF64's ds64 chunk without shifting PCM.
     const uint64_t minimumFrames=
-        static_cast<uint64_t>(std::ceil(endSteps*samplesPerStep));
+        static_cast<uint64_t>(std::ceil(std::max(endSteps*samplesPerStep,boundaries.back())));
     // End after voices and reverberation die out; keep a defensive safety
     // window in case a future effect self-oscillates indefinitely.
     const double tailLimit=std::clamp(static_cast<double>(maxTailSeconds),0.1,3600.0);
@@ -233,10 +235,10 @@ bool exportProjectWav(
                 :0.8f;
             const uint64_t gate=static_cast<uint64_t>(std::max<double>(
                 sampleRate*0.09,
-                std::max(1.0f,event.lengthSteps)*samplesPerStep));
+                std::max(1.0f,event.lengthSteps)*snapshot->secondsPerStep[step]*sampleRate));
             slot.voice.start(
                 nextId++,event.patch,event.midi,pressure,gate,
-                static_cast<float>(samplesPerStep),event.automation);
+                static_cast<float>(snapshot->secondsPerStep[step]*sampleRate),event.automation);
             slot.voice.setAge(++age);
             slot.gainLeft=event.gainLeft;
             slot.gainRight=event.gainRight;
@@ -251,7 +253,7 @@ bool exportProjectWav(
     uint64_t quietFrames=0;
     constexpr float tailSilence=0.000075f; // ~-82.5 dBFS
     for(uint64_t frame=0;frame<maximumFrames;++frame){
-        const int step=static_cast<int>(static_cast<double>(frame)/samplesPerStep);
+        const int step=std::clamp(static_cast<int>(std::upper_bound(boundaries.begin(),boundaries.end(),static_cast<double>(frame))-boundaries.begin())-1,0,static_cast<int>(boundaries.size())-2);
         if(step!=currentStep){
             // A near-boundary event rounds to the next sample, not silence.
             if(currentStep>=0)triggerDue(currentStep,1.0);
@@ -259,8 +261,7 @@ bool exportProjectWav(
             stepEventCursor=0;
         }
         // Trigger fractional notes at the nearest WAV sample.
-        const double phase=(static_cast<double>(frame)-
-            static_cast<double>(step)*samplesPerStep+0.5)/samplesPerStep;
+        const double phase=(static_cast<double>(frame)-boundaries[step]+0.5)/std::max(1.0,boundaries[step+1]-boundaries[step]);
         triggerDue(step,phase);
 
         std::fill(busLeft.begin(),busLeft.end(),0.0f);
