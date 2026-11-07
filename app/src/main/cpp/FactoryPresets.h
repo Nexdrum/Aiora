@@ -3,15 +3,18 @@
 #include "AioraTypes.h"
 
 namespace aiora {
-// Only four factory-selectable instruments. SpectrachordInit is an internal
-// neutral patch used when creating/editing ordinary synth tracks.
+// Seven factory-selectable instruments. SpectrachordInit is a separate
+// internal neutral patch used when creating/editing ordinary synth tracks.
 enum class FactoryPreset : int32_t {
     Subula=0,
     Spectrello=1,
     Nebular=2,
     Nexdrum=3,
-    SpectrachordInit=4,
-    Count=4
+    Kinetra=4,
+    Zephyra=5,
+    Helion=6,
+    Count=7,
+    SpectrachordInit=7
 };
 Patch makeDefaultPatch(const char* name="Spectrachord Init");
 Patch makeFactoryPatch(FactoryPreset preset);

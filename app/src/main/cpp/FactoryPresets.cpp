@@ -1,5 +1,6 @@
 #include "FactoryPresets.h"
 #include "ApprovedFactoryPatches.h"
+#include "ApprovedFactoryAdditions.h"
 #include "SpectrelloFactoryV2.h"
 #include "ProjectCodec.h"
 #include <stdexcept>
@@ -29,21 +30,24 @@ Patch makeDefaultPatch(const char* name){
 }
 Patch makeFactoryPatch(FactoryPreset preset){
     const char* name="Spectrachord Init";
+    std::string_view source;
     switch(preset){
-        case FactoryPreset::Subula:name="Subula";break;
-        case FactoryPreset::Spectrello:name="Spectrello";break;
-        case FactoryPreset::Nebular:name="Nebular";break;
+        case FactoryPreset::Subula:
+            name="Subula";source=factory_patch_data::subulaMetalFretlessV4;break;
+        case FactoryPreset::Spectrello:
+            name="Spectrello";source=factory_patch_data::spectrelloCarbonFiberV2;break;
+        case FactoryPreset::Nebular:
+            name="Nebular";source=factory_patch_data::nebularSteelPhysicsV2;break;
         case FactoryPreset::Nexdrum:name="Nexdrum";break;
+        case FactoryPreset::Kinetra:
+            name="Kinetra";source=factory_patch_data::kinetraCoupledResonatorV10_3;break;
+        case FactoryPreset::Zephyra:
+            name="Zephyra";source=factory_patch_data::zephyraDynamicBreathV1_3;break;
+        case FactoryPreset::Helion:
+            name="Helion";source=factory_patch_data::helionSlidingBellV1;break;
         default:break;
     }
-    if(preset==FactoryPreset::Subula||
-       preset==FactoryPreset::Spectrello||
-       preset==FactoryPreset::Nebular){
-        const std::string_view source=preset==FactoryPreset::Nebular?
-            factory_patch_data::nebularSteelPhysicsV2:
-            (preset==FactoryPreset::Subula?
-                factory_patch_data::subulaMetalFretlessV4:
-                factory_patch_data::spectrelloCarbonFiberV2);
+    if(!source.empty()){
         Patch result;
         std::string error;
         if(!deserializePatchJson(source,result,&error))
@@ -62,7 +66,10 @@ const std::array<Patch,static_cast<size_t>(FactoryPreset::Count)>& factoryBank()
         makeFactoryPatch(FactoryPreset::Subula),
         makeFactoryPatch(FactoryPreset::Spectrello),
         makeFactoryPatch(FactoryPreset::Nebular),
-        makeFactoryPatch(FactoryPreset::Nexdrum)
+        makeFactoryPatch(FactoryPreset::Nexdrum),
+        makeFactoryPatch(FactoryPreset::Kinetra),
+        makeFactoryPatch(FactoryPreset::Zephyra),
+        makeFactoryPatch(FactoryPreset::Helion)
     };
     return bank;
 }

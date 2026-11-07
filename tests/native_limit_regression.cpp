@@ -3,6 +3,7 @@
 #include "PlaybackSnapshot.h"
 #include "ProjectCodec.h"
 #include "FactoryPresets.h"
+#include "ApprovedFactoryAdditions.h"
 #include "NexdrumKit.h"
 #include "SpectrachordVoice.h"
 #include "FxProcessor.h"
@@ -152,8 +153,9 @@ int main(){
     assert(routePausedRollTouch(true,false,true,false,true,true)==ignore);
     assert(routePausedRollTouch(true,true,false,false,true,true)==ignore);
     assert(routePausedRollTouch(true,true,true,false,false,true)==ignore);
-    static constexpr std::array<const char*,4> instruments{{
-        "Subula","Spectrello","Nebular","Nexdrum"}};
+    static constexpr std::array<const char*,7> instruments{{
+        "Subula","Spectrello","Nebular","Nexdrum",
+        "Kinetra","Zephyra","Helion"}};
     const auto& bank=factoryBank();
     assert(bank.size()==instruments.size());
     for(size_t i=0;i<bank.size();++i){
@@ -170,6 +172,24 @@ int main(){
         assert(deserializePatchJson(serialized,decoded,&error));
         assert(decoded.name==bank[i].name);
     }
+    // Approved source JSON must produce precisely the factory sound parameters.
+    // The display name is intentionally shortened to the instrument family.
+    struct ApprovedSource {FactoryPreset preset;const char* name;std::string_view json;};
+    const std::array<ApprovedSource,3> approved{{
+        {FactoryPreset::Kinetra,"Kinetra",factory_patch_data::kinetraCoupledResonatorV10_3},
+        {FactoryPreset::Zephyra,"Zephyra",factory_patch_data::zephyraDynamicBreathV1_3},
+        {FactoryPreset::Helion,"Helion",factory_patch_data::helionSlidingBellV1}
+    }};
+    for(const auto& item:approved){
+        Patch reference;
+        std::string decodeError;
+        assert(deserializePatchJson(item.json,reference,&decodeError));
+        reference.name=item.name;
+        assert(serializePatchJson(makeFactoryPatch(item.preset))==
+               serializePatchJson(reference));
+    }
+    // The internal neutral patch is not a selectable factory instrument.
+    assert(makeFactoryPatch(FactoryPreset::SpectrachordInit).name=="Spectrachord Init");
     const auto& kit=nexdrumKit();
     static constexpr std::array<const char*,7> names{{
         "Crash","Ride","Roto Tom","Snare","Tom","Floor Tom","Kick"}};
