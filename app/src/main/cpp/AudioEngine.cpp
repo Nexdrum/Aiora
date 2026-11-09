@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "ScopePitchColor.h"
 #include "FactoryPresets.h"
 #include "NexdrumKit.h"
 #include "ProjectCore.h"
@@ -299,13 +300,13 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
     for(auto&slot:voices_){
         if(!slot.voice.active())continue;
         const float sample=slot.voice.render();
-        // Accumulate actual sounding voices, not a rainbow sweep across X.
-        // Notes of the same pitch class share light; simultaneous notes mix
-        // by adding their per-channel brightness, just like Spectrachord.
-        const int pitchClass=((slot.midi%12)+12)%12;
+        // Follow the voice's current rendered pitch, including bends and
+        // pitch LFO, rather than its fixed note-on piano-roll coordinate.
+        // Fractional pitches blend adjacent chromatic lights; chords retain
+        // their existing additive mixing on the scope.
         const float audible=std::fabs(sample)*0.5f*
             (std::fabs(slot.gainLeft)+std::fabs(slot.gainRight));
-        scopeNoteAccum_[static_cast<size_t>(pitchClass)]+=audible;
+        addScopePitchLevel(scopeNoteAccum_,slot.voice.soundingPitchMidi(),audible);
         const float l=sample*slot.gainLeft;
         const float r=sample*slot.gainRight;
         if(slot.transport&&transportPlaying_.load(std::memory_order_relaxed)){

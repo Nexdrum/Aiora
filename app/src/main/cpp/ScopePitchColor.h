@@ -2,8 +2,24 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cmath>
 
 namespace aiora {
+
+// Split each sounding voice's instantaneous *musical* pitch across the two
+// neighboring chromatic colors. The synth publishes fractional MIDI pitch
+// after bend/LFO, rather than the note-on key. Wrap B -> C across octaves.
+// Keeping the 12-class light buffer also preserves existing additive mixing.
+inline void addScopePitchLevel(std::array<float,12>& levels,
+                              float midiPitch,float level) noexcept {
+    if(!std::isfinite(midiPitch)||!std::isfinite(level)||level<=0.0f)return;
+    const int lower=static_cast<int>(std::floor(midiPitch));
+    const float fraction=midiPitch-static_cast<float>(lower);
+    const int first=((lower%12)+12)%12;
+    const int second=(first+1)%12;
+    levels[static_cast<std::size_t>(first)]+=level*(1.0f-fraction);
+    levels[static_cast<std::size_t>(second)]+=level*fraction;
+}
 
 // Add light from each currently sounding pitch class in RGB, clipping each
 // channel at full brightness. Unlike averaging, simultaneous pitches retain

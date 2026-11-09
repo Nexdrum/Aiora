@@ -24,6 +24,9 @@ public:
     [[nodiscard]] bool active() const noexcept { return active_; }
     [[nodiscard]] int32_t id() const noexcept { return id_; }
     [[nodiscard]] uint64_t age() const noexcept { return age_; }
+    // Actual rendered note fundamental (fractional MIDI, including bend and
+    // pitch vibrato). Read only on the audio thread, after render().
+    [[nodiscard]] float soundingPitchMidi() const noexcept { return soundingPitchMidi_; }
     void setAge(uint64_t v) noexcept { age_ = v; }
     void setModValue(float value, bool active = true) noexcept { modValue_ = clamp01(value); modActive_ = active; }
     void setLiveExpression(float v,float m) noexcept {
@@ -68,6 +71,7 @@ private:
     uint64_t age_{0};
     float sampleRate_{48000.0f};
     int midi_{62};
+    float soundingPitchMidi_{62.0f};
     float keyMapValue_{0}; // note-on key position; pitch bend does not change K
     float velocity_{0.8f};
     DspPatch patch_{};

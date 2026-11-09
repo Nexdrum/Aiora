@@ -324,6 +324,7 @@ void SpectrachordVoice::prepare(float sr) noexcept {sampleRate_=std::max(8000.0f
 
 void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
     id_=id;patch_=patch;midi_=midi;
+    soundingPitchMidi_=static_cast<float>(midi)+patch.octave*12.0f;
     keyMapValue_=normalizedKeyMap(midi,patch.keyMapLow,patch.keyMapHigh);
     velocity_=clamp01(pressure);liveGain_=1.0f;active_=true;automation_=automation;
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
@@ -564,6 +565,9 @@ float SpectrachordVoice::render() noexcept {
     const float smoothing=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
     unisonSmoothed_+=(unisonTarget-unisonSmoothed_)*smoothing;
     const float baseMidi=static_cast<float>(midi_)+P.octave*12+bend;
+    // Publish the same continuously evaluated pitch used to drive the
+    // oscillators. Do not quantize to the original piano-roll note.
+    soundingPitchMidi_=baseMidi+pitchLfoCents/100.0f;
     const float unison=clamp01(unisonSmoothed_);
     const int uniCount=unison>0.0001f?2:1;
     // A brief beater-driven membrane sweep settles at the unchanged note fundamental.

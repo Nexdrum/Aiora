@@ -136,6 +136,45 @@ int main(){
     levels[0]=2.0f;
     const auto clipped=additiveScopePitchColor(palette,levels);
     assert(clipped.r==1.0f&&clipped.g==0.5f&&clipped.b==1.0f);
+
+    // Scope follows the actual fractional pitch: slides are continuous,
+    // and the B/C boundary wraps correctly in both octave directions.
+    levels.fill(0.0f);
+    addScopePitchLevel(levels,60.25f,0.8f);
+    assert(std::fabs(levels[0]-0.6f)<1.0e-5f);
+    assert(std::fabs(levels[1]-0.2f)<1.0e-5f);
+    levels.fill(0.0f);
+    addScopePitchLevel(levels,59.5f,1.0f);
+    assert(std::fabs(levels[11]-0.5f)<1.0e-5f);
+    assert(std::fabs(levels[0]-0.5f)<1.0e-5f);
+    levels.fill(0.0f);
+    addScopePitchLevel(levels,-0.5f,1.0f);
+    assert(std::fabs(levels[11]-0.5f)<1.0e-5f);
+    assert(std::fabs(levels[0]-0.5f)<1.0e-5f);
+    levels.fill(0.0f);
+    addScopePitchLevel(levels,60.0f,0.4f);
+    addScopePitchLevel(levels,67.0f,0.7f);
+    assert(std::fabs(levels[0]-0.4f)<1.0e-5f);
+    assert(std::fabs(levels[7]-0.7f)<1.0e-5f);
+
+    // A rendered voice must report the same live bend evaluated for its
+    // oscillators, not the originally triggered MIDI pitch.
+    Patch scopePatch=makeDefaultPatch("Scope Bend");
+    scopePatch.octave=1.0f;
+    VoiceAutomation scopeAutomation;
+    scopeAutomation.bend.storage=
+        std::make_shared<std::vector<DspCurvePoint>>();
+    scopeAutomation.bend.storage->push_back({0.0f,0.0f});
+    scopeAutomation.bend.storage->push_back({1.0f,7.0f});
+    scopeAutomation.bend.points=scopeAutomation.bend.storage->data();
+    scopeAutomation.bend.count=scopeAutomation.bend.storage->size();
+    SpectrachordVoice scopeVoice;
+    scopeVoice.prepare(24000.0f);
+    scopeVoice.start(501,toDspPatch(scopePatch),60,0.8f,4800u,
+                     240.0f,scopeAutomation);
+    assert(std::fabs(scopeVoice.soundingPitchMidi()-72.0f)<0.001f);
+    for(int n=0;n<=240;++n)scopeVoice.render();
+    assert(std::fabs(scopeVoice.soundingPitchMidi()-79.0f)<0.03f);
     checkDrawSimplification();
     // A resumed note must accept Android POINTER_DOWN while V/M stay held.
     // PRIMARY DOWN still works if the draw finger is alone.
