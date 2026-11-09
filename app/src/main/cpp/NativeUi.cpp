@@ -1819,9 +1819,9 @@ void NativeUi::drawScopeInRect(Rect r) const noexcept {
         const float y=r.y+r.h*0.5f-s*(r.h*0.43f);
         // One oscilloscope trace, not a color ramp across screen X.
         // Width and soft glow only; no separate top/bottom guide lines.
-        ov.addLine(prevX,prevY,x,y,4.5f,
+        ov.addLine(prevX,prevY,x,y,7.0f,
                    overlayColor(traceColor,0.30f*opacity));
-        ov.addLine(prevX,prevY,x,y,1.8f,
+        ov.addLine(prevX,prevY,x,y,3.0f,
                    overlayColor(traceColor,0.95f*opacity));
 
         prevX=x;
