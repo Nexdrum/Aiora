@@ -1719,7 +1719,13 @@ void NativeUi::drawScopeInRect(Rect r) const noexcept {
     const Rgb target{spectral.r,spectral.g,spectral.b};
     // The spectral RGB is FIXED by frequency. Audio amplitude adjusts
     // opacity alone; do not independently brighten/darken RGB channels.
-    scopeSmoothedColor_=mix(scopeSmoothedColor_,target,.30f);
+    // Initialize immediately when sound begins. Fading an RGB color up
+    // from black would change its intrinsic spectral brightness instead
+    // of letting amplitude/opacity alone control visibility.
+    if(scopeSmoothedOpacity_<=0.001f)
+        scopeSmoothedColor_=target;
+    else
+        scopeSmoothedColor_=mix(scopeSmoothedColor_,target,.30f);
     scopeSmoothedOpacity_+=(spectral.opacity-scopeSmoothedOpacity_)*.40f;
     if(spectral.opacity<=0.001f)scopeSmoothedOpacity_=0.0f;
     const Rgb traceColor=scopeSmoothedColor_;
