@@ -1717,16 +1717,18 @@ void NativeUi::drawScopeInRect(Rect r) const noexcept {
         scopeSpectrum_->leftSamples(),scopeSpectrum_->rightSamples());
     const auto spectral=scopeSpectrum_->analyze(audio.sampleRate());
     const Rgb target{spectral.r,spectral.g,spectral.b};
+    // The spectral RGB is FIXED by frequency. Audio amplitude adjusts
+    // opacity alone; do not independently brighten/darken RGB channels.
     scopeSmoothedColor_=mix(scopeSmoothedColor_,target,.30f);
-    const float peakLight=std::max({
-        scopeSmoothedColor_.r,scopeSmoothedColor_.g,scopeSmoothedColor_.b});
-    const Rgb traceColor=peakLight>0.002f
-        ?scopeSmoothedColor_:mix(kTop,kMuted,.65f);
-    const Rgb glowColor{
-        traceColor.r*.62f,traceColor.g*.62f,traceColor.b*.62f};
+    scopeSmoothedOpacity_+=(spectral.opacity-scopeSmoothedOpacity_)*.40f;
+    if(spectral.opacity<=0.001f)scopeSmoothedOpacity_=0.0f;
+    const Rgb traceColor=scopeSmoothedColor_;
+    const float opacity=scopeSmoothedOpacity_;
     auto& ov=NativeOverlay::instance();
 
-    fillRect(r,mix(kTop,kBg,0.70f));
+    // Both mini and fullscreen scopes must be true RGB black.
+    fillRect(r,{0.0f,0.0f,0.0f});
+    if(opacity<=0.001f)return;
 
     // AIORA is D-centered. Calibrate the horizontal scope window so one
     // complete D4 reference cycle (293.66 Hz) fills the scope width.
@@ -1812,9 +1814,9 @@ void NativeUi::drawScopeInRect(Rect r) const noexcept {
         // One oscilloscope trace, not a color ramp across screen X.
         // Width and soft glow only; no separate top/bottom guide lines.
         ov.addLine(prevX,prevY,x,y,4.5f,
-                   overlayColor(glowColor,0.56f));
+                   overlayColor(traceColor,0.30f*opacity));
         ov.addLine(prevX,prevY,x,y,1.8f,
-                   overlayColor(traceColor,0.98f));
+                   overlayColor(traceColor,0.95f*opacity));
 
         prevX=x;
         prevY=y;
@@ -1854,9 +1856,8 @@ bool NativeUi::hitNormalScope(float x,float y) const noexcept {
     return !scopeFullscreen_&&headerScopeRect().contains(x,y);
 }
 void NativeUi::drawFullscreenScope() const noexcept {
-    const Rgb scopeBackground=mix(kTop,kBg,0.70f);
     fillRect({0.0f,0.0f,static_cast<float>(width_),static_cast<float>(height_)},
-        scopeBackground);
+        {0.0f,0.0f,0.0f});
     drawScopeInRect(fullscreenScopeRect());
     if(!scopeControlsVisible_)return;
     auto& ov=NativeOverlay::instance();

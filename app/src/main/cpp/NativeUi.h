@@ -480,6 +480,7 @@ private:
     mutable std::unique_ptr<ScopeSpectrumAnalyzer> scopeSpectrum_{
         std::make_unique<ScopeSpectrumAnalyzer>()};
     mutable Rgb scopeSmoothedColor_{};
+    mutable float scopeSmoothedOpacity_{0.0f};
     bool scopeFullscreen_{false};
     bool scopeControlsVisible_{true};
     float expressionV_{0.5f};

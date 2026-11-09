@@ -138,23 +138,38 @@ int main(){
     const auto clipped=additiveScopePitchColor(palette,levels);
     assert(clipped.r==1.0f&&clipped.g==0.5f&&clipped.b==1.0f);
 
-    // The scope now observes actual stereo samples, not synthesized note
-    // numbers. Verify octave-folded wavelength colors from the Visualizer.
-    const auto freqA=visualizerFrequencyRgb(440.0f);
-    const auto freqOctave=visualizerFrequencyRgb(880.0f);
-    assert(std::fabs(freqA.r-freqOctave.r)<0.005f);
-    assert(std::fabs(freqA.g-freqOctave.g)<0.005f);
-    assert(std::fabs(freqA.b-freqOctave.b)<0.005f);
-    const auto freqDifferent=visualizerFrequencyRgb(660.0f);
-    assert(std::fabs(freqA.r-freqDifferent.r)+
-           std::fabs(freqA.g-freqDifferent.g)+
-           std::fabs(freqA.b-freqDifferent.b)>0.05f);
-
+    // Octave folding and independent four-band response curves match the
+    // approved note-color strip. Frequency fixes color, not the MIDI note
+    // assignment. The inferred IR red adds violet undertones without
+    // contaminating F# with blue.
+    const auto c4=scopeFourBandFrequencyRgb(261.6256f);
+    const auto c5=scopeFourBandFrequencyRgb(523.2512f);
+    assert(std::fabs(c4.r-c5.r)<.002f);
+    assert(std::fabs(c4.g-c5.g)<.002f);
+    assert(std::fabs(c4.b-c5.b)<.002f);
+    const auto d4=scopeFourBandFrequencyRgb(293.6648f);
+    assert(d4.b>.96f && d4.g>.50f && d4.g<.64f);
+    assert(d4.r<.03f); // D must be sky blue, not purple.
+    const auto ds4=scopeFourBandFrequencyRgb(311.1270f);
+    assert(ds4.b>.9f&&ds4.r<.13f);
+    const auto e4=scopeFourBandFrequencyRgb(329.6276f);
+    assert(e4.r>.27f&&e4.r<.50f&&e4.b>.65f);
+    const auto f4=scopeFourBandFrequencyRgb(349.2282f);
+    assert(f4.r>.30f&&f4.b>.35f); // IR red + UV blue.
+    const auto fs4=scopeFourBandFrequencyRgb(369.9944f);
+    const auto g4=scopeFourBandFrequencyRgb(391.9954f);
+    const auto gs4=scopeFourBandFrequencyRgb(415.3047f);
+    assert(fs4.b<.01f&&fs4.g<.01f&&fs4.r>.40f);
+    assert(fs4.r<g4.r&&g4.r<gs4.r);
+    // All frequencies have a color independent of audio amplitude; a
+    // silent source has zero opacity rather than a grey idle trace.
+    assert(c4.opacity==0.0f);
     // FFT spectral power follows real rendered frequencies and harmonics.
     // Stereo cancellation must not remove light from out-of-phase audio.
     auto spectrum=std::make_unique<ScopeSpectrumAnalyzer>();
     const auto silence=spectrum->analyze(48000);
     assert(silence.r==0&&silence.g==0&&silence.b==0);
+    assert(silence.opacity==0.0f);
     auto& left=spectrum->leftSamples();
     auto& right=spectrum->rightSamples();
     constexpr float pi=3.14159265358979323846f;
@@ -169,22 +184,28 @@ int main(){
             right[i]=(antiPhase?-1.0f:1.0f)*left[i];
         }
     };
-    const auto intensity=[](ScopeSpectrumRgb rgb){
-        return rgb.r+rgb.g+rgb.b;
-    };
     fillTone(.02f,false,false);
     const auto quiet=spectrum->analyze(48000);
     fillTone(.08f,false,false);
     const auto tone=spectrum->analyze(48000);
-    assert(intensity(tone)>intensity(quiet)+.08f);
+    assert(tone.opacity>quiet.opacity*3.8f);
+    assert(tone.opacity<quiet.opacity*4.2f);
+    assert(std::fabs(tone.r-quiet.r)<.005f);
+    assert(std::fabs(tone.g-quiet.g)<.005f);
+    assert(std::fabs(tone.b-quiet.b)<.005f);
+    assert(tone.opacity>.05f);
     fillTone(.08f,true,false);
     const auto opposed=spectrum->analyze(48000);
     assert(std::fabs(tone.r-opposed.r)<.005f);
     assert(std::fabs(tone.g-opposed.g)<.005f);
     assert(std::fabs(tone.b-opposed.b)<.005f);
+    assert(std::fabs(tone.opacity-opposed.opacity)<.005f);
     fillTone(.08f,false,true);
     const auto twoFrequencies=spectrum->analyze(48000);
-    assert(intensity(twoFrequencies)>intensity(tone)+.03f);
+    assert(twoFrequencies.opacity>tone.opacity);
+    assert(std::fabs(twoFrequencies.r-tone.r)+
+           std::fabs(twoFrequencies.g-tone.g)+
+           std::fabs(twoFrequencies.b-tone.b)>.025f);
     // Replacing a fundamental with a different frequency must change
     // the spectrum color even though no MIDI note has been supplied.
     for(size_t i=0;i<left.size();++i){

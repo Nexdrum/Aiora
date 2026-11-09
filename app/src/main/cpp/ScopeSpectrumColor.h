@@ -8,56 +8,119 @@
 
 namespace aiora {
 
-// The native oscilloscope's RGB comes from final *audio*, not MIDI notes,
-// operator pitches, or piano-roll coordinates. The spectral light follows
-// Nexdrum/Visualizer's octave-folded audio frequency -> visible wavelength
-// mapping, including its red/violet magenta bridge.
-struct ScopeSpectrumRgb { float r{},g{},b{}; };
+struct ScopeSpectrumRgb {
+    float r{},g{},b{};
+    float opacity{}; // Absolute post-FX audio amplitude, never a color curve.
+};
 
-inline ScopeSpectrumRgb visualizerFrequencyRgb(float audioHz) noexcept {
-    if(!std::isfinite(audioHz)||audioHz<=0.0f)return {};
-    constexpr float kLightSpeed=299792458.0f;
-    constexpr float kVisibleMin=380.0e12f;
-    constexpr float kVisibleMax=750.0e12f;
-    float lightHz=audioHz;
-    while(lightHz<kVisibleMin)lightHz*=2.0f;
-    while(lightHz>kVisibleMax)lightHz*=0.5f;
-    const float wl=(kLightSpeed/lightHz)*1.0e9f;
-    float r=0,g=0,b=0;
-    if(wl>=380&&wl<440){r=(440-wl)/60;b=1;}
-    else if(wl>=440&&wl<490){g=(wl-440)/50;b=1;}
-    else if(wl>=490&&wl<510){g=1;b=(510-wl)/20;}
-    else if(wl>=510&&wl<580){r=(wl-510)/70;g=1;}
-    else if(wl>=580&&wl<645){r=1;g=(645-wl)/65;}
-    else if(wl>=645&&wl<=789){r=1;}
+struct ScopeBandPoint {float nm{},level{};};
 
-    float factor=1;
-    if(wl>=380&&wl<420)factor=.55f+.45f*(wl-380)/40;
-    else if(wl>700&&wl<=789)factor=.55f+.45f*(789-wl)/89;
-    const auto gamma=[&](float x){
-        return std::pow(std::clamp(x*factor,0.0f,1.0f),.82f);
+// Shape-preserving monotone cubic interpolation of the four independent
+// wavelength-response bands. This is the approved Aiora perceptual DESIGN
+// curve, fitted to the original pitch palette; the fourth IR-red band is
+// an inferred octave-folding response, not measured infrared vision.
+template<size_t N>
+inline float scopeBandAt(
+    const std::array<ScopeBandPoint,N>& points,float nm) noexcept {
+    static_assert(N>=2);
+    if(!std::isfinite(nm)||nm<points.front().nm||
+       nm>points.back().nm)return 0.0f;
+    const auto upper=std::upper_bound(
+        points.begin(),points.end(),nm,
+        [](float value,const ScopeBandPoint& p){return value<p.nm;});
+    const size_t i=upper==points.begin()?0:
+        std::min(static_cast<size_t>(upper-points.begin()-1),N-2);
+    const float h=points[i+1].nm-points[i].nm;
+    if(h<=0.0f)return 0.0f;
+    const auto derivative=[&](size_t j)->float {
+        if(j==0||j+1>=N)return 0.0f;
+        const float h0=points[j].nm-points[j-1].nm;
+        const float h1=points[j+1].nm-points[j].nm;
+        const float d0=(points[j].level-points[j-1].level)/h0;
+        const float d1=(points[j+1].level-points[j].level)/h1;
+        if(d0*d1<=0.0f)return 0.0f;
+        const float w0=2.0f*h1+h0,w1=h1+2.0f*h0;
+        return (w0+w1)/(w0/d0+w1/d1);
     };
-    r=gamma(r);g=gamma(g);b=gamma(b);
-    // Match Visualizer's additive circular overlap and 8-bit RGB result.
-    if(wl>=380&&wl<=430){
-        const float amount=.85f*(1.0f-std::clamp((wl-380)/50,0.0f,1.0f));
-        r=std::min(1.0f,r+amount);
-    }
-    if(wl>=700&&wl<=789){
-        const float amount=.85f*std::clamp((wl-700)/89,0.0f,1.0f);
-        r=std::min(1.0f,r+.55f*amount);
-        b=std::min(1.0f,b+amount);
-    }
-    return {std::round(r*255)/255.0f,
-            std::round(g*255)/255.0f,
-            std::round(b*255)/255.0f};
+    const float t=std::clamp((nm-points[i].nm)/h,0.0f,1.0f);
+    const float t2=t*t,t3=t2*t;
+    return std::clamp(
+        (2*t3-3*t2+1)*points[i].level+
+        (t3-2*t2+t)*h*derivative(i)+
+        (-2*t3+3*t2)*points[i+1].level+
+        (t3-t2)*h*derivative(i+1),0.0f,1.0f);
 }
 
-// One 8192-point transform analyzes both stereo channels simultaneously,
-// using left as real and right as imaginary components. Sum the conjugate
-// FFT powers to recover independent stereo energy: out-of-phase content
-// cannot disappear as it would in a mono (L+R) spectrum.
-// All FFT work stays on the drawing/UI thread, never the audio callback.
+inline float scopeSmoothstep(float x) noexcept {
+    const float t=std::clamp(x,0.0f,1.0f);
+    return t*t*(3.0f-2.0f*t);
+}
+
+// Each band has its own width and continuous falloff. Values reflect the
+// previously approved C4-C5 design strip. Wavelengths are nanometers.
+// Red/green/blue are sRGB display components (not literal cone responses).
+inline constexpr std::array<ScopeBandPoint,18> kScopeRedBand{{
+    {350,0},{490,0},{510,0},{521.1f,.2275f},
+    {552.1f,.6667f},{580,1},{620,1},{645,1},
+    {656.5f,.9529f},{695.6f,.7843f},
+    {737,.56f},{780,.30f},{789,.24f},
+    {820,.13f},{860,.04f},{900,0},{1000,0},{1100,0}
+}};
+inline constexpr std::array<ScopeBandPoint,15> kScopeGreenBand{{
+    {350,0},{430,0},{440,0},{464.2f,.5608f},
+    {491.8f,1},{510,1},{521.1f,1},{552.1f,1},{580,1},
+    {584.9f,.9373f},{619.7f,.4706f},{645,0},
+    {750,0},{900,0},{1100,0}
+}};
+inline constexpr std::array<ScopeBandPoint,15> kScopeBlueBand{{
+    {340,0},{360,0},{375,0},{380,.13f},
+    {390.4f,.5020f},{413.6f,.7451f},{420,.83f},
+    {438.2f,.9843f},{445,1},{464.2f,1},
+    {490,1},{491.8f,.9255f},{510,0},{530,0},{1100,0}
+}};
+inline constexpr std::array<ScopeBandPoint,17> kScopeInfraredRedBand{{
+    {350,0},{490,0},{560,0},{590,.70f},{620,1},
+    {645,1},{656.5f,.9529f},{695.6f,.7843f},
+    {736.9f,.5961f},{780.7f,.4314f},
+    {827.2f,.3882f},{876.4f,.0588f},
+    {910,.007f},{940,0},{980,0},{1040,0},{1100,0}
+}};
+
+// Fold audio into C4..C5 with the exact continuous 2^x relationship.
+// Double the mapped wavelength to obtain its adjacent infrared/red octave.
+// Visible red and IR red merge by weighted AVERAGING. The inferred IR red
+// contributes additively to the BLUE channel's independent light; it never
+// raises the visible-red channel simply by stacking two reds.
+inline ScopeSpectrumRgb scopeFourBandFrequencyRgb(float audioHz) noexcept {
+    if(!std::isfinite(audioHz)||audioHz<=0.0f)return {};
+    constexpr float kC4=261.6255653f,kC5=kC4*2.0f;
+    float folded=audioHz;
+    while(folded<kC4)folded*=2.0f;
+    while(folded>=kC5)folded*=0.5f;
+    // 2^41 is the calibrated audio-to-light octave used in the design
+    // strip. Folding into C4..C5 keeps all musical octaves equivalent.
+    constexpr float kLightSpeed=299792458.0f;
+    const float violetNm=(kLightSpeed/std::ldexp(folded,41))*1.0e9f;
+    const float redNm=violetNm*2.0f;
+    const float irWeight=scopeSmoothstep((redNm-650.0f)/160.0f);
+
+    const float redViolet=scopeBandAt(kScopeRedBand,violetNm);
+    const float redVisible=scopeBandAt(kScopeRedBand,redNm);
+    const float redInfrared=scopeBandAt(kScopeInfraredRedBand,redNm);
+    const float red=redViolet+
+        (1.0f-irWeight)*redVisible+irWeight*redInfrared;
+    const float green=scopeBandAt(kScopeGreenBand,violetNm)+
+        scopeBandAt(kScopeGreenBand,redNm);
+    const float blue=scopeBandAt(kScopeBlueBand,violetNm)+
+        scopeBandAt(kScopeBlueBand,redNm);
+    return {
+        std::clamp(red,0.0f,1.0f),
+        std::clamp(green,0.0f,1.0f),
+        std::clamp(blue,0.0f,1.0f),0.0f};
+}
+
+// The FFT observes actual final stereo samples; out-of-phase channels
+// retain their individual spectral contributions. No audio-thread FFT.
 class ScopeSpectrumAnalyzer {
 public:
     static constexpr size_t kSamples=8192;
@@ -77,34 +140,44 @@ public:
                 const float hz=static_cast<float>(k)*sampleRate/
                                static_cast<float>(kSamples);
                 colors_[k]=(hz>=20.0f&&hz<=20000.0f)
-                    ?visualizerFrequencyRgb(hz):ScopeSpectrumRgb{};
+                    ?scopeFourBandFrequencyRgb(hz):ScopeSpectrumRgb{};
             }
         }
         for(size_t i=0;i<kSamples;++i)
-            frequency_[i]={
-                left_[i]*window_[i],
-                right_[i]*window_[i]};
+            frequency_[i]={left_[i]*window_[i],right_[i]*window_[i]};
         fft();
+        // Hann-window power normalization: sum of positive-frequency
+        // bins approximates the mean stereo RMS^2. No per-channel exposure
+        // curve or frequency-specific normalization is applied.
         constexpr float hannMeanSquare=.375f;
         constexpr float invPower=1.0f/
-            (2.0f*static_cast<float>(kSamples)*static_cast<float>(kSamples)*hannMeanSquare);
-        ScopeSpectrumRgb energy{};
+            (2.0f*static_cast<float>(kSamples)*
+             static_cast<float>(kSamples)*hannMeanSquare);
+        float totalPower=0.0f;
+        ScopeSpectrumRgb weighted{};
         for(size_t k=1;k<kSamples/2;++k){
             const auto& color=colors_[k];
-            if(color.r==0&&color.g==0&&color.b==0)continue;
             const float power=(std::norm(frequency_[k])+
                 std::norm(frequency_[kSamples-k]))*invPower;
-            energy.r+=power*color.r;
-            energy.g+=power*color.g;
-            energy.b+=power*color.b;
+            if(power<=0.0f)continue;
+            totalPower+=power;
+            weighted.r+=power*color.r;
+            weighted.g+=power*color.g;
+            weighted.b+=power*color.b;
         }
-        // Sum linear spectral powers first. Compress only after addition,
-        // allowing individual overtones to contribute without clipping an
-        // entire chord or noisy timbre to white at ordinary signal levels.
-        const auto illuminate=[](float p){
-            return 1.0f-std::exp(-14.0f*std::sqrt(std::max(0.0f,p)));
-        };
-        return {illuminate(energy.r),illuminate(energy.g),illuminate(energy.b)};
+        if(totalPower<=1.0e-12f)return {}; // Pure silence = no trace.
+        // Keep the fixed frequency color separate from amplitude opacity.
+        // The gain is ONE scalar for all frequencies and RGB channels;
+        // unlike the former per-channel exponential curve, it cannot
+        // bleach saturated blues or deepen reds at higher volumes.
+        constexpr float kScopeOpacityGain=2.5f;
+        const float alpha=std::clamp(
+            kScopeOpacityGain*std::sqrt(2.0f*totalPower),0.0f,1.0f);
+        return {
+            std::clamp(weighted.r/totalPower,0.0f,1.0f),
+            std::clamp(weighted.g/totalPower,0.0f,1.0f),
+            std::clamp(weighted.b/totalPower,0.0f,1.0f),
+            alpha};
     }
 
 private:
