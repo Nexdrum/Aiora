@@ -164,6 +164,15 @@ int main(){
     // All frequencies have a color independent of audio amplitude; a
     // silent source has zero opacity rather than a grey idle trace.
     assert(c4.opacity==0.0f);
+    // Response shape approved for 0.7.111: visible at quiet levels and
+    // fully opaque by RMS .16. Zero audio must remain invisible.
+    assert(scopeOpacityFromRms(0.0f)==0.0f);
+    assert(scopeOpacityFromRms(-1.0f)==0.0f);
+    assert(scopeOpacityFromRms(.005f)>.10f);
+    assert(scopeOpacityFromRms(.02f)>.25f);
+    assert(scopeOpacityFromRms(.08f)>.60f);
+    assert(scopeOpacityFromRms(.16f)==1.0f);
+    assert(scopeOpacityFromRms(.40f)==1.0f);
     // FFT spectral power follows real rendered frequencies and harmonics.
     // Stereo cancellation must not remove light from out-of-phase audio.
     auto spectrum=std::make_unique<ScopeSpectrumAnalyzer>();
@@ -188,18 +197,25 @@ int main(){
     const auto quiet=spectrum->analyze(48000);
     fillTone(.08f,false,false);
     const auto tone=spectrum->analyze(48000);
-    assert(tone.opacity>quiet.opacity*3.8f);
-    assert(tone.opacity<quiet.opacity*4.2f);
+    assert(tone.opacity>quiet.opacity*2.1f);
+    assert(tone.opacity<quiet.opacity*2.5f);
     assert(std::fabs(tone.r-quiet.r)<.005f);
     assert(std::fabs(tone.g-quiet.g)<.005f);
     assert(std::fabs(tone.b-quiet.b)<.005f);
-    assert(tone.opacity>.05f);
+    assert(quiet.opacity>.2f);
+    assert(tone.opacity>.60f);
     fillTone(.08f,true,false);
     const auto opposed=spectrum->analyze(48000);
     assert(std::fabs(tone.r-opposed.r)<.005f);
     assert(std::fabs(tone.g-opposed.g)<.005f);
     assert(std::fabs(tone.b-opposed.b)<.005f);
     assert(std::fabs(tone.opacity-opposed.opacity)<.005f);
+    fillTone(.20f,false,false);
+    const auto loud=spectrum->analyze(48000);
+    assert(loud.opacity==1.0f);
+    assert(std::fabs(loud.r-tone.r)<.005f);
+    assert(std::fabs(loud.g-tone.g)<.005f);
+    assert(std::fabs(loud.b-tone.b)<.005f);
     fillTone(.08f,false,true);
     const auto twoFrequencies=spectrum->analyze(48000);
     assert(twoFrequencies.opacity>tone.opacity);

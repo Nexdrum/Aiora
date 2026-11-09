@@ -119,6 +119,13 @@ inline ScopeSpectrumRgb scopeFourBandFrequencyRgb(float audioHz) noexcept {
         std::clamp(blue,0.0f,1.0f),0.0f};
 }
 
+// Audio RMS controls opacity, never the individual color channels.
+// A quiet note remains faintly visible; full opacity starts at RMS 0.16.
+inline float scopeOpacityFromRms(float rms) noexcept {
+    if(!std::isfinite(rms)||rms<=0.0f)return 0.0f;
+    return std::pow(std::clamp(rms/0.16f,0.0f,1.0f),0.6f);
+}
+
 // The FFT observes actual final stereo samples; out-of-phase channels
 // retain their individual spectral contributions. No audio-thread FFT.
 class ScopeSpectrumAnalyzer {
@@ -166,13 +173,9 @@ public:
             weighted.b+=power*color.b;
         }
         if(totalPower<=1.0e-12f)return {}; // Pure silence = no trace.
-        // Keep the fixed frequency color separate from amplitude opacity.
-        // The gain is ONE scalar for all frequencies and RGB channels;
-        // unlike the former per-channel exponential curve, it cannot
-        // bleach saturated blues or deepen reds at higher volumes.
-        constexpr float kScopeOpacityGain=2.5f;
-        const float alpha=std::clamp(
-            kScopeOpacityGain*std::sqrt(2.0f*totalPower),0.0f,1.0f);
+        // One sensitive, compressed amplitude-to-opacity curve shared by
+        // all RGB channels. Never change the intrinsic four-band color.
+        const float alpha=scopeOpacityFromRms(std::sqrt(2.0f*totalPower));
         return {
             std::clamp(weighted.r/totalPower,0.0f,1.0f),
             std::clamp(weighted.g/totalPower,0.0f,1.0f),

@@ -1,12 +1,9 @@
 // Header and navigation are a single coordinated spectral UI shell.
 drawExpressionPad();
 const auto transport=transportShellRect();
-// Matte graphite module with thin purple/cyan spectral rails.
-fillRect(transport,mix(kBg,kPanel,.52f));
-fillRect({transport.x+2.0f,transport.y+2.0f,
-          std::max(1.0f,transport.w-4.0f),
-          std::max(1.0f,transport.h-4.0f)},
-         mix(kRollBg,kTop,.59f));
+// Seamless true-black transport and scope surround. Keep the existing
+// purple/cyan rails, logo, and transport controls above the black surface.
+fillRect(transport,{0.0f,0.0f,0.0f});
 auto& overlay=NativeOverlay::instance();
 const float xr=transport.x+transport.w,yr=transport.y+transport.h;
 overlay.addLine(transport.x+1.0f,transport.y+1.0f,xr-1.0f,
