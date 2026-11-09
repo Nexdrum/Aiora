@@ -1,5 +1,4 @@
 #include "AudioEngine.h"
-#include "ScopePitchColor.h"
 #include "FactoryPresets.h"
 #include "NexdrumKit.h"
 #include "ProjectCore.h"
@@ -48,7 +47,6 @@ void AudioEngine::stop(){
     std::shared_ptr<oboe::AudioStream> old;{std::scoped_lock lock(streamMutex_);old=std::move(stream_);}if(old){old->requestStop();old->close();}
     transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)slot.voice.kill();
     previewFx_.reset();previewKitFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();playbackFxCount_=0;
-    for(auto& level:scopeNoteLevels_)level.store(0,std::memory_order_relaxed);
     Event pending;while(events_.pop(pending))if(pending.type==EventType::Snapshot&&pending.pointer)delete reinterpret_cast<PlaybackSnapshot*>(pending.pointer);
     if(playback_){delete playback_;playback_=nullptr;}collectRetiredSnapshots();
 }
@@ -132,18 +130,31 @@ bool AudioEngine::playTransport(int startStep){
 void AudioEngine::stopTransport() noexcept {events_.push({EventType::StopTransport,-1,0,0,0,0});}
 void AudioEngine::collectRetiredSnapshots() noexcept {PlaybackSnapshot*p=nullptr;while(retiredSnapshots_.pop(p))delete p;}
 
-void AudioEngine::copyScopeNoteLevels(std::array<float,12>& out) const noexcept {
-    for(size_t i=0;i<out.size();++i)
-        out[i]=static_cast<float>(scopeNoteLevels_[i].load(
-            std::memory_order_relaxed))/65535.0f;
-}
-
 void AudioEngine::copyScope(std::array<float,kScopeReadSamples>& out) const noexcept {
     const uint32_t published=scopeWrite_.load(std::memory_order_acquire);
     const uint32_t begin=published-static_cast<uint32_t>(kScopeReadSamples);
     for(size_t i=0;i<out.size();++i){
         const uint32_t index=(begin+static_cast<uint32_t>(i))%static_cast<uint32_t>(kScopeSamples);
-        out[i]=static_cast<float>(scope_[index].load(std::memory_order_relaxed))/32767.0f;
+        const float left=static_cast<float>(scopeLeft_[index].load(
+            std::memory_order_relaxed))/32767.0f;
+        const float right=static_cast<float>(scopeRight_[index].load(
+            std::memory_order_relaxed))/32767.0f;
+        out[i]=(left+right)*.5f;
+    }
+}
+
+void AudioEngine::copyScopeStereo(
+    std::array<float,kScopeSamples>& left,
+    std::array<float,kScopeSamples>& right) const noexcept {
+    const uint32_t published=scopeWrite_.load(std::memory_order_acquire);
+    const uint32_t begin=published-static_cast<uint32_t>(kScopeSamples);
+    for(size_t i=0;i<kScopeSamples;++i){
+        const uint32_t index=(begin+static_cast<uint32_t>(i))%
+            static_cast<uint32_t>(kScopeSamples);
+        left[i]=static_cast<float>(scopeLeft_[index].load(
+            std::memory_order_relaxed))/32767.0f;
+        right[i]=static_cast<float>(scopeRight_[index].load(
+            std::memory_order_relaxed))/32767.0f;
     }
 }
 
@@ -300,13 +311,6 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
     for(auto&slot:voices_){
         if(!slot.voice.active())continue;
         const float sample=slot.voice.render();
-        // Follow the voice's current rendered pitch, including bends and
-        // pitch LFO, rather than its fixed note-on piano-roll coordinate.
-        // Fractional pitches blend adjacent chromatic lights; chords retain
-        // their existing additive mixing on the scope.
-        const float audible=std::fabs(sample)*0.5f*
-            (std::fabs(slot.gainLeft)+std::fabs(slot.gainRight));
-        addScopePitchLevel(scopeNoteAccum_,slot.voice.soundingPitchMidi(),audible);
         const float l=sample*slot.gainLeft;
         const float r=sample*slot.gainRight;
         if(slot.transport&&transportPlaying_.load(std::memory_order_relaxed)){
@@ -347,28 +351,20 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audioData,int32_t numFrames){
     Event e;while(events_.pop(e))applyEvent(e);auto*out=static_cast<float*>(audioData);
     uint32_t scopeWrite=scopeWrite_.load(std::memory_order_relaxed);
-    scopeNoteAccum_.fill(0.0f);
     for(int32_t i=0;i<numFrames;++i){
         const auto s=renderFrame();
         out[i*2]=s[0];out[i*2+1]=s[1];
-        const float mono=std::clamp((s[0]+s[1])*0.5f,-1.0f,1.0f);
-        scope_[scopeWrite%static_cast<uint32_t>(kScopeSamples)].store(
-            static_cast<int32_t>(std::lround(mono*32767.0f)),
-            std::memory_order_relaxed);
+        // Capture the actual post-FX output of each channel separately:
+        // a mono sum could cancel stereo phase and lose spectral light.
+        const uint32_t index=scopeWrite%static_cast<uint32_t>(kScopeSamples);
+        scopeLeft_[index].store(static_cast<int32_t>(std::lround(
+            std::clamp(s[0],-1.0f,1.0f)*32767.0f)),std::memory_order_relaxed);
+        scopeRight_[index].store(static_cast<int32_t>(std::lround(
+            std::clamp(s[1],-1.0f,1.0f)*32767.0f)),std::memory_order_relaxed);
         ++scopeWrite;
         advanceTransport();
     }
     scopeWrite_.store(scopeWrite,std::memory_order_release);
-    // Publish 12 small atomic brightness values once per buffer, rather
-    // than doing any UI/color work on the low-latency audio thread.
-    const float invFrames=1.0f/static_cast<float>(std::max(1,numFrames));
-    for(size_t i=0;i<scopeNoteAccum_.size();++i){
-        const float brightness=std::clamp(
-            scopeNoteAccum_[i]*invFrames*12.0f,0.0f,1.0f);
-        scopeNoteLevels_[i].store(
-            static_cast<uint16_t>(std::lround(brightness*65535.0f)),
-            std::memory_order_relaxed);
-    }
     if(transportPlaying_.load(std::memory_order_relaxed)&&playback_){
         const double phase=transportSamplesPerStep_>0.0
             ?std::clamp(samplesIntoStep_/transportSamplesPerStep_,0.0,1.0)

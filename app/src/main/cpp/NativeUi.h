@@ -3,10 +3,12 @@
 #include <array>
 #include <algorithm>
 #include <optional>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "AioraTypes.h"
+#include "ScopeSpectrumColor.h"
 
 namespace aiora {
 
@@ -473,6 +475,11 @@ private:
     bool groupAverageMode_{false};
     int tempoEditing_{-1};
     std::string tempoEditText_{};
+    // Large FFT buffers live on the heap, outside NativeState's stack.
+    // Analyze on the UI thread only, never inside Oboe's audio callback.
+    mutable std::unique_ptr<ScopeSpectrumAnalyzer> scopeSpectrum_{
+        std::make_unique<ScopeSpectrumAnalyzer>()};
+    mutable Rgb scopeSmoothedColor_{};
     bool scopeFullscreen_{false};
     bool scopeControlsVisible_{true};
     float expressionV_{0.5f};

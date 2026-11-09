@@ -1,5 +1,6 @@
 #include "ProjectCore.h"
 #include "ScopePitchColor.h"
+#include "ScopeSpectrumColor.h"
 #include "PlaybackSnapshot.h"
 #include "ProjectCodec.h"
 #include "FactoryPresets.h"
@@ -137,44 +138,63 @@ int main(){
     const auto clipped=additiveScopePitchColor(palette,levels);
     assert(clipped.r==1.0f&&clipped.g==0.5f&&clipped.b==1.0f);
 
-    // Scope follows the actual fractional pitch: slides are continuous,
-    // and the B/C boundary wraps correctly in both octave directions.
-    levels.fill(0.0f);
-    addScopePitchLevel(levels,60.25f,0.8f);
-    assert(std::fabs(levels[0]-0.6f)<1.0e-5f);
-    assert(std::fabs(levels[1]-0.2f)<1.0e-5f);
-    levels.fill(0.0f);
-    addScopePitchLevel(levels,59.5f,1.0f);
-    assert(std::fabs(levels[11]-0.5f)<1.0e-5f);
-    assert(std::fabs(levels[0]-0.5f)<1.0e-5f);
-    levels.fill(0.0f);
-    addScopePitchLevel(levels,-0.5f,1.0f);
-    assert(std::fabs(levels[11]-0.5f)<1.0e-5f);
-    assert(std::fabs(levels[0]-0.5f)<1.0e-5f);
-    levels.fill(0.0f);
-    addScopePitchLevel(levels,60.0f,0.4f);
-    addScopePitchLevel(levels,67.0f,0.7f);
-    assert(std::fabs(levels[0]-0.4f)<1.0e-5f);
-    assert(std::fabs(levels[7]-0.7f)<1.0e-5f);
+    // The scope now observes actual stereo samples, not synthesized note
+    // numbers. Verify octave-folded wavelength colors from the Visualizer.
+    const auto freqA=visualizerFrequencyRgb(440.0f);
+    const auto freqOctave=visualizerFrequencyRgb(880.0f);
+    assert(std::fabs(freqA.r-freqOctave.r)<0.005f);
+    assert(std::fabs(freqA.g-freqOctave.g)<0.005f);
+    assert(std::fabs(freqA.b-freqOctave.b)<0.005f);
+    const auto freqDifferent=visualizerFrequencyRgb(660.0f);
+    assert(std::fabs(freqA.r-freqDifferent.r)+
+           std::fabs(freqA.g-freqDifferent.g)+
+           std::fabs(freqA.b-freqDifferent.b)>0.05f);
 
-    // A rendered voice must report the same live bend evaluated for its
-    // oscillators, not the originally triggered MIDI pitch.
-    Patch scopePatch=makeDefaultPatch("Scope Bend");
-    scopePatch.octave=1.0f;
-    VoiceAutomation scopeAutomation;
-    scopeAutomation.bend.storage=
-        std::make_shared<std::vector<DspCurvePoint>>();
-    scopeAutomation.bend.storage->push_back({0.0f,0.0f});
-    scopeAutomation.bend.storage->push_back({1.0f,7.0f});
-    scopeAutomation.bend.points=scopeAutomation.bend.storage->data();
-    scopeAutomation.bend.count=scopeAutomation.bend.storage->size();
-    SpectrachordVoice scopeVoice;
-    scopeVoice.prepare(24000.0f);
-    scopeVoice.start(501,toDspPatch(scopePatch),60,0.8f,4800u,
-                     240.0f,scopeAutomation);
-    assert(std::fabs(scopeVoice.soundingPitchMidi()-72.0f)<0.001f);
-    for(int n=0;n<=240;++n)scopeVoice.render();
-    assert(std::fabs(scopeVoice.soundingPitchMidi()-79.0f)<0.03f);
+    // FFT spectral power follows real rendered frequencies and harmonics.
+    // Stereo cancellation must not remove light from out-of-phase audio.
+    auto spectrum=std::make_unique<ScopeSpectrumAnalyzer>();
+    const auto silence=spectrum->analyze(48000);
+    assert(silence.r==0&&silence.g==0&&silence.b==0);
+    auto& left=spectrum->leftSamples();
+    auto& right=spectrum->rightSamples();
+    constexpr float pi=3.14159265358979323846f;
+    constexpr float samples=static_cast<float>(ScopeSpectrumAnalyzer::kSamples);
+    const auto fillTone=[&](float level,bool antiPhase,bool overtone){
+        for(size_t i=0;i<left.size();++i){
+            const float phase=2*pi*static_cast<float>(i)/samples;
+            const float main=level*std::sin(80.0f*phase);
+            const float harmonic=overtone
+                ?level*std::sin(119.0f*phase):0.0f;
+            left[i]=main+harmonic;
+            right[i]=(antiPhase?-1.0f:1.0f)*left[i];
+        }
+    };
+    const auto intensity=[](ScopeSpectrumRgb rgb){
+        return rgb.r+rgb.g+rgb.b;
+    };
+    fillTone(.02f,false,false);
+    const auto quiet=spectrum->analyze(48000);
+    fillTone(.08f,false,false);
+    const auto tone=spectrum->analyze(48000);
+    assert(intensity(tone)>intensity(quiet)+.08f);
+    fillTone(.08f,true,false);
+    const auto opposed=spectrum->analyze(48000);
+    assert(std::fabs(tone.r-opposed.r)<.005f);
+    assert(std::fabs(tone.g-opposed.g)<.005f);
+    assert(std::fabs(tone.b-opposed.b)<.005f);
+    fillTone(.08f,false,true);
+    const auto twoFrequencies=spectrum->analyze(48000);
+    assert(intensity(twoFrequencies)>intensity(tone)+.03f);
+    // Replacing a fundamental with a different frequency must change
+    // the spectrum color even though no MIDI note has been supplied.
+    for(size_t i=0;i<left.size();++i){
+        const float phase=2*pi*static_cast<float>(i)/samples;
+        left[i]=right[i]=.08f*std::sin(119.0f*phase);
+    }
+    const auto newTone=spectrum->analyze(48000);
+    assert(std::fabs(newTone.r-tone.r)+std::fabs(newTone.g-tone.g)+
+           std::fabs(newTone.b-tone.b)>.05f);
+
     checkDrawSimplification();
     // A resumed note must accept Android POINTER_DOWN while V/M stay held.
     // PRIMARY DOWN still works if the draw finger is alone.

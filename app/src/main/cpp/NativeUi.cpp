@@ -1,5 +1,4 @@
 #include "NativeUi.h"
-#include "ScopePitchColor.h"
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
 #include "FactoryPresets.h"
@@ -1712,13 +1711,17 @@ void NativeUi::drawScopeInRect(Rect r) const noexcept {
     std::array<float,AudioEngine::kScopeReadSamples> samples{};
     auto& audio=AudioEngine::instance();
     audio.copyScope(samples);
-    std::array<float,12> noteLevels{};
-    audio.copyScopeNoteLevels(noteLevels);
-    const auto additive=additiveScopePitchColor(kPitchColors,noteLevels);
-    const float peakLight=std::max({additive.r,additive.g,additive.b});
-    // Idle scope uses a subdued neutral trace. Sounding notes illuminate
-    // the entire waveform with their *combined* additive pitch light.
-    const Rgb traceColor=peakLight>0.002f?additive:mix(kTop,kMuted,.65f);
+    // This analyzes final rendered stereo audio including overtones, FX,
+    // distortion, reverb tails and pitch bends. No note/MIDI lookup occurs.
+    audio.copyScopeStereo(
+        scopeSpectrum_->leftSamples(),scopeSpectrum_->rightSamples());
+    const auto spectral=scopeSpectrum_->analyze(audio.sampleRate());
+    const Rgb target{spectral.r,spectral.g,spectral.b};
+    scopeSmoothedColor_=mix(scopeSmoothedColor_,target,.30f);
+    const float peakLight=std::max({
+        scopeSmoothedColor_.r,scopeSmoothedColor_.g,scopeSmoothedColor_.b});
+    const Rgb traceColor=peakLight>0.002f
+        ?scopeSmoothedColor_:mix(kTop,kMuted,.65f);
     const Rgb glowColor{
         traceColor.r*.62f,traceColor.g*.62f,traceColor.b*.62f};
     auto& ov=NativeOverlay::instance();

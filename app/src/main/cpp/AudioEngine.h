@@ -35,14 +35,13 @@ public:
     int factoryPreset() const noexcept { return selectedPreset_.load(std::memory_order_relaxed); }
     int sampleRate() const noexcept { return sampleRate_.load(std::memory_order_relaxed); }
 
-    // Keep enough history for a D4-calibrated display window at common
-    // Android sample rates, including 96 kHz.
-    static constexpr size_t kScopeSamples = 2048;
+    // Retain 8192 samples of the actual final stereo mix for spectral color
+    // analysis; the existing waveform display still uses its last 1024.
+    static constexpr size_t kScopeSamples = 8192;
     static constexpr size_t kScopeReadSamples = 1024;
-    void copyScope(std::array<float, kScopeReadSamples>& out) const noexcept;
-    // Pitch-class activity published by the audio thread once per callback.
-    // This drives additive note light on the oscilloscope without FFT guesses.
-    void copyScopeNoteLevels(std::array<float,12>& out) const noexcept;
+    void copyScope(std::array<float,kScopeReadSamples>& out) const noexcept;
+    void copyScopeStereo(std::array<float,kScopeSamples>& left,
+                         std::array<float,kScopeSamples>& right) const noexcept;
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* audioData, int32_t numFrames) override;
     void onErrorAfterClose(oboe::AudioStream*, oboe::Result error) override;
@@ -105,10 +104,8 @@ private:
     double transportSamplesPerStep_{1.0};
     uint64_t ageCounter_{0};
 
-    std::array<std::atomic<int32_t>, kScopeSamples> scope_{};
+    std::array<std::atomic<int32_t>, kScopeSamples> scopeLeft_{},scopeRight_{};
     std::atomic<uint32_t> scopeWrite_{0};
-    std::array<float,12> scopeNoteAccum_{}; // audio thread only
-    std::array<std::atomic<uint16_t>,12> scopeNoteLevels_{};
 };
 
 } // namespace aiora
