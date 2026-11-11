@@ -45,7 +45,7 @@ std::vector<std::vector<int>> rollOverlapGroups(const Track& track){
         };
         for(int n:ids){
             const auto& note=track.notes[static_cast<size_t>(n)];
-            const float noteEnd=note.startStep+std::max(1.0f,note.lengthSteps);
+            const float noteEnd=note.startStep+std::max(kMinNoteLengthSteps,note.lengthSteps);
             if(!members.empty()&&note.startStep>=end-1.0e-5f)flush();
             members.push_back(n);
             end=members.size()==1?noteEnd:std::max(end,noteEnd);
@@ -183,7 +183,7 @@ std::string pitchCoord(int midi){
 // length-0.5 is the trailing edge. This convention preserves older points.
 constexpr float kAutomationStartEdge=-0.5f;
 float rollCurveLength(const Note& note) noexcept {
-    return std::max(1.0f,note.lengthSteps)-0.5f;
+    return std::max(kMinNoteLengthSteps,note.lengthSteps)-0.5f;
 }
 float rollLevelCurveLength(const Note& note) noexcept {
     return rollCurveLength(note);
@@ -263,9 +263,10 @@ float rollLevelAt(
 }
 
 float rollVisualCurveStep(const Note& note,float fraction) noexcept {
+    // A sub-cell tail can be BEFORE curve coordinate zero. Its true
+    // range is still [-0.5, length-0.5], not a one-cell surrogate.
     const float end=rollLevelCurveLength(note);
-    if(end<=0.0f)return 0.0f;
-    const float visualSteps=std::max(1.0f,note.lengthSteps);
+    const float visualSteps=std::max(kMinNoteLengthSteps,note.lengthSteps);
     return std::clamp(
         fraction*visualSteps-0.5f,
         kAutomationStartEdge,end);
@@ -1469,7 +1470,7 @@ std::vector<int> NativeUi::finishRollLasso(){
 
     for(int n=0;n<static_cast<int>(sourceTrack.notes.size());++n){
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
-        const float length=std::max(1.0f,note.lengthSteps);
+        const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
         bool selected=false;
         constexpr int samples=10;
         for(int s=0;s<=samples&&!selected;++s){
@@ -3525,7 +3526,7 @@ void NativeUi::drawRoll() const noexcept {
         const Track& sourceTrack,const Note& note,
         int sourceTrackIndex,int noteIndex,int targetMidi,
         NativeOverlay::Color color,bool spectrum){
-        const float length=std::max(1.0f,note.lengthSteps);
+        const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
         const bool layered=spectrum&&sourceTrackIndex==track&&
             noteIndex>=0&&noteIndex<stackNoteCount&&
             isStacked[static_cast<size_t>(noteIndex)];
@@ -3536,7 +3537,9 @@ void NativeUi::drawRoll() const noexcept {
             viewport.y+header+
             (note.startStep-static_cast<float>(stepOffset))*rowH+
             1.0f+insetPx;
-        const float baseHeight=std::max(rowH,length*rowH)-2.0f;
+        // Keep extremely short notes at least 4px tall for visibility and touch
+        // accessibility; this does not change their stored/playback duration.
+        const float baseHeight=std::max(4.0f,length*rowH)-2.0f;
         const float height=std::max(1.0f,baseHeight-2.0f*insetPx);
         const int segments=std::clamp(
             static_cast<int>(std::ceil(length*12.0f)),6,480);
@@ -3628,7 +3631,7 @@ void NativeUi::drawRoll() const noexcept {
             ++noteIndex){
             const auto& note=
                 sourceTrack.notes[static_cast<size_t>(noteIndex)];
-            const float length=std::max(1.0f,note.lengthSteps);
+            const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
             if(note.startStep+length<=static_cast<float>(stepOffset)||
                note.startStep>=static_cast<float>(stepOffset+visibleRows))
                 continue;
@@ -3683,7 +3686,7 @@ void NativeUi::drawRoll() const noexcept {
             const int midi=note.midi;
 
             const float start=note.startStep;
-            const float length=std::max(1.0f,note.lengthSteps);
+            const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
             if(start+length<=stepOffset||
                start>=stepOffset+visibleRows)continue;
 
@@ -3922,7 +3925,7 @@ void NativeUi::drawRoll() const noexcept {
             const int n=*it;
             const auto& note=selectedTrack.notes[static_cast<size_t>(n)];
             const float start=note.startStep;
-            const float length=std::max(1.0f,note.lengthSteps);
+            const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
             if(start+length<=stepOffset||start>=stepOffset+visibleRows)continue;
 
             const int depth=stackDepth[static_cast<size_t>(n)];
@@ -3955,8 +3958,8 @@ void NativeUi::drawRoll() const noexcept {
                 (start-static_cast<float>(stepOffset))*rowH+
                 1.0f+insetPx);
             cap(1.0f,gridTop+
-                (start+length-static_cast<float>(stepOffset))*rowH-
-                2.0f-insetPx);
+                (start-static_cast<float>(stepOffset))*rowH+
+                std::max(4.0f,length*rowH)-2.0f-insetPx);
         }
     }
 
@@ -4268,7 +4271,7 @@ void NativeUi::drawPerformance() const noexcept {
     const auto addPerformanceRibbon=[&](
         const Track& sourceTrack,const Note& note,
         int sourceTrackIndex,int noteIndex){
-        const float length=std::max(1.0f,note.lengthSteps);
+        const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
         if(note.startStep+length<=startStep||
            note.startStep>=startStep+static_cast<float>(visibleRows)+1.0f)
             return;
@@ -4872,7 +4875,13 @@ std::optional<RollNoteHit> NativeUi::hitRollNote(
             1.0f+rollStackInsetPx(depth,colW,rowH);
         if(headY<gridTop||headY>gridBottom)continue;
         const float dy=std::fabs(y-headY);
-        if(dy>headTolerance)continue;
+        // Shrink the head hit zone on very short notes so the tail
+        // remains reachable for sub-cell resizing.
+        const float shortHeadTolerance=std::min(
+            headTolerance,
+            std::max(1.1f,
+                (std::max(4.0f,note.lengthSteps*rowH)-2.0f)*0.35f));
+        if(dy>shortHeadTolerance)continue;
         const float step=rollVisualCurveStep(note,0.0f);
         const float center=rollPitchX(columns,
             static_cast<float>(note.midi)+rollBendAt(sourceTrack,note,step),
@@ -4894,11 +4903,13 @@ std::optional<RollNoteHit> NativeUi::hitRollNote(
     for(const int n:hitOrder){
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
         const int depth=depths[static_cast<size_t>(n)];
-        const float length=std::max(1.0f,note.lengthSteps);
+        const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
         const float top=gridTop+
             (note.startStep-static_cast<float>(rollStepOffset_))*rowH+
             1.0f+rollStackInsetPx(depth,colW,rowH);
-        const float baseHeight=std::max(rowH,length*rowH)-2.0f;
+        // Keep extremely short notes at least 4px tall for visibility and touch
+        // accessibility; this does not change their stored/playback duration.
+        const float baseHeight=std::max(4.0f,length*rowH)-2.0f;
         const float height=std::max(
             1.0f,baseHeight-2.0f*rollStackInsetPx(depth,colW,rowH));
         const float bottom=top+height;
@@ -4998,7 +5009,7 @@ bool NativeUi::rollAutomationPosition(
         rollPitchOffset_,gridLeft,colW);
 
     const float start=note.startStep;
-    const float length=std::max(1.0f,note.lengthSteps);
+    const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
     const float maxStep=rollCurveLength(note);
 
     const float absolute=
@@ -5174,7 +5185,7 @@ std::optional<RollAutomationHit> NativeUi::hitRollAutomation(
         if(!canEdit[static_cast<size_t>(n)])continue;
         const auto& note=sourceTrack.notes[static_cast<size_t>(n)];
         const float start=note.startStep;
-        const float length=std::max(1.0f,note.lengthSteps);
+        const float length=std::max(kMinNoteLengthSteps,note.lengthSteps);
         // Use the touch's exact Y, not the integer cell under it:
         // points on the first and last note grid lines must be reachable.
         const float absolute=rollStepOffset_+

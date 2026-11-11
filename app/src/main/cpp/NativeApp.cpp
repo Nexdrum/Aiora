@@ -24,6 +24,7 @@
 #include "NativeUi.h"
 #include "KineticScroll.h"
 #include "RollTouchRouting.h"
+#include "RollNoteTiming.h"
 #include "RollCurveSimplify.h"
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
@@ -126,6 +127,7 @@ struct RollGesture {
     int noteMidi{-1};
     float noteStart{0.0f};
     float noteLength{1.0f};
+    float noteOriginalLength{1.0f};
 
     std::vector<int> groupIndices{};
     int dragCellMidi{-1};
@@ -1183,7 +1185,7 @@ bool rollSelectedBounds(
         // The note's integer startStep is its first cell center.
         // Match the individual V/M control points at the physical edges:
         // startStep-0.5 and startStep+lengthSteps-0.5.
-        const float noteLength=std::max(1.0f,note.lengthSteps);
+        const float noteLength=std::max(aiora::kMinNoteLengthSteps,note.lengthSteps);
         start=std::min(start,note.startStep-0.5f);
         end=std::max(end,note.startStep+noteLength-0.5f);
         any=true;
@@ -1367,7 +1369,7 @@ void showRollDraw(NativeState& state){
 void finishRollDraw(NativeState& state){
     auto& d=state.rollDraw;
     if(!d.active)return;
-    const float end=std::max(0.5f,d.length-0.5f);
+    const float end=d.length-0.5f;
     const auto b=state.ui.rollDrawMode(0)
         ?aiora::simplifyRollDrawCurve(d.raw[0],end,0.025f,0.0f)
         :std::vector<aiora::CurvePoint>{};
@@ -1414,7 +1416,7 @@ void moveRollDraw(NativeState& state,float x,float y){
     const float t=std::max(d.cursor,
         state.ui.rollDrawRelativeStep(y,d.start)+d.timeOffset);
     d.cursor=t;
-    d.length=std::max(1.0f,std::ceil(d.cursor+0.5f));
+    d.length=aiora::rollNoteDrawLength(d.cursor,state.ui.rollFreeTiming());
     if(state.ui.rollDrawMode(0))
         d.bend=state.ui.rollDrawBendAtX(x,d.midi)+d.pitchOffset;
     captureRollDraw(d.raw[0],d.cursor,d.bend);
@@ -1487,7 +1489,7 @@ void serviceRollLongPress(NativeState& state){
         if(state.ui.rollSelectionTool()==aiora::RollSelectionTool::Lasso){
             state.ui.toggleRollMultiLasso();
         }else{
-            // Pencil long-press toggles free note movement (not creation/resize).
+            // Pencil long-press toggles continuous timing for move, create and resize.
             state.ui.toggleRollFreeTiming();
         }
         g.longPressTriggered=true;
@@ -2822,8 +2824,10 @@ bool beginRollNoteGesture(
     g.track=track;
 
     if(!noteHit){
+        const float noteStart=aiora::rollNoteTouchStart(
+            hit->step,hit->normalizedDown,state.ui.rollFreeTiming());
         g.noteIndex=project.addNote(
-            track,hit->midi,static_cast<float>(hit->step),1.0f);
+            track,hit->midi,noteStart,1.0f);
         if(g.noteIndex<0){g.clear();return false;}
         project.replaceNoteCurves(track,g.noteIndex,{},
             {{0.0f,state.ui.expressionVelocity()}},
@@ -2831,7 +2835,7 @@ bool beginRollNoteGesture(
 
         g.noteEdit=RollNoteEdit::Create;
         g.noteMidi=hit->midi;
-        g.noteStart=static_cast<float>(hit->step);
+        g.noteStart=noteStart;
         g.noteLength=1.0f;
         previewRollPitch(state,hit->midi);
         return true;
@@ -2842,6 +2846,7 @@ bool beginRollNoteGesture(
     g.noteMidi=project.noteMidi(track,note);
     g.noteStart=project.noteStart(track,note);
     g.noteLength=project.noteLength(track,note);
+    g.noteOriginalLength=g.noteLength;
     g.noteEdit=noteHit->tail?RollNoteEdit::Resize:RollNoteEdit::Move;
     g.dragCellMidi=hit->midi;
     g.dragCellStep=hit->step;
@@ -2972,9 +2977,8 @@ void moveRollGesture(NativeState& state, float x, float y) {
     const float totalDx = x - g.downX;
     const float totalDy = y - g.downY;
     const float dragThreshold=
-        g.kind==RollGestureKind::NoteEdit&&state.ui.rollFreeTiming()&&
-        (g.noteEdit==RollNoteEdit::Move||
-         g.noteEdit==RollNoteEdit::GroupMove)?3.0f:8.0f;
+        g.kind==RollGestureKind::NoteEdit&&state.ui.rollFreeTiming()
+            ?3.0f:8.0f;
     if (!g.moved && std::hypot(totalDx,totalDy)>dragThreshold) g.moved=true;
 
     const float threshold = std::max(16.0f, state.ui.rollCellPixels() * 0.72f);
@@ -3131,7 +3135,9 @@ void moveRollGesture(NativeState& state, float x, float y) {
     }
 
     if(g.noteEdit==RollNoteEdit::Create){
-        const float length=std::max(static_cast<float>(hit->step)-g.noteStart+1.0f,1.0f);
+        const float length=aiora::rollNoteCreateLength(
+            hit->step,hit->normalizedDown,g.noteStart,
+            state.ui.rollFreeTiming());
         if(project.updateNote(g.track,g.noteIndex,hit->midi,g.noteStart,length)){
             g.noteMidi=hit->midi;
             g.noteLength=length;
@@ -3149,7 +3155,11 @@ void moveRollGesture(NativeState& state, float x, float y) {
             if(!freeTiming)g.noteStart=targetStart;
         }
     }else if(g.noteEdit==RollNoteEdit::Resize){
-        const float length=std::max(static_cast<float>(hit->step)-g.noteStart+1.0f,1.0f);
+        const float length=state.ui.rollFreeTiming()
+            ?aiora::rollNoteFreeResizeLength(
+                g.noteOriginalLength,y-g.downY,state.ui.rollCellPixels())
+            :std::max(
+                static_cast<float>(hit->step)-g.noteStart+1.0f,1.0f);
         if(project.updateNote(g.track,g.noteIndex,g.noteMidi,g.noteStart,length)){
             g.noteLength=length;
         }

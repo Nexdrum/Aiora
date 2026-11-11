@@ -9,6 +9,7 @@
 #include "SpectrachordVoice.h"
 #include "FxProcessor.h"
 #include "RollTouchRouting.h"
+#include "RollNoteTiming.h"
 #include "RollCurveSimplify.h"
 #include <array>
 #include <cassert>
@@ -232,6 +233,50 @@ int main(){
     assert(std::fabs(newTone.r-tone.r)+std::fabs(newTone.g-tone.g)+
            std::fabs(newTone.b-tone.b)>.05f);
 
+    // Free timing applies to note creation, drawing and tail resize.
+    // Snapped editing retains its old grid-aligned minimum.
+    assert(std::fabs(rollNoteTouchStart(12,.375f,true)-12.375f)<1e-5f);
+    assert(rollNoteTouchStart(12,.375f,false)==12.0f);
+    assert(std::fabs(rollNoteCreateLength(12,.625f,12.375f,true)-.25f)<1e-5f);
+    assert(rollNoteCreateLength(12,.625f,12.0f,false)==1.0f);
+    assert(std::fabs(rollNoteFreeResizeLength(.25f,-12.0f,100.0f)-.13f)<1e-5f);
+    assert(rollNoteFreeResizeLength(.02f,-80.0f,100.0f)==kMinNoteLengthSteps);
+    assert(std::fabs(rollNoteDrawLength(-.35f,true)-.15f)<1e-5f);
+    assert(rollNoteDrawLength(-.35f,false)==1.0f);
+    assert(playbackGateFrames(.002,48000)==96);
+    assert(playbackGateFrames(0,48000)==1);
+    {
+        auto& core=ProjectCore::instance();
+        core.reset();
+        const int track=core.addTrack(false);
+        assert(track>=0);
+        const int n=core.addNote(track,62,12.375f,.125f);
+        assert(n>=0);
+        assert(std::fabs(core.noteStart(track,n)-12.375f)<1e-5f);
+        assert(std::fabs(core.noteLength(track,n)-.125f)<1e-5f);
+        const int point=core.addCurvePoint(track,n,1,.9f,.65f,true);
+        assert(point>=0);
+        assert(std::fabs(core.curvePointStep(track,n,1,point)+.375f)<1e-5f);
+        const auto snapshot=core.makePlaybackSnapshot();
+        assert(snapshot&&snapshot->steps.size()>12);
+        const auto& ev=snapshot->steps[12].events.at(0);
+        assert(std::fabs(ev.offsetSteps-.375f)<1e-5f);
+        assert(std::fabs(ev.lengthSteps-.125f)<1e-5f);
+        assert(ev.durationSeconds>0.0&&ev.durationSeconds<.09);
+        assert(playbackGateFrames(ev.durationSeconds,48000)<4320);
+        assert(ev.automation.velocity.count>=2);
+        const Project copy=core.projectCopy();
+        Project loaded;
+        std::string err;
+        assert(deserializeProjectJson(serializeProjectJson(copy),loaded,&err));
+        assert(loaded.tracks.size()>static_cast<size_t>(track));
+        const auto& restored=loaded.tracks[static_cast<size_t>(track)].notes[0];
+        assert(std::fabs(restored.startStep-12.375f)<1e-5f);
+        assert(std::fabs(restored.lengthSteps-.125f)<1e-5f);
+        assert(core.updateNote(track,n,62,12.375f,.001f));
+        assert(core.noteLength(track,n)==kMinNoteLengthSteps);
+        core.reset();
+    }
     checkDrawSimplification();
     // A resumed note must accept Android POINTER_DOWN while V/M stay held.
     // PRIMARY DOWN still works if the draw finger is alone.

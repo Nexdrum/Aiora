@@ -22,7 +22,7 @@ void pushPoint(DspCurve& out,float step,float value,float midpoint=0.5f,
 
 DspCurve bendCurve(const Note& note,const DrumPad* /*pad*/) {
     DspCurve out;
-    const float L=std::max(1.0f,note.lengthSteps);
+    const float L=std::max(kMinNoteLengthSteps,note.lengthSteps);
     pushPoint(out,0.0f,0.0f);
     auto pts=note.bend;
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
@@ -39,7 +39,7 @@ DspCurve bendCurve(const Note& note,const DrumPad* /*pad*/) {
 DspCurve levelCurve(const std::vector<CurvePoint>& source,float length) {
     DspCurve out;
     if(source.empty())return out;
-    const float L=std::max(1.0f,length);
+    const float L=std::max(kMinNoteLengthSteps,length);
     auto pts=source;
     std::sort(pts.begin(),pts.end(),[](const CurvePoint&a,const CurvePoint&b){return a.step<b.step;});
     const float first=std::clamp(pts.front().value,0.0f,1.0f);
@@ -80,7 +80,7 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
         for(const auto& note:track.notes){
             end=std::max(
                 end,
-                note.startStep+std::max(1.0f,note.lengthSteps));
+                note.startStep+std::max(kMinNoteLengthSteps,note.lengthSteps));
             anyNote=true;
         }
     }
@@ -121,7 +121,7 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
                 0,snap->lengthSteps-1);
             PlaybackEvent event;
             event.midi=note.midi;
-            event.lengthSteps=std::max(1.0f,note.lengthSteps);
+            event.lengthSteps=std::max(kMinNoteLengthSteps,note.lengthSteps);
             event.offsetSteps=std::clamp(start-static_cast<float>(step),0.0f,0.999999f);
             event.durationSeconds=tempoTimeSeconds(project_,static_cast<double>(start)+event.lengthSteps)-tempoTimeSeconds(project_,start);
 

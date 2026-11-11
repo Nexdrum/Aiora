@@ -1,9 +1,18 @@
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <vector>
 #include "AioraTypes.h"
 #include "FxProcessor.h"
 
 namespace aiora {
+
+// True fractional-length scheduled gates: only the one-sample safety
+// minimum remains; a 90ms hold would defeat rapid notes.
+inline uint64_t playbackGateFrames(double seconds,int sampleRate) noexcept {
+    return static_cast<uint64_t>(std::max(1.0,
+        std::ceil(std::max(0.0,seconds)*std::max(1,sampleRate))));
+}
 
 
 struct PlaybackEvent {

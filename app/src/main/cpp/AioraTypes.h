@@ -534,6 +534,9 @@ struct CurvePoint {
     float handleValue{0.0f}; // Actual V/Bend/M value at the X
     bool handleActive{false}; // False keeps legacy linear/warped sound
 };
+// Sub-grid notes can be shorter than a single displayed grid cell.
+// A finite positive minimum prevents zero-length voice and curve intervals.
+inline constexpr float kMinNoteLengthSteps=1.0f/64.0f;
 struct Note {
     int32_t midi{62}; float startStep{0},lengthSteps{1};
     std::vector<CurvePoint> bend; std::vector<CurvePoint> velocity; std::vector<CurvePoint> mod;

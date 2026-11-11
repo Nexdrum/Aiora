@@ -955,7 +955,7 @@ bool deserializeProjectJson(std::string_view json,Project& project,std::string* 
             if(t.drums&&t.pads.empty()){const auto& kit=nexdrumKit();t.pads.assign(kit.begin(),kit.end());for(size_t i=0;i<t.pads.size();++i)if(t.pads[i].id.empty())t.pads[i].id="pad"+std::to_string(i);}
             t.selectedPad=t.pads.empty()?0:std::clamp(clampi(num(jt.get("selPad"),0),0,static_cast<int>(t.pads.size())-1,0),0,static_cast<int>(t.pads.size())-1);
             if(const Json* notes=jt.get("notes");notes&&notes->type==Json::Type::Array){
-                for(const auto& jn:notes->array){if(jn.type!=Json::Type::Object)continue;Note n;n.midi=clampi(num(jn.get("m"),62),2,122,62);n.startStep=std::max(0.0f,static_cast<float>(num(jn.get("s"),0)));n.lengthSteps=std::max(1.0f,static_cast<float>(num(jn.get("len"),1)));readCurve(jn.get("bend"),n.bend,true);readCurve(jn.get("vel"),n.velocity,false);readCurve(jn.get("mod"),n.mod,false);t.notes.push_back(std::move(n));}
+                for(const auto& jn:notes->array){if(jn.type!=Json::Type::Object)continue;Note n;n.midi=clampi(num(jn.get("m"),62),2,122,62);n.startStep=std::max(0.0f,static_cast<float>(num(jn.get("s"),0)));n.lengthSteps=std::max(kMinNoteLengthSteps,static_cast<float>(num(jn.get("len"),1)));readCurve(jn.get("bend"),n.bend,true);readCurve(jn.get("vel"),n.velocity,false);readCurve(jn.get("mod"),n.mod,false);t.notes.push_back(std::move(n));}
             }
             out.tracks.push_back(std::move(t));
         }
