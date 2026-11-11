@@ -86,7 +86,7 @@ float projectEndSteps(const Project& project){
     float end=0.0f;
     for(const auto& track:project.tracks){
         for(const auto& note:track.notes){
-            end=std::max(end,note.startStep+std::max(1.0f,note.lengthSteps));
+            end=std::max(end,note.startStep+std::max(kMinNoteLengthSteps,note.lengthSteps));
         }
     }
     return end;
@@ -233,12 +233,10 @@ bool exportProjectWav(
             const float pressure=event.automation.velocity.count
                 ?std::clamp(event.automation.velocity.points[0].value,0.0f,1.0f)
                 :0.8f;
-            const uint64_t gate=static_cast<uint64_t>(std::max<double>(
-                sampleRate*0.09,
-                event.durationSeconds*sampleRate));
+            const uint64_t gate=playbackGateFrames(event.durationSeconds,sampleRate);
             slot.voice.start(
                 nextId++,event.patch,event.midi,pressure,gate,
-                static_cast<float>(std::max(1.0,event.durationSeconds*sampleRate/std::max(1.0f,event.lengthSteps))),event.automation);
+                static_cast<float>(std::max(1.0,event.durationSeconds*sampleRate/std::max(kMinNoteLengthSteps,event.lengthSteps))),event.automation);
             slot.voice.setAge(++age);
             slot.gainLeft=event.gainLeft;
             slot.gainRight=event.gainRight;
@@ -420,7 +418,7 @@ bool exportProjectMidi(
             const uint32_t start=static_cast<uint32_t>(std::max<long long>(
                 0ll,std::llround(note.startStep*ticksPerStep)));
             const uint32_t length=static_cast<uint32_t>(std::max<long long>(
-                1ll,std::llround(std::max(1.0f,note.lengthSteps)*ticksPerStep)));
+                1ll,std::llround(std::max(kMinNoteLengthSteps,note.lengthSteps)*ticksPerStep)));
             const uint32_t end=start+length;
 
             float velocity=0.8f;

@@ -178,7 +178,7 @@ void AudioEngine::triggerStep(int step,double phase) noexcept {
         const uint64_t gate=playbackGateFrames(
             e.durationSeconds,sampleRate_.load(std::memory_order_relaxed));
         const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
-        slot.voice.start(id,e.patch,e.midi,pressure,gate,static_cast<float>(std::max(1.0,e.durationSeconds*sampleRate_.load(std::memory_order_relaxed)/std::max(1.0f,e.lengthSteps))),e.automation);slot.voice.setAge(++ageCounter_);
+        slot.voice.start(id,e.patch,e.midi,pressure,gate,static_cast<float>(std::max(1.0,e.durationSeconds*sampleRate_.load(std::memory_order_relaxed)/std::max(kMinNoteLengthSteps,e.lengthSteps))),e.automation);slot.voice.setAge(++ageCounter_);
         slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=e.fxBus;
         slot.midi=e.midi;slot.transport=true;
     }
