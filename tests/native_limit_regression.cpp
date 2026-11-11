@@ -14,6 +14,8 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -345,6 +347,60 @@ int main(){
     }
     assert(kit[0].centerMidi==80&&kit[1].centerMidi==73);
     assert(std::fabs(kit[1].patch.ops[3].harm[0]-.497686f)<1e-5f);
+
+    // Prototype cymbal auditions must remain importable with Aiora's
+    // real patch/kit deserializer, without modifying factory presets.
+    const auto readAudition=[](const char* path) {
+        std::ifstream in(path,std::ios::binary);
+        assert(in.good());
+        return std::string(
+            std::istreambuf_iterator<char>(in),
+            std::istreambuf_iterator<char>());
+    };
+    const std::array<const char*,2> cymbalPatches{{
+        "auditions/nexdrum/Crash_Texture_Bloom_v1.json",
+        "auditions/nexdrum/Ride_Textured_Ping_v1.json"
+    }};
+    for(int i=0;i<2;++i){
+        Patch candidate;
+        std::string readError;
+        assert(deserializePatchJson(
+            readAudition(cymbalPatches[static_cast<size_t>(i)]),
+            candidate,&readError));
+        assert(candidate.ops.size()==6);
+        for(int op=2;op<6;++op){
+            const auto& voice=candidate.ops[static_cast<size_t>(op)];
+            assert(voice.wave==Wave::TextureCustom);
+            assert(voice.waveMorph==Wave::TextureCustom);
+            assert(voice.waveMorphConfigured);
+            assert(voice.modChannelsConfigured);
+            assert(voice.texture.source<=3);
+            assert(voice.textureMorph.source<=3);
+        }
+        assert(candidate.ops[0].wave==kit[static_cast<size_t>(i)].patch.ops[0].wave);
+        assert(candidate.ops[1].wave==kit[static_cast<size_t>(i)].patch.ops[1].wave);
+        Patch roundtrip;
+        assert(deserializePatchJson(serializePatchJson(candidate),roundtrip));
+        assert(roundtrip.ops[2].wave==Wave::TextureCustom);
+        assert(roundtrip.ops[2].texture.source==2);
+    }
+    {
+        std::vector<DrumPad> imported;
+        std::string kitError;
+        assert(deserializeDrumKitJson(readAudition(
+            "auditions/nexdrum/Nexdrum_Cymbal_Texture_Audition_v1.json"),
+            imported,&kitError));
+        assert(imported.size()==kit.size());
+        assert(imported[0].patch.ops[4].wave==Wave::TextureCustom);
+        assert(imported[1].patch.ops[4].wave==Wave::TextureCustom);
+        for(size_t i=2;i<kit.size();++i){
+            assert(imported[i].centerMidi==kit[i].centerMidi);
+            assert(imported[i].icon==kit[i].icon);
+            assert(imported[i].name==kit[i].name);
+            assert(serializePatchJson(imported[i].patch)==
+                   serializePatchJson(kit[i].patch));
+        }
+    }
 
     Track factoryTrack;
     factoryTrack.name="Nexdrum";factoryTrack.drums=true;
