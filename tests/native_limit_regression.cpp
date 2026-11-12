@@ -402,6 +402,92 @@ int main(){
         }
     }
 
+    // Cymbal texture v2: no grain anywhere, and a physically distinct
+    // thin crash / thick ride, with V=strike force and M=edge-to-bell.
+    std::array<Patch,2> newCymbals{};
+    const std::array<const char*,2> cymbalV2Paths{{
+        "auditions/nexdrum/Crash_Metallic_Bloom_v2.json",
+        "auditions/nexdrum/Ride_Heavy_Bow_v2.json"
+    }};
+    for(size_t cym=0;cym<newCymbals.size();++cym){
+        Patch candidate;
+        std::string readError;
+        assert(deserializePatchJson(
+            readAudition(cymbalV2Paths[cym]),candidate,&readError));
+        // Keep the original approved stick layer and envelope maps.
+        assert(serializePatchJson(candidate).size()>3000u);
+        assert(candidate.ops[0].wave==kit[cym].patch.ops[0].wave);
+        assert(candidate.ops[0].ratio==kit[cym].patch.ops[0].ratio);
+        assert(candidate.ops[0].level==kit[cym].patch.ops[0].level);
+        for(int op=1;op<6;++op){
+            const auto& layer=candidate.ops[static_cast<size_t>(op)];
+            assert(layer.enabled);
+            assert(layer.wave==Wave::TextureCustom);
+            assert(layer.waveMorph==Wave::TextureCustom);
+            assert(layer.waveMorphConfigured);
+            assert(layer.texture.source!=1);
+            assert(layer.textureMorph.source!=1);
+            assert(layer.texture.source<=3);
+            assert(layer.textureMorph.source<=3);
+            assert(layer.modChannelsConfigured);
+        }
+        assert(candidate.ops[1].texture.source==3); // friction bell
+        assert(candidate.ops[1].textureMorph.source==3);
+        assert(candidate.ops[1].texturePitched);
+        assert(candidate.ops[2].texture.source==2); // metallic resonances
+        assert(candidate.ops[3].texture.source==2);
+        assert(candidate.ops[4].texture.source==0); // continuous wash
+        assert(candidate.ops[4].textureMorph.source==0);
+        assert(!candidate.ops[4].texturePitched);
+        assert(candidate.ops[5].texture.source==2);
+        assert(candidate.ops[5].textureMorph.source==3);
+        assert(candidate.ops[5].textureMorphPitched);
+        // Bell amplitude rises toward M=1; wash falls toward M=1.
+        const auto& bellM=candidate.ops[1].modChannels[0].response;
+        const auto& washM=candidate.ops[4].modChannels[0].response;
+        assert(bellM.source==1&&washM.source==1);
+        assert(bellM.points[0].value<bellM.points[bellM.count-1].value);
+        assert(washM.points[0].value>washM.points[washM.count-1].value);
+        // V dynamics and M position do not get swapped.
+        for(int op=1;op<6;++op)
+            assert(candidate.ops[op].modChannels[1].response.source==0);
+        Patch roundtrip;
+        assert(deserializePatchJson(serializePatchJson(candidate),roundtrip));
+        assert(roundtrip.ops[1].texture.source==3);
+        assert(roundtrip.ops[4].textureMorph.source==0);
+        newCymbals[cym]=std::move(candidate);
+    }
+    // Compared with the crash, the thicker ride has lower wash level,
+    // denser-feeling lower impulse density/chaos and a longer ring.
+    assert(newCymbals[1].ops[4].level<newCymbals[0].ops[4].level);
+    assert(newCymbals[1].ops[2].texture.density<
+           newCymbals[0].ops[2].texture.density);
+    assert(newCymbals[1].ops[2].texture.chaos<
+           newCymbals[0].ops[2].texture.chaos);
+    assert(newCymbals[1].ops[2].texture.size>
+           newCymbals[0].ops[2].texture.size);
+    assert(newCymbals[1].ops[3].volumeCurve.points[
+           newCymbals[1].ops[3].volumeCurve.count-1].time>
+           newCymbals[0].ops[3].volumeCurve.points[
+           newCymbals[0].ops[3].volumeCurve.count-1].time);
+    {
+        std::vector<DrumPad> imported;
+        std::string kitError;
+        assert(deserializeDrumKitJson(
+            readAudition("auditions/nexdrum/Nexdrum_Cymbals_v2_Test_Kit.json"),
+            imported,&kitError));
+        assert(imported.size()==kit.size());
+        for(size_t i=0;i<2;++i)
+            assert(serializePatchJson(imported[i].patch)==
+                   serializePatchJson(newCymbals[i]));
+        for(size_t i=2;i<kit.size();++i){
+            assert(imported[i].name==kit[i].name);
+            assert(imported[i].centerMidi==kit[i].centerMidi);
+            assert(serializePatchJson(imported[i].patch)==
+                   serializePatchJson(kit[i].patch));
+        }
+    }
+
     Track factoryTrack;
     factoryTrack.name="Nexdrum";factoryTrack.drums=true;
     factoryTrack.pads.assign(kit.begin(),kit.end());
