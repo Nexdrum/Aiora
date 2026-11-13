@@ -107,9 +107,9 @@ int main() {
         renderCase("ride-v3-long",r,73,1,340000);
         renderCase("ride-v3-four",r,73,4,48000);
         renderCase("ride-v3-eight",r,73,8,48000);
-        DspPatch rideNoFilter=r;
-        rideNoFilter.filter.evolving.configured=false;
-        renderCase("ride-v3-no-filter",rideNoFilter,73,8,48000);
+        // A disabled evolving filter does not define a dry bypass for this
+        // renderer: it produces silence. It is not a valid CPU comparison.
+        // Keep audible reference cases for exact waveform matching.
         renderCase("ride-v3-static-vm",r,73,8,48000,-1,false);
         renderCase("ride-v3-live-expression",r,73,2,48000,-1,false,true);
         // Held input tests exact-bit V/M response cache reuse.
