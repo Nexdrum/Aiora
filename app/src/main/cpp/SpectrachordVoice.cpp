@@ -343,6 +343,16 @@ float SpectrachordVoice::curveValueForward(
     const float k=(step-a.step)/std::max(1.0e-6f,b.step-a.step);
     return curveSegment(k,a.value,b.value,b.midpoint,b.handleActive,b.handleValue);
 }
+float SpectrachordVoice::cachedResponse(
+    const OperatorResponse& curve,float input,ResponseCache& cache) noexcept {
+    // Compare the complete 32-bit float input, not a quantized B/V/M value.
+    // Any change, however small, is reevaluated on the current sample.
+    const uint32_t bits=std::bit_cast<uint32_t>(input);
+    if(cache.valid&&cache.inputBits==bits)return cache.output;
+    const float value=operatorCurveValue(curve.points.data(),curve.count,input,input);
+    cache={bits,value,true};
+    return value;
+}
 float SpectrachordVoice::curveMean(const DspCurve& c,float fallback) noexcept {
     if(c.count==0)return fallback;float sum=0;for(size_t i=0;i<c.count;++i)sum+=c.points[i].value;return sum/static_cast<float>(c.count);
 }
@@ -372,6 +382,9 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     // a request to bypass an operator or FX modulation route.
     modActive_=true;velocityCurveActive_=automation_.velocity.count>0;
     bendSegment_=velocitySegment_=modSegment_=1;
+    opResponseCache_={};
+    filterResponseCache_={};
+    ampResponseCache_={};
     modValue_=curveValue(automation_.mod,0,0);
     masterAmpTimeline_.reset(patch_.masterAmpCurve,false);
     fixedUnison_=clamp01(patch_.unison);
@@ -640,14 +653,15 @@ float SpectrachordVoice::render() noexcept {
         std::array<float,5> totals{};
         std::array<int,5> counts{};
         if(op.modChannelsConfigured){
-            for(const auto& channel:op.modChannels){
+            for(size_t channelIndex=0;channelIndex<op.modChannels.size();++channelIndex){
+                const auto& channel=op.modChannels[channelIndex];
                 if(!channel.enabled)continue;
                 const int dest=static_cast<int>(channel.destination);
                 if(dest<0||dest>=5)continue;
                 const auto& c=channel.response;
                 const float input=c.source==2?keyMapValue_:(c.source==1?m:expressionV);
                 const float output=c.enabled&&c.count>=2?
-                    operatorCurveValue(c.points.data(),c.count,clamp01(input),input):clamp01(input);
+                    cachedResponse(c,clamp01(input),opResponseCache_[i][channelIndex]):clamp01(input);
                 totals[static_cast<size_t>(dest)]+=clamp01(output);
                 ++counts[static_cast<size_t>(dest)];
             }
@@ -824,13 +838,14 @@ float SpectrachordVoice::render() noexcept {
         std::array<float,6> modTotal{};
         std::array<int,6> modCount{};
         std::array<float,3> qDirectWeights{};
-        for(const auto& route:model.mods){
+        for(size_t routeIndex=0;routeIndex<model.mods.size();++routeIndex){
+            const auto& route=model.mods[routeIndex];
             if(!route.enabled||route.destination>=6)continue;
             const float input=clamp01(route.response.source==2?keyMapValue_:
                 (route.response.source==1?m:expressionV));
             const auto& response=route.response;
             const float value=clamp01(response.enabled&&response.count>=2?
-                operatorCurveValue(response.points.data(),response.count,input,input):input);
+                cachedResponse(response,input,filterResponseCache_[routeIndex]):input);
             modTotal[route.destination]+=value;
             ++modCount[route.destination];
             if(route.destination==2){
@@ -985,12 +1000,13 @@ float SpectrachordVoice::render() noexcept {
     if(masterAmpTimeline_.done||!anyOperatorAlive){active_=false;return 0;}
     float ampMod=1.0f,modSum=0.0f;
     int modCount=0;
-    for(const auto& route:P.ampMods){
+    for(size_t routeIndex=0;routeIndex<P.ampMods.size();++routeIndex){
+        const auto& route=P.ampMods[routeIndex];
         if(!route.enabled||route.count<2)continue;
         const float input=route.source==2?keyMapValue_:
             (route.source==1?m:expressionV);
-        modSum+=clamp01(operatorCurveValue(
-            route.points.data(),route.count,clamp01(input),input));
+        modSum+=clamp01(cachedResponse(
+            route,clamp01(input),ampResponseCache_[routeIndex]));
         ++modCount;
     }
     if(modCount>0)ampMod=modSum/static_cast<float>(modCount);
