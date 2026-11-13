@@ -927,10 +927,10 @@ float SpectrachordVoice::render() noexcept {
         const float sharedW=kTwoPi*sharedFreq/sampleRate_;
         const float A=std::pow(10.0f,sharedGain/40.0f);
         const float c=std::cos(sharedW),sn=std::sin(sharedW);
-        const float qNorm=std::clamp(filterQSmoothed_,0.0f,1.0f);
-        const float Q=.3f*std::pow(40.0f,qNorm);
+        const float smoothedQNorm=std::clamp(filterQSmoothed_,0.0f,1.0f);
+        const float Q=.3f*std::pow(40.0f,smoothedQNorm);
         const float bellAlpha=sn/(2.0f*Q);
-        const float S=.15f+.85f*qNorm;
+        const float S=.15f+.85f*smoothedQNorm;
         const float shelfAlpha=sn*.5f*
             std::sqrt(std::max(.0001f,(A+1/A)*(1/S-1)+2));
         const float shelfRoot=2*std::sqrt(A)*shelfAlpha;
