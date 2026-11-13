@@ -1,0 +1,2192 @@
+{
+  "name": "Nexdrum Crash — Faster Resonance Fade v4c (experimental)",
+  "ops": [
+    {
+      "enabled": true,
+      "wave": "texture-custom",
+      "waveMorph": "texture-custom",
+      "level": 0.42,
+      "ratio": 0.72254,
+      "semi": 0,
+      "detune": 0,
+      "randomPhase": false,
+      "randomPhaseDegrees": 0,
+      "volumeCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.002,
+            "v": 0.34,
+            "mid": 0.5
+          },
+          {
+            "t": 0.008,
+            "v": 0.66,
+            "mid": 0.5
+          },
+          {
+            "t": 0.03205,
+            "v": 0.51,
+            "mid": 0.5
+          },
+          {
+            "t": 0.06692,
+            "v": 0.33,
+            "mid": 0.5
+          },
+          {
+            "t": 0.14897,
+            "v": 0.15,
+            "mid": 0.5
+          },
+          {
+            "t": 0.29247,
+            "v": 0.045,
+            "mid": 0.5
+          },
+          {
+            "t": 0.45,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "volumeMorphCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.002,
+            "v": 0.67,
+            "mid": 0.5
+          },
+          {
+            "t": 0.01,
+            "v": 1,
+            "mid": 0.5
+          },
+          {
+            "t": 0.03482,
+            "v": 0.88,
+            "mid": 0.5
+          },
+          {
+            "t": 0.07096,
+            "v": 0.67,
+            "mid": 0.5
+          },
+          {
+            "t": 0.15048,
+            "v": 0.4,
+            "mid": 0.5
+          },
+          {
+            "t": 0.28301,
+            "v": 0.21,
+            "mid": 0.5
+          },
+          {
+            "t": 0.44073,
+            "v": 0.075,
+            "mid": 0.5
+          },
+          {
+            "t": 0.63,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "operatorMods": [
+        {
+          "enabled": true,
+          "destination": 0,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0.95,
+                "mid": 0.5
+              },
+              {
+                "t": 0.25,
+                "v": 1,
+                "mid": 0.5
+              },
+              {
+                "t": 0.5,
+                "v": 0.9,
+                "mid": 0.5
+              },
+              {
+                "t": 0.7,
+                "v": 0.58,
+                "mid": 0.5
+              },
+              {
+                "t": 0.79,
+                "v": 0.1,
+                "mid": 0.5
+              },
+              {
+                "t": 0.8,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 0,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 2,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.15,
+                "v": 0.1,
+                "mid": 0.5
+              },
+              {
+                "t": 0.35,
+                "v": 0.33,
+                "mid": 0.5
+              },
+              {
+                "t": 0.58,
+                "v": 0.68,
+                "mid": 0.5
+              },
+              {
+                "t": 0.8,
+                "v": 0.93,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 4,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.14,
+                "v": 0.03,
+                "mid": 0.5
+              },
+              {
+                "t": 0.3,
+                "v": 0.15,
+                "mid": 0.5
+              },
+              {
+                "t": 0.52,
+                "v": 0.47,
+                "mid": 0.5
+              },
+              {
+                "t": 0.74,
+                "v": 0.77,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        }
+      ],
+      "waveInteraction": 0,
+      "waveMorphRatio": 1,
+      "texturePitched": true,
+      "textureMorphPitched": true,
+      "textureParams": {
+        "source": 2,
+        "density": 0.24,
+        "size": 0.8,
+        "color": 0.49,
+        "resonance": 0.64,
+        "chaos": 0.19
+      },
+      "textureMorphParams": {
+        "source": 2,
+        "density": 0.47,
+        "size": 0.57,
+        "color": 0.73,
+        "resonance": 0.64,
+        "chaos": 0.44
+      }
+    },
+    {
+      "enabled": true,
+      "wave": "texture-custom",
+      "waveMorph": "sine",
+      "level": 0.3,
+      "ratio": 1.17689,
+      "semi": 0,
+      "detune": 0,
+      "randomPhase": false,
+      "randomPhaseDegrees": 0,
+      "volumeCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.004,
+            "v": 0.26,
+            "mid": 0.5
+          },
+          {
+            "t": 0.017,
+            "v": 0.58,
+            "mid": 0.5
+          },
+          {
+            "t": 0.063,
+            "v": 0.36,
+            "mid": 0.5
+          },
+          {
+            "t": 0.22,
+            "v": 0.16,
+            "mid": 0.5
+          },
+          {
+            "t": 0.49,
+            "v": 0.04,
+            "mid": 0.5
+          },
+          {
+            "t": 0.86182,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "volumeMorphCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.003,
+            "v": 0.52,
+            "mid": 0.5
+          },
+          {
+            "t": 0.015,
+            "v": 1,
+            "mid": 0.5
+          },
+          {
+            "t": 0.08,
+            "v": 0.76,
+            "mid": 0.5
+          },
+          {
+            "t": 0.28,
+            "v": 0.4,
+            "mid": 0.5
+          },
+          {
+            "t": 0.77455,
+            "v": 0.15,
+            "mid": 0.5
+          },
+          {
+            "t": 1.51636,
+            "v": 0.03,
+            "mid": 0.5
+          },
+          {
+            "t": 2.38909,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "operatorMods": [
+        {
+          "enabled": true,
+          "destination": 0,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0.9,
+                "mid": 0.5
+              },
+              {
+                "t": 0.2,
+                "v": 0.98,
+                "mid": 0.5
+              },
+              {
+                "t": 0.4,
+                "v": 1,
+                "mid": 0.5
+              },
+              {
+                "t": 0.6,
+                "v": 0.82,
+                "mid": 0.5
+              },
+              {
+                "t": 0.79,
+                "v": 0.34,
+                "mid": 0.5
+              },
+              {
+                "t": 0.85,
+                "v": 0.13,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 0.035,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 2,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.18,
+                "v": 0.08,
+                "mid": 0.5
+              },
+              {
+                "t": 0.4,
+                "v": 0.29,
+                "mid": 0.5
+              },
+              {
+                "t": 0.65,
+                "v": 0.7,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 4,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0.4,
+                "mid": 0.5
+              },
+              {
+                "t": 0.15,
+                "v": 0.34,
+                "mid": 0.5
+              },
+              {
+                "t": 0.35,
+                "v": 0.22,
+                "mid": 0.5
+              },
+              {
+                "t": 0.5,
+                "v": 0.18,
+                "mid": 0.5
+              },
+              {
+                "t": 0.66,
+                "v": 0.3,
+                "mid": 0.5
+              },
+              {
+                "t": 0.79,
+                "v": 0.42,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 0.42,
+                "mid": 0.5
+              }
+            ]
+          }
+        }
+      ],
+      "waveInteraction": 1,
+      "waveMorphRatio": 1.61803,
+      "texturePitched": true,
+      "textureMorphPitched": true,
+      "textureParams": {
+        "source": 3,
+        "density": 0.22,
+        "size": 0.62,
+        "color": 0.6,
+        "resonance": 0.43,
+        "chaos": 0.32
+      },
+      "textureMorphParams": {
+        "source": 3,
+        "density": 0.35,
+        "size": 0.64,
+        "color": 0.69,
+        "resonance": 0.67,
+        "chaos": 0.34
+      }
+    },
+    {
+      "enabled": true,
+      "wave": "texture-custom",
+      "waveMorph": "texture-custom",
+      "level": 0.31,
+      "ratio": 1,
+      "semi": 0,
+      "detune": 0,
+      "randomPhase": false,
+      "randomPhaseDegrees": 0,
+      "volumeCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.002,
+            "v": 0.43,
+            "mid": 0.5
+          },
+          {
+            "t": 0.01,
+            "v": 0.77,
+            "mid": 0.5
+          },
+          {
+            "t": 0.0343,
+            "v": 0.58,
+            "mid": 0.5
+          },
+          {
+            "t": 0.06196,
+            "v": 0.4,
+            "mid": 0.5
+          },
+          {
+            "t": 0.11938,
+            "v": 0.19,
+            "mid": 0.5
+          },
+          {
+            "t": 0.21272,
+            "v": 0.055,
+            "mid": 0.5
+          },
+          {
+            "t": 0.32,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "volumeMorphCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.002,
+            "v": 0.66,
+            "mid": 0.5
+          },
+          {
+            "t": 0.009,
+            "v": 1,
+            "mid": 0.5
+          },
+          {
+            "t": 0.03791,
+            "v": 0.85,
+            "mid": 0.5
+          },
+          {
+            "t": 0.07431,
+            "v": 0.65,
+            "mid": 0.5
+          },
+          {
+            "t": 0.17545,
+            "v": 0.35,
+            "mid": 0.5
+          },
+          {
+            "t": 0.34117,
+            "v": 0.11,
+            "mid": 0.5
+          },
+          {
+            "t": 0.5,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "operatorMods": [
+        {
+          "enabled": true,
+          "destination": 0,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.79,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.8,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.82,
+                "v": 0.18,
+                "mid": 0.5
+              },
+              {
+                "t": 0.86,
+                "v": 0.55,
+                "mid": 0.5
+              },
+              {
+                "t": 0.92,
+                "v": 0.88,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 2,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.19,
+                "v": 0.11,
+                "mid": 0.5
+              },
+              {
+                "t": 0.43,
+                "v": 0.39,
+                "mid": 0.5
+              },
+              {
+                "t": 0.7,
+                "v": 0.73,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 4,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.18,
+                "v": 0.035,
+                "mid": 0.5
+              },
+              {
+                "t": 0.4,
+                "v": 0.18,
+                "mid": 0.5
+              },
+              {
+                "t": 0.62,
+                "v": 0.53,
+                "mid": 0.5
+              },
+              {
+                "t": 0.84,
+                "v": 0.88,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        }
+      ],
+      "waveInteraction": 0,
+      "waveMorphRatio": 1,
+      "texturePitched": true,
+      "textureMorphPitched": true,
+      "textureParams": {
+        "source": 3,
+        "density": 0.25,
+        "size": 0.74,
+        "color": 0.5,
+        "resonance": 0.67,
+        "chaos": 0.12
+      },
+      "textureMorphParams": {
+        "source": 3,
+        "density": 0.4,
+        "size": 0.6,
+        "color": 0.73,
+        "resonance": 0.76,
+        "chaos": 0.29
+      }
+    },
+    {
+      "enabled": true,
+      "wave": "texture-custom",
+      "waveMorph": "sine",
+      "level": 0.2,
+      "ratio": 1.81,
+      "semi": 0,
+      "detune": 0,
+      "randomPhase": false,
+      "randomPhaseDegrees": 0,
+      "volumeCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.002,
+            "v": 0.35,
+            "mid": 0.5
+          },
+          {
+            "t": 0.012,
+            "v": 0.65,
+            "mid": 0.5
+          },
+          {
+            "t": 0.063,
+            "v": 0.44,
+            "mid": 0.5
+          },
+          {
+            "t": 0.25,
+            "v": 0.2,
+            "mid": 0.5
+          },
+          {
+            "t": 0.70473,
+            "v": 0.05,
+            "mid": 0.5
+          },
+          {
+            "t": 1.42909,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "volumeMorphCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.003,
+            "v": 0.58,
+            "mid": 0.5
+          },
+          {
+            "t": 0.016,
+            "v": 1,
+            "mid": 0.5
+          },
+          {
+            "t": 0.1,
+            "v": 0.7,
+            "mid": 0.5
+          },
+          {
+            "t": 0.39,
+            "v": 0.36,
+            "mid": 0.5
+          },
+          {
+            "t": 1.03636,
+            "v": 0.13,
+            "mid": 0.5
+          },
+          {
+            "t": 2.08364,
+            "v": 0.025,
+            "mid": 0.5
+          },
+          {
+            "t": 2.86909,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "operatorMods": [
+        {
+          "enabled": true,
+          "destination": 0,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0.022,
+                "mid": 0.5
+              },
+              {
+                "t": 0.2,
+                "v": 0.025,
+                "mid": 0.5
+              },
+              {
+                "t": 0.5,
+                "v": 0.045,
+                "mid": 0.5
+              },
+              {
+                "t": 0.7,
+                "v": 0.075,
+                "mid": 0.5
+              },
+              {
+                "t": 0.79,
+                "v": 0.11,
+                "mid": 0.5
+              },
+              {
+                "t": 0.81,
+                "v": 0.17,
+                "mid": 0.5
+              },
+              {
+                "t": 0.9,
+                "v": 0.68,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 2,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.2,
+                "v": 0.1,
+                "mid": 0.5
+              },
+              {
+                "t": 0.46,
+                "v": 0.37,
+                "mid": 0.5
+              },
+              {
+                "t": 0.7,
+                "v": 0.7,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 4,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0.09,
+                "mid": 0.5
+              },
+              {
+                "t": 0.25,
+                "v": 0.08,
+                "mid": 0.5
+              },
+              {
+                "t": 0.55,
+                "v": 0.07,
+                "mid": 0.5
+              },
+              {
+                "t": 0.79,
+                "v": 0.1,
+                "mid": 0.5
+              },
+              {
+                "t": 0.85,
+                "v": 0.16,
+                "mid": 0.5
+              },
+              {
+                "t": 0.93,
+                "v": 0.26,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 0.34,
+                "mid": 0.5
+              }
+            ]
+          }
+        }
+      ],
+      "waveInteraction": 1,
+      "waveMorphRatio": 1.37,
+      "texturePitched": true,
+      "textureMorphPitched": true,
+      "textureParams": {
+        "source": 3,
+        "density": 0.26,
+        "size": 0.76,
+        "color": 0.49,
+        "resonance": 0.73,
+        "chaos": 0.16
+      },
+      "textureMorphParams": {
+        "source": 3,
+        "density": 0.31,
+        "size": 0.64,
+        "color": 0.64,
+        "resonance": 0.79,
+        "chaos": 0.22
+      }
+    },
+    {
+      "enabled": true,
+      "wave": "custom",
+      "waveMorph": "hiss",
+      "level": 0.44,
+      "ratio": 1.92,
+      "semi": 0,
+      "detune": 0,
+      "randomPhase": true,
+      "randomPhaseDegrees": 8,
+      "volumeCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.0006,
+            "v": 0.18,
+            "mid": 0.5
+          },
+          {
+            "t": 0.002,
+            "v": 0.24,
+            "mid": 0.5
+          },
+          {
+            "t": 0.005,
+            "v": 0.15,
+            "mid": 0.5
+          },
+          {
+            "t": 0.01,
+            "v": 0.05,
+            "mid": 0.5
+          },
+          {
+            "t": 0.024,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "volumeMorphCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.00048,
+            "v": 0.65,
+            "mid": 0.5
+          },
+          {
+            "t": 0.0018,
+            "v": 1,
+            "mid": 0.5
+          },
+          {
+            "t": 0.005,
+            "v": 0.69,
+            "mid": 0.5
+          },
+          {
+            "t": 0.012,
+            "v": 0.28,
+            "mid": 0.5
+          },
+          {
+            "t": 0.023,
+            "v": 0.07,
+            "mid": 0.5
+          },
+          {
+            "t": 0.041,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "operatorMods": [
+        {
+          "enabled": true,
+          "destination": 0,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0.61,
+                "mid": 0.5
+              },
+              {
+                "t": 0.2,
+                "v": 0.7,
+                "mid": 0.5
+              },
+              {
+                "t": 0.55,
+                "v": 0.88,
+                "mid": 0.5
+              },
+              {
+                "t": 0.82,
+                "v": 0.98,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 2,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.12,
+                "v": 0.05,
+                "mid": 0.5
+              },
+              {
+                "t": 0.28,
+                "v": 0.16,
+                "mid": 0.5
+              },
+              {
+                "t": 0.5,
+                "v": 0.45,
+                "mid": 0.5
+              },
+              {
+                "t": 0.74,
+                "v": 0.79,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 4,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 0.08,
+                "mid": 0.5
+              },
+              {
+                "t": 0.25,
+                "v": 0.18,
+                "mid": 0.5
+              },
+              {
+                "t": 0.5,
+                "v": 0.35,
+                "mid": 0.5
+              },
+              {
+                "t": 0.7,
+                "v": 0.6,
+                "mid": 0.5
+              },
+              {
+                "t": 0.88,
+                "v": 0.85,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 0.95,
+                "mid": 0.5
+              }
+            ]
+          }
+        }
+      ],
+      "harm": [
+        0.09,
+        0.12,
+        0.2,
+        0.14,
+        0.23,
+        0.16,
+        0.19,
+        0.16,
+        0.21,
+        0,
+        0.13,
+        0,
+        0.11,
+        0,
+        0.1,
+        0,
+        0,
+        0.07,
+        0,
+        0,
+        0,
+        0.05,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "harmPhase": [
+        0.581152,
+        0.194754,
+        0.965251,
+        0.923976,
+        0.467139,
+        0.663471,
+        0.214523,
+        0.221696,
+        0.288522,
+        0.692423,
+        0.212377,
+        0.971106,
+        0.070355,
+        0.193287,
+        0.088864,
+        0.769892,
+        0.366515,
+        0.471682,
+        0.326028,
+        0.637427,
+        0.403894,
+        0.208268,
+        0.430154,
+        0.30429,
+        0.110799,
+        0.823391,
+        0.680147,
+        0.664791,
+        0.882447,
+        0.394643,
+        0.379278,
+        0.422967,
+        0.404554,
+        0.668935,
+        0.006519,
+        0.464105,
+        0.535084,
+        0.345514,
+        0.021866,
+        0.704595,
+        0.009444,
+        0.56441,
+        0.153367,
+        0.034582,
+        0.180842,
+        0.065739,
+        0.150759,
+        0.684868,
+        0.728276,
+        0.362784,
+        0.652389,
+        0.475134,
+        0.498452,
+        0.875901,
+        0.311294,
+        0.869991,
+        0.69108,
+        0.683457,
+        0.005948,
+        0.084061,
+        0.031993,
+        0.345765,
+        0.946098,
+        0.875707
+      ],
+      "waveInteraction": 0,
+      "waveMorphRatio": 1,
+      "texturePitched": false,
+      "textureMorphPitched": true,
+      "textureParams": {
+        "source": 0,
+        "density": 0.5,
+        "size": 0.35,
+        "color": 0.48,
+        "resonance": 0.25,
+        "chaos": 0.18
+      },
+      "textureMorphParams": {
+        "source": 0,
+        "density": 0.5,
+        "size": 0.35,
+        "color": 0.72,
+        "resonance": 0.25,
+        "chaos": 0.18
+      }
+    },
+    {
+      "enabled": true,
+      "wave": "texture-custom",
+      "waveMorph": "texture-custom",
+      "level": 0.75,
+      "ratio": 1.24,
+      "semi": 0,
+      "detune": 0,
+      "randomPhase": false,
+      "randomPhaseDegrees": 0,
+      "volumeCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.005,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "volumeMorphCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.003,
+            "v": 0.55,
+            "mid": 0.5
+          },
+          {
+            "t": 0.015,
+            "v": 0.9,
+            "mid": 0.5
+          },
+          {
+            "t": 0.045,
+            "v": 1,
+            "mid": 0.5
+          },
+          {
+            "t": 0.13,
+            "v": 0.88,
+            "mid": 0.5
+          },
+          {
+            "t": 0.3,
+            "v": 0.64,
+            "mid": 0.5
+          },
+          {
+            "t": 0.66109,
+            "v": 0.4,
+            "mid": 0.5
+          },
+          {
+            "t": 1.12364,
+            "v": 0.19,
+            "mid": 0.5
+          },
+          {
+            "t": 1.77818,
+            "v": 0.07,
+            "mid": 0.5
+          },
+          {
+            "t": 2.73818,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "operatorMods": [
+        {
+          "enabled": true,
+          "destination": 0,
+          "response": {
+            "enabled": true,
+            "source": "M",
+            "points": [
+              {
+                "t": 0,
+                "v": 1,
+                "mid": 0.5
+              },
+              {
+                "t": 0.05,
+                "v": 0.9,
+                "mid": 0.5
+              },
+              {
+                "t": 0.1,
+                "v": 0.58,
+                "mid": 0.5
+              },
+              {
+                "t": 0.15,
+                "v": 0.27,
+                "mid": 0.5
+              },
+              {
+                "t": 0.18,
+                "v": 0.075,
+                "mid": 0.5
+              },
+              {
+                "t": 0.195,
+                "v": 0.016,
+                "mid": 0.5
+              },
+              {
+                "t": 0.2,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 0,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 2,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.5,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.55,
+                "v": 0.045,
+                "mid": 0.5
+              },
+              {
+                "t": 0.65,
+                "v": 0.2,
+                "mid": 0.5
+              },
+              {
+                "t": 0.78,
+                "v": 0.52,
+                "mid": 0.5
+              },
+              {
+                "t": 0.9,
+                "v": 0.83,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 3,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.69,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.79,
+                "v": 0.17,
+                "mid": 0.5
+              },
+              {
+                "t": 0.88,
+                "v": 0.58,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "enabled": true,
+          "destination": 4,
+          "response": {
+            "enabled": true,
+            "source": "V",
+            "points": [
+              {
+                "t": 0,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.64,
+                "v": 0,
+                "mid": 0.5
+              },
+              {
+                "t": 0.76,
+                "v": 0.06,
+                "mid": 0.5
+              },
+              {
+                "t": 0.85,
+                "v": 0.32,
+                "mid": 0.5
+              },
+              {
+                "t": 0.94,
+                "v": 0.78,
+                "mid": 0.5
+              },
+              {
+                "t": 1,
+                "v": 1,
+                "mid": 0.5
+              }
+            ]
+          }
+        }
+      ],
+      "waveInteraction": 0,
+      "waveMorphRatio": 1,
+      "texturePitched": false,
+      "textureMorphPitched": true,
+      "textureParams": {
+        "source": 0,
+        "density": 0.48,
+        "size": 0.36,
+        "color": 0.49,
+        "resonance": 0.2,
+        "chaos": 0.22
+      },
+      "textureMorphParams": {
+        "source": 0,
+        "density": 0.48,
+        "size": 0.36,
+        "color": 0.88,
+        "resonance": 0.2,
+        "chaos": 0.22
+      },
+      "pitchCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.014,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.12,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.3,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      },
+      "pitchMorphCurve": {
+        "enabled": true,
+        "sustain": false,
+        "releaseIndex": 0,
+        "decayIndex": 1,
+        "points": [
+          {
+            "t": 0,
+            "v": 8,
+            "mid": 0.5
+          },
+          {
+            "t": 0.009,
+            "v": 7.2,
+            "mid": 0.5
+          },
+          {
+            "t": 0.028,
+            "v": 4.4,
+            "mid": 0.5
+          },
+          {
+            "t": 0.065,
+            "v": 1.4,
+            "mid": 0.5
+          },
+          {
+            "t": 0.115,
+            "v": 0,
+            "mid": 0.5
+          },
+          {
+            "t": 0.25,
+            "v": 0,
+            "mid": 0.5
+          }
+        ]
+      }
+    }
+  ],
+  "matrix": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "keyMap": {
+    "low": 80,
+    "high": 86
+  },
+  "fundamental": {
+    "pitch": 80
+  },
+  "lfo": {
+    "target": "none",
+    "amount": 0
+  },
+  "unison": 0,
+  "glide": 0,
+  "octave": 0,
+  "fxChain": [],
+  "volume": 0.56,
+  "filter": {
+    "evolving": {
+      "keyTrack": false,
+      "lanes": [
+        {
+          "enabled": true,
+          "sustain": false,
+          "releaseIndex": 0,
+          "decayIndex": 1,
+          "points": [
+            {
+              "t": 0,
+              "v": 0.777,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.015,
+              "v": 0.795,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.08,
+              "v": 0.784,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.3,
+              "v": 0.751,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.95,
+              "v": 0.719,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 3.5,
+              "v": 0.7,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "sustain": false,
+          "releaseIndex": 0,
+          "decayIndex": 1,
+          "points": [
+            {
+              "t": 0,
+              "v": 0.507,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.04,
+              "v": 0.503,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.28,
+              "v": 0.5,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 3.5,
+              "v": 0.5,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "sustain": false,
+          "releaseIndex": 0,
+          "decayIndex": 1,
+          "points": [
+            {
+              "t": 0,
+              "v": 0.53,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 3.5,
+              "v": 0.53,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "sustain": false,
+          "releaseIndex": 0,
+          "decayIndex": 1,
+          "points": [
+            {
+              "t": 0,
+              "v": 0.81,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.012,
+              "v": 0.82,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.075,
+              "v": 0.793,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.3,
+              "v": 0.77,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 1.1,
+              "v": 0.737,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 3.5,
+              "v": 0.718,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "sustain": false,
+          "releaseIndex": 0,
+          "decayIndex": 1,
+          "points": [
+            {
+              "t": 0,
+              "v": 0.575,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.014,
+              "v": 0.596,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.09,
+              "v": 0.58,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.32,
+              "v": 0.553,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 0.85,
+              "v": 0.519,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 3.5,
+              "v": 0.5,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "sustain": false,
+          "releaseIndex": 0,
+          "decayIndex": 1,
+          "points": [
+            {
+              "t": 0,
+              "v": 0.58,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            },
+            {
+              "t": 3.5,
+              "v": 0.58,
+              "mid": 0.5,
+              "shape": 2,
+              "transition": 0.65
+            }
+          ]
+        }
+      ],
+      "slopes": [
+        {
+          "enabled": false,
+          "response": {
+            "enabled": false,
+            "source": "V",
+            "points": []
+          }
+        },
+        {
+          "enabled": false,
+          "response": {
+            "enabled": false,
+            "source": "V",
+            "points": []
+          }
+        },
+        {
+          "enabled": false,
+          "response": {
+            "enabled": false,
+            "source": "V",
+            "points": []
+          }
+        }
+      ],
+      "mods": [
+        {
+          "enabled": true,
+          "dest": 3,
+          "source": "M",
+          "points": [
+            {
+              "t": 0,
+              "v": 0,
+              "mid": 0.5
+            },
+            {
+              "t": 0.3,
+              "v": 0.1,
+              "mid": 0.5
+            },
+            {
+              "t": 0.52,
+              "v": 0.3,
+              "mid": 0.5
+            },
+            {
+              "t": 0.68,
+              "v": 0.65,
+              "mid": 0.5
+            },
+            {
+              "t": 0.84,
+              "v": 0.92,
+              "mid": 0.5
+            },
+            {
+              "t": 1,
+              "v": 1,
+              "mid": 0.5
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "dest": 4,
+          "source": "V",
+          "points": [
+            {
+              "t": 0,
+              "v": 0,
+              "mid": 0.5
+            },
+            {
+              "t": 0.18,
+              "v": 0.02,
+              "mid": 0.5
+            },
+            {
+              "t": 0.35,
+              "v": 0.09,
+              "mid": 0.5
+            },
+            {
+              "t": 0.56,
+              "v": 0.3,
+              "mid": 0.5
+            },
+            {
+              "t": 0.73,
+              "v": 0.66,
+              "mid": 0.5
+            },
+            {
+              "t": 0.86,
+              "v": 0.87,
+              "mid": 0.5
+            },
+            {
+              "t": 1,
+              "v": 1,
+              "mid": 0.5
+            }
+          ]
+        },
+        {
+          "enabled": true,
+          "dest": 5,
+          "source": "M",
+          "points": [
+            {
+              "t": 0,
+              "v": 0,
+              "mid": 0.5
+            },
+            {
+              "t": 0.4,
+              "v": 0.2,
+              "mid": 0.5
+            },
+            {
+              "t": 0.72,
+              "v": 0.7,
+              "mid": 0.5
+            },
+            {
+              "t": 1,
+              "v": 1,
+              "mid": 0.5
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "masterAmpCurve": {
+    "enabled": true,
+    "sustain": false,
+    "releaseIndex": 0,
+    "decayIndex": 1,
+    "points": [
+      {
+        "t": 0,
+        "v": 1,
+        "mid": 0.5
+      },
+      {
+        "t": 0.5,
+        "v": 1,
+        "mid": 0.5
+      },
+      {
+        "t": 1.8,
+        "v": 1,
+        "mid": 0.5
+      },
+      {
+        "t": 2.65,
+        "v": 1,
+        "mid": 0.5
+      },
+      {
+        "t": 3,
+        "v": 0,
+        "mid": 0.5
+      }
+    ]
+  }
+}
