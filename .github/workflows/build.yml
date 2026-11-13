@@ -45,6 +45,14 @@ jobs:
             -o /tmp/aiora-native-limit-regression
           /tmp/aiora-native-limit-regression
 
+      - name: Experimental v4 crash/ride physical layer regression
+        run: |
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
+            tests/native_cymbal_v4_regression.cpp \
+            app/src/main/cpp/{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,ProjectStorage.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
+            -o /tmp/aiora-native-cymbal-v4-regression
+          /tmp/aiora-native-cymbal-v4-regression
+
       - name: A/B original v3 vs optimized B/V/M audio and CPU benchmark
         run: |
           set -euo pipefail
