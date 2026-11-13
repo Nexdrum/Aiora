@@ -56,7 +56,7 @@ VoiceAutomation expressiveAutomation() {
 }
 
 void renderCase(const char* name,const DspPatch& patch,
-                int midi,int voiceCount,int frames) {
+                int midi,int voiceCount,int frames,int releaseFrame=-1) {
     const auto expression=expressiveAutomation();
     std::vector<SpectrachordVoice> voices(static_cast<size_t>(voiceCount));
     for(int i=0;i<voiceCount;++i) {
@@ -71,6 +71,7 @@ void renderCase(const char* name,const DspPatch& patch,
     double energy=0.0;
     const auto begin=std::chrono::steady_clock::now();
     for(int frame=0;frame<frames;++frame) {
+        if(frame==releaseFrame)for(auto& voice:voices)voice.release();
         float out=0;
         for(auto& voice:voices) out+=voice.render();
         if(!std::isfinite(out)) throw std::runtime_error("Non-finite output");
@@ -102,6 +103,26 @@ int main() {
         DspPatch rideNoFilter=r;
         rideNoFilter.filter.evolving.configured=false;
         renderCase("ride-v3-no-filter",rideNoFilter,73,8,48000);
+        // Steady V/M values also exercise exact-input response caching.
+        DspPatch simple=toDspPatch(crash);
+        renderCase("crash-v3-early-release",simple,80,1,48000,9000);
+        // Exercise the dynamic (not cached) pitch-LFO and unison paths.
+        Patch modulated=crash;
+        modulated.lfo.target=LfoTarget::Pitch;
+        modulated.lfo.amount=.65f;
+        modulated.lfo.rate=6.8f;
+        modulated.unison=.37f;
+        renderCase("crash-pitch-lfo-unison",toDspPatch(modulated),80,2,48000);
+        // The shared played-note frequency is also used by keytrack and
+        // the alternative pitched peak-EQ route.
+        Patch keytracked=ride;
+        keytracked.filter.evolving.keyTrack=true;
+        renderCase("ride-keytracked-filter",toDspPatch(keytracked),73,2,48000);
+        Patch withPeak=ride;
+        withPeak.filter.evolving.configured=false;
+        withPeak.peak.enabled=true;
+        withPeak.peak.followNote=true;
+        renderCase("ride-note-follow-peak",toDspPatch(withPeak),73,1,48000);
     } catch (const std::exception& e) {
         std::cerr << "DSP_BENCH error: "<<e.what()<<"\n";
         return 1;
