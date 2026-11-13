@@ -191,8 +191,25 @@ std::array<float,3> evolvingShapeWeights(
 float evolvingFrequency(float norm) noexcept {
     return 40.0f*std::pow(450.0f,std::clamp(norm,0.0f,1.0f));
 }
+// Moving segment search retains the exact original interpolation formula.
+// Only monotonic envelope time positions reach this function; the visible
+// B/V/M curves use an equivalent separate forward cursor below.
+float movingEnvelopeValue(const OperatorPoint* points,size_t count,float x,
+                          float fallback,uint8_t& cursor) noexcept {
+    if(!count)return fallback;
+    if(x<=points[0].time)return points[0].value;
+    while(cursor<count&&x>points[cursor].time)++cursor;
+    if(cursor>=count)return points[count-1].value;
+    const auto& a=points[cursor-1];
+    const auto& b=points[cursor];
+    const float t=std::clamp((x-a.time)/
+        std::max(.000001f,b.time-a.time),0.0f,1.0f);
+    return curveSegment(t,a.value,b.value,b.midpoint,b.handleActive,b.handleValue);
+}
+
 void SpectrachordVoice::PointEnvState::reset(const OperatorCurve& c,bool retainFinal) noexcept {
     curve=c;age=0;releaseAge=0;releaseStart=0;value=0;releasing=false;done=false;
+    attackSegment=1;releaseSegment=1;
     holdLast=retainFinal;
 }
 void SpectrachordVoice::PointEnvState::noteOff() noexcept {
@@ -200,6 +217,7 @@ void SpectrachordVoice::PointEnvState::noteOff() noexcept {
     // or the timeline is still advancing toward its timed release gate.
     if(releasing||done||!curve.enabled||!curve.count)return;
     releaseStart=value;releaseAge=0;releasing=true;
+    releaseSegment=1;
 }
 float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
     if(done||!curve.enabled||!curve.count)
@@ -227,14 +245,15 @@ float SpectrachordVoice::PointEnvState::next(float sr) noexcept {
         // The offset fades to zero at the terminal point: early
         // note-off cannot jump toward a later node's absolute value.
         const float authoredTime=pts[pivot].time+releaseAge;
-        const float authored=operatorCurveValue(pts+pivot,
-            static_cast<size_t>(last-pivot+1),authoredTime,pts[pivot].value);
+        const float authored=movingEnvelopeValue(pts+pivot,
+            static_cast<size_t>(last-pivot+1),authoredTime,pts[pivot].value,
+            releaseSegment);
         const float remaining=1.0f-releaseAge/total;
         value=authored+(releaseStart-pts[pivot].value)*remaining;
         releaseAge+=dt;
     }else{
-        value=operatorCurveValue(pts,curve.count,
-            std::min(age,pts[pivot].time),0);
+        value=movingEnvelopeValue(pts,curve.count,
+            std::min(age,pts[pivot].time),0,attackSegment);
         age+=dt;
     }
     return value;
@@ -317,6 +336,19 @@ float SpectrachordVoice::curveValue(const DspCurve& c,float step,float fallback)
     const float k=(step-a.step)/std::max(1.0e-6f,b->step-a.step);
     return curveSegment(k,a.value,b->value,b->midpoint,b->handleActive,b->handleValue);
 }
+float SpectrachordVoice::curveValueForward(
+    const DspCurve& c,float step,float fallback,size_t& cursor) noexcept {
+    if(c.count==0)return fallback;
+    if(c.count==1||step<=c.points[0].step)return c.points[0].value;
+    // Samples in a voice have increasing step positions, even across a
+    // release. Avoid re-searching earlier points, but interpolate each sample.
+    while(cursor<c.count&&step>c.points[cursor].step)++cursor;
+    if(cursor>=c.count)return c.points[c.count-1].value;
+    const auto& a=c.points[cursor-1];
+    const auto& b=c.points[cursor];
+    const float k=(step-a.step)/std::max(1.0e-6f,b.step-a.step);
+    return curveSegment(k,a.value,b.value,b.midpoint,b.handleActive,b.handleValue);
+}
 float SpectrachordVoice::curveMean(const DspCurve& c,float fallback) noexcept {
     if(c.count==0)return fallback;float sum=0;for(size_t i=0;i<c.count;++i)sum+=c.points[i].value;return sum/static_cast<float>(c.count);
 }
@@ -345,6 +377,7 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
     // M is always supplied; an unedited line is explicitly M=0, never
     // a request to bypass an operator or FX modulation route.
     modActive_=true;velocityCurveActive_=automation_.velocity.count>0;
+    bendSegment_=velocitySegment_=modSegment_=1;
     modValue_=curveValue(automation_.mod,0,0);
     masterAmpTimeline_.reset(patch_.masterAmpCurve,false);
     fixedUnison_=clamp01(patch_.unison);
@@ -562,9 +595,9 @@ float SpectrachordVoice::render() noexcept {
     if(!active_)return 0;
     if(autoRelease_&&elapsedSamples_>=gateSamples_)release();
     const float step=static_cast<float>(elapsedSamples_)/samplesPerStep_;
-    if(modActive_)modValue_=clamp01(curveValue(automation_.mod,step,modValue_));
-    const float bend=curveValue(automation_.bend,step,0);
-    const float velNow=velocityCurveActive_?clamp01(curveValue(automation_.velocity,step,velocity_)):1.0f;
+    if(modActive_)modValue_=clamp01(curveValueForward(automation_.mod,step,modValue_,modSegment_));
+    const float bend=curveValueForward(automation_.bend,step,0,bendSegment_);
+    const float velNow=velocityCurveActive_?clamp01(curveValueForward(automation_.velocity,step,velocity_,velocitySegment_)):1.0f;
     const float velocityGain=velocityCurveActive_?velNow*velNow:1.0f;
     const DspPatch&P=patch_;const float pressure=velocity_;
     const float m=modValue_;
