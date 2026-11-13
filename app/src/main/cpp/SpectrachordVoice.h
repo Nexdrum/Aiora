@@ -44,6 +44,13 @@ private:
         void noteOff() noexcept;
         float next(float sampleRate) noexcept;
     };
+    struct ResponseCache {
+        uint32_t inputBits{0};
+        float output{0.0f};
+        bool valid{false};
+    };
+    static float cachedResponse(const OperatorResponse& curve,float input,
+                                ResponseCache& cache) noexcept;
     struct EvolvingFilterMath {
         float amplitude{1.0f},cosine{1.0f};
         float bellAlpha{0.0f},shelfRoot{0.0f};
@@ -86,6 +93,9 @@ private:
     DspPatch patch_{};
     VoiceAutomation automation_{};
     size_t bendSegment_{1},velocitySegment_{1},modSegment_{1};
+    std::array<std::array<ResponseCache,6>,6> opResponseCache_{};
+    std::array<ResponseCache,6> filterResponseCache_{};
+    std::array<ResponseCache,3> ampResponseCache_{};
     std::array<PointEnvState,6> opVolume_{},opPitch_{},opMorphVolume_{},opMorphPitch_{};
     std::array<PointEnvState,6> filterTimeline_{};
     PointEnvState unisonTimeline_{},masterAmpTimeline_{};
