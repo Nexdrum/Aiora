@@ -320,7 +320,13 @@ float SpectrachordVoice::curveValue(const DspCurve& c,float step,float fallback)
 float SpectrachordVoice::curveMean(const DspCurve& c,float fallback) noexcept {
     if(c.count==0)return fallback;float sum=0;for(size_t i=0;i<c.count;++i)sum+=c.points[i].value;return sum/static_cast<float>(c.count);
 }
-void SpectrachordVoice::prepare(float sr) noexcept {sampleRate_=std::max(8000.0f,sr);}
+void SpectrachordVoice::prepare(float sr) noexcept {
+    sampleRate_=std::max(8000.0f,sr);
+    // Refresh these constants if Android reopens the audio stream with a
+    // different sample rate while a voice still exists.
+    fourMsSmoothing_=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+    peakSmoothing_=std::min(1.0f,1.0f/(sampleRate_*.004f));
+}
 
 void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
     id_=id;patch_=patch;midi_=midi;
