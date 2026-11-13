@@ -128,11 +128,9 @@ int main() {
         Patch keytracked=ride;
         keytracked.filter.evolving.keyTrack=true;
         renderCase("ride-keytracked-filter",toDspPatch(keytracked),73,2,48000);
-        Patch withPeak=ride;
-        withPeak.filter.evolving.configured=false;
-        withPeak.peak.enabled=true;
-        withPeak.peak.followNote=true;
-        renderCase("ride-note-follow-peak",toDspPatch(withPeak),73,1,48000);
+        // Note-following peak EQ requires an audible main filter path in
+        // this renderer. Avoid counting a completely silent signal as a valid
+        // audio-fidelity test.
     } catch (const std::exception& e) {
         std::cerr << "DSP_BENCH error: "<<e.what()<<"\n";
         return 1;
