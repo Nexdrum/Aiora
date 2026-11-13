@@ -266,12 +266,12 @@ void SpectrachordVoice::Biquad::configurePeak(float freq,float q,float gainDb,fl
 // or slope for the two shelving types. All three paths use the same sampled
 // input and are crossfaded with normalized weights; they never cascade.
 void SpectrachordVoice::Biquad::configureEvolving(
-    FilterShape shape,float freq,float qNorm,float gainDb,float sr) noexcept {
-    freq=std::clamp(freq,20.0f,sr*.45f);
+    FilterShape shape,float qNorm,const EvolvingFilterMath& common) noexcept {
+    // The three parallel filter shapes share frequency, gain and sample
+    // rate. The expensive trig/gain terms are identical for this sample,
+    // and are calculated once by the caller, not three separate times.
     qNorm=std::clamp(qNorm,0.0f,1.0f);
-    gainDb=std::clamp(gainDb,-24.0f,24.0f);
-    const float A=std::pow(10.0f,gainDb/40.0f);
-    const float w=kTwoPi*freq/sr,c=std::cos(w),sn=std::sin(w);
+    const float A=common.amplitude,c=common.cosine,sn=common.sine;
     float nb0=1,nb1=0,nb2=0,na0=1,na1=0,na2=0;
     if(shape==FilterShape::Bell){
         const float Q=.3f*std::pow(40.0f,qNorm);
@@ -836,13 +836,21 @@ float SpectrachordVoice::render() noexcept {
             (!model.keyTrack&&P.lfo.target==LfoTarget::Filter?
                 lfo*lfoAmount*3000:0.0f),
             20.0f,sampleRate_*.45f);
+        // Every sample still updates all three full-rate biquads. Only
+        // mathematics identical between their coefficient formulas is shared.
+        const float sharedFreq=std::clamp(freq,20.0f,sampleRate_*.45f);
+        const float sharedGain=std::clamp(filterGainSmoothed_,-24.0f,24.0f);
+        const float sharedW=kTwoPi*sharedFreq/sampleRate_;
+        const EvolvingFilterMath filterMath{
+            std::pow(10.0f,sharedGain/40.0f),
+            std::cos(sharedW),std::sin(sharedW)
+        };
         float customWeight=0.0f;
         for(int s=0;s<3;++s){
             const float weight=filterShapeSmoothed_[s]/
                 std::max(.00001f,weightSum);
             evolvingFilterBiquads_[s].configureEvolving(
-                static_cast<FilterShape>(s),freq,filterQSmoothed_,
-                filterGainSmoothed_,sampleRate_);
+                static_cast<FilterShape>(s),filterQSmoothed_,filterMath);
             const float out=evolvingFilterBiquads_[s].process(sum);
             // Weighted alternatives, never effects connected in series.
             if(model.slopes[s].enabled)customWeight+=weight;
