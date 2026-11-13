@@ -57,15 +57,16 @@ jobs:
             "$BASE/tests/native_cymbal_cpu_benchmark.cpp" \
             "$BASE/app/src/main/cpp/"{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,ProjectStorage.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
             -o /tmp/aiora-benchmark-baseline
-          /tmp/aiora-benchmark-baseline | tee /tmp/aiora-benchmark-original.txt
+          mkdir -p /tmp/aiora-original-pcm /tmp/aiora-optimized-pcm
+          DSP_BENCH_PCM_DIR=/tmp/aiora-original-pcm /tmp/aiora-benchmark-baseline | tee /tmp/aiora-benchmark-original.txt
           # Compile the current optimized engine with the same flags and sound data.
           g++ -std=c++20 -O3 -pthread -Iapp/src/main/cpp \
             tests/native_cymbal_cpu_benchmark.cpp \
             app/src/main/cpp/{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,ProjectStorage.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
             -o /tmp/aiora-benchmark-optimized
-          /tmp/aiora-benchmark-optimized | tee /tmp/aiora-benchmark-optimized.txt
+          DSP_BENCH_PCM_DIR=/tmp/aiora-optimized-pcm /tmp/aiora-benchmark-optimized | tee /tmp/aiora-benchmark-optimized.txt
           python3 - <<'PY'
-          import re
+          import re, array, math
           from pathlib import Path
           def cases(path):
               result = {}
@@ -90,8 +91,18 @@ jobs:
               a = after[name]
               delta = 100 * (b[3] - a[3]) / b[3] if b[3] else 0
               print(f"{name}: baseline={b[3]:.3f}ms optimized={a[3]:.3f}ms speedup={delta:+.1f}%")
+              x = array.array("f")
+              y = array.array("f")
+              x.frombytes(Path(f"/tmp/aiora-original-pcm/{name}.f32").read_bytes())
+              y.frombytes(Path(f"/tmp/aiora-optimized-pcm/{name}.f32").read_bytes())
+              if len(x) != len(y) or len(x) != int(b[1]):
+                  raise SystemExit(f"Invalid PCM test lengths for {name}: {len(x)}, {len(y)}")
+              max_error=max((abs(left-right) for left,right in zip(x,y)), default=0.0)
+              rms_error=math.sqrt(sum((left-right)**2 for left,right in zip(x,y))/max(1,len(x)))
+              differences=sum(left != right for left,right in zip(x,y))
+              print(f"{name}: max-absolute-difference={max_error:.10g}, rms={rms_error:.10g}, samples-different={differences}/{len(x)}")
               if (b[0], b[1], b[2]) != (a[0], a[1], a[2]):
-                  mismatch.append(f"{name}: {b[2]} != {a[2]}")
+                  mismatch.append(f"{name}: max error={max_error:.9g}, rms={rms_error:.9g}, different={differences}")
           if mismatch:
               raise SystemExit("Audio output differs from original v3:\n" + "\n".join(mismatch))
           print("PASS: every sample fingerprint matches original v3 for all B/V/M and polyphony cases")
