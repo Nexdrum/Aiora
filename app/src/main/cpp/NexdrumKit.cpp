@@ -8,7 +8,7 @@
 
 namespace aiora {
 const std::array<DrumPad,7>& nexdrumKit(){
-    // Decode the exact approved audition kit, using the same path as Import Kit.
+    // Decode the promoted Crash v4c / Ride v4e factory kit via the Import Kit path.
     // No re-authoring/approximation of the seven synth patches.
     static const std::array<DrumPad,7> kit=[] {
         std::vector<DrumPad> decoded;
