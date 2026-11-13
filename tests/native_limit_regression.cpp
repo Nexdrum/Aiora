@@ -340,13 +340,19 @@ int main(){
     for(size_t i=0;i<kit.size();++i){
         const auto& pad=kit[i];
         assert(pad.name==names[i]);
+        assert(pad.patch.name==pad.name);
         assert(pad.lowMidi<=pad.centerMidi&&pad.centerMidi<=pad.highMidi);
         assert(pad.patch.filter.evolving.configured);
         assert(pad.patch.ops[0].volumeCurve.enabled);
         assert(pad.patch.masterAmpCurve.enabled);
     }
     assert(kit[0].centerMidi==80&&kit[1].centerMidi==73);
-    assert(std::fabs(kit[1].patch.ops[3].harm[0]-.497686f)<1e-5f);
+    // The promoted physical cymbals retain their friction resonance
+    // and texture wash; the older approved-ride harmonic signature is retired.
+    assert(kit[0].patch.ops[1].waveInteraction==WaveInteraction::PM);
+    assert(kit[1].patch.ops[1].waveInteraction==WaveInteraction::PM);
+    assert(kit[0].patch.ops[5].wave==Wave::TextureCustom);
+    assert(kit[1].patch.ops[5].wave==Wave::TextureCustom);
 
     // Prototype cymbal auditions must remain importable with Aiora's
     // real patch/kit deserializer, without modifying factory presets.
@@ -357,6 +363,55 @@ int main(){
             std::istreambuf_iterator<char>(in),
             std::istreambuf_iterator<char>());
     };
+    // The promoted factory kit must match the complete approved v4e
+    // audition exactly, except for its deliberately shortened patch names.
+    const auto patchMatchesWithPadName=[](
+        const DrumPad& candidate,const DrumPad& installed){
+        Patch expected=candidate.patch;
+        expected.name=installed.name;
+        return serializePatchJson(expected)==serializePatchJson(installed.patch);
+    };
+    {
+        std::vector<DrumPad> approved;
+        std::string importError;
+        assert(deserializeDrumKitJson(
+            readAudition("auditions/nexdrum/Nexdrum_Cymbals_v4e_Test_Kit.json"),
+            approved,&importError));
+        assert(approved.size()==kit.size());
+        for(size_t i=0;i<kit.size();++i){
+            assert(approved[i].id==kit[i].id);
+            assert(approved[i].name==kit[i].name);
+            assert(approved[i].centerMidi==kit[i].centerMidi);
+            assert(approved[i].lowMidi==kit[i].lowMidi);
+            assert(approved[i].highMidi==kit[i].highMidi);
+            assert(approved[i].volume==kit[i].volume);
+            assert(approved[i].pan==kit[i].pan);
+            assert(patchMatchesWithPadName(approved[i],kit[i]));
+        }
+    }
+    // Both newly created drum tracks and explicit factory-kit reloads
+    // must expose the promoted synths and clean internal patch names.
+    {
+        auto& project=ProjectCore::instance();
+        project.reset();
+        const int track=project.addTrack(true);
+        assert(track>=0);
+        const auto first=project.projectCopy();
+        assert(first.tracks[static_cast<size_t>(track)].pads.size()==kit.size());
+        for(size_t i=0;i<kit.size();++i)
+            assert(serializePatchJson(
+                first.tracks[static_cast<size_t>(track)].pads[i].patch)==
+                serializePatchJson(kit[i].patch));
+        assert(project.loadNexdrumKit(track));
+        const auto reloaded=project.projectCopy();
+        for(size_t i=0;i<kit.size();++i){
+            const auto& pad=reloaded.tracks[static_cast<size_t>(track)].pads[i];
+            assert(pad.name==kit[i].name);
+            assert(pad.patch.name==pad.name);
+            assert(serializePatchJson(pad.patch)==serializePatchJson(kit[i].patch));
+        }
+        project.reset();
+    }
     const std::array<const char*,2> cymbalPatches{{
         "auditions/nexdrum/Crash_Texture_Bloom_v1.json",
         "auditions/nexdrum/Ride_Textured_Ping_v1.json"
@@ -377,8 +432,10 @@ int main(){
             assert(voice.texture.source<=3);
             assert(voice.textureMorph.source<=3);
         }
-        assert(candidate.ops[0].wave==kit[static_cast<size_t>(i)].patch.ops[0].wave);
-        assert(candidate.ops[1].wave==kit[static_cast<size_t>(i)].patch.ops[1].wave);
+        // Historical prototype auditions remain importable, even though
+        // their tonal custom-wave oscillators are no longer factory cymbals.
+        assert(candidate.ops[0].wave==Wave::Custom);
+        assert(candidate.ops[1].wave==Wave::Custom);
         Patch roundtrip;
         assert(deserializePatchJson(serializePatchJson(candidate),roundtrip));
         assert(roundtrip.ops[2].wave==Wave::TextureCustom);
@@ -397,8 +454,7 @@ int main(){
             assert(imported[i].centerMidi==kit[i].centerMidi);
             assert(imported[i].icon==kit[i].icon);
             assert(imported[i].name==kit[i].name);
-            assert(serializePatchJson(imported[i].patch)==
-                   serializePatchJson(kit[i].patch));
+            assert(patchMatchesWithPadName(imported[i],kit[i]));
         }
     }
 
@@ -414,11 +470,12 @@ int main(){
         std::string readError;
         assert(deserializePatchJson(
             readAudition(cymbalV2Paths[cym]),candidate,&readError));
-        // Keep the original approved stick layer and envelope maps.
+        // The historical v2 cymbals remain valid standalone auditions.
+        // They are not expected to match the newly promoted factory cymbals.
         assert(serializePatchJson(candidate).size()>3000u);
-        assert(candidate.ops[0].wave==kit[cym].patch.ops[0].wave);
-        assert(candidate.ops[0].ratio==kit[cym].patch.ops[0].ratio);
-        assert(candidate.ops[0].level==kit[cym].patch.ops[0].level);
+        assert(candidate.ops[0].wave==Wave::Custom);
+        assert(candidate.ops[0].ratio>0.0f);
+        assert(candidate.ops[0].level>0.0f);
         for(int op=1;op<6;++op){
             const auto& layer=candidate.ops[static_cast<size_t>(op)];
             assert(layer.enabled);
@@ -483,8 +540,7 @@ int main(){
         for(size_t i=2;i<kit.size();++i){
             assert(imported[i].name==kit[i].name);
             assert(imported[i].centerMidi==kit[i].centerMidi);
-            assert(serializePatchJson(imported[i].patch)==
-                   serializePatchJson(kit[i].patch));
+            assert(patchMatchesWithPadName(imported[i],kit[i]));
         }
     }
 
