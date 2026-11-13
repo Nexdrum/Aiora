@@ -72,7 +72,8 @@ void renderCase(const char* name,const DspPatch& patch,
     uint64_t hash=kOffset;
     double energy=0.0;
     std::vector<float> pcm;
-    if(std::getenv("DSP_BENCH_PCM_DIR"))pcm.reserve(static_cast<size_t>(frames));
+    const bool capturePcm=std::getenv("DSP_BENCH_PCM_DIR")!=nullptr;
+    if(capturePcm)pcm.reserve(static_cast<size_t>(frames));
     const auto begin=std::chrono::steady_clock::now();
     for(int frame=0;frame<frames;++frame) {
         if(frame==releaseFrame)for(auto& voice:voices)voice.release();
@@ -85,7 +86,7 @@ void renderCase(const char* name,const DspPatch& patch,
         float out=0;
         for(auto& voice:voices) out+=voice.render();
         if(!std::isfinite(out)) throw std::runtime_error("Non-finite output");
-        if(!pcm.empty()||std::getenv("DSP_BENCH_PCM_DIR"))pcm.push_back(out);
+        if(capturePcm)pcm.push_back(out);
         hash^=std::bit_cast<uint32_t>(out);
         hash*=kPrime;
         energy+=static_cast<double>(out)*out;
