@@ -37,6 +37,9 @@ private:
         OperatorCurve curve{};
         float age{0},releaseAge{0},releaseStart{0},value{0};
         bool releasing{false},done{false},holdLast{false};
+        // Segment cursors accelerate lookup without holding the output value.
+        // Both the attack timeline and release timeline advance monotonically.
+        uint8_t attackSegment{1},releaseSegment{1};
         void reset(const OperatorCurve& c,bool retainFinal=false) noexcept;
         void noteOff() noexcept;
         float next(float sampleRate) noexcept;
@@ -57,6 +60,8 @@ private:
     static float midiHz(float midi) noexcept;
     static float clamp01(float v) noexcept;
     static float curveValue(const DspCurve& curve, float step, float fallback) noexcept;
+    static float curveValueForward(const DspCurve& curve, float step, float fallback,
+                                   size_t& segment) noexcept;
     static float curveMean(const DspCurve& curve, float fallback) noexcept;
     float noise() noexcept;
     float hissSample(size_t index, int unisonVoice, float pitchHz) noexcept;
@@ -79,6 +84,7 @@ private:
     float velocity_{0.8f};
     DspPatch patch_{};
     VoiceAutomation automation_{};
+    size_t bendSegment_{1},velocitySegment_{1},modSegment_{1};
     std::array<PointEnvState,6> opVolume_{},opPitch_{},opMorphVolume_{},opMorphPitch_{};
     std::array<PointEnvState,6> filterTimeline_{};
     PointEnvState unisonTimeline_{},masterAmpTimeline_{};
