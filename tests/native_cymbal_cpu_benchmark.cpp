@@ -56,8 +56,9 @@ VoiceAutomation expressiveAutomation() {
 }
 
 void renderCase(const char* name,const DspPatch& patch,
-                int midi,int voiceCount,int frames,int releaseFrame=-1) {
-    const auto expression=expressiveAutomation();
+                int midi,int voiceCount,int frames,int releaseFrame=-1,
+                bool automateExpression=true) {
+    const auto expression=automateExpression?expressiveAutomation():VoiceAutomation{};
     std::vector<SpectrachordVoice> voices(static_cast<size_t>(voiceCount));
     for(int i=0;i<voiceCount;++i) {
         auto& v=voices[static_cast<size_t>(i)];
@@ -103,7 +104,8 @@ int main() {
         DspPatch rideNoFilter=r;
         rideNoFilter.filter.evolving.configured=false;
         renderCase("ride-v3-no-filter",rideNoFilter,73,8,48000);
-        // Steady V/M values also exercise exact-input response caching.
+        renderCase("ride-v3-static-vm",r,73,8,48000,-1,false);
+        // Held input tests exact-bit V/M response cache reuse.
         DspPatch simple=toDspPatch(crash);
         renderCase("crash-v3-early-release",simple,80,1,48000,9000);
         // Exercise the dynamic (not cached) pitch-LFO and unison paths.
