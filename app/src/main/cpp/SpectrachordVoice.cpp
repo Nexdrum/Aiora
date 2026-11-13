@@ -882,8 +882,11 @@ float SpectrachordVoice::render() noexcept {
         if(modCount[2]>0){
             for(int s=0;s<3;++s)weights[s]=qDirectWeights[s]/modCount[2];
         }else if(constantQShape_>=0){
-            // Equivalent to evolvingShapeWeights on two constant-shape lanes.
-            weights[static_cast<size_t>(constantQShape_)]=1.0f;
+            // Preserve the original morph arithmetic even for two identical
+            // shapes: (1-morph)+morph may round differently from literal 1.
+            const float morph=modded(5,0);
+            weights[static_cast<size_t>(constantQShape_)]=
+                1.0f*(1-morph)+1.0f*morph;
         }else{
             const auto readQ=[&](int index){
                 const auto& lane=model.lanes[index];
