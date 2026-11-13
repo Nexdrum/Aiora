@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -70,6 +71,8 @@ void renderCase(const char* name,const DspPatch& patch,
     constexpr uint64_t kPrime=1099511628211ull;
     uint64_t hash=kOffset;
     double energy=0.0;
+    std::vector<float> pcm;
+    if(std::getenv("DSP_BENCH_PCM_DIR"))pcm.reserve(static_cast<size_t>(frames));
     const auto begin=std::chrono::steady_clock::now();
     for(int frame=0;frame<frames;++frame) {
         if(frame==releaseFrame)for(auto& voice:voices)voice.release();
@@ -82,6 +85,7 @@ void renderCase(const char* name,const DspPatch& patch,
         float out=0;
         for(auto& voice:voices) out+=voice.render();
         if(!std::isfinite(out)) throw std::runtime_error("Non-finite output");
+        if(!pcm.empty()||std::getenv("DSP_BENCH_PCM_DIR"))pcm.push_back(out);
         hash^=std::bit_cast<uint32_t>(out);
         hash*=kPrime;
         energy+=static_cast<double>(out)*out;
@@ -89,6 +93,12 @@ void renderCase(const char* name,const DspPatch& patch,
     const auto end=std::chrono::steady_clock::now();
     const double milliseconds=std::chrono::duration<double,std::milli>(end-begin).count();
     if(!(energy>0))throw std::runtime_error("Silent benchmark");
+    if(const char* root=std::getenv("DSP_BENCH_PCM_DIR")){
+        std::ofstream file(std::string(root)+"/"+name+".f32",std::ios::binary);
+        if(!file)throw std::runtime_error("Cannot write PCM benchmark");
+        file.write(reinterpret_cast<const char*>(pcm.data()),
+                   static_cast<std::streamsize>(pcm.size()*sizeof(float)));
+    }
     std::cout << "DSP_BENCH " << name
               << " voices="<<voiceCount<<" frames="<<frames
               << " hash="<<std::hex<<std::setfill('0')<<std::setw(16)<<hash
