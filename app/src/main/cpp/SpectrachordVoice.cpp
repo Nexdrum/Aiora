@@ -596,7 +596,12 @@ float SpectrachordVoice::render() noexcept {
     const DspPatch&P=patch_;const float pressure=velocity_;
     const float m=modValue_;
     const float expressionV=velocityCurveActive_?velNow:velocity_;
-    const float lfo=std::sin(lfoPhase_);lfoPhase_+=kTwoPi*std::max(0.05f,P.lfo.rate)/sampleRate_;if(lfoPhase_>=kTwoPi)lfoPhase_-=kTwoPi;
+    // Preserve phase/time advance while avoiding sine when no LFO reaches
+    // any DSP destination. An active pitch, amp or filter LFO stays full-rate.
+    const float lfo=(P.lfo.target==LfoTarget::None||P.lfo.amount<=0.0f)
+        ?0.0f:std::sin(lfoPhase_);
+    lfoPhase_+=kTwoPi*std::max(0.05f,P.lfo.rate)/sampleRate_;
+    if(lfoPhase_>=kTwoPi)lfoPhase_-=kTwoPi;
     lfoAge_+=1/sampleRate_;const float lfoFade=P.lfo.attack<=0?1:std::min(1.0f,lfoAge_/P.lfo.attack);const float lfoVel=(1-P.lfo.velocitySensitivity)+P.lfo.velocitySensitivity*pressure;
     const float lfoAmount=std::max(0.0f,P.lfo.amount)*lfoFade*lfoVel;const float pitchLfoCents=P.lfo.target==LfoTarget::Pitch?lfo*lfoAmount*60:0;
 
@@ -606,6 +611,17 @@ float SpectrachordVoice::render() noexcept {
     const float smoothing=fourMsSmoothing_;
     unisonSmoothed_+=(unisonTarget-unisonSmoothed_)*smoothing;
     const float baseMidi=static_cast<float>(midi_)+P.octave*12+bend;
+    // B is evaluated each sample. Share only this sample's played-note
+    // frequency across operators whose current pitch envelope equals zero.
+    float commonBaseHz=0.0f;
+    bool commonBaseHzReady=false;
+    const auto playedNoteHz=[&]()->float {
+        if(!commonBaseHzReady){
+            commonBaseHz=midiHz(baseMidi);
+            commonBaseHzReady=true;
+        }
+        return commonBaseHz;
+    };
     const float unison=clamp01(unisonSmoothed_);
     const int uniCount=unison>0.0001f?2:1;
     // A brief beater-driven membrane sweep settles at the unchanged note fundamental.
@@ -657,7 +673,9 @@ float SpectrachordVoice::render() noexcept {
         // The former six-by-six FM cross-routing has been removed.
         // All operator phase evolution now follows its authored pitch curve.
         // Bend remains unrestricted except for physical oscillator limits.
-        const float unboundedBase=midiHz(baseMidi+pitchEnv)*op.ratio*semitoneScale;
+        const float unboundedBase=
+            (pitchEnv==0.0f?playedNoteHz():midiHz(baseMidi+pitchEnv))*
+            op.ratio*semitoneScale;
         const float maxHz=sampleRate_*0.49f;
         const float baseF=std::isfinite(unboundedBase)
             ?std::clamp(unboundedBase,0.001f,maxHz):maxHz;
@@ -779,7 +797,7 @@ float SpectrachordVoice::render() noexcept {
     // including pitch bend; no audio pitch detection is necessary.
     if(P.peak.enabled&&!P.filter.evolving.configured){
         const float center=P.peak.followNote
-            ?midiHz(baseMidi)*std::clamp(P.peak.ratio,.5f,8.0f)
+            ?playedNoteHz()*std::clamp(P.peak.ratio,.5f,8.0f)
             :P.peak.frequency;
         const float targetCenter=std::clamp(center,20.0f,sampleRate_*.45f);
         const float targetQ=std::clamp(P.peak.q,.3f,12.0f);
@@ -855,7 +873,7 @@ float SpectrachordVoice::render() noexcept {
         // Key Track owns the frequency destination, including its morph
         // and V/M routes, and follows the oscillator's bent MIDI note.
         const float targetHz=model.keyTrack?
-            midiHz(baseMidi):evolvingFrequency(freqNorm);
+            playedNoteHz():evolvingFrequency(freqNorm);
         filterFrequencySmoothed_+=(targetHz-
             filterFrequencySmoothed_)*smoothing;
         filterGainSmoothed_+=((gainNorm*2-1)*24-filterGainSmoothed_)*smoothing;
