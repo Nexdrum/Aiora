@@ -174,7 +174,7 @@ void AudioEngine::triggerStep(int step,double phase) noexcept {
     while(stepEventCursor_<events.size()&&
           static_cast<double>(events[stepEventCursor_].offsetSteps)<=phase+1.0e-9){
         const auto& e=events[stepEventCursor_++];
-        auto&slot=allocateVoice();const float pressure=e.automation.velocity.count?std::clamp(e.automation.velocity.points[0].value,0.0f,1.0f):0.8f;
+        auto&slot=allocateVoice();const float pressure=e.automation.velocity.count?std::clamp(e.automation.velocity.points[0].value,0.0f,1.0f):1.0f;
         const uint64_t gate=playbackGateFrames(
             e.durationSeconds,sampleRate_.load(std::memory_order_relaxed));
         const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
