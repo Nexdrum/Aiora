@@ -43,6 +43,13 @@ All W1/W2 interactions start as **CF (crossfade)**; this avoids unnecessary meta
 - Thick ride: clear soft ping, relatively less chaotic impulses, wash strongly inhibited below V~75, longest ring in plate and bell, subtler high-force brightness motion.
 - OP5 remains brief at all V so the ringing body does not drag the initial stick click.
 
+## Shortened natural tail audition
+- Crash: maximum primary/secondary operator volume-envelope tail is **3.0 seconds**; the master also reaches zero at 3.0 seconds (previously up to 3.35 seconds for an operator and 3.7 seconds for the master).
+- Heavy ride: maximum primary/secondary operator volume-envelope tail is **5.0 seconds**; the master also reaches zero at 5.0 seconds (previously up to 7.4 seconds for an operator and 7.9 seconds for the master).
+- Existing early impact and bloom volume-envelope nodes through **0.6 seconds (crash)** and **1.5 seconds (ride)** remain unchanged. Later volume-envelope node times are compressed while their values are retained; the master applies a brief natural final fade.
+- Both pads in the seven-pad test kit use the same revised patches. Re-import the updated individual patches or kit to audition these durations; existing imported projects are not updated automatically.
+- B/V/M response, operator pitch envelopes, waveform morphs, evolving filter, oscillator textures and the native engine are all unchanged. The five other test-kit pads remain unchanged.
+
 ## Audition plan
 Test both patches at **M=0 edge, M=50 bow, M=100 bell**. At each position, tap **V=10, 30, 50, 75, 90, 100**.
 1. Compare the very soft *tink/ping* against the original approved factory sounds.
