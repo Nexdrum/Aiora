@@ -45,13 +45,57 @@ jobs:
             -o /tmp/aiora-native-limit-regression
           /tmp/aiora-native-limit-regression
 
-      - name: Native cymbal B/V/M audio fingerprint and performance baseline
+      - name: A/B original v3 vs optimized B/V/M audio and CPU benchmark
         run: |
+          set -euo pipefail
+          # Compile the original v3 engine separately, without altering the branch.
+          git fetch --no-tags --depth=1 origin d3b303a7f01458ce15a18bc105f8cbc040c751c0
+          BASE=/tmp/aiora-dsp-baseline
+          git worktree add --detach "$BASE" d3b303a7f01458ce15a18bc105f8cbc040c751c0
+          cp tests/native_cymbal_cpu_benchmark.cpp "$BASE/tests/native_cymbal_cpu_benchmark.cpp"
+          g++ -std=c++20 -O3 -pthread -I"$BASE/app/src/main/cpp" \
+            "$BASE/tests/native_cymbal_cpu_benchmark.cpp" \
+            "$BASE/app/src/main/cpp/"{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,ProjectStorage.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
+            -o /tmp/aiora-benchmark-baseline
+          /tmp/aiora-benchmark-baseline | tee /tmp/aiora-benchmark-original.txt
+          # Compile the current optimized engine with the same flags and sound data.
           g++ -std=c++20 -O3 -pthread -Iapp/src/main/cpp \
             tests/native_cymbal_cpu_benchmark.cpp \
             app/src/main/cpp/{ProjectCore.cpp,ProjectPlayback.cpp,ProjectCodec.cpp,ProjectStorage.cpp,FactoryPresets.cpp,NexdrumKit.cpp,SpectrachordVoice.cpp,FxProcessor.cpp,SongExport.cpp} \
-            -o /tmp/aiora-native-cymbal-benchmark
-          /tmp/aiora-native-cymbal-benchmark
+            -o /tmp/aiora-benchmark-optimized
+          /tmp/aiora-benchmark-optimized | tee /tmp/aiora-benchmark-optimized.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def cases(path):
+              result = {}
+              for line in Path(path).read_text().splitlines():
+                  if not line.startswith("DSP_BENCH "):
+                      continue
+                  m = re.fullmatch(
+                      r"DSP_BENCH ([\w-]+) voices=(\d+) frames=(\d+) hash=([0-9a-f]+) ms=([\d.]+) energy=([\d.eE+-]+)",
+                      line,
+                  )
+                  if not m:
+                      raise SystemExit("Unexpected benchmark output: " + line)
+                  name, voices, frames, fingerprint, milliseconds, energy = m.groups()
+                  result[name] = (voices, frames, fingerprint, float(milliseconds), float(energy))
+              return result
+          before = cases("/tmp/aiora-benchmark-original.txt")
+          after = cases("/tmp/aiora-benchmark-optimized.txt")
+          if not before or before.keys() != after.keys():
+              raise SystemExit("Incomplete reference/optimized benchmark cases")
+          mismatch = []
+          for name, b in before.items():
+              a = after[name]
+              delta = 100 * (b[3] - a[3]) / b[3] if b[3] else 0
+              print(f"{name}: baseline={b[3]:.3f}ms optimized={a[3]:.3f}ms speedup={delta:+.1f}%")
+              if (b[0], b[1], b[2]) != (a[0], a[1], a[2]):
+                  mismatch.append(f"{name}: {b[2]} != {a[2]}")
+          if mismatch:
+              raise SystemExit("Audio output differs from original v3:\n" + "\n".join(mismatch))
+          print("PASS: every sample fingerprint matches original v3 for all B/V/M and polyphony cases")
+          PY
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
