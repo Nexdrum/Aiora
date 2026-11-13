@@ -374,6 +374,7 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
         const auto& operatorPatch=patch_.ops[i];
         fixedSemitoneScale_[i]=std::pow(2.0f,operatorPatch.semitoneOffset/12.0f);
         fixedDetuneScale_[i]=std::pow(2.0f,operatorPatch.detuneCents/1200.0f);
+        fixedMorphRatio_[i]=std::clamp(operatorPatch.waveMorphRatio,0.125f,16.0f);
     }
     keyMapValue_=normalizedKeyMap(midi,patch.keyMapLow,patch.keyMapHigh);
     velocity_=clamp01(pressure);liveGain_=1.0f;active_=true;automation_=automation;
@@ -415,7 +416,21 @@ void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pr
         }
     }
     morphPhase_=phase_;
+    constantQShape_=-1;
     if(patch_.filter.evolving.configured){
+        // Two Q lanes with one unchanged shape do not require a per-sample
+        // time search for their *shape*. Their Q numeric values and every
+        // B/V/M expression route still update on every sample.
+        const auto& lanes=patch_.filter.evolving.lanes;
+        if(lanes[2].curve.count>0&&lanes[5].curve.count>0){
+            const auto candidate=lanes[2].shape[0];
+            bool same=true;
+            for(const int laneIndex:{2,5}){
+                for(size_t i=0;i<lanes[laneIndex].curve.count;++i)
+                    if(lanes[laneIndex].shape[i]!=candidate)same=false;
+            }
+            if(same)constantQShape_=static_cast<int>(candidate);
+        }
         for(int k=0;k<6;++k)
             filterTimeline_[k].reset(patch_.filter.evolving.lanes[k].curve,true);
         for(auto& b:evolvingFilterBiquads_)b.reset();
@@ -638,6 +653,7 @@ float SpectrachordVoice::render() noexcept {
     const float unison=clamp01(unisonSmoothed_);
     const int uniCount=unison>0.0001f?2:1;
     // A brief beater-driven membrane sweep settles at the unchanged note fundamental.
+    const float maxHz=sampleRate_*0.49f;
     float sum=0.0f;
     for(size_t i=0;i<6;++i){
         const auto&op=P.ops[i];if(!op.enabled)continue;
@@ -690,7 +706,6 @@ float SpectrachordVoice::render() noexcept {
         const float unboundedBase=
             (pitchEnv==0.0f?playedNoteHz():midiHz(baseMidi+pitchEnv))*
             op.ratio*semitoneScale;
-        const float maxHz=sampleRate_*0.49f;
         const float baseF=std::isfinite(unboundedBase)
             ?std::clamp(unboundedBase,0.001f,maxHz):maxHz;
         float opSum=0;
@@ -707,10 +722,10 @@ float SpectrachordVoice::render() noexcept {
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float& ph=phase_[i][u];
             float& altPhase=morphPhase_[i][u];
-            const float altRatio=std::clamp(op.waveMorphRatio,0.125f,16.0f);
+            const float altRatio=fixedMorphRatio_[i];
             const float altFrequency=std::clamp(f*altRatio,0.001f,maxHz);
             const Wave alternate=effectiveWaveMorph(op);
-            const auto secondaryParams=op.waveMorphConfigured?
+            const auto& secondaryParams=op.waveMorphConfigured?
                 op.textureMorph:op.texture;
             const bool secondaryPitched=op.waveMorphConfigured?
                 op.textureMorphPitched:op.texturePitched;
@@ -866,6 +881,9 @@ float SpectrachordVoice::render() noexcept {
         std::array<float,3> weights{};
         if(modCount[2]>0){
             for(int s=0;s<3;++s)weights[s]=qDirectWeights[s]/modCount[2];
+        }else if(constantQShape_>=0){
+            // Equivalent to evolvingShapeWeights on two constant-shape lanes.
+            weights[static_cast<size_t>(constantQShape_)]=1.0f;
         }else{
             const auto readQ=[&](int index){
                 const auto& lane=model.lanes[index];
