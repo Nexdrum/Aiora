@@ -67,6 +67,10 @@ private:
     int32_t id_{-1};
     uint64_t age_{0};
     float sampleRate_{48000.0f};
+    // Per-voice invariants. Dynamic B/V/M, pitch envelopes and filter controls
+    // still advance independently for every rendered sample.
+    std::array<float,6> fixedSemitoneScale_{},fixedDetuneScale_{};
+    float fourMsSmoothing_{0.0f},peakSmoothing_{0.0f};
     int midi_{62};
     float keyMapValue_{0}; // note-on key position; pitch bend does not change K
     float velocity_{0.8f};
