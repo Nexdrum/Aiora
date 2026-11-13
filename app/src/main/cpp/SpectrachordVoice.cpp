@@ -324,6 +324,15 @@ void SpectrachordVoice::prepare(float sr) noexcept {sampleRate_=std::max(8000.0f
 
 void SpectrachordVoice::start(int32_t id,const DspPatch& patch,int midi,float pressure,uint64_t gateSamples,float samplesPerStep,const VoiceAutomation& automation) noexcept {
     id_=id;patch_=patch;midi_=midi;
+    // Patch tuning and audio sample rate stay fixed for this voice. These
+    // expensive constants can be prepared once without caching live B/V/M.
+    fourMsSmoothing_=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+    peakSmoothing_=std::min(1.0f,1.0f/(sampleRate_*.004f));
+    for(size_t i=0;i<patch_.ops.size();++i){
+        const auto& operatorPatch=patch_.ops[i];
+        fixedSemitoneScale_[i]=std::pow(2.0f,operatorPatch.semitoneOffset/12.0f);
+        fixedDetuneScale_[i]=std::pow(2.0f,operatorPatch.detuneCents/1200.0f);
+    }
     keyMapValue_=normalizedKeyMap(midi,patch.keyMapLow,patch.keyMapHigh);
     velocity_=clamp01(pressure);liveGain_=1.0f;active_=true;automation_=automation;
     gateSamples_=gateSamples;autoRelease_=gateSamples>0;elapsedSamples_=0;samplesPerStep_=std::max(1.0f,samplesPerStep);
@@ -561,7 +570,7 @@ float SpectrachordVoice::render() noexcept {
     const bool dynamicUnison=P.unisonCurve.enabled&&P.unisonCurve.count>=2;
     const float unisonTarget=dynamicUnison?
         clamp01(unisonTimeline_.next(sampleRate_)):clamp01(fixedUnison_);
-    const float smoothing=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+    const float smoothing=fourMsSmoothing_;
     unisonSmoothed_+=(unisonTarget-unisonSmoothed_)*smoothing;
     const float baseMidi=static_cast<float>(midi_)+P.octave*12+bend;
     const float unison=clamp01(unisonSmoothed_);
@@ -611,7 +620,7 @@ float SpectrachordVoice::render() noexcept {
         const float pitchEnv=(primaryPitch+(secondaryPitch-primaryPitch)*pitchMorph)*pitchDepth;
         const float level=op.level*env*response;
         if(level<=0.000001f)continue;
-        const float semitoneScale=std::pow(2.0f,op.semitoneOffset/12.0f);
+        const float semitoneScale=fixedSemitoneScale_[i];
         // The former six-by-six FM cross-routing has been removed.
         // All operator phase evolution now follows its authored pitch curve.
         // Bend remains unrestricted except for physical oscillator limits.
@@ -623,7 +632,12 @@ float SpectrachordVoice::render() noexcept {
         for(int u=0;u<uniCount;++u){
             const float uniCents=u?unison*12:0;
             const float cents=op.detuneCents+uniCents+pitchLfoCents;
-            const float unboundedHz=baseF*std::pow(2.0f,cents/1200.0f);
+            // Voice 0 has no unison offset. With pitch LFO disabled its
+            // detune factor is fixed, regardless of real-time B/V/M movement.
+            // The dynamic path is unchanged for pitch-LFO or second-unison.
+            const float detuneFactor=(u==0&&P.lfo.target!=LfoTarget::Pitch)
+                ?fixedDetuneScale_[i]:std::pow(2.0f,cents/1200.0f);
+            const float unboundedHz=baseF*detuneFactor;
             const float f=std::isfinite(unboundedHz)
                 ?std::clamp(unboundedHz,0.001f,maxHz):maxHz;
             float& ph=phase_[i][u];
@@ -743,7 +757,7 @@ float SpectrachordVoice::render() noexcept {
         }else{
             // Four-millisecond coefficient motion avoids zipper noise when
             // M or a live pitch bend moves the resonant center.
-            const float t=std::min(1.0f,1.0f/(sampleRate_*.004f));
+            const float t=peakSmoothing_;
             peakCenterSmoothed_+=(targetCenter-peakCenterSmoothed_)*t;
             peakQSmoothed_+=(targetQ-peakQSmoothed_)*t;
             peakGainSmoothed_+=(targetGain-peakGainSmoothed_)*t;
@@ -802,7 +816,7 @@ float SpectrachordVoice::render() noexcept {
             for(int s=0;s<3;++s)
                 weights[s]=primary[s]*(1-morph)+alt[s]*morph;
         }
-        const float smoothing=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+        const float smoothing=fourMsSmoothing_;
         // Smoothing prevents live V/M jumps from clicking and also
         // brings dormant filter paths into transitions continuously.
         // Key Track owns the frequency destination, including its morph
@@ -883,7 +897,7 @@ float SpectrachordVoice::render() noexcept {
                 lowpass[i]=sum;
                 for(auto& b:slopeLowpasses_[i])lowpass[i]=b.process(lowpass[i]);
             }
-            const float gainSlew=1.0f-std::exp(-1.0f/(sampleRate_*.004f));
+            const float gainSlew=fourMsSmoothing_;
             for(int i=0;i<9;++i)
                 slopeGainSmoothed_[i]+=(slopeGainTarget_[i]-
                     slopeGainSmoothed_[i])*gainSlew;
