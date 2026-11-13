@@ -41,13 +41,16 @@ private:
         void noteOff() noexcept;
         float next(float sampleRate) noexcept;
     };
+    struct EvolvingFilterMath {
+        float amplitude{1.0f},cosine{1.0f},sine{0.0f};
+    };
     struct Biquad {
         float b0{1},b1{0},b2{0},a1{0},a2{0};
         float z1{0},z2{0};
         void reset() noexcept { z1=z2=0; }
         void configureLowpass(float freq,float q,float sr) noexcept;
         void configurePeak(float freq,float q,float gainDb,float sr) noexcept;
-        void configureEvolving(FilterShape shape,float freq,float qNorm,float gainDb,float sr) noexcept;
+        void configureEvolving(FilterShape shape,float qNorm,const EvolvingFilterMath& common) noexcept;
         float process(float x) noexcept;
     };
 
