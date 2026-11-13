@@ -41,15 +41,15 @@ DspCurve automation(std::initializer_list<DspCurvePoint> points) {
 VoiceAutomation expressiveAutomation() {
     VoiceAutomation a;
     // At 48k samples per step, one grid-step spans one second.
-    a.bend=automation({{0,0,.5f},{.24f,2.5f,.36f},{.7f,-1.75f,.65f},
+    a.bend=automation({{0,0,.5f},{.24f,2.5f,.36f,1.25f,true},{.7f,-1.75f,.65f},
                        {1.18f,.8f,.5f},{2.25f,-2.25f,.45f},
                        {4.0f,.6f,.5f},{7.0f,0,.5f}});
     a.velocity=automation({{0,.15f,.5f},{.16f,.98f,.6f},
-                           {.68f,.38f,.28f},{1.32f,.9f,.5f},
+                           {.68f,.38f,.28f,.52f,true},{1.32f,.9f,.5f},
                            {2.3f,.55f,.5f},{4.0f,.75f,.5f},
                            {7.0f,.3f,.5f}});
     a.mod=automation({{0,0,.5f},{.30f,.8f,.43f},
-                      {1.0f,.26f,.55f},{1.8f,1,.46f},
+                      {1.0f,.26f,.55f,.38f,true},{1.8f,1,.46f},
                       {3.1f,.36f,.5f},{5.4f,.72f,.5f},
                       {7.0f,.08f,.5f}});
     return a;
@@ -57,7 +57,7 @@ VoiceAutomation expressiveAutomation() {
 
 void renderCase(const char* name,const DspPatch& patch,
                 int midi,int voiceCount,int frames,int releaseFrame=-1,
-                bool automateExpression=true) {
+                bool automateExpression=true,bool liveUpdates=false) {
     const auto expression=automateExpression?expressiveAutomation():VoiceAutomation{};
     std::vector<SpectrachordVoice> voices(static_cast<size_t>(voiceCount));
     for(int i=0;i<voiceCount;++i) {
@@ -73,6 +73,12 @@ void renderCase(const char* name,const DspPatch& patch,
     const auto begin=std::chrono::steady_clock::now();
     for(int frame=0;frame<frames;++frame) {
         if(frame==releaseFrame)for(auto& voice:voices)voice.release();
+        // Exercise abrupt real-time B/V/M-independent live V and M changes.
+        if(liveUpdates&&frame%251==0){
+            const float v=.10f+.24f*static_cast<float>((frame/251)%4);
+            const float m=.03f+.14f*static_cast<float>((frame/251)%7);
+            for(auto& voice:voices)voice.setLiveExpression(v,m);
+        }
         float out=0;
         for(auto& voice:voices) out+=voice.render();
         if(!std::isfinite(out)) throw std::runtime_error("Non-finite output");
@@ -105,6 +111,7 @@ int main() {
         rideNoFilter.filter.evolving.configured=false;
         renderCase("ride-v3-no-filter",rideNoFilter,73,8,48000);
         renderCase("ride-v3-static-vm",r,73,8,48000,-1,false);
+        renderCase("ride-v3-live-expression",r,73,2,48000,-1,false,true);
         // Held input tests exact-bit V/M response cache reuse.
         DspPatch simple=toDspPatch(crash);
         renderCase("crash-v3-early-release",simple,80,1,48000,9000);
@@ -114,6 +121,7 @@ int main() {
         modulated.lfo.amount=.65f;
         modulated.lfo.rate=6.8f;
         modulated.unison=.37f;
+        modulated.unisonCurve=initialUnisonCurve(.37f);
         renderCase("crash-pitch-lfo-unison",toDspPatch(modulated),80,2,48000);
         // The shared played-note frequency is also used by keytrack and
         // the alternative pitched peak-EQ route.
