@@ -124,8 +124,11 @@ inline std::vector<CurvePoint> redrawPitchCurve(
     if(draw.size()<2||draw.back().step-draw.front().step<0.0001f)
         return note.bend;
     const float lo=draw.front().step,hi=draw.back().step;
+    // Scale the transition to the stroke: sub-grid notes should not be
+    // swallowed by a fixed 0.15-step crossfade.
+    const float fade=std::min(0.15f,std::max(0.0001f,(hi-lo)*0.20f));
     std::vector<float> extras{lo,hi,
-        lo+0.15f,hi-0.15f};
+        lo+fade,hi-fade};
     for(const auto& p:draw)extras.push_back(p.step);
     const auto times=expressionSampleTimes(note,0,extras);
     std::vector<RollDrawSample> samples;
@@ -142,9 +145,9 @@ inline std::vector<CurvePoint> redrawPitchCurve(
                 std::clamp((t-a.step)/(b.step-a.step),0.0f,1.0f):0.0f;
             const float drawn=a.value+(b.value-a.value)*f;
             const float enter=lo<=-0.5f+0.0001f?1.0f:
-                std::clamp((t-lo)/0.15f,0.0f,1.0f);
+                std::clamp((t-lo)/fade,0.0f,1.0f);
             const float leave=hi>=end-0.0001f?1.0f:
-                std::clamp((hi-t)/0.15f,0.0f,1.0f);
+                std::clamp((hi-t)/fade,0.0f,1.0f);
             const float w=std::min(
                 enter*enter*(3.0f-2.0f*enter),
                 leave*leave*(3.0f-2.0f*leave));

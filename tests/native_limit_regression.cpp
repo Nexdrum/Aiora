@@ -178,6 +178,16 @@ static void checkExpressionBrushAndRedraw(){
     assert(std::fabs(expressionCurveAt(redrawn,0,3.5f)-
         expressionCurveAt(originalPitch,0,3.5f))<0.035f);
 
+    // A redraw inside a sub-grid note still reaches its intended pitch.
+    // A fixed full-cell edge fade would nearly erase this articulation.
+    Note shortNote;
+    shortNote.lengthSteps=0.25f;
+    const auto shortRedraw=redrawPitchCurve(shortNote,{
+        {-0.44f,0.40f},{-0.38f,0.80f},{-0.31f,0.50f}});
+    assert(expressionCurveAt(shortRedraw,0,-0.38f)>0.50f);
+    assert(std::fabs(expressionCurveAt(shortRedraw,0,-0.50f))<0.03f);
+    assert(std::fabs(expressionCurveAt(shortRedraw,0,-0.25f))<0.03f);
+
     // A single-lane core update must not erase the other two curves.
     auto& core=ProjectCore::instance();
     core.reset();

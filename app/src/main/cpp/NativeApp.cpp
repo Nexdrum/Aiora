@@ -2821,8 +2821,11 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (const auto mode = state.ui.hitRollMode(x, y)) {
+        const bool leavingTool=state.ui.rollToolKind()>=0;
         finishPitchRedrawSelection(state);
-        const auto next=state.ui.rollToolKind()>=0?*mode:
+        if(leavingTool&&state.ui.rollNoteSelectionActive())
+            clearRollNoteSelection(state);
+        const auto next=leavingTool?*mode:
             state.ui.rollMode()==*mode?aiora::RollMode::Notes:*mode;
         if(next!=state.ui.rollMode())commitRollAverage(state);
         state.ui.setRollMode(next);
@@ -3995,6 +3998,12 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         }
                     }
                 }else if(g.kind==RollGestureKind::ToolStroke){
+                    // Capture the physical lift position too: Android does
+                    // not guarantee a final ACTION_MOVE before ACTION_UP.
+                    if(g.curveKind==0){
+                        if(g.moved)capturePitchRedrawPoint(state,x,y);
+                    }else captureBrushSegment(
+                        state,g.lastX,g.lastY,x,y);
                     finishRollExpressionToolStroke(state);
                 }else if(g.kind==RollGestureKind::Lasso){
                     const int track=
