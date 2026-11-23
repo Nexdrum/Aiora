@@ -177,7 +177,24 @@ public:
     void resetDrumRangeArm() noexcept { drumRangeArmed_ = false; }
     [[nodiscard]] bool drumRangeMode() const noexcept;
 
-    void setRollMode(RollMode mode) noexcept { rollMode_ = mode; }
+    void setRollMode(RollMode mode) noexcept {
+        rollMode_=mode;rollToolKind_=-1;
+    }
+    // -1: precision editing; 0: pitch redraw; 1/2: V/M brushes.
+    [[nodiscard]] int rollToolKind() const noexcept {return rollToolKind_;}
+    void toggleRollTool(int kind) noexcept {
+        if(kind<0||kind>2)return;
+        const bool wasActive=rollToolKind_==kind;
+        rollToolKind_=wasActive?-1:kind;
+        rollMode_=static_cast<RollMode>(kind+1);
+        rollSelectionTool_=RollSelectionTool::Pencil;
+    }
+    [[nodiscard]] int rollBrushPolarity() const noexcept {
+        return rollBrushPolarity_;
+    }
+    void setRollBrushPolarity(int direction) noexcept {
+        rollBrushPolarity_=direction<0?-1:1;
+    }
     void toggleTempoMode() noexcept { tempoMode_=!tempoMode_; }
     bool groupAverageAvailable() const noexcept {
         return page_==NativePage::Roll&&rollSelectionTool_==RollSelectionTool::Pencil&&
@@ -203,8 +220,11 @@ public:
         return kind>=0&&kind<3&&rollDrawModes_[static_cast<size_t>(kind)];
     }
     void toggleRollDrawMode(int kind) noexcept {
-        if(kind==0)rollDrawModes_[0]=!rollDrawModes_[0];
-        if(rollDrawModes_[0])rollMode_=RollMode::Notes;
+        if(kind==0){
+            rollDrawModes_[0]=!rollDrawModes_[0];
+            rollMode_=RollMode::Notes;
+            rollToolKind_=-1;
+        }
     }
     [[nodiscard]] bool anyRollDrawMode() const noexcept {
         return rollDrawModes_[0];
@@ -227,6 +247,16 @@ public:
         std::vector<RollDrawSample> velocity,
         std::vector<RollDrawSample> mod);
     void clearRollDrawPreview() noexcept;
+    void setPitchRedrawPreview(int track,int note,
+        std::vector<RollDrawSample> samples){
+        pitchRedrawPreviewTrack_=track;
+        pitchRedrawPreviewNote_=note;
+        pitchRedrawPreview_=std::move(samples);
+    }
+    void clearPitchRedrawPreview() noexcept {
+        pitchRedrawPreviewTrack_=-1;pitchRedrawPreviewNote_=-1;
+        pitchRedrawPreview_.clear();
+    }
 
 
     void setRollSelectionTool(RollSelectionTool tool) noexcept { rollSelectionTool_=tool; }
@@ -362,6 +392,10 @@ public:
     [[nodiscard]] std::optional<int> hitDrumKitTransfer(float x,float y) const noexcept;
     [[nodiscard]] std::optional<int> hitPadName(float x,float y) const noexcept;
     [[nodiscard]] std::optional<RollMode> hitRollMode(float x, float y) const noexcept;
+    [[nodiscard]] bool hitRollDrawToggle(float x,float y) const noexcept;
+    // 0: upper half, 1: lower half of the former Pencil/Lasso footprint.
+    [[nodiscard]] std::optional<int> hitRollToolControl(
+        float x,float y) const noexcept;
     [[nodiscard]] bool hitRollZoom(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollSelectionTool(float x,float y) const noexcept;
     [[nodiscard]] bool hitRollRangeScopeToggle(float x,float y) const noexcept;
@@ -507,12 +541,16 @@ private:
     bool drumControlChanged_{false};
 
     RollMode rollMode_{RollMode::Notes};
+    int rollToolKind_{-1};
+    int rollBrushPolarity_{1};
     std::array<bool,3> rollDrawModes_{};
     bool rollDrawPreviewActive_{false};
     bool rollDrawPreviewPaused_{false};
     int rollDrawPreviewMidi_{-1};
     float rollDrawPreviewStart_{0.0f};
     std::array<std::vector<RollDrawSample>,3> rollDrawPreview_{};
+    int pitchRedrawPreviewTrack_{-1},pitchRedrawPreviewNote_{-1};
+    std::vector<RollDrawSample> pitchRedrawPreview_{};
 
     RollSelectionTool rollSelectionTool_{RollSelectionTool::Pencil};
     bool rollMultiLasso_{false};

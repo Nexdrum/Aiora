@@ -11,6 +11,7 @@
 #include "RollTouchRouting.h"
 #include "RollNoteTiming.h"
 #include "RollCurveSimplify.h"
+#include "RollExpressionTools.h"
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -119,7 +120,88 @@ static void checkDrawSimplification(){
     assert(simplifyRollDrawCurve(untouched,3.5f,.009f,1.0f).empty());
 }
 
+
+static void checkExpressionBrushAndRedraw(){
+    Note note;
+    note.midi=64;
+    note.startStep=10.0f;
+    note.lengthSteps=8.0f;
+    // Include a shaped X and a subtle accent: the brush is additive
+    // and must not turn these into a flat or overwritten envelope.
+    note.velocity={
+        {-0.5f,0.50f,true},
+        {1.1f,0.62f,true,0.35f,0.56f,true},
+        {1.4f,0.48f,true},
+        {3.3f,0.71f,true},
+        {7.5f,0.52f,true}};
+    note.mod={{-0.5f,0.15f,true},{7.5f,0.15f,true}};
+    note.bend={{-0.5f,0.0f,true},{2.0f,0.19f,true},
+               {4.0f,-0.07f,true},{7.5f,0.0f,true}};
+    const auto before=note.velocity;
+    const std::vector<float> path{1.75f,1.85f,1.95f,2.05f,2.15f};
+    const auto elevated=brushExpressionCurve(note,1,path,1);
+    assert(!sameExpressionCurve(elevated,before));
+    assert(expressionCurveAt(elevated,1,1.95f)>
+        expressionCurveAt(before,1,1.95f)+0.045f);
+    // Neither a remote point nor the note's pitch or modulation changes.
+    assert(std::fabs(expressionCurveAt(elevated,1,6.0f)-
+        expressionCurveAt(before,1,6.0f))<0.005f);
+    assert(note.bend.size()==4u&&note.mod.size()==2u);
+    note.velocity=elevated;
+    const auto twice=brushExpressionCurve(note,1,path,1);
+    assert(expressionCurveAt(twice,1,1.95f)>
+        expressionCurveAt(elevated,1,1.95f)+0.043f);
+    note.velocity=twice;
+    const auto lowered=brushExpressionCurve(note,1,path,-1);
+    assert(expressionCurveAt(lowered,1,1.95f)<
+        expressionCurveAt(twice,1,1.95f)-0.043f);
+
+    // Saturation and a negative pass may never leave the 0..1 range.
+    note.mod={{-0.5f,0.99f,true},{7.5f,0.99f,true}};
+    const auto capped=brushExpressionCurve(note,2,{3.0f},1);
+    for(float x=2.5f;x<3.5f;x+=0.05f)
+        assert(expressionCurveAt(capped,2,x)<=1.00001f);
+
+    // Pitch Redraw changes only the traversed region and rejoins the old
+    // bend on both sides. Original note position and V/M remain intact.
+    const auto originalPitch=note.bend;
+    const std::vector<RollDrawSample> stroke{
+        {2.7f,0.4f},{3.0f,0.9f},{3.5f,0.6f}};
+    const auto redrawn=redrawPitchCurve(note,stroke);
+    assert(std::fabs(expressionCurveAt(redrawn,0,3.0f)-
+        expressionCurveAt(originalPitch,0,3.0f))>0.30f);
+    for(float x:{0.0f,1.0f,5.0f,7.0f})
+        assert(std::fabs(expressionCurveAt(redrawn,0,x)-
+            expressionCurveAt(originalPitch,0,x))<0.035f);
+    assert(std::fabs(expressionCurveAt(redrawn,0,2.7f)-
+        expressionCurveAt(originalPitch,0,2.7f))<0.035f);
+    assert(std::fabs(expressionCurveAt(redrawn,0,3.5f)-
+        expressionCurveAt(originalPitch,0,3.5f))<0.035f);
+
+    // A single-lane core update must not erase the other two curves.
+    auto& core=ProjectCore::instance();
+    core.reset();
+    const int track=core.addTrack(false);
+    const int index=core.addNote(track,note.midi,note.startStep,note.lengthSteps);
+    assert(track>=0&&index>=0);
+    assert(core.replaceNoteCurves(track,index,note.bend,note.velocity,note.mod));
+    assert(core.replaceNoteCurve(track,index,0,redrawn));
+    const auto saved=core.projectCopy().tracks[static_cast<size_t>(track)]
+        .notes[static_cast<size_t>(index)];
+    assert(saved.midi==note.midi&&saved.startStep==note.startStep);
+    assert(saved.lengthSteps==note.lengthSteps);
+    assert(sameExpressionCurve(saved.velocity,note.velocity));
+    assert(sameExpressionCurve(saved.mod,note.mod));
+    assert(sameExpressionCurve(saved.bend,redrawn));
+    assert(core.replaceNoteCurve(track,index,0,originalPitch)); // undo
+    assert(sameExpressionCurve(core.projectCopy().tracks[static_cast<size_t>(track)]
+        .notes[static_cast<size_t>(index)].bend,originalPitch));
+    assert(core.replaceNoteCurve(track,index,0,redrawn)); // redo
+    core.reset();
+}
+
 int main(){
+    checkExpressionBrushAndRedraw();
     // Additive note-light mixing: multiple pitches add channels rather than
     // averaging them, with clipping at maximum brightness.
     struct Light {float r,g,b;};

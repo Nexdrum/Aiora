@@ -103,6 +103,9 @@ public:
         const std::vector<CurvePoint>& bend,
         const std::vector<CurvePoint>& velocity,
         const std::vector<CurvePoint>& mod);
+    // Atomic lane-only replacement for expression brushes, redraw and history.
+    bool replaceNoteCurve(int trackIndex,int noteIndex,int curveKind,
+        const std::vector<CurvePoint>& points);
     bool deleteCurvePoint(int trackIndex, int noteIndex, int curveKind, int pointIndex);
     float lastStep() const;
     int playLengthSteps() const;

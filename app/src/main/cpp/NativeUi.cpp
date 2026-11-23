@@ -608,12 +608,12 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
 
     if(page_==NativePage::Roll){
         const float modeW=h*0.72f;
-        // Split the extra zoom button width across both track arrows.
-        // The track name field remains as wide as before.
+        // The new P button consumes track-selector width, not expression
+        // button width. Arrows and existing touch targets are preserved.
         const float arrowW=h-(modeW+gap)*0.5f;
         const float mainW=std::max(
-            90.0f,
-            content.w-arrowW*2.0f-modeW*6.0f-gap*8.0f);
+            65.0f,
+            content.w-arrowW*2.0f-modeW*7.0f-gap*9.0f);
         float x=content.x;
         if(part==0)return {x,content.y,arrowW,h};
         x+=arrowW+gap;
@@ -623,7 +623,7 @@ NativeUi::Rect NativeUi::trackSwitchRect(int part) const noexcept {
         x+=arrowW+gap;
         if(part==9)return {x,content.y,modeW,h};
         x+=modeW+gap;
-        if(part>=3&&part<=7)
+        if(part>=3&&part<=8)
             return {x+(part-3)*(modeW+gap),content.y,modeW,h};
         return {};
     }
@@ -1057,8 +1057,12 @@ NativeUi::Rect NativeUi::rollSelectionToolRect() const noexcept {
 }
 
 NativeUi::Rect NativeUi::rollModeRect(int index) const noexcept {
-    if(index<0||index>2)return {};
-    return trackSwitchRect(index+5);
+    // 0=old Pitch/draw/delete, 3=new P, 1=V, 2=M.
+    if(index==0)return trackSwitchRect(5);
+    if(index==3)return trackSwitchRect(6);
+    if(index==1)return trackSwitchRect(7);
+    if(index==2)return trackSwitchRect(8);
+    return {};
 }
 
 NativeUi::Rect NativeUi::rollGroupAutomationRect() const noexcept {
@@ -1915,7 +1919,11 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
     const float inset=std::max(2.0f,field.h*0.055f);
     fillRect({field.x+inset,field.y+inset,field.w-inset*2.0f,field.h-inset*2.0f},kRollBg);
     std::string label=std::to_string(track+1)+" "+project.trackName(track);
-    if(label.size()>24)label.resize(24);
+    const int maxChars=page_==NativePage::Roll?
+        std::clamp(static_cast<int>((field.w-field.h*1.04f)/
+            std::max(10.0f,field.h*0.24f)),3,24):24;
+    if(static_cast<int>(label.size())>maxChars)
+        label.resize(static_cast<size_t>(maxChars));
     ov.addText(
         label,
         field.x+field.h*0.28f,
@@ -1994,7 +2002,24 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
             rollNoteSelectionActive()&&rollSelectedTrack_==track;
         const auto tool=rollSelectionToolRect();
 
-        if(rangeSelected){
+        if(rollToolKind_>=0){
+            // Reuse Pencil/Lasso space without touching top-left stack cycle.
+            const Rect upper{tool.x,tool.y,tool.w,tool.h*0.5f};
+            const Rect lower{tool.x,tool.y+tool.h*0.5f,tool.w,tool.h*0.5f};
+            const bool brush=rollToolKind_!=0;
+            const bool plus=rollBrushPolarity_>0;
+            fillRect(upper,brush&&plus?kCyan:kButton);
+            fillRect(lower,brush&&!plus?kCyan:kButton);
+            const float scale=std::max(0.70f,tool.h/43.0f);
+            ov.addTextCentered(brush?"+":"UNDO",
+                {upper.x,upper.y,upper.w,upper.h},
+                brush?scale:scale*0.62f,
+                overlayColor(brush&&plus?kBg:kWhite));
+            ov.addTextCentered(brush?"-":"REDO",
+                {lower.x,lower.y,lower.w,lower.h},
+                brush?scale:scale*0.62f,
+                overlayColor(brush&&!plus?kBg:kWhite));
+        }else if(rangeSelected){
             fillRect(tool,rollRangeAllTracks_?kCyan:kButton);
             ov.addTextCentered(
                 rollRangeAllTracks_?"ALL":"1T",
@@ -2067,19 +2092,19 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
             }
         }
 
-        const RollMode modes[3]{RollMode::Bend,RollMode::Velocity,RollMode::Mod};
-        const bool lassoMode=
-            !rangeSelected&&
+        const bool lassoMode=!rangeSelected&&
             rollSelectionTool_==RollSelectionTool::Lasso;
-        for(int i=0;i<3;++i){
-            const auto rr=rollModeRect(i);
+        for(int i=0;i<4;++i){
+            const int index=i==0?0:i==1?3:i==2?1:2;
+            const auto rr=rollModeRect(index);
             const bool deleteButton=i==0&&(rangeSelected||noteSelected);
-            const bool disabled=lassoMode&&(i==1||i==2);
-            const bool active=
-                !deleteButton&&!disabled&&rollMode_==modes[i];
-            fillRect(
-                rr,
-                deleteButton?kRed:
+            const bool disabled=lassoMode&&(i==2||i==3);
+            const bool active=!deleteButton&&!disabled&&
+                (i==0?rollDrawMode(0):
+                 i==1?rollMode_==RollMode::Bend:
+                 i==2?rollMode_==RollMode::Velocity:
+                      rollMode_==RollMode::Mod);
+            fillRect(rr,deleteButton?kRed:
                 disabled?mix(kButton,kRollBg,0.58f):
                 active?kCyan:kButton);
             const auto col=overlayColor(
@@ -2090,21 +2115,17 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
                     const float x=rr.x+(rr.w-w)*0.5f;
                     const float y=rr.y+rr.h*0.37f;
                     ov.addRect({x,y,w,h},overlayColor(kWhite));
-                    ov.addLine(
-                        x-w*0.10f,y-h*0.16f,
+                    ov.addLine(x-w*0.10f,y-h*0.16f,
                         x+w*1.10f,y-h*0.16f,
-                        std::max(2.0f,rr.h*0.045f),
-                        overlayColor(kWhite));
-                    ov.addLine(
-                        x+w*0.30f,y-h*0.28f,
+                        std::max(2.0f,rr.h*0.045f),overlayColor(kWhite));
+                    ov.addLine(x+w*0.30f,y-h*0.28f,
                         x+w*0.70f,y-h*0.28f,
-                        std::max(2.0f,rr.h*0.045f),
-                        overlayColor(kWhite));
+                        std::max(2.0f,rr.h*0.045f),overlayColor(kWhite));
                 }else{
                     const float cx=rr.x+rr.w*0.5f,cy=rr.y+rr.h*0.5f;
                     float px=cx-rr.w*0.22f,py=cy;
-                    for(int s=1;s<=8;++s){
-                        const float u=static_cast<float>(s)/8.0f;
+                    for(int ss=1;ss<=8;++ss){
+                        const float u=static_cast<float>(ss)/8.0f;
                         const float x=cx-rr.w*0.22f+u*rr.w*0.44f;
                         const float y=cy+std::sin(u*6.28318530718f)*rr.h*0.13f;
                         ov.addLine(px,py,x,y,std::max(2.0f,rr.h*0.045f),col);
@@ -2112,28 +2133,23 @@ void NativeUi::drawTrackSwitchBar() const noexcept {
                     }
                 }
             }else{
-                ov.addTextCentered(i==1?"V":"M",{rr.x,rr.y,rr.w,rr.h},
+                ov.addTextCentered(i==1?"P":i==2?"V":"M",
+                    {rr.x,rr.y,rr.w,rr.h},
                     std::max(0.85f,rr.h/35.0f),col);
                 if(disabled){
                     const float pad=rr.w*0.22f;
-                    ov.addLine(
-                        rr.x+pad,rr.y+rr.h-pad,
+                    ov.addLine(rr.x+pad,rr.y+rr.h-pad,
                         rr.x+rr.w-pad,rr.y+pad,
                         std::max(2.0f,rr.h*0.045f),
                         overlayColor(kMuted,0.95f));
                 }
             }
         }
-        // The Bend, V and M buttons are in the track-switch strip above
-        // bodyContentRect().  Indicators drawn by drawRoll() were clipped out
-        // because that page only permits overlay geometry in its body.
-        // Draw the armed-state dots here before the body clip is applied.
-        for(int kind=0;kind<3;++kind){
-            if(!rollDrawMode(kind))continue;
-            const auto button=rollModeRect(kind);
+        // The blue free-draw state dot belongs only to the old Pitch button.
+        if(rollDrawMode(0)&&!(rangeSelected||noteSelected)){
+            const auto button=rollModeRect(0);
             const float cx=button.x+button.w-13.0f;
             const float cy=button.y+12.0f;
-            // Dark rim keeps the blue dot distinct from a cyan active button.
             ov.addFilledCircle(cx,cy,11.5f,overlayColor(kRollBg,0.98f));
             ov.addFilledCircle(cx,cy,8.0f,overlayColor(kCyan,1.0f));
         }
@@ -3964,6 +3980,27 @@ void NativeUi::drawRoll() const noexcept {
     }
 
 
+    if(pitchRedrawPreviewTrack_==track&&
+       pitchRedrawPreviewNote_>=0&&
+       track<static_cast<int>(projectSnapshot.tracks.size())&&
+       pitchRedrawPreviewNote_<static_cast<int>(
+           projectSnapshot.tracks[static_cast<size_t>(track)].notes.size())){
+        const auto& note=projectSnapshot.tracks[static_cast<size_t>(track)]
+            .notes[static_cast<size_t>(pitchRedrawPreviewNote_)];
+        float px=0.0f,py=0.0f;bool prev=false;
+        for(const auto& sample:pitchRedrawPreview_){
+            const float y=gridTop+
+                (note.startStep+sample.step+0.5f-stepOffset)*rowH;
+            if(y<gridTop||y>gridBottom){prev=false;continue;}
+            const float x=rollPitchX(columns,
+                static_cast<float>(note.midi)+sample.value,
+                pitchOffset,gridLeft,colW);
+            if(prev)rollOverlay.addLine(px,py,x,y,
+                std::max(3.0f,colW*0.070f),overlayColor(kCyan));
+            px=x;py=y;prev=true;
+        }
+    }
+
     // During recording the raw gesture traces are rendered directly.
     // They are not simplified or written to the project until completion.
     if(rollDrawPreviewActive_){
@@ -4660,17 +4697,25 @@ std::optional<int> NativeUi::hitPadName(float x,float y) const noexcept {
 
 std::optional<RollMode> NativeUi::hitRollMode(float x, float y) const noexcept {
     if(page_!=NativePage::Roll)return std::nullopt;
-    const RollMode modes[3]{RollMode::Bend,RollMode::Velocity,RollMode::Mod};
     const bool lassoMode=
         rollSelectionTool_==RollSelectionTool::Lasso&&
         !(rollSelectionActive_&&
           rollSelectionAnchorStep_!=rollSelectionEndStep_);
-    for(int i=0;i<3;++i){
-        if(i==0&&rollHasAnySelection())continue;
-        if(lassoMode&&(i==1||i==2))continue;
-        if(rollModeRect(i).contains(x,y))return modes[i];
-    }
+    if(rollModeRect(3).contains(x,y))return RollMode::Bend;
+    if(!lassoMode&&rollModeRect(1).contains(x,y))return RollMode::Velocity;
+    if(!lassoMode&&rollModeRect(2).contains(x,y))return RollMode::Mod;
     return std::nullopt;
+}
+bool NativeUi::hitRollDrawToggle(float x,float y) const noexcept {
+    return page_==NativePage::Roll&&!rollHasAnySelection()&&
+        rollModeRect(0).contains(x,y);
+}
+std::optional<int> NativeUi::hitRollToolControl(
+    float x,float y) const noexcept {
+    if(page_!=NativePage::Roll||rollToolKind_<0)return std::nullopt;
+    const auto r=rollSelectionToolRect();
+    if(!r.contains(x,y))return std::nullopt;
+    return y<r.y+r.h*0.5f?0:1;
 }
 
 bool NativeUi::hitRollTempoToggle(float x,float y) const noexcept {
@@ -4721,6 +4766,7 @@ bool NativeUi::hitRollZoom(float x,float y) const noexcept {
 
 bool NativeUi::hitRollSelectionTool(float x,float y) const noexcept {
     if(page_!=NativePage::Roll)return false;
+    if(rollToolKind_>=0)return rollSelectionToolRect().contains(x,y);
     if(rollSelectionActive_&&
        rollSelectionAnchorStep_!=rollSelectionEndStep_)return false;
     return rollSelectionToolRect().contains(x,y);

@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,6 +27,7 @@
 #include "RollTouchRouting.h"
 #include "RollNoteTiming.h"
 #include "RollCurveSimplify.h"
+#include "RollExpressionTools.h"
 #include "ProjectCore.h"
 #include "ProjectCodec.h"
 #include "ProjectStorage.h"
@@ -72,6 +74,7 @@ enum class RollGestureKind : uint8_t {
     Lasso,
     NoteEdit,
     AutomationEdit,
+    ToolStroke,
     GroupAutomation,
     TempoEdit
 };
@@ -130,6 +133,7 @@ struct RollGesture {
     float noteOriginalLength{1.0f};
 
     std::vector<int> groupIndices{};
+    std::vector<aiora::RollDrawSample> toolSamples{};
     int dragCellMidi{-1};
     int dragCellStep{-1};
     int groupAppliedMidiDelta{0};
@@ -160,6 +164,18 @@ struct ArmedExpression {
     float velocity{1.0f},mod{0.0f};
 };
 
+struct RollCurveChange {
+    int track{-1},note{-1},kind{-1},midi{-1};
+    float start{0.0f},length{0.0f};
+    std::vector<aiora::CurvePoint> before{},after{};
+};
+struct RollCurveTransaction {
+    std::vector<RollCurveChange> changes{};
+};
+struct RollBrushTarget {
+    int note{-1};
+    std::vector<float> touched{};
+};
 struct NativeState {
     android_app* app{};
     EGLDisplay display{EGL_NO_DISPLAY};
@@ -173,6 +189,12 @@ struct NativeState {
     RollGesture rollGesture{};
     RollDrawSession rollDraw{};
     ArmedExpression armedExpression{};
+    std::vector<RollCurveTransaction> rollUndo{},rollRedo{};
+    std::vector<RollBrushTarget> rollBrushTargets{};
+    int pitchRedrawTrack{-1},pitchRedrawNote{-1};
+    int pitchRedrawMidi{-1};
+    float pitchRedrawStart{0.0f},pitchRedrawLength{0.0f};
+    std::vector<aiora::CurvePoint> pitchRedrawBefore{};
     int32_t xyPointerId{-1};
     std::vector<RollClipboardTrack> rollClipboard{};
     bool rollClipboardAllTracks{false};
@@ -1325,6 +1347,76 @@ void clearRollNoteSelection(NativeState& state){
     resetRollGroupAutomation(state);
 }
 
+
+void pushRollExpressionHistory(NativeState& state,RollCurveTransaction edit){
+    if(edit.changes.empty())return;
+    state.rollUndo.push_back(std::move(edit));
+    if(state.rollUndo.size()>32u)state.rollUndo.erase(state.rollUndo.begin());
+    state.rollRedo.clear();
+}
+
+void finishPitchRedrawSelection(NativeState& state){
+    state.ui.clearPitchRedrawPreview();
+    if(state.pitchRedrawTrack<0||state.pitchRedrawNote<0)return;
+    const auto snapshot=aiora::ProjectCore::instance().projectCopy();
+    const int t=state.pitchRedrawTrack,n=state.pitchRedrawNote;
+    if(t>=0&&t<static_cast<int>(snapshot.tracks.size())&&
+       n>=0&&n<static_cast<int>(snapshot.tracks[static_cast<size_t>(t)].notes.size())){
+        const auto& note=snapshot.tracks[static_cast<size_t>(t)].notes[static_cast<size_t>(n)];
+        if(note.midi==state.pitchRedrawMidi&&
+           std::fabs(note.startStep-state.pitchRedrawStart)<0.0001f&&
+           std::fabs(note.lengthSteps-state.pitchRedrawLength)<0.0001f&&
+           !aiora::sameExpressionCurve(note.bend,state.pitchRedrawBefore)){
+            RollCurveTransaction transaction;
+            transaction.changes.push_back({
+                t,n,0,note.midi,note.startStep,note.lengthSteps,
+                state.pitchRedrawBefore,note.bend});
+            pushRollExpressionHistory(state,std::move(transaction));
+        }
+    }
+    state.pitchRedrawTrack=-1;state.pitchRedrawNote=-1;
+    state.pitchRedrawBefore.clear();
+}
+
+// Reject stale history when a structural edit, load or precision edit has
+// changed the note. A history replay never overwrites other expression lanes.
+bool applyRollExpressionHistory(NativeState& state,bool redo){
+    finishPitchRedrawSelection(state);
+    auto& from=redo?state.rollRedo:state.rollUndo;
+    auto& to=redo?state.rollUndo:state.rollRedo;
+    if(from.empty())return false;
+    const auto snapshot=aiora::ProjectCore::instance().projectCopy();
+    const auto& transaction=from.back();
+    for(const auto& change:transaction.changes){
+        if(change.track<0||change.track>=static_cast<int>(snapshot.tracks.size())){
+            from.clear();to.clear();return false;
+        }
+        const auto& notes=snapshot.tracks[static_cast<size_t>(change.track)].notes;
+        if(change.note<0||change.note>=static_cast<int>(notes.size())){
+            from.clear();to.clear();return false;
+        }
+        const auto& note=notes[static_cast<size_t>(change.note)];
+        if(note.midi!=change.midi||
+           std::fabs(note.startStep-change.start)>0.0001f||
+           std::fabs(note.lengthSteps-change.length)>0.0001f||
+           !aiora::sameExpressionCurve(
+               aiora::expressionLane(note,change.kind),
+               redo?change.before:change.after)){
+            from.clear();to.clear();return false;
+        }
+    }
+    for(const auto& change:transaction.changes)
+        aiora::ProjectCore::instance().replaceNoteCurve(
+            change.track,change.note,change.kind,
+            redo?change.after:change.before);
+    to.push_back(std::move(from.back()));
+    from.pop_back();
+    state.ui.clearRollNoteSelection();
+    aiora::AudioEngine::instance().syncProject();
+    scheduleAutosave(state,0);
+    return true;
+}
+
 int findGroupPointIndex(
     const GroupAutomationCurve& curve,float step,float value){
     int best=-1;
@@ -1480,12 +1572,28 @@ void serviceRollLongPress(NativeState& state){
     }
 
     if(g.kind==RollGestureKind::DrawModeButton){
-        if(g.curveKind==0)state.ui.toggleRollDrawMode(0);
-        g.longPressTriggered=g.curveKind==0;
+        if(g.curveKind>=0&&g.curveKind<=2){
+            finishPitchRedrawSelection(state);
+            resetRollGroupAutomation(state);
+            if(state.ui.rollNoteSelectionActive())
+                clearRollNoteSelection(state);
+            state.ui.toggleRollTool(g.curveKind);
+            g.longPressTriggered=true;
+        }
         return;
     }
 
     if(g.kind==RollGestureKind::SelectTool){
+        if(state.ui.rollToolKind()>=0){
+            if(const auto half=state.ui.hitRollToolControl(g.downX,g.downY)){
+                // In brushes, holding + redoes and holding - undoes.
+                // In pitch-redraw mode a tap already exposes Undo / Redo.
+                if(state.ui.rollToolKind()!=0)
+                    applyRollExpressionHistory(state,*half==0);
+                g.longPressTriggered=true;
+            }
+            return;
+        }
         if(state.ui.rollSelectionTool()==aiora::RollSelectionTool::Lasso){
             state.ui.toggleRollMultiLasso();
         }else{
@@ -1864,6 +1972,13 @@ void handleRollTap(NativeState& state, float x, float y, bool longPress) {
 }
 
 bool handleUiTap(NativeState& state, float x, float y) {
+    // Any toolbar/navigation action completes a pending pitch redraw.
+    // Tapping outside the highlighted note in the roll is also handled
+    // by the expression gesture router below.
+    if(state.pitchRedrawTrack>=0&&
+       state.ui.page()==aiora::NativePage::Roll&&
+       !state.ui.hitRollNoteArea(x,y))
+        finishPitchRedrawSelection(state);
     if(state.ui.scopeFullscreen()){
         if(!state.ui.scopeControlsVisible()){
             state.ui.toggleScopeControls();
@@ -2583,6 +2698,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if(state.ui.hitRollDelete(x,y)){
+        finishPitchRedrawSelection(state);
         int removed=0;
         if(state.ui.rollNoteSelectionActive()){
             const int selectionTrack=state.ui.rollSelectedTrack();
@@ -2613,6 +2729,12 @@ bool handleUiTap(NativeState& state, float x, float y) {
             audio.syncProject();
             scheduleAutosave(state,0);
         }
+        return true;
+    }
+
+    if(state.ui.hitRollDrawToggle(x,y)){
+        finishPitchRedrawSelection(state);
+        state.ui.toggleRollDrawMode(0);
         return true;
     }
 
@@ -2699,8 +2821,9 @@ bool handleUiTap(NativeState& state, float x, float y) {
     }
 
     if (const auto mode = state.ui.hitRollMode(x, y)) {
-        const auto next=state.ui.rollMode()==*mode
-            ?aiora::RollMode::Notes:*mode;
+        finishPitchRedrawSelection(state);
+        const auto next=state.ui.rollToolKind()>=0?*mode:
+            state.ui.rollMode()==*mode?aiora::RollMode::Notes:*mode;
         if(next!=state.ui.rollMode())commitRollAverage(state);
         state.ui.setRollMode(next);
         if(state.ui.rollNoteSelectionActive()&&
@@ -2965,10 +3088,157 @@ bool beginRollGroupAutomationGesture(
     return true;
 }
 
+
+void capturePitchRedrawPoint(NativeState& state,float x,float y){
+    auto& g=state.rollGesture;
+    float time=0.0f,value=0.0f;
+    if(!state.ui.rollAutomationPosition(
+        x,y,g.noteIndex,0,true,time,value))return;
+    if(!g.toolSamples.empty()&&
+       std::fabs(g.toolSamples.back().step-time)<0.00001f&&
+       std::fabs(g.toolSamples.back().value-value)<0.00001f)return;
+    g.toolSamples.push_back({time,value});
+    state.ui.setPitchRedrawPreview(g.track,g.noteIndex,g.toolSamples);
+}
+
+void captureBrushSegment(NativeState& state,
+    float x0,float y0,float x1,float y1){
+    auto& project=aiora::ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return;
+    const float length=std::hypot(x1-x0,y1-y0);
+    const int steps=std::clamp(static_cast<int>(std::ceil(length/
+        std::max(8.0f,state.ui.rollCellPixels()*0.20f))),1,96);
+    for(int i=0;i<=steps;++i){
+        const float f=static_cast<float>(i)/static_cast<float>(steps);
+        const float x=x0+(x1-x0)*f,y=y0+(y1-y0)*f;
+        const auto hit=state.ui.hitRollNote(x,y);
+        if(!hit)continue;
+        auto it=std::find_if(state.rollBrushTargets.begin(),
+            state.rollBrushTargets.end(),
+            [index=hit->noteIndex](const RollBrushTarget& target){
+                return target.note==index;
+            });
+        if(it==state.rollBrushTargets.end()){
+            state.rollBrushTargets.push_back({hit->noteIndex,{}});
+            it=std::prev(state.rollBrushTargets.end());
+        }
+        const float time=state.ui.rollDrawRelativeStep(
+            y,project.noteStart(track,hit->noteIndex));
+        const float end=project.noteLength(track,hit->noteIndex)-0.5f;
+        const float clamped=std::clamp(time,-0.5f,std::max(-0.5f,end));
+        if(it->touched.empty()||
+           std::fabs(it->touched.back()-clamped)>0.001f)
+            it->touched.push_back(clamped);
+    }
+}
+
+void beginRollExpressionToolGesture(NativeState& state,
+    int32_t pointerId,float x,float y,int64_t timeMs){
+    const int kind=state.ui.rollToolKind();
+    auto& project=aiora::ProjectCore::instance();
+    const int track=project.selectedTrack();
+    if(track<0)return;
+    const auto hit=state.ui.hitRollNote(x,y);
+    if(kind==0){
+        if(state.ui.rollNoteSelectionActive()){
+            const auto& selected=state.ui.rollSelectedNotes();
+            if(!hit||state.ui.rollSelectedTrack()!=track||
+               selected.size()!=1u||selected.front()!=hit->noteIndex){
+                // Tapping OUTSIDE the highlighted note commits and deselects.
+                finishPitchRedrawSelection(state);
+                clearRollNoteSelection(state);
+                return;
+            }
+        }else{
+            if(!hit)return;
+            const auto snapshot=project.projectCopy();
+            if(track>=static_cast<int>(snapshot.tracks.size())||
+               hit->noteIndex>=static_cast<int>(
+                   snapshot.tracks[static_cast<size_t>(track)].notes.size()))
+                return;
+            const auto& note=snapshot.tracks[static_cast<size_t>(track)]
+                .notes[static_cast<size_t>(hit->noteIndex)];
+            state.ui.setRollNoteSelection(track,{hit->noteIndex});
+            state.pitchRedrawTrack=track;
+            state.pitchRedrawNote=hit->noteIndex;
+            state.pitchRedrawMidi=note.midi;
+            state.pitchRedrawStart=note.startStep;
+            state.pitchRedrawLength=note.lengthSteps;
+            state.pitchRedrawBefore=note.bend;
+            return;
+        }
+        beginRollGesture(state,pointerId,x,y,timeMs,
+            RollGestureKind::ToolStroke);
+        auto& g=state.rollGesture;
+        g.track=track;g.noteIndex=hit->noteIndex;g.curveKind=0;
+        capturePitchRedrawPoint(state,x,y);
+        return;
+    }
+    if(kind==1||kind==2){
+        beginRollGesture(state,pointerId,x,y,timeMs,
+            RollGestureKind::ToolStroke);
+        state.rollGesture.track=track;
+        state.rollGesture.curveKind=kind;
+        state.rollBrushTargets.clear();
+        captureBrushSegment(state,x,y,x,y);
+    }
+}
+
+void finishRollExpressionToolStroke(NativeState& state){
+    auto& g=state.rollGesture;
+    if(g.curveKind==0){
+        state.ui.clearPitchRedrawPreview();
+        if(!g.moved||g.toolSamples.size()<2u)return;
+        const auto snapshot=aiora::ProjectCore::instance().projectCopy();
+        if(g.track<0||g.track>=static_cast<int>(snapshot.tracks.size())||
+           g.noteIndex<0||g.noteIndex>=static_cast<int>(
+               snapshot.tracks[static_cast<size_t>(g.track)].notes.size()))
+            return;
+        const auto& note=snapshot.tracks[static_cast<size_t>(g.track)]
+            .notes[static_cast<size_t>(g.noteIndex)];
+        const auto changed=aiora::redrawPitchCurve(note,g.toolSamples);
+        if(!aiora::sameExpressionCurve(note.bend,changed)&&
+           aiora::ProjectCore::instance().replaceNoteCurve(
+               g.track,g.noteIndex,0,changed)){
+            aiora::AudioEngine::instance().syncProject();
+            scheduleAutosave(state,0);
+        }
+        return;
+    }
+    if(g.curveKind!=1&&g.curveKind!=2)return;
+    const auto snapshot=aiora::ProjectCore::instance().projectCopy();
+    RollCurveTransaction transaction;
+    if(g.track>=0&&g.track<static_cast<int>(snapshot.tracks.size())){
+        const auto& notes=snapshot.tracks[static_cast<size_t>(g.track)].notes;
+        for(const auto& target:state.rollBrushTargets){
+            if(target.note<0||target.note>=static_cast<int>(notes.size())||
+               target.touched.empty())continue;
+            const auto& note=notes[static_cast<size_t>(target.note)];
+            const auto& original=aiora::expressionLane(note,g.curveKind);
+            const auto changed=aiora::brushExpressionCurve(
+                note,g.curveKind,target.touched,state.ui.rollBrushPolarity());
+            if(aiora::sameExpressionCurve(original,changed))continue;
+            transaction.changes.push_back({
+                g.track,target.note,g.curveKind,
+                note.midi,note.startStep,note.lengthSteps,original,changed});
+        }
+    }
+    state.rollBrushTargets.clear();
+    if(transaction.changes.empty())return;
+    for(const auto& change:transaction.changes)
+        aiora::ProjectCore::instance().replaceNoteCurve(
+            change.track,change.note,change.kind,change.after);
+    pushRollExpressionHistory(state,std::move(transaction));
+    aiora::AudioEngine::instance().syncProject();
+    scheduleAutosave(state,0);
+}
+
 void moveRollGesture(NativeState& state, float x, float y) {
     auto& g = state.rollGesture;
     if (g.pointerId < 0) return;
 
+    const float oldX=g.lastX,oldY=g.lastY;
     const float dx = x - g.lastX;
     const float dy = y - g.lastY;
     g.lastX = x;
@@ -2979,7 +3249,9 @@ void moveRollGesture(NativeState& state, float x, float y) {
     const float dragThreshold=
         g.kind==RollGestureKind::NoteEdit&&state.ui.rollFreeTiming()
             ?3.0f:8.0f;
-    if (!g.moved && std::hypot(totalDx,totalDy)>dragThreshold) g.moved=true;
+    if (!g.moved && std::hypot(totalDx,totalDy)>
+        (g.kind==RollGestureKind::ToolStroke?2.5f:dragThreshold))
+        g.moved=true;
 
     const float threshold = std::max(16.0f, state.ui.rollCellPixels() * 0.72f);
 
@@ -3021,6 +3293,14 @@ void moveRollGesture(NativeState& state, float x, float y) {
                 g.tempoIndex=i;
                 break;
             }
+        }
+        return;
+    }
+    if(g.kind==RollGestureKind::ToolStroke){
+        if(g.curveKind==0){
+            if(g.moved)capturePitchRedrawPoint(state,x,y);
+        }else{
+            captureBrushSegment(state,oldX,oldY,x,y);
         }
         return;
     }
@@ -3412,6 +3692,11 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                         state.rollGesture.noteIndex=hit->noteIndex;
                         return 1;
                     }
+                    if(state.ui.rollToolKind()>=0){
+                        beginRollExpressionToolGesture(
+                            state,pointerId,x,y,timeMs);
+                        return 1;
+                    }
                     if(!state.ui.rollSelectionActive()&&
                        state.ui.rollSelectionTool()==
                            aiora::RollSelectionTool::Lasso){
@@ -3680,7 +3965,16 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     if(!g.moved)
                         state.ui.endRollStackCycle(true);
                 }else if(g.kind==RollGestureKind::SelectTool){
-                    if(!g.moved&&!g.longPressTriggered){
+                    if(!g.moved&&!g.longPressTriggered&&
+                       state.ui.rollToolKind()>=0){
+                        if(const auto half=state.ui.hitRollToolControl(
+                            g.downX,g.downY)){
+                            if(state.ui.rollToolKind()==0)
+                                applyRollExpressionHistory(state,*half==1);
+                            else state.ui.setRollBrushPolarity(
+                                *half==0?1:-1);
+                        }
+                    }else if(!g.moved&&!g.longPressTriggered){
                         state.ui.toggleRollSelectionTool();
                         if(state.ui.rollSelectionTool()==
                                aiora::RollSelectionTool::Lasso){
@@ -3700,6 +3994,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                             state.ui.clearRollGroupAutomation();
                         }
                     }
+                }else if(g.kind==RollGestureKind::ToolStroke){
+                    finishRollExpressionToolStroke(state);
                 }else if(g.kind==RollGestureKind::Lasso){
                     const int track=
                         aiora::ProjectCore::instance().selectedTrack();
@@ -3800,6 +4096,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
 
         case AMOTION_EVENT_ACTION_CANCEL:
             if(state.rollDraw.active)finishRollDraw(state);
+            state.ui.clearPitchRedrawPreview();
+            state.rollBrushTargets.clear();
+            finishPitchRedrawSelection(state);
             if(state.trackControlPointerId>=0){
                 const bool changed=state.ui.trackPointerUp();
                 state.trackControlPointerId=-1;
