@@ -37,6 +37,13 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
+      - name: Physical instrument prototype regression
+        run: |
+          g++ -std=c++20 -O2 -Iapp/src/main/cpp \
+            tests/physical_instrument_prototype.cpp \
+            -o /tmp/aiora-physical-instrument-test
+          /tmp/aiora-physical-instrument-test
+
       - name: Native project-limit regression tests
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
