@@ -8,7 +8,7 @@
 #include <mutex>
 #include "SpscQueue.h"
 #include "SpectrachordVoice.h"
-#include "PhysicalInstrumentVoice.h"
+#include "MaterialTimeVoice.h"
 #include "FxProcessor.h"
 #include "PlaybackSnapshot.h"
 
@@ -71,7 +71,7 @@ private:
     };
     struct VoiceSlot {
         SpectrachordVoice voice{};
-        physical::PhysicalInstrumentVoice physicalVoice{};
+        physical::MaterialTimeVoice physicalVoice{};
         bool physicalMode{false};
         int32_t physicalId{-1};
         uint64_t physicalSamples{0}, physicalGateSamples{0};
