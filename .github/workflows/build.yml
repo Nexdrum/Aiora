@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -135,6 +135,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-debug
+          name: Aiora-FlowLab-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
