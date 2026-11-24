@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".physicalflow"
-            versionNameSuffix = "-flow-lab"
+            applicationIdSuffix = ".materialflow"
+            versionNameSuffix = "-material-time-v3"
         }
     }
 
