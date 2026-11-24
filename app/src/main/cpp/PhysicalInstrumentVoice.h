@@ -77,6 +77,7 @@ public:
         released_ = false;
         active_ = true;
         samplesRendered_ = 0;
+        releasedAt_ = 0;
         bridgeFilter_ = 0.0f;
         rHead_ = 0;
         lHead_ = 0;
@@ -131,7 +132,9 @@ public:
         e2Target_ = clamp01(e2);
     }
 
-    void release() noexcept { released_ = true; }
+    void release() noexcept {
+        if(!released_){released_ = true;releasedAt_=samplesRendered_;}
+    }
     void stop() noexcept { active_ = false; }
     [[nodiscard]] bool active() const noexcept { return active_; }
     [[nodiscard]] float targetFrequency() const noexcept { return targetFrequencyHz_; }
@@ -189,6 +192,10 @@ public:
             radiated += next;
         }
         ++samplesRendered_;
+        // Reclaim released voices after their damped acoustic tail. Without
+        // this, long sessions would accumulate permanently active voices.
+        if(released_ && samplesRendered_-releasedAt_ >
+            static_cast<uint64_t>(sampleRate_*2.75f))stop();
         const float output = 0.8f * radiated + 0.028f * bridgeForce;
         if (!std::isfinite(output)) { stop(); return 0.0f; }
         // Safety limiter protects downstream buffers if model is over-driven.
@@ -248,7 +255,7 @@ private:
     std::array<float, kMaxStringCells> right_{}, left_{};
     std::array<Mode, kBodyModes> modes_{};
     int rHead_{0}, lHead_{0}, cells_{100}, strikeIndex_{20}, hammerSamples_{50};
-    uint64_t samplesRendered_{0};
+    uint64_t samplesRendered_{0}, releasedAt_{0};
     bool active_{false}, released_{false};
 };
 
