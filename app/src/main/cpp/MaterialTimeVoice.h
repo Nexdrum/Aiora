@@ -44,8 +44,14 @@ public:
             nodes_[i].node=graph_.nodes[static_cast<size_t>(i)];
             nodes_[i].randomSeed=0x713f9a35u+static_cast<uint32_t>(i)*0x3c6ef35fu;
         }
-        std::stable_sort(nodeOrder_.begin(),nodeOrder_.begin()+nodeCount_,
-            [&](int a,int b){return nodes_[a].node.y<nodes_[b].node.y;});
+        // Insertion sort avoids allocation on the real-time note-on path.
+        for(int i=1;i<nodeCount_;++i){
+            const int key=nodeOrder_[i];int j=i;
+            while(j>0&&nodes_[nodeOrder_[j-1]].node.y>nodes_[key].node.y){
+                nodeOrder_[j]=nodeOrder_[j-1];--j;
+            }
+            nodeOrder_[j]=key;
+        }
         for(int i=0;i<graph_.linkCount&&edgeCount_<kMaxFlowLinks;++i){
             const auto raw=graph_.links[static_cast<size_t>(i)];
             if(raw.from>=nodeCount_||raw.to>=nodeCount_||
