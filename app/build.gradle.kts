@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".materialflow"
-            versionNameSuffix = "-material-time-v3"
+            applicationIdSuffix = ".materialcontact"
+            versionNameSuffix = "-contact-fix-v3"
         }
     }
 
