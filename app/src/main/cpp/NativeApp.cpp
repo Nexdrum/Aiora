@@ -2092,6 +2092,8 @@ bool handleUiTap(NativeState& state, float x, float y) {
                         aiora::kAvailableFxTypes[static_cast<size_t>(choice->option)]);
                 return true;
 
+            case aiora::DropdownKind::PhysicalMaterial:
+            case aiora::DropdownKind::PhysicalGeometry:
             case aiora::DropdownKind::FxType:
             case aiora::DropdownKind::Wave:
             case aiora::DropdownKind::Texture:
@@ -2105,11 +2107,19 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
 
         if(changed){
-            audio.syncProject();
-            scheduleAutosave(state,0);
-            if(state.ui.page()==aiora::NativePage::Synth||
-               state.ui.page()==aiora::NativePage::Fx)
+            const bool physicalChoice=choice->kind==aiora::DropdownKind::PhysicalMaterial||
+                choice->kind==aiora::DropdownKind::PhysicalGeometry;
+            if(physicalChoice){
+                // Physical Lab is a session-only experiment: no project edits.
+                aiora::NativeEditor::instance().syncPhysicalBinding();
                 previewEditorPatch(state);
+            }else{
+                audio.syncProject();
+                scheduleAutosave(state,0);
+                if(state.ui.page()==aiora::NativePage::Synth||
+                   state.ui.page()==aiora::NativePage::Fx)
+                    previewEditorPatch(state);
+            }
         }
         return true;
     }
