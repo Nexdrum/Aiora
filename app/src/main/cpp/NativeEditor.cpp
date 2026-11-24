@@ -1,5 +1,6 @@
 #include "NativeEditor.h"
 #include "NativeOverlay.h"
+#include "AudioEngine.h"
 
 #include <GLES3/gl3.h>
 
@@ -23,6 +24,7 @@ constexpr NativeEditor::Rgb kCyan{0.0f,0.80f,0.80f};
 constexpr NativeEditor::Rgb kOrange{1.0f,0.6667f,0.0f};
 constexpr NativeEditor::Rgb kPurple{0.788f,0.557f,1.0f};
 constexpr NativeEditor::Rgb kGreen{0.23f,0.92f,0.45f};
+constexpr NativeEditor::Rgb kSteel{0.50f,0.72f,0.84f};
 constexpr NativeEditor::Rgb kRed{0.95f,0.18f,0.18f};
 constexpr NativeEditor::Rgb kWhite{0.91f,0.925f,0.945f};
 int64_t kineticClockMs() noexcept {
@@ -157,12 +159,188 @@ NativeEditor::Rect NativeEditor::synthTabRect(int index) const noexcept {
     const auto b=bodyRect();
     const float gap=std::clamp(b.w*0.014f,9.0f,13.0f);
     const float h=66.0f;
-    const float w=(b.w-gap*4.0f)/3.0f;
+    const float w=(b.w-gap*5.0f)/4.0f;
     return {
         b.x+gap+index*(w+gap),
         b.y+gap,
         w,h
     };
+}
+
+NativeEditor::Rect NativeEditor::physicalControlRect(int index) const noexcept {
+    const auto b=bodyRect(), tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    const float contentY=tab.y+tab.h+gap;
+    const float y=contentY+111.0f-physicalScrollY_;
+    const float inset=13.0f;
+    const float innerW=std::max(0.0f,b.w-inset*2.0f);
+    if(index<6){
+        const float splitGap=10.0f;
+        const float w=std::max(1.0f,(innerW-splitGap)*.5f);
+        return {b.x+inset+(index%2)*(w+splitGap),
+                y+(index/2)*77.0f,w,69.0f};
+    }
+    return {b.x+inset,y+3*77.0f+(index-6)*75.0f,
+        innerW,68.0f};
+}
+
+void NativeEditor::syncPhysicalBinding() noexcept {
+    const auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    const int target=(synthWorkspace_==3&&track>=0&&!project.trackIsDrums(track))
+        ?track:-1;
+    if(target==physicalConfiguredTrack_&&!physicalDirty_)return;
+    // Session-only: no project or patch mutation, no preset migration.
+    AudioEngine::instance().setPhysicalExperiment(target,physicalBlueprint_);
+    physicalConfiguredTrack_=target;
+    physicalDirty_=false;
+}
+
+bool NativeEditor::editPhysical(int index,float x,bool initial) noexcept {
+    using physical::Material;
+    using physical::Geometry;
+    using physical::Excitation;
+    auto cycle=[&](auto& field,const auto& values){
+        for(size_t i=0;i<values.size();++i){
+            if(field==values[i]){
+                field=values[(i+1)%values.size()];
+                return;
+            }
+        }
+        field=values[0];
+    };
+    switch(index){
+    case 0: if(initial)cycle(physicalBlueprint_.stringMaterial,
+        std::array{Material::Steel,Material::Nylon,Material::Bronze,Material::Glass,Material::Ceramic});
+        break;
+    case 1: if(initial)physicalBlueprint_.excitation=
+        physicalBlueprint_.excitation==Excitation::Pluck?Excitation::Hammer:Excitation::Pluck;
+        break;
+    case 2: if(initial)cycle(physicalBlueprint_.exciterMaterial,
+        std::array{Material::Nylon,Material::Wood,Material::Felt,Material::Steel,Material::Rubber});
+        break;
+    case 3: if(initial)cycle(physicalBlueprint_.bodyMaterial,
+        std::array{Material::Wood,Material::Bronze,Material::Glass,Material::Ceramic});
+        break;
+    case 4: if(initial)cycle(physicalBlueprint_.bodyGeometry,
+        std::array{Geometry::HollowBox,Geometry::HollowCylinder,Geometry::Plate,Geometry::Bell});
+        break;
+    case 5: if(initial)cycle(physicalBlueprint_.damperMaterial,
+        std::array{Material::Felt,Material::Rubber,Material::Wood});
+        break;
+    default:{
+        const auto rect=physicalControlRect(index);
+        const float t=std::clamp((x-(rect.x+14.0f))/
+            std::max(1.0f,rect.w-28.0f),0.0f,1.0f);
+        switch(index){
+        case 6: physicalBlueprint_.tensionNewtons=20.0f+280.0f*t;break;
+        case 7: physicalBlueprint_.stringDiameterMm=0.20f+1.20f*t;break;
+        case 8: physicalBlueprint_.excitationPosition=0.06f+0.88f*t;break;
+        case 9: physicalBlueprint_.hammerHardness=0.05f+0.95f*t;break;
+        case 10:physicalBlueprint_.bodySize=0.40f+1.80f*t;break;
+        case 11:physicalBlueprint_.bridgeCoupling=0.05f+0.95f*t;break;
+        case 12:physicalBlueprint_.damperStrength=0.10f+1.90f*t;break;
+        case 13:physicalBlueprint_.damperBasePosition=0.01f+0.17f*t;break;
+        default:return false;
+        }
+        break;
+    }
+    }
+    physicalDirty_=true;
+    return true;
+}
+
+void NativeEditor::drawPhysical() const noexcept {
+    using physical::Material;
+    using physical::Geometry;
+    using physical::Excitation;
+    auto materialName=[](Material m)->const char*{
+        switch(m){
+            case Material::Steel:return "Steel";
+            case Material::Nylon:return "Nylon";
+            case Material::Bronze:return "Bronze";
+            case Material::Wood:return "Wood";
+            case Material::Glass:return "Glass";
+            case Material::Ceramic:return "Ceramic";
+            case Material::Rubber:return "Rubber";
+            case Material::Felt:return "Felt";
+        }
+        return "Material";
+    };
+    const auto b=bodyRect(),tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
+    const Rect region{b.x,tab.y+tab.h+gap,b.w,
+        std::max(0.0f,b.y+b.h-(tab.y+tab.h+gap))};
+    auto& ov=NativeOverlay::instance();
+    ov.setClip({region.x,region.y,region.w,region.h});
+    const float hy=region.y+15.0f-physicalScrollY_;
+    ov.addRect({region.x+13,hy,region.w-26,85.0f},
+        overlayColor(kRollBg));
+    ov.addText("PHYSICAL INSTRUMENT / ONE-NOTE MECHANISM",
+        region.x+26,hy+9,.96f,overlayColor(kCyan));
+    ov.addText("Exciter  >  Vibrating string  >  Bridge  >  Body",
+        region.x+26,hy+34,.84f,overlayColor(kWhite));
+    ov.addText("V = impact strength    M = movable soft-contact mute",
+        region.x+26,hy+60,.79f,overlayColor(kMuted));
+    const char* labels[]={
+        "STRING MATERIAL","EXCITATION","IMPACT MATERIAL",
+        "BODY MATERIAL","BODY SHAPE","DAMPER MATERIAL",
+        "STRING TENSION","STRING THICKNESS","IMPACT POSITION",
+        "HAMMER HARDNESS","BODY SIZE","BRIDGE COUPLING",
+        "M CONTACT FORCE","M CONTACT LOCATION"
+    };
+    for(int i=0;i<14;++i){
+        const Rect rr=physicalControlRect(i);
+        if(rr.y+rr.h<region.y||rr.y>region.y+region.h)continue;
+        ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(kButton));
+        ov.addText(labels[i],rr.x+11,rr.y+7,.76f,overlayColor(kMuted));
+        if(i<6){
+            const char* val="";
+            switch(i){
+            case 0:val=materialName(physicalBlueprint_.stringMaterial);break;
+            case 1:val=physicalBlueprint_.excitation==Excitation::Pluck?"Pluck":"Hammer";break;
+            case 2:val=materialName(physicalBlueprint_.exciterMaterial);break;
+            case 3:val=materialName(physicalBlueprint_.bodyMaterial);break;
+            case 4:switch(physicalBlueprint_.bodyGeometry){
+                case Geometry::HollowBox:val="Hollow box";break;
+                case Geometry::HollowCylinder:val="Cylinder";break;
+                case Geometry::Plate:val="Plate";break;
+                case Geometry::Bell:val="Bell";break;
+                }break;
+            case 5:val=materialName(physicalBlueprint_.damperMaterial);break;
+            }
+            ov.addTextCentered(val,{rr.x+5,rr.y+31,rr.w-10,31},
+                .99f,overlayColor(kWhite));
+        }else{
+            float t=0.0f;
+            char value[48]{};
+            switch(i){
+            case 6:t=(physicalBlueprint_.tensionNewtons-20.0f)/280.0f;
+                std::snprintf(value,sizeof(value),"%.0f N",physicalBlueprint_.tensionNewtons);break;
+            case 7:t=(physicalBlueprint_.stringDiameterMm-.20f)/1.20f;
+                std::snprintf(value,sizeof(value),"%.2f mm",physicalBlueprint_.stringDiameterMm);break;
+            case 8:t=(physicalBlueprint_.excitationPosition-.06f)/.88f;
+                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.excitationPosition*100);break;
+            case 9:t=(physicalBlueprint_.hammerHardness-.05f)/.95f;
+                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.hammerHardness*100);break;
+            case 10:t=(physicalBlueprint_.bodySize-.40f)/1.80f;
+                std::snprintf(value,sizeof(value),"%.2fx",physicalBlueprint_.bodySize);break;
+            case 11:t=(physicalBlueprint_.bridgeCoupling-.05f)/.95f;
+                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.bridgeCoupling*100);break;
+            case 12:t=(physicalBlueprint_.damperStrength-.10f)/1.90f;
+                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.damperStrength*50);break;
+            case 13:t=(physicalBlueprint_.damperBasePosition-.01f)/.17f;
+                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.damperBasePosition*100);break;
+            }
+            ov.addText(value,rr.x+rr.w-120,rr.y+7,.83f,overlayColor(kWhite));
+            t=std::clamp(t,0.0f,1.0f);
+            const float bx=rr.x+14,bw=rr.w-28;
+            ov.addRect({bx,rr.y+47,bw,9},overlayColor(kRollBg));
+            ov.addRect({bx,rr.y+47,bw*t,9},overlayColor(kCyan));
+            ov.addRect({bx+bw*t-3,rr.y+39,6,25},overlayColor(kWhite));
+        }
+    }
+    ov.clearClip();
 }
 
 NativeEditor::Rect NativeEditor::operatorCardRect(int index) const noexcept {
@@ -348,7 +526,12 @@ float NativeEditor::denormalized(float value,Range r) noexcept {
 }
 float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     const auto b=bodyRect();
-    if(page==EditorPage::Synth)return 0.0f;
+    if(page==EditorPage::Synth){
+        if(synthWorkspace_!=3)return 0.0f;
+        const auto tab=synthTabRect(0);
+        const float usable=b.y+b.h-tab.y-tab.h-std::clamp(b.w*.014f,9.0f,13.0f);
+        return std::max(0.0f,111.0f+3*77.0f+8*75.0f+15.0f-usable);
+    }
 
     if(page==EditorPage::Fx){
         const auto rack=fxRackRect();
@@ -2321,6 +2504,8 @@ void NativeEditor::renderSynth() const noexcept {
     }else if(synthWorkspace_==1){
         filterSurface.view=surface;
         filterSurface.draw();
+    }else if(synthWorkspace_==3){
+        drawPhysical();
     }else{
         const float subH=55.0f;
         const Rect editor{surface.x,surface.y+subH+gap,
@@ -2347,15 +2532,15 @@ void NativeEditor::renderSynth() const noexcept {
     // Fixed page tabs above each editor; never share the FM layout.
     ov.addRect({b.x,b.y,b.w,std::max(0.0f,top-b.y)},
                overlayColor(kPanel));
-    static constexpr const char* tabs[3]={"Operators","Filter","Amp"};
-    for(int i=0;i<3;++i){
+    static constexpr const char* tabs[4]={"Operators","Filter","Amp","Instrument"};
+    for(int i=0;i<4;++i){
         const auto r=synthTabRect(i);
         const bool selected=i==synthWorkspace_;
         ov.addRect({r.x,r.y,r.w,r.h},
-            overlayColor(selected?i==1?kCyan:i==2?kPurple:kGreen:kButton));
+            overlayColor(selected?i==1?kCyan:i==2?kPurple:i==3?kSteel:kGreen:kButton));
         ov.addRect({r.x+3,r.y+3,r.w-6,r.h-6},
-            overlayColor(selected?mix(kPanel,i==2?kPurple:kCyan,.34f):kPanel));
-        ov.addTextCentered(tabs[i],{r.x,r.y,r.w,r.h},.96f,
+            overlayColor(selected?mix(kPanel,i==2?kPurple:i==3?kSteel:kCyan,.34f):kPanel));
+        ov.addTextCentered(tabs[i],{r.x,r.y,r.w,r.h},.86f,
             overlayColor(kWhite));
     }
 }
@@ -2551,7 +2736,7 @@ std::optional<int> NativeEditor::hitOperatorSemitone(float x,float y) const noex
 }
 
 std::optional<NativeEditor::Hit> NativeEditor::hitSynth(float x,float y) const noexcept {
-    for(int i=0;i<2;++i){
+    for(int i=0;i<4;++i){
         const auto rr=synthTabRect(i);
         if(rr.contains(x,y))
             return Hit{HitKind::SynthTab,i,-1,rr};
@@ -2665,8 +2850,11 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             fxRackExpanded_=project.fxRack(false,fxDrumMasterActive()).count-1;
             return true;
         }
+        case HitKind::PhysicalControl:
+            return editPhysical(hit.a,x,false);
         case HitKind::SynthTab:
-            synthWorkspace_=std::clamp(hit.a,0,2);
+            synthWorkspace_=std::clamp(hit.a,0,3);
+            physicalDirty_=true;
             return false;
 
         case HitKind::OperatorSelect:
@@ -2799,9 +2987,10 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     const Rect surface{b.x,surfaceTop,b.w,
         std::max(0.0f,b.y+b.h-surfaceTop)};
     if(page==EditorPage::Synth){
-        for(int i=0;i<3;++i){
+        for(int i=0;i<4;++i){
             if(synthTabRect(i).contains(x,y)){
                 synthWorkspace_=i;
+                physicalDirty_=true;
                 return true;
             }
         }
@@ -2824,6 +3013,15 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
             if(filterSurface.down(x,y)){
                 activeHit_=Hit{HitKind::FilterEditor,-1,-1,{}};
                 return true;
+            }
+        }else if(synthWorkspace_==3){
+            for(int i=0;i<14;++i){
+                const Rect rr=physicalControlRect(i);
+                if(rr.contains(x,y)){
+                    activeHit_=Hit{HitKind::PhysicalControl,i,-1,rr};
+                    changed_=editPhysical(i,x,true)||changed_;
+                    return true;
+                }
             }
         }else{
             for(int i=0;i<2;++i){
@@ -2875,6 +3073,11 @@ bool NativeEditor::applyKineticScrollDelta(float delta) noexcept {
                 opSurface.scrollBy(delta);
                 return old!=opSurface.harmonicScroll[opSurface.op][i];
             }
+        }else if(synthWorkspace_==3){
+            const float old=physicalScrollY_;
+            physicalScrollY_=std::clamp(physicalScrollY_+delta,
+                0.0f,editorScrollMax(EditorPage::Synth));
+            return old!=physicalScrollY_;
         }else if(synthWorkspace_==1){
             const float old=filterSurface.scroll;
             filterSurface.scrollBy(delta);
@@ -2922,6 +3125,7 @@ bool NativeEditor::pointerMove(float x,float y){
         ampModSurface.move(x,y);return true;
     }
     switch(activeHit_->kind){
+        case HitKind::PhysicalControl:
         case HitKind::OperatorParam:
         case HitKind::Harmonic:
         case HitKind::Matrix:
