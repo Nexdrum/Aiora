@@ -74,7 +74,7 @@ int NativeEditor::flowPropertyCount() const noexcept {
     case physical::FlowKind::AirColumn:return 5;
     case physical::FlowKind::Body:return 6;
     case physical::FlowKind::Bridge:return 2;
-    case physical::FlowKind::Damper:return 3;
+    case physical::FlowKind::Damper:return 4;
     case physical::FlowKind::Output:return 0;
     }
     return 0;
@@ -114,8 +114,8 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
         return i>=0&&i<2?l[i]:"";
     }
     case FlowKind::Damper:{
-        constexpr const char* l[]={"CONTACT MATERIAL","CONTACT POSITION","M PRESSURE"};
-        return i>=0&&i<3?l[i]:"";
+        constexpr const char* l[]={"CONTACT MATERIAL","CONTACT POSITION","M DEPTH","REST PRESSURE"};
+        return i>=0&&i<4?l[i]:"";
     }
     case FlowKind::Output:return "";
     }
@@ -129,9 +129,21 @@ bool NativeEditor::flowAction(int index) noexcept {
         FlowKind::AirColumn,FlowKind::Body,FlowKind::Bridge,FlowKind::Damper
     };
     if(index>=0&&index<static_cast<int>(types.size())){
+        // Selecting a vibrating object and tapping +TOUCH physically attaches
+        // a contact to it. No sound-path rewiring or bypass deletion needed.
+        const int source=flowSelectedNode_;
+        const bool attach=index==7&&source>=0&&source<g.nodeCount&&
+            physical::vibrates(g.nodes[static_cast<size_t>(source)].kind);
         const int id=g.addNode(types[static_cast<size_t>(index)]);
         if(id<0)return false;
-        flowSelectedNode_=id;flowError_=false;physicalDirty_=true;return true;
+        if(attach){
+            auto& touch=g.nodes[static_cast<size_t>(id)];
+            const auto& vibrator=g.nodes[static_cast<size_t>(source)];
+            touch.y=std::clamp(vibrator.y+.14f,.10f,.90f);
+            touch.x=std::clamp(vibrator.x+.24f,.04f,.95f);
+            if(!g.connect(source,id))flowError_=true;
+        }
+        flowSelectedNode_=id;physicalDirty_=true;return true;
     }
     if(index==8||index==9){
         const int m=index==8?1:2;
@@ -225,7 +237,8 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
     case FlowKind::Damper:
         if(i==0)return false;
         if(i==1)n.position=.01f+.98f*t;
-        else n.coupling=.02f+.98f*t;
+        else if(i==2)n.coupling=.02f+.98f*t;
+        else n.restPressure=t;
         break;
     case FlowKind::Output:return false;
     }
@@ -301,6 +314,7 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
     case FlowKind::Damper:
         if(i==1){f.position=(n.position-.01f)/.98f;fmt("%.0f%%",n.position*100.f);}
         else if(i==2){f.position=(n.coupling-.02f)/.98f;fmt("%.0f%%",n.coupling*100.f);}
+        else if(i==3){f.position=n.restPressure;fmt("%.0f%%",n.restPressure*100.f);}
         break;
     case FlowKind::Output:break;
     }
@@ -318,7 +332,7 @@ void NativeEditor::drawPhysical() const noexcept {
     ov.addRect({b.x+12.f,top+7.f,b.w-24.f,48.f},overlayColor(kRollBg));
     ov.addText("INSTRUMENT FLOW   /   TOP = EARLIER  |  BOTTOM = LATER",
         b.x+20.f,top+15.f,.88f,overlayColor(kCyan));
-    ov.addText("V: excitation   M: contact pressure   Drag objects vertically to change timing",
+    ov.addText("Select vibrating object +TOUCH to attach; M lane moves pressure",
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
     constexpr const char* templates[]={"STRING","DRUM","PLATE","BAR","AIR","BELL","EMPTY"};
     for(int i=0;i<7;++i){
@@ -396,6 +410,9 @@ void NativeEditor::drawPhysical() const noexcept {
     ov.addRect({canvas.x,titleY,canvas.w,49.f},overlayColor(kPanel));
     ov.addText(chosen?physical::flowKindName(chosen->kind):"SELECT OBJECT",
         canvas.x+12.f,titleY+12.f,.99f,overlayColor(kCyan));
+    if(chosen&&chosen->kind==physical::FlowKind::Damper)
+        ov.addText("REST makes contact audible; M increases pressure",
+            canvas.x+120.f,titleY+17.f,.66f,overlayColor(kMuted));
     for(int i=0;i<flowPropertyCount();++i){
         const auto rr=flowPropertyRect(i);
         if(rr.y+rr.h<clip.y||rr.y>clip.y+clip.h)continue;
