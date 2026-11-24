@@ -8,12 +8,12 @@
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:label="AIORA"
+        android:label="AIORA Physical Lab"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:extractNativeLibs="false">
         <activity
-            android:name=".AioraActivity"
+            android:name="com.nexdrum.aiora.AioraActivity"
             android:exported="true"
             android:screenOrientation="unspecified"
             android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|uiMode">
