@@ -75,7 +75,7 @@ private:
 
     enum class HitKind : uint8_t {
         None,
-        PhysicalNode, PhysicalAction, PhysicalProperty, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
+        PhysicalNode, PhysicalAction, PhysicalProperty, PhysicalTime, PhysicalTemplate, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
         FxGroup, FilterOpen, FilterEditor, UnisonEditor, AmpModEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
@@ -99,6 +99,10 @@ private:
     [[nodiscard]] Rect factoryPresetRect(int index) const noexcept;
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
     [[nodiscard]] Rect flowCanvasRect() const noexcept;
+    [[nodiscard]] Rect flowTemplateRect(int index) const noexcept;
+    [[nodiscard]] Rect flowTimeRect() const noexcept;
+    bool flowTemplate(int index) noexcept;
+    bool editFlowTime(float x) noexcept;
     [[nodiscard]] Rect flowActionRect(int index) const noexcept;
     [[nodiscard]] Rect flowNodeRect(int index) const noexcept;
     [[nodiscard]] Rect flowPropertyRect(int index) const noexcept;
@@ -161,6 +165,7 @@ private:
     physical::Blueprint physicalBlueprint_{};
     int physicalConfiguredTrack_{-2};
     bool physicalDirty_{true};
+    bool flowError_{false};
     float physicalScrollY_{0.0f};
     int flowSelectedNode_{3};
     int flowLinkMode_{0}; // 0 idle, 1 connect, 2 disconnect
