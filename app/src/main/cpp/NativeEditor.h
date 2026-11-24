@@ -8,6 +8,7 @@
 #include "ProjectCore.h"
 #include "NativeUi.h"
 #include "KineticScroll.h"
+#include "PhysicalInstrumentVoice.h"
 
 namespace aiora {
 
@@ -34,6 +35,8 @@ public:
         viewport_={x,y,std::max(0.0f,w),std::max(0.0f,h)};
     }
     void renderSynth() const noexcept;
+    // Called on UI thread each Synth frame; only sends a new config on change.
+    void syncPhysicalBinding() noexcept;
     void renderFx() const noexcept;
 
     bool pointerDown(EditorPage page, float x, float y);
@@ -71,7 +74,7 @@ private:
 
     enum class HitKind : uint8_t {
         None,
-        SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
+        PhysicalControl, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
         FxGroup, FilterOpen, FilterEditor, UnisonEditor, AmpModEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
@@ -94,6 +97,9 @@ private:
 
     [[nodiscard]] Rect factoryPresetRect(int index) const noexcept;
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
+    [[nodiscard]] Rect physicalControlRect(int index) const noexcept;
+    void drawPhysical() const noexcept;
+    bool editPhysical(int index,float x,bool initial) noexcept;
     [[nodiscard]] Rect operatorCardRect(int index) const noexcept;
     [[nodiscard]] Rect operatorWaveFieldRect(int op) const noexcept;
     [[nodiscard]] Rect operatorCardParamRect(int op,int param) const noexcept;
@@ -143,7 +149,11 @@ private:
     int safeBottom_{0};
     Rect viewport_{};
     int selectedOperator_{0};
-    int synthWorkspace_{0}; // Operators / Filter / Amp
+    int synthWorkspace_{0}; // Operators / Filter / Amp / Instrument prototype
+    physical::Blueprint physicalBlueprint_{};
+    int physicalConfiguredTrack_{-2};
+    bool physicalDirty_{true};
+    float physicalScrollY_{0.0f};
     int ampSubtab_{0};      // Envelope / Mod
     int fxGroup_{0};
     int fxRackExpanded_{-1};
