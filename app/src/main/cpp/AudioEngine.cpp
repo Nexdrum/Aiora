@@ -405,7 +405,9 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
                 ++slot.physicalSamples;
             }
             // Matches an instrument-level source without a synth oscillator.
-            sample=slot.physicalVoice.render()*0.32f;
+            // Physical body modes are peak-normalized; match the preview path's
+            // existing 0.165 attenuation without increasing resonant Q gain.
+            sample=slot.physicalVoice.render()*(slot.transport?1.0f:6.0f);
         }else{
             sample=slot.voice.render();
         }
