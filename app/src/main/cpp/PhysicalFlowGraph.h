@@ -127,6 +127,7 @@ struct FlowNode {
     float tensionNewtons{80.f};
     float diameterMm{.50f};
     float hardness{.70f};
+    float restPressure{0.f}; // static physical contact even when M is zero
 };
 struct FlowLink { uint8_t from{0},to{0}; };
 struct FlowGraph {
