@@ -1,4 +1,16 @@
 // Included inside namespace aiora in NativeEditor.cpp.
+void NativeEditor::syncPhysicalBinding() noexcept {
+    const auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    const int target=(synthWorkspace_==3&&track>=0&&!project.trackIsDrums(track))
+        ?track:-1;
+    if(target==physicalConfiguredTrack_&&!physicalDirty_)return;
+    // Keep the physical graph isolated from saved Spectrachord patches.
+    AudioEngine::instance().setPhysicalExperiment(target,physicalBlueprint_);
+    physicalConfiguredTrack_=target;
+    physicalDirty_=false;
+}
+
 // Fixed-capacity physical graph editor. UI positions are presentation only;
 // sound is compiled from actual typed connection edges in the audio voice.
 
