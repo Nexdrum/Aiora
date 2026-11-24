@@ -3884,9 +3884,14 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 const bool changed=aiora::NativeEditor::instance().pointerUp();
                 state.editorPointerId=-1;
                 if(changed){
+                    // Session-only physical changes must reach the audio thread
+                    // before the audition note, but do not change saved patches.
+                    aiora::NativeEditor::instance().syncPhysicalBinding();
                     previewEditorPatch(state);
-                    scheduleAutosave(state);
-                    aiora::AudioEngine::instance().syncProject();
+                    if(!aiora::NativeEditor::instance().physicalEditorActive()){
+                        scheduleAutosave(state);
+                        aiora::AudioEngine::instance().syncProject();
+                    }
                 }
                 return 1;
             }
