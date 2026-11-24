@@ -18,7 +18,6 @@ std::pair<float,float> panGain(float gain,float pan) noexcept {
     const float angle=(p+1.0f)*kPi*0.25f;
     return {gain*std::cos(angle),gain*std::sin(angle)};
 }
-}
 // Interpolate the same per-note lane curves used by Spectrachord.
 // The physical engine interprets V as excitation and M as live contact.
 float physicalLaneAt(const DspCurve& curve,float step,float fallback) noexcept {
