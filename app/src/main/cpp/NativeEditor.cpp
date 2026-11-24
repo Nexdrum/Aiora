@@ -356,8 +356,8 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
         if(synthWorkspace_!=3)return 0.0f;
         const auto tab=synthTabRect(0);
         const float usable=b.y+b.h-tab.y-tab.h-std::clamp(b.w*.014f,9.0f,13.0f);
-        // Canvas (150+432), selected heading (76), up to six controls.
-        return std::max(0.0f,150.f+432.f+76.f+6*76.f+16.f-usable);
+        // Templates, controls, audible timeline, node canvas and properties.
+        return std::max(0.0f,273.f+614.f+70.f+6*73.f+20.f-usable);
     }
 
     if(page==EditorPage::Fx){
@@ -2471,13 +2471,20 @@ bool NativeEditor::openDropdownAt(
                 std::move(names));
             return true;
         }
-        if(node.kind==physical::FlowKind::Body&&
+        if((node.kind==physical::FlowKind::Body||
+            node.kind==physical::FlowKind::AirColumn)&&
            flowPropertyRect(1).contains(x,y)){
             std::vector<std::string> names;
-            for(const auto* name:physical::kGeometryNames)names.emplace_back(name);
+            int selected=0;
+            if(node.kind==physical::FlowKind::AirColumn){
+                names={"Open tube","Closed tube"};
+                selected=node.geometry==physical::Geometry::HollowCylinder?1:0;
+            }else{
+                for(const auto* name:physical::kGeometryNames)names.emplace_back(name);
+                selected=static_cast<int>(node.geometry);
+            }
             ui.openDropdown(DropdownKind::PhysicalGeometry,flowSelectedNode_,
-                anchor(flowPropertyRect(1)),static_cast<int>(node.geometry),
-                std::move(names));
+                anchor(flowPropertyRect(1)),selected,std::move(names));
             return true;
         }
         return false;
@@ -2533,9 +2540,16 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
                    node.kind==physical::FlowKind::Output)return false;
                 node.material=static_cast<physical::Material>(choice.option);
             }else{
-                if(choice.option<0||choice.option>=static_cast<int>(physical::Geometry::Count)||
-                   node.kind!=physical::FlowKind::Body)return false;
-                node.geometry=static_cast<physical::Geometry>(choice.option);
+                if(node.kind==physical::FlowKind::AirColumn){
+                    if(choice.option<0||choice.option>1)return false;
+                    node.geometry=choice.option==1?
+                        physical::Geometry::HollowCylinder:physical::Geometry::Tube;
+                }else{
+                    if(choice.option<0||
+                       choice.option>=static_cast<int>(physical::Geometry::Count)||
+                       node.kind!=physical::FlowKind::Body)return false;
+                    node.geometry=static_cast<physical::Geometry>(choice.option);
+                }
             }
             physicalDirty_=true;
             return true;
@@ -2883,13 +2897,27 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                 return true;
             }
         }else if(synthWorkspace_==3){
-            for(int i=0;i<5;++i){
+            for(int i=0;i<7;++i){
+                const Rect rr=flowTemplateRect(i);
+                if(rr.contains(x,y)){
+                    changed_=flowTemplate(i)||changed_;
+                    activeHit_=Hit{HitKind::PhysicalTemplate,i,-1,rr};
+                    return true;
+                }
+            }
+            for(int i=0;i<12;++i){
                 const Rect rr=flowActionRect(i);
                 if(rr.contains(x,y)){
                     changed_=flowAction(i)||changed_;
                     activeHit_=Hit{HitKind::PhysicalAction,i,-1,rr};
                     return true;
                 }
+            }
+            const auto timeRect=flowTimeRect();
+            if(timeRect.contains(x,y)){
+                changed_=editFlowTime(x)||changed_;
+                activeHit_=Hit{HitKind::PhysicalTime,0,-1,timeRect};
+                return true;
             }
             const auto graphRect=flowCanvasRect();
             if(graphRect.contains(x,y)){
@@ -3018,16 +3046,21 @@ bool NativeEditor::pointerMove(float x,float y){
         case HitKind::PhysicalNode:{
             const int i=activeHit_->a;
             if(i>=0&&i<physicalBlueprint_.graph.nodeCount){
-                auto& node=physicalBlueprint_.graph.nodes[static_cast<size_t>(i)];
                 const Rect canvas=flowCanvasRect();
                 const Rect rr=flowNodeRect(i);
-                const float roomX=std::max(1.f,canvas.w-rr.w-22.f);
-                const float roomY=std::max(1.f,canvas.h-rr.h-26.f);
-                node.x=std::clamp((x-rr.w*.5f-canvas.x-11.f)/roomX,0.f,1.f);
-                node.y=std::clamp((y-rr.h*.5f-canvas.y-13.f)/roomY,0.f,1.f);
+                const float roomX=std::max(1.f,canvas.w-rr.w-24.f);
+                const float roomY=std::max(1.f,canvas.h-rr.h-24.f);
+                const float nx=(x-rr.w*.5f-canvas.x-12.f)/roomX;
+                const float ny=(y-rr.h*.5f-canvas.y-12.f)/roomY;
+                if(physicalBlueprint_.graph.moveNode(i,nx,ny)){
+                    physicalDirty_=true;changed_=true;
+                }
             }
             return true;
         }
+        case HitKind::PhysicalTime:
+            changed_=editFlowTime(x)||changed_;
+            return true;
         case HitKind::PhysicalProperty:
             changed_=editFlowProperty(activeHit_->a,x,false)||changed_;
             return true;
