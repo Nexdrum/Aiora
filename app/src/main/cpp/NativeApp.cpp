@@ -3888,7 +3888,8 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                     // before the audition note, but do not change saved patches.
                     aiora::NativeEditor::instance().syncPhysicalBinding();
                     previewEditorPatch(state);
-                    if(!aiora::NativeEditor::instance().physicalEditorActive()){
+                    if(state.ui.page()!=aiora::NativePage::Synth ||
+                       !aiora::NativeEditor::instance().physicalEditorActive()){
                         scheduleAutosave(state);
                         aiora::AudioEngine::instance().syncProject();
                     }
