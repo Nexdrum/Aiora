@@ -7,56 +7,14 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include "PhysicalFlowGraph.h"
 
 namespace aiora::physical {
 
 constexpr float kPi = 3.14159265358979323846f;
 constexpr int kMaxStringCells = 2048;
 constexpr int kBodyModes = 6;
-
-enum class Material : uint8_t { Steel, Nylon, Bronze, Wood, Glass, Ceramic, Rubber, Felt };
-enum class Geometry : uint8_t { HollowBox, HollowCylinder, Plate, Bell };
-enum class Excitation : uint8_t { Pluck, Hammer };
-
-struct MaterialProperties {
-    float densityKgM3;
-    float youngModulusPa;
-    float lossFactor;
-    float contactSoftness;
-};
-
-inline constexpr MaterialProperties materialProperties(Material material) noexcept {
-    switch (material) {
-    case Material::Steel:   return {7850.0f, 200.0e9f, 0.0010f, 0.05f};
-    case Material::Nylon:   return {1140.0f,   2.5e9f, 0.0080f, 0.30f};
-    case Material::Bronze:  return {8800.0f, 105.0e9f, 0.0020f, 0.08f};
-    case Material::Wood:    return { 650.0f,  11.0e9f, 0.0250f, 0.28f};
-    case Material::Glass:   return {2500.0f,  70.0e9f, 0.0025f, 0.02f};
-    case Material::Ceramic: return {3000.0f, 100.0e9f, 0.0020f, 0.02f};
-    case Material::Rubber:  return {1100.0f,   0.01e9f, 0.1800f, 0.85f};
-    case Material::Felt:    return { 350.0f,   0.003e9f,0.3000f, 0.95f};
-    }
-    return {7850.0f, 200.0e9f, 0.0010f, 0.05f};
-}
-
-struct Blueprint {
-    Material stringMaterial{Material::Steel};
-    float stringDiameterMm{0.50f};
-    float referenceLengthMeters{0.65f};
-    float tensionNewtons{80.0f};
-    Excitation excitation{Excitation::Pluck};
-    Material exciterMaterial{Material::Nylon};
-    float excitationPosition{0.19f}; // 0 = bridge, 1 = nut
-    float hammerHardness{0.65f}; // 0 = soft, 1 = hard
-    Geometry bodyGeometry{Geometry::HollowBox};
-    Material bodyMaterial{Material::Wood};
-    float bodySize{1.0f}; // larger bodies resonate lower
-    float bridgeCoupling{0.65f};
-    Material damperMaterial{Material::Felt};
-    float damperBasePosition{0.07f};
-    float damperTravel{0.09f};
-    float damperStrength{1.0f};
-};
+constexpr int kAllBodyModes=kBodyModes*kMaxFlowBodies;
 
 // Each note has its own state; length is retuned for its target MIDI pitch.
 // E1 is attack/strike intensity. E2 is a continuously varying damping action:
@@ -71,6 +29,7 @@ public:
 
     void start(const Blueprint& blueprint, int midi, float e1, float e2 = 0.0f) noexcept {
         blueprint_ = blueprint;
+        resolveFlowGraph();
         e1_ = clamp01(e1);
         e2Target_ = clamp01(e2);
         e2Smoothed_ = e2Target_;
@@ -84,6 +43,7 @@ public:
         for (auto& x : right_) x = 0.0f;
         for (auto& x : left_) x = 0.0f;
         for (auto& x : modes_) x = {};
+        bodyModeCount_=0;
 
         const auto string = materialProperties(blueprint.stringMaterial);
         const float diameter = std::clamp(blueprint.stringDiameterMm, 0.08f, 5.0f) * 0.001f;
@@ -113,7 +73,7 @@ public:
         dampingSmoothing_ = 1.0f - std::exp(-1.0f / (sampleRate_ * 0.008f));
         buildBodyModes();
 
-        if (blueprint.excitation == Excitation::Pluck) {
+        if (excitationConnected_ && blueprint_.excitation == Excitation::Pluck) {
             const float apex = static_cast<float>(strikeIndex_) / static_cast<float>(cells_ - 1);
             for (int i = 0; i < cells_; ++i) {
                 const float x = static_cast<float>(i) / static_cast<float>(cells_ - 1);
@@ -156,7 +116,7 @@ public:
         writeRight(0, -bridgeReflect_ * smoothReflection);
         writeLeft(cells_ - 1, -nutReflect_ * incomingNut);
 
-        if (blueprint_.excitation == Excitation::Hammer &&
+        if (excitationConnected_ && blueprint_.excitation == Excitation::Hammer &&
             samplesRendered_ < static_cast<uint64_t>(hammerSamples_)) {
             const float phase = (static_cast<float>(samplesRendered_) + 0.5f) /
                 static_cast<float>(hammerSamples_);
@@ -173,19 +133,36 @@ public:
             blueprint_.damperBasePosition + blueprint_.damperTravel * (1.0f - e2Smoothed_),
             0.01f, 0.48f);
         const int muteCell = std::clamp(static_cast<int>(mutePoint * (cells_ - 1)), 1, cells_ - 2);
-        const float softness = materialProperties(blueprint_.damperMaterial).contactSoftness;
-        const float damp = std::clamp(blueprint_.damperStrength * pressure *
-            (0.07f + 0.36f * softness), 0.0f, 0.80f);
-        if (damp > 0.0001f) {
-            contact(muteCell, damp);
-            if (muteCell + 1 < cells_ - 1) contact(muteCell + 1, 0.23f * damp);
+        if(blueprint_.graph.nodeCount>0) {
+            for(int j=0;j<damperCount_;++j){
+                const auto& d=dampers_[static_cast<size_t>(j)];
+                const int cell=std::clamp(static_cast<int>(
+                    std::clamp(d.position+.09f*(1.0f-e2Smoothed_),.01f,.48f)*
+                    (cells_-1)),1,cells_-2);
+                const float softness=materialProperties(d.material).contactSoftness;
+                const float loss=std::clamp(d.coupling*pressure*
+                    (.06f+.34f*softness),0.0f,.80f);
+                if(loss>.0001f){
+                    contact(cell,loss);
+                    if(cell+1<cells_-1)contact(cell+1,.23f*loss);
+                }
+            }
+        }else{
+            const float softness=materialProperties(blueprint_.damperMaterial).contactSoftness;
+            const float loss=std::clamp(blueprint_.damperStrength*pressure*
+                (.07f+.36f*softness),0.0f,.80f);
+            if(loss>.0001f){
+                contact(muteCell,loss);
+                if(muteCell+1<cells_-1)contact(muteCell+1,.23f*loss);
+            }
         }
         if (released_) contact(std::max(1, cells_ / 11), 0.25f);
 
         // Bridge force drives the body's approximate structural modes.
-        const float bridgeForce = incomingBridge - readRight(0);
+        const float bridgeForce = bridgeConnected_ ? incomingBridge - readRight(0) : 0.0f;
         float radiated = 0.0f;
-        for (auto& mode : modes_) {
+        for (int i=0;i<bodyModeCount_;++i) {
+            auto& mode=modes_[static_cast<size_t>(i)];
             const float next = mode.a * mode.y1 - mode.b * mode.y2 + mode.gain * bridgeForce;
             mode.y2 = mode.y1;
             mode.y1 = next;
@@ -196,7 +173,7 @@ public:
         // this, long sessions would accumulate permanently active voices.
         if(released_ && samplesRendered_-releasedAt_ >
             static_cast<uint64_t>(sampleRate_*2.75f))stop();
-        const float output = 0.8f * radiated + 0.028f * bridgeForce;
+        const float output = radiated + (directConnected_ ? 0.09f*bridgeForce : 0.0f);
         if (!std::isfinite(output)) { stop(); return 0.0f; }
         // Safety limiter protects downstream buffers if model is over-driven.
         return std::clamp(output, -3.0f, 3.0f);
@@ -218,30 +195,120 @@ private:
         writeRight(i, readRight(i) * survive);
         writeLeft(i, readLeft(i) * survive);
     }
+    // Translate the connected physical nodes into a single-note mechanism.
+    // Unconnected nodes have no acoustic influence. Connection types are
+    // deliberately restricted to paths implemented by this v2 solver.
+    void resolveFlowGraph() noexcept {
+        excitationConnected_=bridgeConnected_=directConnected_=true;
+        bodyCount_=damperCount_=0;
+        const auto& graph=blueprint_.graph;
+        if(graph.nodeCount==0)return; // legacy standalone blueprint
+        const int ex=graph.first(FlowKind::Exciter);
+        const int st=graph.first(FlowKind::String);
+        const int br=graph.first(FlowKind::Bridge);
+        const int out=graph.first(FlowKind::Output);
+        excitationConnected_=graph.linked(ex,st);
+        bridgeConnected_=graph.linked(st,br);
+        directConnected_=bridgeConnected_&&graph.linked(br,out);
+        if(st>=0){
+            const auto& node=graph.nodes[static_cast<size_t>(st)];
+            blueprint_.stringMaterial=node.material;
+            blueprint_.stringDiameterMm=node.diameterMm;
+            blueprint_.tensionNewtons=node.tensionNewtons;
+        }
+        if(ex>=0){
+            const auto& node=graph.nodes[static_cast<size_t>(ex)];
+            blueprint_.exciterMaterial=node.material;
+            blueprint_.excitation=node.excitation;
+            blueprint_.excitationPosition=node.position;
+            blueprint_.hammerHardness=node.hardness;
+        }
+        if(br>=0){
+            const auto& node=graph.nodes[static_cast<size_t>(br)];
+            // A stiff bridge more efficiently transfers mechanical force.
+            const auto properties=materialProperties(node.material);
+            const float stiffness=std::clamp(std::sqrt(
+                properties.youngModulusPa/(11.e9f)),.25f,1.75f);
+            blueprint_.bridgeCoupling=std::clamp(node.coupling*stiffness,0.0f,1.0f);
+        }
+        if(bridgeConnected_){
+            for(int i=0;i<graph.nodeCount;++i) {
+                if(graph.nodes[static_cast<size_t>(i)].kind!=FlowKind::Body||
+                   !graph.linked(br,i)||!graph.linked(i,out))continue;
+                if(bodyCount_<kMaxFlowBodies)
+                    bodies_[static_cast<size_t>(bodyCount_++)]=graph.nodes[static_cast<size_t>(i)];
+            }
+        }
+        for(int i=0;i<graph.nodeCount;++i){
+            if(graph.nodes[static_cast<size_t>(i)].kind==FlowKind::Damper&&
+               graph.linked(i,st)&&damperCount_<kMaxFlowDampers)
+                dampers_[static_cast<size_t>(damperCount_++)]=graph.nodes[static_cast<size_t>(i)];
+        }
+    }
+    void appendBodyModes(Material materialType,Geometry geometry,
+        float size,float thicknessMm,float dampingScale,float coupling) noexcept {
+        constexpr std::array<float,kBodyModes> box{93,178,312,490,830,1370};
+        constexpr std::array<float,kBodyModes> cylinder{112,251,390,633,1020,1610};
+        constexpr std::array<float,kBodyModes> plate{143,306,565,970,1530,2360};
+        constexpr std::array<float,kBodyModes> bell{205,412,521,757,1125,1542};
+        constexpr std::array<float,kBodyModes> bowl{176,369,597,803,1230,1830};
+        constexpr std::array<float,kBodyModes> sphere{128,255,426,716,1080,1640};
+        constexpr std::array<float,kBodyModes> tube{93,187,279,372,465,558};
+        const auto& centers=geometry==Geometry::HollowBox?box:
+            geometry==Geometry::HollowCylinder?cylinder:
+            geometry==Geometry::Plate?plate:
+            geometry==Geometry::Bell?bell:
+            geometry==Geometry::Bowl?bowl:
+            geometry==Geometry::Sphere?sphere:tube;
+        const auto material=materialProperties(materialType);
+        const float speedRatio=std::sqrt((material.youngModulusPa/material.densityKgM3)/
+            (11.e9f/650.f));
+        size=std::clamp(size,.25f,4.f);
+        thicknessMm=std::clamp(thicknessMm,.3f,35.f);
+        dampingScale=std::clamp(dampingScale,.15f,8.f);
+        coupling=std::clamp(coupling,0.f,1.f);
+        const float thicknessRatio=thicknessMm/3.f;
+        const float thicknessPitch=std::pow(thicknessRatio,
+            geometry==Geometry::Plate?.85f:.28f);
+        // Softer materials and added damping increase decay. Q affects
+        // bandwidth and duration but NOT unbounded peak gain.
+        const float q=std::clamp(1.2f/
+            std::max(.002f,material.lossFactor*dampingScale),2.0f,140.0f);
+        const float radiation=std::clamp(std::pow(thicknessRatio,-.22f),.42f,1.6f);
+        for(int i=0;i<kBodyModes&&bodyModeCount_<kAllBodyModes;++i){
+            const float hz=std::clamp(centers[i]*speedRatio*thicknessPitch/size,
+                                     35.f,sampleRate_*.45f);
+            const float omega=2.f*kPi*hz/sampleRate_;
+            const float r=std::exp(-kPi*hz/(q*sampleRate_));
+            const float sinOmega=std::sin(omega);
+            // Magnitude of the resonator denominator evaluated at its own
+            // central frequency: |(1-r)*(1-r*exp(-j*2*omega))|.
+            // Normalizing by this value prevents high-Q materials from
+            // acquiring runaway output gain at matched notes.
+            const float resonanceDen=(1.f-r)*std::sqrt(
+                (1.f-r)*(1.f-r)+4.f*r*sinOmega*sinOmega);
+            auto& mode=modes_[static_cast<size_t>(bodyModeCount_++)];
+            mode.a=2.f*r*std::cos(omega);
+            mode.b=r*r;
+            const float peakTarget=(.32f/(1.f+.65f*i))*coupling*radiation;
+            mode.gain=peakTarget*resonanceDen;
+        }
+    }
     void buildBodyModes() noexcept {
-        constexpr std::array<float, kBodyModes> box{93, 178, 312, 490, 830, 1370};
-        constexpr std::array<float, kBodyModes> cylinder{112, 251, 390, 633, 1020, 1610};
-        constexpr std::array<float, kBodyModes> plate{143, 306, 565, 970, 1530, 2360};
-        constexpr std::array<float, kBodyModes> bell{205, 412, 521, 757, 1125, 1542};
-        const auto& centers = blueprint_.bodyGeometry == Geometry::HollowBox ? box :
-            blueprint_.bodyGeometry == Geometry::HollowCylinder ? cylinder :
-            blueprint_.bodyGeometry == Geometry::Plate ? plate : bell;
-        const auto material = materialProperties(blueprint_.bodyMaterial);
-        // Frequency changes with approximate sqrt(E/rho) and dimensions.
-        const float speedRatio = std::sqrt((material.youngModulusPa / material.densityKgM3) /
-            (11.0e9f / 650.0f));
-        const float size = std::clamp(blueprint_.bodySize, 0.25f, 4.0f);
-        const float coupling = std::clamp(blueprint_.bridgeCoupling, 0.0f, 1.0f);
-        const float Q = std::clamp(1.2f / std::max(0.002f, material.lossFactor), 4.0f, 100.0f);
-        for (int i = 0; i < kBodyModes; ++i) {
-            const float hz = std::clamp(centers[i] * speedRatio / size,
-                                        35.0f, sampleRate_ * 0.45f);
-            const float omega = 2.0f * kPi * hz / sampleRate_;
-            const float r = std::exp(-kPi * hz / (Q * sampleRate_));
-            auto& m = modes_[i];
-            m.a = 2.0f * r * std::cos(omega);
-            m.b = r * r;
-            m.gain = coupling * 0.0020f / (1.0f + 0.60f * i);
+        bodyModeCount_=0;
+        if(!bridgeConnected_)return;
+        if(blueprint_.graph.nodeCount==0){
+            appendBodyModes(blueprint_.bodyMaterial,blueprint_.bodyGeometry,
+                blueprint_.bodySize,blueprint_.bodyThicknessMm,
+                blueprint_.bodyDamping,blueprint_.bridgeCoupling);
+            return;
+        }
+        const float share=1.f/std::sqrt(static_cast<float>(std::max(1,bodyCount_)));
+        for(int i=0;i<bodyCount_;++i){
+            const auto& body=bodies_[static_cast<size_t>(i)];
+            appendBodyModes(body.material,body.geometry,
+                body.size,body.thicknessMm,body.damping,
+                blueprint_.bridgeCoupling*body.coupling*share);
         }
     }
 
@@ -253,7 +320,11 @@ private:
     float bridgeHighDamping_{0.65f}, bridgeLowpassMix_{0.15f}, bridgeFilter_{0.0f};
     Blueprint blueprint_{};
     std::array<float, kMaxStringCells> right_{}, left_{};
-    std::array<Mode, kBodyModes> modes_{};
+    std::array<Mode,kAllBodyModes> modes_{};
+    std::array<FlowNode,kMaxFlowBodies> bodies_{};
+    std::array<FlowNode,kMaxFlowDampers> dampers_{};
+    int bodyModeCount_{0},bodyCount_{0},damperCount_{0};
+    bool excitationConnected_{true},bridgeConnected_{true},directConnected_{true};
     int rHead_{0}, lHead_{0}, cells_{100}, strikeIndex_{20}, hammerSamples_{50};
     uint64_t samplesRendered_{0}, releasedAt_{0};
     bool active_{false}, released_{false};
