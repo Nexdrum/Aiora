@@ -79,7 +79,6 @@ inline constexpr const char* geometryName(Geometry g) noexcept {
     const int i=static_cast<int>(g);
     return i>=0&&i<static_cast<int>(Geometry::Count)?kGeometryNames[static_cast<size_t>(i)]:"Body";
 }
-enum class Excitation : uint8_t { Pluck, Hammer };
 
 // Flow is an ordered physical event network. The vertical coordinate is
 // normalized time: links always move down and never form feedback loops.
