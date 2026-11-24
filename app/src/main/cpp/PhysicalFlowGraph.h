@@ -80,108 +80,129 @@ inline constexpr const char* geometryName(Geometry g) noexcept {
     return i>=0&&i<static_cast<int>(Geometry::Count)?kGeometryNames[static_cast<size_t>(i)]:"Body";
 }
 enum class Excitation : uint8_t { Pluck, Hammer };
-enum class FlowKind : uint8_t { Exciter, String, Bridge, Body, Damper, Output };
+
+// Flow is an ordered physical event network. The vertical coordinate is
+// normalized time: links always move down and never form feedback loops.
+// This intentionally differs from a signal-flow graph with instant connections.
+enum class FlowKind : uint8_t {
+    Exciter, String, Membrane, Plate, Bar, AirColumn, Body, Bridge,
+    Damper, Output
+};
 inline constexpr const char* flowKindName(FlowKind k) noexcept {
-    switch(k){
+    switch(k) {
     case FlowKind::Exciter:return "EXCITER";
     case FlowKind::String:return "STRING";
-    case FlowKind::Bridge:return "BRIDGE";
-    case FlowKind::Body:return "RESONATOR";
-    case FlowKind::Damper:return "DAMPER";
+    case FlowKind::Membrane:return "MEMBRANE";
+    case FlowKind::Plate:return "PLATE";
+    case FlowKind::Bar:return "BAR";
+    case FlowKind::AirColumn:return "AIR COLUMN";
+    case FlowKind::Body:return "BODY";
+    case FlowKind::Bridge:return "COUPLER";
+    case FlowKind::Damper:return "CONTACT";
     case FlowKind::Output:return "OUTPUT";
     }
-    return "NODE";
+    return "OBJECT";
 }
-inline constexpr int kMaxFlowNodes=11;
-inline constexpr int kMaxFlowLinks=20;
-inline constexpr int kMaxFlowBodies=4;
-inline constexpr int kMaxFlowDampers=3;
-
+inline constexpr bool vibrates(FlowKind kind) noexcept {
+    return kind==FlowKind::String||kind==FlowKind::Membrane||
+        kind==FlowKind::Plate||kind==FlowKind::Bar||
+        kind==FlowKind::AirColumn||kind==FlowKind::Body;
+}
+enum class Excitation : uint8_t { Pluck, Hammer, Blow, Scrape };
+enum class FlowTemplate : uint8_t { String, Drum, Plate, Bar, Air, Bell, Blank };
+inline constexpr int kMaxFlowNodes=14;
+inline constexpr int kMaxFlowLinks=22;
 struct FlowNode {
-    FlowKind kind{FlowKind::Body};
-    Material material{Material::Wood};
-    Geometry geometry{Geometry::HollowBox};
-    Excitation excitation{Excitation::Pluck};
-    float x{0.5f}, y{0.5f};             // graph presentation only, normalized
-    float size{1.0f};                    // resonator dimension scale
-    float thicknessMm{3.0f};            // resonator wall thickness
-    float damping{1.0f};                // structural loss multiplier
-    float coupling{0.65f};              // junction / contact strength
-    float position{0.18f};              // contact/strike position
-    float tensionNewtons{80.0f};
-    float diameterMm{0.50f};
-    float hardness{0.65f};
+    FlowKind kind{FlowKind::Plate};
+    Material material{Material::Steel};
+    Geometry geometry{Geometry::Plate};
+    Excitation excitation{Excitation::Hammer};
+    float x{.5f},y{.5f}; // x = branching; y = time of interaction
+    float size{1.0f};
+    float thicknessMm{3.0f};
+    float damping{1.0f};
+    float coupling{.60f};
+    float position{.22f}; // attack/contact location on object
+    float tensionNewtons{80.f};
+    float diameterMm{.50f};
+    float hardness{.70f};
 };
-struct FlowLink { uint8_t from{0}, to{0}; };
+struct FlowLink { uint8_t from{0},to{0}; };
 struct FlowGraph {
     std::array<FlowNode,kMaxFlowNodes> nodes{};
     std::array<FlowLink,kMaxFlowLinks> links{};
     uint8_t nodeCount{0},linkCount{0};
+    float spanMs{48.f}; // full top-bottom travel time, not literal distance
 
     int first(FlowKind kind) const noexcept {
-        for(int i=0;i<nodeCount;++i)if(nodes[static_cast<size_t>(i)].kind==kind)return i;
+        for(int i=0;i<nodeCount;++i)
+            if(nodes[static_cast<size_t>(i)].kind==kind)return i;
         return -1;
     }
     int count(FlowKind kind) const noexcept {
         int n=0;
-        for(int i=0;i<nodeCount;++i)if(nodes[static_cast<size_t>(i)].kind==kind)++n;
+        for(int i=0;i<nodeCount;++i)if(nodes[i].kind==kind)++n;
         return n;
     }
     bool linked(int from,int to) const noexcept {
         for(int i=0;i<linkCount;++i)
-            if(links[static_cast<size_t>(i)].from==from&&
-               links[static_cast<size_t>(i)].to==to)return true;
+            if(links[i].from==from&&links[i].to==to)return true;
         return false;
     }
     bool compatible(int from,int to) const noexcept {
         if(from<0||to<0||from>=nodeCount||to>=nodeCount||from==to)return false;
-        const auto a=nodes[static_cast<size_t>(from)].kind;
-        const auto b=nodes[static_cast<size_t>(to)].kind;
-        return (a==FlowKind::Exciter&&b==FlowKind::String)||
-               (a==FlowKind::String&&b==FlowKind::Bridge)||
-               (a==FlowKind::Damper&&b==FlowKind::String)||
-               (a==FlowKind::Bridge&&(b==FlowKind::Body||b==FlowKind::Output))||
-               (a==FlowKind::Body&&b==FlowKind::Output);
+        const auto& source=nodes[static_cast<size_t>(from)];
+        const auto& target=nodes[static_cast<size_t>(to)];
+        if(source.y+.035f>=target.y)return false;
+        if(source.kind==FlowKind::Output||target.kind==FlowKind::Exciter)return false;
+        if(source.kind==FlowKind::Exciter)
+            return vibrates(target.kind);
+        if(target.kind==FlowKind::Output)
+            return source.kind!=FlowKind::Exciter;
+        if(vibrates(source.kind))
+            return vibrates(target.kind)||target.kind==FlowKind::Bridge||
+                target.kind==FlowKind::Damper;
+        if(source.kind==FlowKind::Bridge||source.kind==FlowKind::Damper)
+            return vibrates(target.kind)||target.kind==FlowKind::Bridge||
+                target.kind==FlowKind::Damper;
+        return false;
     }
     bool connect(int from,int to) noexcept {
-        if(!compatible(from,to)||linkCount>=kMaxFlowLinks||linked(from,to))return false;
+        if(!compatible(from,to)||linked(from,to)||linkCount>=kMaxFlowLinks)return false;
         links[linkCount++]={static_cast<uint8_t>(from),static_cast<uint8_t>(to)};
         return true;
     }
     bool disconnect(int from,int to) noexcept {
-        for(int i=0;i<linkCount;++i)if(links[static_cast<size_t>(i)].from==from&&
-            links[static_cast<size_t>(i)].to==to){
+        for(int i=0;i<linkCount;++i)if(links[i].from==from&&links[i].to==to){
             for(int j=i;j+1<linkCount;++j)links[j]=links[j+1];
             --linkCount;return true;
         }
         return false;
     }
     int addNode(FlowKind kind) noexcept {
-        if(kind!=FlowKind::Body&&kind!=FlowKind::Damper)return -1;
-        if(nodeCount>=kMaxFlowNodes)return -1;
-        if(kind==FlowKind::Body&&count(kind)>=kMaxFlowBodies)return -1;
-        if(kind==FlowKind::Damper&&count(kind)>=kMaxFlowDampers)return -1;
-        FlowNode node;
-        node.kind=kind;
-        node.material=kind==FlowKind::Body?Material::Wood:Material::Felt;
-        node.x=kind==FlowKind::Body?.70f:.15f;
-        node.y=std::clamp(.48f+.12f*count(kind),.12f,.85f);
-        node.coupling=kind==FlowKind::Body?.55f:.65f;
-        const int id=nodeCount++;
-        nodes[static_cast<size_t>(id)]=node;
-        const int source=first(kind==FlowKind::Body?FlowKind::Bridge:FlowKind::String);
-        const int output=first(FlowKind::Output);
-        if(kind==FlowKind::Body){
-            connect(source,id);connect(id,output);
-        }else connect(id,source);
-        return id;
+        if(kind==FlowKind::Exciter||kind==FlowKind::Output||
+           nodeCount>=kMaxFlowNodes)return -1;
+        FlowNode n;
+        n.kind=kind;
+        n.x=(count(kind)%3)*.30f+.15f;
+        n.y=(kind==FlowKind::Bridge||kind==FlowKind::Damper)?.58f:
+            kind==FlowKind::Body?.70f:.36f;
+        n.material=kind==FlowKind::AirColumn?Material::Wood:
+            kind==FlowKind::Membrane?Material::Leather:
+            kind==FlowKind::Bridge?Material::Hardwood:
+            kind==FlowKind::Damper?Material::Felt:Material::Steel;
+        n.geometry=kind==FlowKind::AirColumn?Geometry::Tube:
+            kind==FlowKind::Body?Geometry::HollowBox:Geometry::Plate;
+        n.coupling=.6f;
+        const int i=nodeCount++;
+        nodes[static_cast<size_t>(i)]=n;
+        return i;
     }
     bool removeNode(int id) noexcept {
-        // Mandatory core nodes (0-5) are always preserved in v2.
-        if(id<6||id>=nodeCount)return false;
+        if(id<0||id>=nodeCount)return false;
+        if(nodes[id].kind==FlowKind::Exciter||nodes[id].kind==FlowKind::Output)return false;
         for(int i=0;i<linkCount;){
-            const auto edge=links[static_cast<size_t>(i)];
-            if(edge.from==id||edge.to==id){
+            if(links[i].from==id||links[i].to==id){
                 for(int j=i;j+1<linkCount;++j)links[j]=links[j+1];
                 --linkCount;continue;
             }
@@ -193,37 +214,70 @@ struct FlowGraph {
         --nodeCount;
         return true;
     }
+    bool moveNode(int id,float x,float y) noexcept {
+        if(id<0||id>=nodeCount)return false;
+        auto& n=nodes[static_cast<size_t>(id)];
+        if(n.kind==FlowKind::Exciter||n.kind==FlowKind::Output)return false;
+        // Preserve causal ordering; dragging cannot silently reverse a link.
+        float lower=.035f,upper=.955f;
+        for(int j=0;j<linkCount;++j){
+            const auto& l=links[j];
+            if(l.from==id)upper=std::min(upper,nodes[l.to].y-.036f);
+            if(l.to==id)lower=std::max(lower,nodes[l.from].y+.036f);
+        }
+        if(lower>upper)return false;
+        n.x=std::clamp(x,0.f,1.f);
+        n.y=std::clamp(y,lower,upper);
+        return true;
+    }
 };
-inline FlowGraph defaultFlowGraph() noexcept {
+inline FlowGraph blankFlowGraph() noexcept {
     FlowGraph graph;
-    graph.nodeCount=6;
-    auto& n=graph.nodes;
-    n[0].kind=FlowKind::Exciter;
-    n[0].material=Material::Nylon;
-    n[0].x=.02f;n[0].y=.04f;
-    n[0].position=.19f;
-    n[1].kind=FlowKind::String;
-    n[1].material=Material::Steel;
-    n[1].x=.36f;n[1].y=.04f;
-    n[2].kind=FlowKind::Bridge;
-    n[2].material=Material::Wood;
-    n[2].x=.70f;n[2].y=.04f;
-    n[3].kind=FlowKind::Body;
-    n[3].material=Material::Wood;
-    n[3].x=.68f;n[3].y=.46f;
-    n[4].kind=FlowKind::Damper;
-    n[4].material=Material::Felt;
-    n[4].x=.18f;n[4].y=.50f;n[4].position=.07f;
-    n[5].kind=FlowKind::Output;
-    n[5].material=Material::Wood;
-    n[5].x=.68f;n[5].y=.84f;
-    graph.connect(0,1);
-    graph.connect(1,2);
-    graph.connect(2,3);
-    graph.connect(2,5); // direct dry bridge radiation
-    graph.connect(3,5);
-    graph.connect(4,1);
+    graph.nodeCount=2;
+    graph.nodes[0].kind=FlowKind::Exciter;
+    graph.nodes[0].material=Material::Wood;
+    graph.nodes[0].excitation=Excitation::Hammer;
+    graph.nodes[0].x=.36f;graph.nodes[0].y=.025f;
+    graph.nodes[1].kind=FlowKind::Output;
+    graph.nodes[1].x=.45f;graph.nodes[1].y=.94f;
     return graph;
+}
+inline FlowGraph templateFlowGraph(FlowTemplate type) noexcept {
+    FlowGraph g=blankFlowGraph();
+    if(type==FlowTemplate::Blank)return g;
+    FlowKind primary=FlowKind::String;
+    switch(type){
+    case FlowTemplate::Drum:primary=FlowKind::Membrane;break;
+    case FlowTemplate::Plate:primary=FlowKind::Plate;break;
+    case FlowTemplate::Bar:primary=FlowKind::Bar;break;
+    case FlowTemplate::Air:primary=FlowKind::AirColumn;break;
+    case FlowTemplate::Bell:primary=FlowKind::Body;break;
+    default:break;
+    }
+    const int a=g.addNode(primary);
+    auto& first=g.nodes[static_cast<size_t>(a)];
+    first.x=.45f;first.y=.34f;
+    first.material=primary==FlowKind::String?Material::Steel:
+        primary==FlowKind::Membrane?Material::Leather:
+        primary==FlowKind::AirColumn?Material::Bamboo:
+        primary==FlowKind::Body?Material::Bronze:Material::Hardwood;
+    first.geometry=primary==FlowKind::Body?Geometry::Bell:
+        primary==FlowKind::AirColumn?Geometry::Tube:Geometry::Plate;
+    if(type==FlowTemplate::Air)g.nodes[0].excitation=Excitation::Blow;
+    else if(type==FlowTemplate::String)g.nodes[0].excitation=Excitation::Pluck;
+    g.connect(0,a);
+    g.connect(a,1); // Dry object radiation can reach the output directly.
+    if(type!=FlowTemplate::Bell) {
+        const int b=g.addNode(FlowKind::Body);
+        auto& second=g.nodes[static_cast<size_t>(b)];
+        second.x=.46f;second.y=.67f;second.coupling=.50f;
+        second.material=primary==FlowKind::AirColumn?Material::Wood:Material::Hardwood;
+        g.connect(a,b);g.connect(b,1);
+    }
+    return g;
+}
+inline FlowGraph defaultFlowGraph() noexcept {
+    return templateFlowGraph(FlowTemplate::Plate); // no compulsory string or bridge
 }
 
 struct Blueprint {
