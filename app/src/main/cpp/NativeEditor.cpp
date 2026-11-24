@@ -2457,6 +2457,31 @@ bool NativeEditor::openDropdownAt(
             fxTypeMenuIndex(fxRackNewType_),std::move(names));
         return true;
     }
+    if(page==EditorPage::Synth&&synthWorkspace_==3){
+        const auto& graph=physicalBlueprint_.graph;
+        if(flowSelectedNode_<0||flowSelectedNode_>=graph.nodeCount)return false;
+        const auto& node=graph.nodes[static_cast<size_t>(flowSelectedNode_)];
+        if(node.kind==physical::FlowKind::Output)return false;
+        if(flowPropertyRect(0).contains(x,y)){
+            std::vector<std::string> names;
+            names.reserve(physical::kMaterialCount);
+            for(const auto* name:physical::kMaterialNames)names.emplace_back(name);
+            ui.openDropdown(DropdownKind::PhysicalMaterial,flowSelectedNode_,
+                anchor(flowPropertyRect(0)),static_cast<int>(node.material),
+                std::move(names));
+            return true;
+        }
+        if(node.kind==physical::FlowKind::Body&&
+           flowPropertyRect(1).contains(x,y)){
+            std::vector<std::string> names;
+            for(const auto* name:physical::kGeometryNames)names.emplace_back(name);
+            ui.openDropdown(DropdownKind::PhysicalGeometry,flowSelectedNode_,
+                anchor(flowPropertyRect(1)),static_cast<int>(node.geometry),
+                std::move(names));
+            return true;
+        }
+        return false;
+    }
     if(page!=EditorPage::Synth||synthWorkspace_!=0||opSurface.page!=5)
         return false;
     const auto b=bodyRect(),tab=synthTabRect(0);
@@ -2498,6 +2523,23 @@ bool NativeEditor::openDropdownAt(
 bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
     auto& project=ProjectCore::instance();
     switch(choice.kind){
+        case DropdownKind::PhysicalMaterial:
+        case DropdownKind::PhysicalGeometry:{
+            auto& graph=physicalBlueprint_.graph;
+            if(choice.context<0||choice.context>=graph.nodeCount)return false;
+            auto& node=graph.nodes[static_cast<size_t>(choice.context)];
+            if(choice.kind==DropdownKind::PhysicalMaterial){
+                if(choice.option<0||choice.option>=physical::kMaterialCount||
+                   node.kind==physical::FlowKind::Output)return false;
+                node.material=static_cast<physical::Material>(choice.option);
+            }else{
+                if(choice.option<0||choice.option>=static_cast<int>(physical::Geometry::Count)||
+                   node.kind!=physical::FlowKind::Body)return false;
+                node.geometry=static_cast<physical::Geometry>(choice.option);
+            }
+            physicalDirty_=true;
+            return true;
+        }
         case DropdownKind::FxType:
             if(choice.option<0||
                choice.option>=static_cast<int>(kAvailableFxTypes.size()))return false;
