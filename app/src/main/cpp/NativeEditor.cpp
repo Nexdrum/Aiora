@@ -2989,6 +2989,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
     if(page==EditorPage::Synth){
         for(int i=0;i<4;++i){
             if(synthTabRect(i).contains(x,y)){
+                if(synthWorkspace_==3||i==3)changed_=true;
                 synthWorkspace_=i;
                 physicalDirty_=true;
                 return true;
