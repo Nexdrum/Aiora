@@ -112,6 +112,8 @@ enum class Excitation : uint8_t { Pluck, Hammer, Blow, Scrape };
 enum class FlowTemplate : uint8_t { String, Drum, Plate, Bar, Air, Bell, Blank };
 inline constexpr int kMaxFlowNodes=14;
 inline constexpr int kMaxFlowLinks=22;
+inline constexpr int kMaxFlowBodies=4; // compatibility with v2 offline voice
+inline constexpr int kMaxFlowDampers=3;
 struct FlowNode {
     FlowKind kind{FlowKind::Plate};
     Material material{Material::Steel};
