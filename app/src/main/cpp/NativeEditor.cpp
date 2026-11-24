@@ -167,181 +167,7 @@ NativeEditor::Rect NativeEditor::synthTabRect(int index) const noexcept {
     };
 }
 
-NativeEditor::Rect NativeEditor::physicalControlRect(int index) const noexcept {
-    const auto b=bodyRect(), tab=synthTabRect(0);
-    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
-    const float contentY=tab.y+tab.h+gap;
-    const float y=contentY+111.0f-physicalScrollY_;
-    const float inset=13.0f;
-    const float innerW=std::max(0.0f,b.w-inset*2.0f);
-    if(index<6){
-        const float splitGap=10.0f;
-        const float w=std::max(1.0f,(innerW-splitGap)*.5f);
-        return {b.x+inset+(index%2)*(w+splitGap),
-                y+(index/2)*77.0f,w,69.0f};
-    }
-    return {b.x+inset,y+3*77.0f+(index-6)*75.0f,
-        innerW,68.0f};
-}
-
-void NativeEditor::syncPhysicalBinding() noexcept {
-    const auto& project=ProjectCore::instance();
-    const int track=project.selectedTrack();
-    const int target=(synthWorkspace_==3&&track>=0&&!project.trackIsDrums(track))
-        ?track:-1;
-    if(target==physicalConfiguredTrack_&&!physicalDirty_)return;
-    // Session-only: no project or patch mutation, no preset migration.
-    AudioEngine::instance().setPhysicalExperiment(target,physicalBlueprint_);
-    physicalConfiguredTrack_=target;
-    physicalDirty_=false;
-}
-
-bool NativeEditor::editPhysical(int index,float x,bool initial) noexcept {
-    using physical::Material;
-    using physical::Geometry;
-    using physical::Excitation;
-    auto cycle=[&](auto& field,const auto& values){
-        for(size_t i=0;i<values.size();++i){
-            if(field==values[i]){
-                field=values[(i+1)%values.size()];
-                return;
-            }
-        }
-        field=values[0];
-    };
-    switch(index){
-    case 0: if(initial)cycle(physicalBlueprint_.stringMaterial,
-        std::array{Material::Steel,Material::Nylon,Material::Bronze,Material::Glass,Material::Ceramic});
-        break;
-    case 1: if(initial)physicalBlueprint_.excitation=
-        physicalBlueprint_.excitation==Excitation::Pluck?Excitation::Hammer:Excitation::Pluck;
-        break;
-    case 2: if(initial)cycle(physicalBlueprint_.exciterMaterial,
-        std::array{Material::Nylon,Material::Wood,Material::Felt,Material::Steel,Material::Rubber});
-        break;
-    case 3: if(initial)cycle(physicalBlueprint_.bodyMaterial,
-        std::array{Material::Wood,Material::Bronze,Material::Glass,Material::Ceramic});
-        break;
-    case 4: if(initial)cycle(physicalBlueprint_.bodyGeometry,
-        std::array{Geometry::HollowBox,Geometry::HollowCylinder,Geometry::Plate,Geometry::Bell});
-        break;
-    case 5: if(initial)cycle(physicalBlueprint_.damperMaterial,
-        std::array{Material::Felt,Material::Rubber,Material::Wood});
-        break;
-    default:{
-        const auto rect=physicalControlRect(index);
-        const float t=std::clamp((x-(rect.x+14.0f))/
-            std::max(1.0f,rect.w-28.0f),0.0f,1.0f);
-        switch(index){
-        case 6: physicalBlueprint_.tensionNewtons=20.0f+280.0f*t;break;
-        case 7: physicalBlueprint_.stringDiameterMm=0.20f+1.20f*t;break;
-        case 8: physicalBlueprint_.excitationPosition=0.06f+0.88f*t;break;
-        case 9: physicalBlueprint_.hammerHardness=0.05f+0.95f*t;break;
-        case 10:physicalBlueprint_.bodySize=0.40f+1.80f*t;break;
-        case 11:physicalBlueprint_.bridgeCoupling=0.05f+0.95f*t;break;
-        case 12:physicalBlueprint_.damperStrength=0.10f+1.90f*t;break;
-        case 13:physicalBlueprint_.damperBasePosition=0.01f+0.17f*t;break;
-        default:return false;
-        }
-        break;
-    }
-    }
-    physicalDirty_=true;
-    return true;
-}
-
-void NativeEditor::drawPhysical() const noexcept {
-    using physical::Material;
-    using physical::Geometry;
-    using physical::Excitation;
-    auto materialName=[](Material m)->const char*{
-        switch(m){
-            case Material::Steel:return "Steel";
-            case Material::Nylon:return "Nylon";
-            case Material::Bronze:return "Bronze";
-            case Material::Wood:return "Wood";
-            case Material::Glass:return "Glass";
-            case Material::Ceramic:return "Ceramic";
-            case Material::Rubber:return "Rubber";
-            case Material::Felt:return "Felt";
-        }
-        return "Material";
-    };
-    const auto b=bodyRect(),tab=synthTabRect(0);
-    const float gap=std::clamp(b.w*.014f,9.0f,13.0f);
-    const Rect region{b.x,tab.y+tab.h+gap,b.w,
-        std::max(0.0f,b.y+b.h-(tab.y+tab.h+gap))};
-    auto& ov=NativeOverlay::instance();
-    ov.setClip({region.x,region.y,region.w,region.h});
-    const float hy=region.y+15.0f-physicalScrollY_;
-    ov.addRect({region.x+13,hy,region.w-26,85.0f},
-        overlayColor(kRollBg));
-    ov.addText("PHYSICAL INSTRUMENT / ONE-NOTE MECHANISM",
-        region.x+26,hy+9,.96f,overlayColor(kCyan));
-    ov.addText("Exciter  >  Vibrating string  >  Bridge  >  Body",
-        region.x+26,hy+34,.84f,overlayColor(kWhite));
-    ov.addText("V = impact strength    M = movable soft-contact mute",
-        region.x+26,hy+60,.79f,overlayColor(kMuted));
-    const char* labels[]={
-        "STRING MATERIAL","EXCITATION","IMPACT MATERIAL",
-        "BODY MATERIAL","BODY SHAPE","DAMPER MATERIAL",
-        "STRING TENSION","STRING THICKNESS","IMPACT POSITION",
-        "HAMMER HARDNESS","BODY SIZE","BRIDGE COUPLING",
-        "M CONTACT FORCE","M CONTACT LOCATION"
-    };
-    for(int i=0;i<14;++i){
-        const Rect rr=physicalControlRect(i);
-        if(rr.y+rr.h<region.y||rr.y>region.y+region.h)continue;
-        ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(kButton));
-        ov.addText(labels[i],rr.x+11,rr.y+7,.76f,overlayColor(kMuted));
-        if(i<6){
-            const char* val="";
-            switch(i){
-            case 0:val=materialName(physicalBlueprint_.stringMaterial);break;
-            case 1:val=physicalBlueprint_.excitation==Excitation::Pluck?"Pluck":"Hammer";break;
-            case 2:val=materialName(physicalBlueprint_.exciterMaterial);break;
-            case 3:val=materialName(physicalBlueprint_.bodyMaterial);break;
-            case 4:switch(physicalBlueprint_.bodyGeometry){
-                case Geometry::HollowBox:val="Hollow box";break;
-                case Geometry::HollowCylinder:val="Cylinder";break;
-                case Geometry::Plate:val="Plate";break;
-                case Geometry::Bell:val="Bell";break;
-                }break;
-            case 5:val=materialName(physicalBlueprint_.damperMaterial);break;
-            }
-            ov.addTextCentered(val,{rr.x+5,rr.y+31,rr.w-10,31},
-                .99f,overlayColor(kWhite));
-        }else{
-            float t=0.0f;
-            char value[48]{};
-            switch(i){
-            case 6:t=(physicalBlueprint_.tensionNewtons-20.0f)/280.0f;
-                std::snprintf(value,sizeof(value),"%.0f N",physicalBlueprint_.tensionNewtons);break;
-            case 7:t=(physicalBlueprint_.stringDiameterMm-.20f)/1.20f;
-                std::snprintf(value,sizeof(value),"%.2f mm",physicalBlueprint_.stringDiameterMm);break;
-            case 8:t=(physicalBlueprint_.excitationPosition-.06f)/.88f;
-                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.excitationPosition*100);break;
-            case 9:t=(physicalBlueprint_.hammerHardness-.05f)/.95f;
-                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.hammerHardness*100);break;
-            case 10:t=(physicalBlueprint_.bodySize-.40f)/1.80f;
-                std::snprintf(value,sizeof(value),"%.2fx",physicalBlueprint_.bodySize);break;
-            case 11:t=(physicalBlueprint_.bridgeCoupling-.05f)/.95f;
-                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.bridgeCoupling*100);break;
-            case 12:t=(physicalBlueprint_.damperStrength-.10f)/1.90f;
-                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.damperStrength*50);break;
-            case 13:t=(physicalBlueprint_.damperBasePosition-.01f)/.17f;
-                std::snprintf(value,sizeof(value),"%.0f%%",physicalBlueprint_.damperBasePosition*100);break;
-            }
-            ov.addText(value,rr.x+rr.w-120,rr.y+7,.83f,overlayColor(kWhite));
-            t=std::clamp(t,0.0f,1.0f);
-            const float bx=rr.x+14,bw=rr.w-28;
-            ov.addRect({bx,rr.y+47,bw,9},overlayColor(kRollBg));
-            ov.addRect({bx,rr.y+47,bw*t,9},overlayColor(kCyan));
-            ov.addRect({bx+bw*t-3,rr.y+39,6,25},overlayColor(kWhite));
-        }
-    }
-    ov.clearClip();
-}
+#include "NativeEditorFlow.inl"
 
 NativeEditor::Rect NativeEditor::operatorCardRect(int index) const noexcept {
     const auto b=bodyRect();
@@ -530,7 +356,8 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
         if(synthWorkspace_!=3)return 0.0f;
         const auto tab=synthTabRect(0);
         const float usable=b.y+b.h-tab.y-tab.h-std::clamp(b.w*.014f,9.0f,13.0f);
-        return std::max(0.0f,111.0f+3*77.0f+8*75.0f+15.0f-usable);
+        // Canvas (150+432), selected heading (76), up to six controls.
+        return std::max(0.0f,150.f+432.f+76.f+6*76.f+16.f-usable);
     }
 
     if(page==EditorPage::Fx){
@@ -2850,8 +2677,6 @@ bool NativeEditor::applyHit(const Hit& hit,float x,float y){
             fxRackExpanded_=project.fxRack(false,fxDrumMasterActive()).count-1;
             return true;
         }
-        case HitKind::PhysicalControl:
-            return editPhysical(hit.a,x,false);
         case HitKind::SynthTab:
             synthWorkspace_=std::clamp(hit.a,0,3);
             physicalDirty_=true;
@@ -3016,11 +2841,33 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                 return true;
             }
         }else if(synthWorkspace_==3){
-            for(int i=0;i<14;++i){
-                const Rect rr=physicalControlRect(i);
+            for(int i=0;i<5;++i){
+                const Rect rr=flowActionRect(i);
                 if(rr.contains(x,y)){
-                    activeHit_=Hit{HitKind::PhysicalControl,i,-1,rr};
-                    changed_=editPhysical(i,x,true)||changed_;
+                    changed_=flowAction(i)||changed_;
+                    activeHit_=Hit{HitKind::PhysicalAction,i,-1,rr};
+                    return true;
+                }
+            }
+            const auto graphRect=flowCanvasRect();
+            if(graphRect.contains(x,y)){
+                for(int i=static_cast<int>(physicalBlueprint_.graph.nodeCount)-1;i>=0;--i){
+                    const Rect rr=flowNodeRect(i);
+                    if(rr.contains(x,y)){
+                        const bool wasLinking=flowLinkMode_!=0;
+                        changed_=flowNodeTouch(i)||changed_;
+                        activeHit_=Hit{wasLinking?HitKind::PhysicalAction:
+                            HitKind::PhysicalNode,i,-1,rr};
+                        return true;
+                    }
+                }
+                return true;
+            }
+            for(int i=0;i<flowPropertyCount();++i){
+                const Rect rr=flowPropertyRect(i);
+                if(rr.contains(x,y)){
+                    changed_=editFlowProperty(i,x,true)||changed_;
+                    activeHit_=Hit{HitKind::PhysicalProperty,i,-1,rr};
                     return true;
                 }
             }
@@ -3126,7 +2973,22 @@ bool NativeEditor::pointerMove(float x,float y){
         ampModSurface.move(x,y);return true;
     }
     switch(activeHit_->kind){
-        case HitKind::PhysicalControl:
+        case HitKind::PhysicalNode:{
+            const int i=activeHit_->a;
+            if(i>=0&&i<physicalBlueprint_.graph.nodeCount){
+                auto& node=physicalBlueprint_.graph.nodes[static_cast<size_t>(i)];
+                const Rect canvas=flowCanvasRect();
+                const Rect rr=flowNodeRect(i);
+                const float roomX=std::max(1.f,canvas.w-rr.w-22.f);
+                const float roomY=std::max(1.f,canvas.h-rr.h-26.f);
+                node.x=std::clamp((x-rr.w*.5f-canvas.x-11.f)/roomX,0.f,1.f);
+                node.y=std::clamp((y-rr.h*.5f-canvas.y-13.f)/roomY,0.f,1.f);
+            }
+            return true;
+        }
+        case HitKind::PhysicalProperty:
+            changed_=editFlowProperty(activeHit_->a,x,false)||changed_;
+            return true;
         case HitKind::OperatorParam:
         case HitKind::Harmonic:
         case HitKind::Matrix:
