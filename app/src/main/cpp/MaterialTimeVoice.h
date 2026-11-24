@@ -137,8 +137,12 @@ public:
                 break;
             case FlowKind::Damper:{
                 const float softness=materialProperties(n.node.material).contactSoftness;
+                // Position changes how strongly the contact intersects
+                // the vibrating region; near the center it damps more.
+                const float positionFactor=.3f+.7f*std::sin(
+                    kPi*std::clamp(n.node.position,0.f,1.f));
                 const float contact=std::clamp(e2Smooth_*n.node.coupling*
-                    (.18f+.70f*softness),0.f,.98f);
+                    (.18f+.70f*softness)*positionFactor,0.f,.98f);
                 output=input*(1.f-contact);
                 break;
             }
@@ -237,6 +241,7 @@ private:
         const float speed=materialWaveSpeed(p.material);
         const float refSpeed=std::sqrt(11.e9f/650.f);
         const float speedRatio=std::clamp(speed/refSpeed,.2f,6.f);
+        const float inertia=std::clamp(std::sqrt(650.f/material.densityKgM3),.22f,2.8f);
         const float thickness=std::clamp(p.thicknessMm,.3f,30.f)/3.f;
         const float size=std::clamp(p.size,.25f,4.f);
         const float stiffnessFactor=std::clamp(std::sqrt(speedRatio),.5f,2.2f);
@@ -254,8 +259,16 @@ private:
             1.f,2.31f,3.86f,5.59f,7.76f,10.5f,13.5f};
         constexpr std::array<float,kMaterialModes> bar{
             1.f,2.756f,5.404f,8.933f,13.34f,18.65f,24.86f};
-        constexpr std::array<float,kMaterialModes> body{
+        constexpr std::array<float,kMaterialModes> bodyBox{
             1.f,1.72f,2.82f,4.22f,6.22f,8.32f,11.9f};
+        constexpr std::array<float,kMaterialModes> bodyBell{
+            1.f,1.53f,2.12f,2.81f,3.68f,4.79f,6.20f};
+        constexpr std::array<float,kMaterialModes> bodyCylinder{
+            1.f,2.05f,2.79f,3.95f,4.97f,6.11f,8.10f};
+        constexpr std::array<float,kMaterialModes> bodySphere{
+            1.f,1.92f,3.11f,4.37f,5.81f,7.42f,9.36f};
+        constexpr std::array<float,kMaterialModes> bodyBowl{
+            1.f,1.64f,2.70f,4.16f,5.78f,7.99f,10.60f};
         const float b=std::clamp(.00022f*(material.youngModulusPa/1.e9f)*
             std::pow(std::clamp(p.diameterMm,.1f,3.f)/.5f,4.f)*
             (80.f/std::max(2.f,p.tensionNewtons)),0.00001f,.11f);
@@ -275,7 +288,14 @@ private:
                     index+1.f;
                 break;
             case FlowKind::Body:
-                ratio=body[i];break;
+                if(p.geometry==Geometry::Bell)ratio=bodyBell[i];
+                else if(p.geometry==Geometry::HollowCylinder||
+                        p.geometry==Geometry::Tube)ratio=bodyCylinder[i];
+                else if(p.geometry==Geometry::Sphere)ratio=bodySphere[i];
+                else if(p.geometry==Geometry::Bowl)ratio=bodyBowl[i];
+                else if(p.geometry==Geometry::Plate)ratio=plate[i];
+                else ratio=bodyBox[i];
+                break;
             default:break;
             }
             float f=base*ratio;
@@ -285,7 +305,7 @@ private:
                     std::pow(massStiffness,index*.12f);
             else if(p.kind==FlowKind::Membrane)
                 f*=std::pow(size,-.12f)*
-                    std::pow(std::clamp(p.tensionNewtons/80.f,.1f,8.f),.06f);
+                    std::sqrt(std::clamp(p.tensionNewtons/80.f,.1f,8.f));
             else if(p.kind==FlowKind::Body&&!anchored)
                 f*=std::pow(massStiffness,index*.09f);
             else if(p.kind==FlowKind::String)
@@ -304,7 +324,16 @@ private:
             m.cosStep=std::cos(omega);
             m.sinStep=std::sin(omega);
             m.r=r;
-            m.inputGain=.08f*weight*(.7f+.3f*p.coupling);
+            // For equal impact force, higher mass means lower acceleration.
+            const float thicknessMass=std::pow(thickness,-.20f);
+            const int exciterId=graph_.first(FlowKind::Exciter);
+            const float attackPosition=exciterId>=0?
+                graph_.nodes[static_cast<size_t>(exciterId)].position:.22f;
+            // The initial contact location excites different modal shapes.
+            const float shape=std::fabs(std::sin(kPi*(index+1.f)*
+                std::clamp(attackPosition,.01f,.99f)));
+            m.inputGain=.19f*weight*inertia*thicknessMass*
+                (.32f+.68f*shape)*(.7f+.3f*p.coupling);
             m.weight=weight;
             m.maxAmp=.45f*weight; // Modal energy bound: cannot swell arbitrarily
         }
