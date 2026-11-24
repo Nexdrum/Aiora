@@ -71,11 +71,11 @@ public:
     }
 
 private:
-    NativeEditor() = default;
+    NativeEditor() { physicalBlueprint_.graph=physical::defaultFlowGraph(); }
 
     enum class HitKind : uint8_t {
         None,
-        PhysicalControl, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
+        PhysicalNode, PhysicalAction, PhysicalProperty, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
         FxGroup, FilterOpen, FilterEditor, UnisonEditor, AmpModEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
@@ -98,9 +98,16 @@ private:
 
     [[nodiscard]] Rect factoryPresetRect(int index) const noexcept;
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
-    [[nodiscard]] Rect physicalControlRect(int index) const noexcept;
+    [[nodiscard]] Rect flowCanvasRect() const noexcept;
+    [[nodiscard]] Rect flowActionRect(int index) const noexcept;
+    [[nodiscard]] Rect flowNodeRect(int index) const noexcept;
+    [[nodiscard]] Rect flowPropertyRect(int index) const noexcept;
+    [[nodiscard]] int flowPropertyCount() const noexcept;
+    [[nodiscard]] const char* flowPropertyLabel(int index) const noexcept;
     void drawPhysical() const noexcept;
-    bool editPhysical(int index,float x,bool initial) noexcept;
+    bool flowAction(int index) noexcept;
+    bool flowNodeTouch(int index) noexcept;
+    bool editFlowProperty(int index,float x,bool initial) noexcept;
     [[nodiscard]] Rect operatorCardRect(int index) const noexcept;
     [[nodiscard]] Rect operatorWaveFieldRect(int op) const noexcept;
     [[nodiscard]] Rect operatorCardParamRect(int op,int param) const noexcept;
@@ -155,6 +162,9 @@ private:
     int physicalConfiguredTrack_{-2};
     bool physicalDirty_{true};
     float physicalScrollY_{0.0f};
+    int flowSelectedNode_{3};
+    int flowLinkMode_{0}; // 0 idle, 1 connect, 2 disconnect
+    int flowLinkSource_{-1};
     int ampSubtab_{0};      // Envelope / Mod
     int fxGroup_{0};
     int fxRackExpanded_{-1};
