@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
