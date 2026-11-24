@@ -36,6 +36,7 @@ public:
         e1_=safe01(velocity);e2_=safe01(mod);e2Smooth_=e2_;
         nodeCount_=std::min<int>(graph_.nodeCount,kMaxFlowNodes);
         edgeCount_=0;
+        contactCount_=0;
         for(int i=0;i<kMaxFlowNodes;++i){
             nodes_[i]={};
             nodeOrder_[i]=i;
@@ -95,6 +96,34 @@ public:
             const int id=nodeOrder_[j];
             setupNode(nodes_[static_cast<size_t>(id)],hz);
         }
+        // A CONTACT is a physical attachment to a vibrating object, not
+        // merely an audio level control inserted after the object.
+        // Unlike an ordinary downward audio link, its interaction drains
+        // energy stored in the source object's modal state.
+        for(int i=0;i<edgeCount_;++i){
+            const auto& edge=edges_[static_cast<size_t>(i)];
+            const auto& target=nodes_[static_cast<size_t>(edge.to)].node;
+            const auto& source=nodes_[static_cast<size_t>(edge.from)].node;
+            if(target.kind!=FlowKind::Damper||
+               !vibrates(source.kind)||contactCount_>=kMaxFlowLinks)continue;
+            auto& touch=contacts_[static_cast<size_t>(contactCount_++)];
+            touch.source=edge.from;
+            touch.pressure=std::clamp(target.restPressure,0.f,1.f);
+            touch.mDepth=std::clamp(target.coupling,0.f,1.f);
+            touch.activateAt=static_cast<uint64_t>(std::max(0.f,
+                target.y*std::clamp(graph_.spanMs,3.f,82.f)*
+                sampleRate_*.001f));
+            const auto mat=materialProperties(target.material);
+            const float softness=std::clamp(mat.contactSoftness,0.f,1.f);
+            const float location=std::clamp(target.position,.005f,.995f);
+            for(int mode=0;mode<kMaterialModes;++mode){
+                // A contact near a mode's node dissipates less vibration.
+                const float shape=std::sin(kPi*(mode+1.f)*location);
+                const float overlap=.10f+.90f*shape*shape;
+                touch.lossPerSecond[static_cast<size_t>(mode)]=
+                    (25.f+290.f*softness)*overlap;
+            }
+        }
     }
     void setExpression(float v,float m) noexcept {
         if(legacyMode_){legacy_.setExpression(v,m);return;}
@@ -115,6 +144,22 @@ public:
         if(legacyMode_)return legacy_.render();
         if(!active_)return 0.f;
         e2Smooth_+=.002f*(e2_-e2Smooth_);
+        // Recompute passive loss from ongoing physical contacts each
+        // sample so an M gesture can silence an *already ringing* string.
+        // The contact acts on every outgoing branch of its source object.
+        for(int i=0;i<nodeCount_;++i)nodes_[i].touchLoss.fill(0.f);
+        for(int i=0;i<contactCount_;++i){
+            const auto& touch=contacts_[static_cast<size_t>(i)];
+            if(tick_<touch.activateAt)continue; // Y coordinate is time
+            const float pressure=std::clamp(
+                touch.pressure+touch.mDepth*e2Smooth_,0.f,1.f);
+            if(pressure<.0001f)continue;
+            const float amount=pressure*pressure;
+            auto& source=nodes_[static_cast<size_t>(touch.source)];
+            for(int m=0;m<source.modeCount;++m)
+                source.touchLoss[static_cast<size_t>(m)]+=
+                    amount*touch.lossPerSecond[static_cast<size_t>(m)];
+        }
         float result=0.f;
         for(int j=0;j<nodeCount_;++j){
             const int id=nodeOrder_[static_cast<size_t>(j)];
@@ -135,17 +180,13 @@ public:
                 output=input;
                 result+=output;
                 break;
-            case FlowKind::Damper:{
-                const float softness=materialProperties(n.node.material).contactSoftness;
-                // Position changes how strongly the contact intersects
-                // the vibrating region; near the center it damps more.
-                const float positionFactor=.3f+.7f*std::sin(
-                    kPi*std::clamp(n.node.position,0.f,1.f));
-                const float contact=std::clamp(e2Smooth_*n.node.coupling*
-                    (.18f+.70f*softness)*positionFactor,0.f,.98f);
-                output=input*(1.f-contact);
+            case FlowKind::Damper:
+                // An attached contact acts on the upstream object's
+                // vibration (above), not a post-string volume control.
+                // The contact's audio-through path remains available to
+                // drive a later resonating object in the timeline.
+                output=input;
                 break;
-            }
             case FlowKind::Bridge:{
                 const float stiffness=materialWaveSpeed(n.node.material);
                 const float alpha=std::clamp(stiffness/6800.f,.08f,.95f);
@@ -178,6 +219,7 @@ private:
     struct Node {
         FlowNode node{};
         std::array<Mode,kMaterialModes> modes{};
+        std::array<float,kMaterialModes> touchLoss{};
         std::array<int,kMaxFlowLinks> incoming{},outgoing{};
         int inCount{},outCount{},modeCount{};
         float lowpass{};
@@ -187,6 +229,12 @@ private:
         int from{},to{},delay{1};
         float gain{},filter{},smoothing{};
         std::array<float,kFlowDelayFrames> buffer{};
+    };
+    struct Contact {
+        int source{-1};
+        float pressure{},mDepth{};
+        uint64_t activateAt{};
+        std::array<float,kMaterialModes> lossPerSecond{};
     };
     static float safe01(float v) noexcept {
         return std::isfinite(v)?std::clamp(v,0.f,1.f):0.f;
@@ -338,13 +386,20 @@ private:
             m.maxAmp=.45f*weight; // Modal energy bound: cannot swell arbitrarily
         }
     }
-    static float ring(Node& n,float input) noexcept {
+    float ring(Node& n,float input) noexcept {
         float sum=0.f;
         for(int i=0;i<n.modeCount;++i){
             auto& m=n.modes[static_cast<size_t>(i)];
-            const float real=m.r*(m.real*m.cosStep-m.imag*m.sinStep)+
+            // Passive mechanical dissipation: r is always <= 1.
+            // M varies the decay of energy already in the vibrator,
+            // rather than merely scaling its output afterward.
+            const float extra=std::clamp(
+                1.f-n.touchLoss[static_cast<size_t>(i)]/sampleRate_,
+                0.f,1.f);
+            const float retention=m.r*extra;
+            const float real=retention*(m.real*m.cosStep-m.imag*m.sinStep)+
                 m.inputGain*input;
-            const float imag=m.r*(m.real*m.sinStep+m.imag*m.cosStep);
+            const float imag=retention*(m.real*m.sinStep+m.imag*m.cosStep);
             const float amplitude=std::sqrt(real*real+imag*imag);
             const float limited=amplitude>m.maxAmp?
                 m.maxAmp/std::max(amplitude,1.e-7f):1.f;
@@ -360,6 +415,8 @@ private:
     float sampleRate_{48000.f},e1_{.8f},e2_{0.f},e2Smooth_{0.f};
     std::array<Node,kMaxFlowNodes> nodes_{};
     std::array<Edge,kMaxFlowLinks> edges_{};
+    std::array<Contact,kMaxFlowLinks> contacts_{};
+    int contactCount_{0};
     std::array<int,kMaxFlowNodes> nodeOrder_{};
     int nodeCount_{0},edgeCount_{0},head_{0};
     uint64_t tick_{0},releasedAt_{0};
