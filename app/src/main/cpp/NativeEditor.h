@@ -76,7 +76,7 @@ private:
 
     enum class HitKind : uint8_t {
         None,
-        PhysicalNode, PhysicalAction, PhysicalProperty, PhysicalTime, PhysicalTemplate, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
+        PhysicalNode, PhysicalAction, PhysicalProperty, PhysicalTime, PhysicalPitchRange, PhysicalTemplate, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
         FxGroup, FilterOpen, FilterEditor, UnisonEditor, AmpModEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
