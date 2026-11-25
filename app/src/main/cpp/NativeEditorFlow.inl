@@ -277,7 +277,7 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         const bool src=n.role==physical::PhysicalRole::Source;
         const bool out=n.role==physical::PhysicalRole::Output;
         if(src){
-            if(i==0){if(!first)return false;n.driver=static_cast<physical::Driver>((int(n.driver)+1)%4);}
+            if(i==0){if(!first)return false;n.driver=static_cast<physical::Driver>((int(n.driver)+1)%4);n.gesture=n.driver==physical::Driver::Breath?physical::Gesture::Continuous:physical::Gesture::Impulse;}
             else if(i==1){if(!first)return false;n.gesture=static_cast<physical::Gesture>((int(n.gesture)+1)%3);}
             else if(i==2)n.sourceDurationMs=.4f+499.6f*t;
             else if(i==3)n.sourceRiseMs=.4f+249.6f*t;
