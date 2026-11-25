@@ -111,6 +111,7 @@ private:
     void drawPhysical() const noexcept;
     bool flowAction(int index) noexcept;
     bool flowNodeTouch(int index) noexcept;
+    bool flowLinkTouch(int index) noexcept;
     bool editFlowProperty(int index,float x,bool initial) noexcept;
     [[nodiscard]] Rect operatorCardRect(int index) const noexcept;
     [[nodiscard]] Rect operatorWaveFieldRect(int op) const noexcept;
@@ -168,6 +169,7 @@ private:
     bool flowError_{false};
     float physicalScrollY_{0.0f};
     int flowSelectedNode_{3};
+    int flowSelectedLink_{-1}; // selected physical energy-transfer link
     int flowLinkMode_{0}; // 0 idle, 1 connect, 2 disconnect
     int flowLinkSource_{-1};
     int ampSubtab_{0};      // Envelope / Mod
