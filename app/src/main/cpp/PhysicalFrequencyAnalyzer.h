@@ -140,9 +140,13 @@ inline bool findPhysicalFrequency(Blueprint& blueprint) {
     // The first measurement is the actual untouched instrument response.
     const auto before=analyzePhysicalSpectrum(blueprint,
         std::clamp<int>(calibration.referenceMidi,0,127),false);
-    if(!before.detected)return false;
-    calibration.measuredHz=before.fundamentalHz;
-    calibration.confidence=before.confidence;
+    // An inharmonic or weakly radiating object may have an ambiguous heard
+    // fundamental. The physical modal solver can still propose a mapping;
+    // its acoustic verification is reported separately, never fabricated.
+    if(before.detected){
+        calibration.measuredHz=before.fundamentalHz;
+        calibration.confidence=before.confidence;
+    }
 
     if(!buildPhysicalKeyboard(blueprint.graph,calibration))
         return false;
