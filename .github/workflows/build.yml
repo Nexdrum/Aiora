@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -57,6 +57,13 @@ jobs:
             tests/material_contact_v3_regression.cpp \
             -o /tmp/aiora-contact-v3-test
           /tmp/aiora-contact-v3-test
+
+      - name: Universal Flow v4 energy/position/dual-wind regression
+        run: |
+          g++ -std=c++20 -O2 -Iapp/src/main/cpp \
+            tests/universal_flow_v4_regression.cpp \
+            -o /tmp/aiora-universal-flow-v4-test
+          /tmp/aiora-universal-flow-v4-test
 
       - name: Native project-limit regression tests
         run: |
@@ -149,6 +156,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-ContactLab-debug
+          name: Aiora-UniversalLab-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
