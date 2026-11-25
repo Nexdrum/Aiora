@@ -764,15 +764,19 @@ void NativeEditor::drawPhysical() const noexcept {
 
         const char* actions[]={
             "REF -","REF +","TRACK","+PITCH","SLOT",
-            "PARAM","REMOVE","FIND","ON/OFF","A4 440/442"
+            "PARAM","REMOVE","FIND","ON/OFF","A4 440/442",
+            "SCAN ALL","<RESULT","RESULT>","APPLY","DISCARD"
         };
-        for(int i=0;i<10;++i){
+        for(int i=0;i<15;++i){
             const auto rr=flowTuneButtonRect(i);
-            const bool highlighted=i==7||(i==8&&pitch.enabled&&current);
+            const bool highlighted=i==7||
+                (i==8&&pitch.enabled&&current)||
+                (i==10&&pitchScanStatus_==1)||
+                (i==13&&pitchScanStatus_==2);
             ov.addRect({rr.x,rr.y,rr.w,rr.h},
                 overlayColor(highlighted?kCyan:kButton));
             ov.addTextCentered(actions[i],
-                {rr.x+1.f,rr.y,rr.w-2.f,rr.h},.61f,
+                {rr.x+1.f,rr.y,rr.w-2.f,rr.h},.60f,
                 overlayColor(highlighted?kBg:kWhite));
         }
         const int slot=pitchSelectedSlot_;
@@ -791,8 +795,34 @@ void NativeEditor::drawPhysical() const noexcept {
                 physical::pitchPropertyName(
                     static_cast<physical::PitchProperty>(pitchPropertyChoice_)));
         }
-        ov.addText(descriptor,panel.x+9.f,panel.y+134.f,.69f,
+        ov.addText(descriptor,panel.x+9.f,panel.y+177.f,.69f,
             overlayColor(kWhite));
+        char scanLabel[180]{};
+        if(pitchScanStatus_==1){
+            std::snprintf(scanLabel,sizeof(scanLabel),
+                "SCANNING ALL CONNECTED COMPONENTS... manual tuning unchanged");
+        }else if(pitchScanStatus_==2&&pitchScanResults_.count>0){
+            const auto& chosen=pitchScanResults_.best[pitchScanSelection_];
+            const auto& p=chosen.pitch.assignments[0];
+            std::snprintf(scanLabel,sizeof(scanLabel),
+                "RESULT %d/%d  NODE %d %s  %d KEYS  AUDIO %d/%d  SCORE %.1f",
+                pitchScanSelection_+1,pitchScanResults_.count,
+                int(p.objectIndex),physical::pitchPropertyName(p.property),
+                chosen.playableNotes,chosen.audibleMatches,
+                chosen.audibleChecks,chosen.score);
+        }else if(pitchScanStatus_==3){
+            std::snprintf(scanLabel,sizeof(scanLabel),
+                "SCAN: NO AUDIBLY VERIFIED PHYSICAL PITCH CONTROL FOUND");
+        }else if(pitchScanStatus_==4){
+            std::snprintf(scanLabel,sizeof(scanLabel),
+                "SCAN OUTDATED: INSTRUMENT OR REFERENCE CHANGED; RE-SCAN");
+        }else{
+            std::snprintf(scanLabel,sizeof(scanLabel),
+                "SCAN ALL searches each connected physical medium and link");
+        }
+        ov.addText(scanLabel,panel.x+9.f,panel.y+200.f,.66f,
+            overlayColor(pitchScanStatus_==2?kGreen:
+                pitchScanStatus_>=3?kOrange:kMuted));
         for(int i=0;i<2;++i){
             const auto rr=flowTuneRangeRect(i);
             ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(kButton));
@@ -816,7 +846,7 @@ void NativeEditor::drawPhysical() const noexcept {
                     .64f,overlayColor(kMuted));
             }
         }
-        const float spectrumY=panel.y+218.f;
+        const float spectrumY=panel.y+266.f;
         const float barW=(panel.w-22.f)/12.f;
         for(int i=0;i<12;++i){
             const float height=std::clamp(pitchSpectrumBands_[i],0.f,1.f)*21.f;
@@ -842,7 +872,7 @@ void NativeEditor::drawPhysical() const noexcept {
         else
             std::snprintf(status,sizeof(status),
                 "TUNE PHYSICAL PROPERTIES; V & M REMAIN INDEPENDENT");
-        ov.addText(status,panel.x+9.f,panel.y+246.f,.65f,
+        ov.addText(status,panel.x+9.f,panel.y+324.f,.65f,
             overlayColor(pitchTuneStatus_==2?kOrange:
                 current?kGreen:kMuted));
     }
