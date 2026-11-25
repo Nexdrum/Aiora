@@ -357,7 +357,7 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
         const auto tab=synthTabRect(0);
         const float usable=b.y+b.h-tab.y-tab.h-std::clamp(b.w*.014f,9.0f,13.0f);
         // Templates, controls, audible timeline, node canvas and properties.
-        return std::max(0.0f,322.f+614.f+70.f+6*73.f+20.f-usable);
+        return std::max(0.0f,225.f+614.f+70.f+21*73.f+20.f-usable);
     }
 
     if(page==EditorPage::Fx){
@@ -2463,7 +2463,10 @@ bool NativeEditor::openDropdownAt(
         if(flowSelectedNode_<0||flowSelectedNode_>=graph.nodeCount)return false;
         const auto& node=graph.nodes[static_cast<size_t>(flowSelectedNode_)];
         if(node.kind==physical::FlowKind::Output||
-           node.kind==physical::FlowKind::Router)return false;
+           node.kind==physical::FlowKind::Router||
+           (node.kind==physical::FlowKind::Universal&&
+            (node.role==physical::PhysicalRole::Source||
+             node.role==physical::PhysicalRole::Output)))return false;
         if(flowPropertyRect(0).contains(x,y)){
             std::vector<std::string> names;
             names.reserve(physical::kMaterialCount);
@@ -2899,15 +2902,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                 return true;
             }
         }else if(synthWorkspace_==3){
-            for(int i=0;i<8;++i){
-                const Rect rr=flowTemplateRect(i);
-                if(rr.contains(x,y)){
-                    changed_=flowTemplate(i)||changed_;
-                    activeHit_=Hit{HitKind::PhysicalTemplate,i,-1,rr};
-                    return true;
-                }
-            }
-            for(int i=0;i<15;++i){
+            for(int i=0;i<10;++i){
                 const Rect rr=flowActionRect(i);
                 if(rr.contains(x,y)){
                     changed_=flowAction(i)||changed_;
