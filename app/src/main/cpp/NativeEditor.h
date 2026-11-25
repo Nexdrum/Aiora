@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <optional>
 
@@ -101,6 +102,11 @@ private:
     [[nodiscard]] Rect flowCanvasRect() const noexcept;
     [[nodiscard]] Rect flowTemplateRect(int index) const noexcept;
     [[nodiscard]] Rect flowTimeRect() const noexcept;
+    [[nodiscard]] Rect flowTuneRect() const noexcept;
+    [[nodiscard]] Rect flowTuneButtonRect(int index) const noexcept;
+    [[nodiscard]] Rect flowTuneRangeRect(int index) const noexcept;
+    bool flowTuneAction(int index) noexcept;
+    bool editPitchRange(int index,float x) noexcept;
     bool flowTemplate(int index) noexcept;
     bool editFlowTime(float x) noexcept;
     [[nodiscard]] Rect flowActionRect(int index) const noexcept;
@@ -172,6 +178,10 @@ private:
     int flowSelectedLink_{-1}; // selected physical energy-transfer link
     int flowLinkMode_{0}; // 0 idle, 1 connect, 2 disconnect
     int flowLinkSource_{-1};
+    int pitchPropertyChoice_{8}; // tension
+    int pitchSelectedSlot_{0};
+    int pitchTuneStatus_{0}; // 0 unknown, 1 calibrated, 2 unsupported, 3 unverified output
+    std::array<float,12> pitchSpectrumBands_{};
     int ampSubtab_{0};      // Envelope / Mod
     int fxGroup_{0};
     int fxRackExpanded_{-1};
