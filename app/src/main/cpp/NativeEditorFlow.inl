@@ -27,13 +27,137 @@ NativeEditor::Rect NativeEditor::flowActionRect(int index) const noexcept {
 NativeEditor::Rect NativeEditor::flowTimeRect() const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
-    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+167.f,
+    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+437.f,
             b.w-24.f,48.f};
+}
+NativeEditor::Rect NativeEditor::flowTuneRect() const noexcept {
+    const auto b=bodyRect(),tab=synthTabRect(0);
+    const float gap=std::clamp(b.w*.014f,9.f,13.f);
+    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+160.f,
+            b.w-24.f,269.f};
+}
+NativeEditor::Rect NativeEditor::flowTuneButtonRect(int index) const noexcept {
+    const auto panel=flowTuneRect();
+    const float w=std::max(24.f,(panel.w-16.f-4*4.f)/5.f);
+    return {panel.x+8.f+(index%5)*(w+4.f),
+            panel.y+39.f+(index/5)*47.f,w,41.f};
+}
+NativeEditor::Rect NativeEditor::flowTuneRangeRect(int index) const noexcept {
+    const auto panel=flowTuneRect();
+    const float w=(panel.w-27.f)*.5f;
+    return {panel.x+9.f+index*(w+9.f),panel.y+170.f,w,40.f};
+}
+bool NativeEditor::editPitchRange(int index,float x) noexcept {
+    auto& t=physicalBlueprint_.pitch;
+    if(index<0||index>1||t.count==0||
+       pitchSelectedSlot_<0||pitchSelectedSlot_>=t.count)return false;
+    auto& a=t.assignments[pitchSelectedSlot_];
+    const auto bound=physical::pitchPropertyBounds(a.property);
+    const auto rr=flowTuneRangeRect(index);
+    const float normalized=std::clamp(
+        (x-rr.x-7.f)/std::max(1.f,rr.w-14.f),0.f,1.f);
+    const float v=bound[0]+normalized*(bound[1]-bound[0]);
+    if(index==0)a.lower=v;
+    else a.upper=v;
+    t.valid=false;
+    pitchTuneStatus_=0;
+    physicalDirty_=true;
+    return true;
+}
+bool NativeEditor::flowTuneAction(int index) noexcept {
+    using physical::PitchProperty;
+    using physical::PitchAssignment;
+    auto& t=physicalBlueprint_.pitch;
+    auto& g=physicalBlueprint_.graph;
+    if(index==0||index==1){
+        t.referenceMidi=static_cast<int16_t>(
+            std::clamp<int>(t.referenceMidi+(index==0?-1:1),0,127));
+        t.valid=false;pitchTuneStatus_=0;
+        physicalDirty_=true;return true;
+    }
+    if(index==2){ // mark which physical object's fundamental is tracked
+        if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount||
+           !physical::physicalVibrates(g.nodes[flowSelectedNode_])||
+           g.nodes[flowSelectedNode_].kind!=physical::FlowKind::Universal)
+            return false;
+        t.trackedNode=static_cast<int8_t>(flowSelectedNode_);
+        t.valid=false;pitchTuneStatus_=0;
+        physicalDirty_=true;return true;
+    }
+    if(index==3){ // assign one node or link physical property
+        if(t.count>=physical::kPitchSlots)return false;
+        PitchAssignment a{};
+        a.property=static_cast<PitchProperty>(pitchPropertyChoice_);
+        a.objectIndex=static_cast<int8_t>(
+            physical::pitchIsLink(a.property)?
+                flowSelectedLink_:flowSelectedNode_);
+        if(!physical::pitchTargetValid(g,a))return false;
+        for(int i=0;i<t.count;++i)
+            if(t.assignments[i].objectIndex==a.objectIndex&&
+               t.assignments[i].property==a.property)return false;
+        const auto range=physical::pitchPropertyBounds(a.property);
+        a.lower=range[0];a.upper=range[1];
+        a.priority=1.f/(1.f+t.count);
+        t.assignments[t.count]=a;
+        pitchSelectedSlot_=t.count++;
+        if(t.trackedNode<0&&!physical::pitchIsLink(a.property))
+            t.trackedNode=a.objectIndex;
+        t.valid=false;pitchTuneStatus_=0;
+        physicalDirty_=true;return true;
+    }
+    if(index==4){ // cycle active assignment
+        if(!t.count)return false;
+        pitchSelectedSlot_=(pitchSelectedSlot_+1)%t.count;return false;
+    }
+    if(index==5){ // choose which genuine physical parameter to assign
+        if(flowSelectedLink_>=0){
+            pitchPropertyChoice_=pitchPropertyChoice_==
+                int(PitchProperty::LinkPosition)?
+                int(PitchProperty::LinkAperture):
+                int(PitchProperty::LinkPosition);
+        }else{
+            const int end=int(PitchProperty::Coupling);
+            pitchPropertyChoice_=(pitchPropertyChoice_+1)%(end+1);
+        }
+        return false;
+    }
+    if(index==6){ // unassign current slot
+        if(!t.count||pitchSelectedSlot_<0||pitchSelectedSlot_>=t.count)
+            return false;
+        for(int i=pitchSelectedSlot_;i+1<t.count;++i)
+            t.assignments[i]=t.assignments[i+1];
+        --t.count;
+        pitchSelectedSlot_=std::max(0,std::min(pitchSelectedSlot_,int(t.count)-1));
+        t.valid=false;pitchTuneStatus_=0;
+        physicalDirty_=true;return true;
+    }
+    if(index==7){ // Find Frequency: FFT + bounded physical solve
+        if(t.trackedNode<0||t.count==0){pitchTuneStatus_=2;return false;}
+        const bool calibrated=physical::findPhysicalFrequency(physicalBlueprint_);
+        const float error=std::fabs(t.centsError);
+        pitchTuneStatus_=!calibrated?2:
+            (t.confidence>.15f&&t.measuredHz>0.f&&error<15.f?1:3);
+        const auto spectrum=physical::analyzePhysicalSpectrum(
+            physicalBlueprint_,t.referenceMidi,calibrated);
+        pitchSpectrumBands_=spectrum.bands;
+        physicalDirty_=true;return true;
+    }
+    if(index==8){ // enable/disable only a completed physical mapping
+        if(!t.valid)return false;
+        t.enabled=!t.enabled;
+        physicalDirty_=true;return true;
+    }
+    if(index==9){ // alternate standard concert reference: 440 / 442
+        t.a4Hz=t.a4Hz==440.f?442.f:440.f;
+        t.valid=false;pitchTuneStatus_=0;
+        physicalDirty_=true;return true;
+    }
+    return false;
 }
 NativeEditor::Rect NativeEditor::flowCanvasRect() const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
-    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+225.f,
+    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+495.f,
             std::max(150.f,b.w-24.f),614.f};
 }
 NativeEditor::Rect NativeEditor::flowNodeRect(int index) const noexcept {
@@ -52,6 +176,8 @@ bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
     physicalBlueprint_.graph=i==0?physical::universalStarterGraph():
         physical::universalEmptyGraph();
+    physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
+    pitchSpectrumBands_.fill(0.f);
     flowSelectedNode_=physicalBlueprint_.graph.nodeCount>2?2:0;
     flowLinkMode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;flowError_=false;
     physicalDirty_=true;return true;
@@ -214,11 +340,15 @@ bool NativeEditor::flowAction(int index) noexcept {
     }
     if(index==8){
         g=physical::universalEmptyGraph();
+        physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
+        pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
         g=physical::universalStarterGraph();
+        physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
+        pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
