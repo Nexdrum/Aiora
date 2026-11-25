@@ -203,7 +203,12 @@ bool NativeEditor::flowTuneAction(int index) noexcept {
            pitchScanResults_.a4Hz!=t.a4Hz)return false;
         const auto& best=pitchScanResults_.best[pitchScanSelection_];
         if(!best.pitch.valid)return false;
-        t=best.pitch;
+        // Build fractional physical tuning on a temporary copy. Only a
+        // successful APPLY replaces the existing manual assignments.
+        auto proposed=physicalBlueprint_;
+        proposed.pitch=best.pitch;
+        if(!physical::preparePhysicalBendMap(proposed))return false;
+        physicalBlueprint_=std::move(proposed);
         pitchSelectedSlot_=0;
         pitchTuneStatus_=best.audibleVerified?1:3;
         pitchSpectrumBands_=best.spectrum;
