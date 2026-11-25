@@ -33,7 +33,6 @@ public:
         }
         legacyMode_=false;
         active_=true;released_=false;tick_=0;releasedAt_=0;head_=0;
-        initialPitch_=midi;
         e1_=safe01(velocity);e2_=safe01(mod);e2Smooth_=e2_;
         pitchHz_=std::clamp(440.f*std::pow(2.f,(midi-69)/12.f),25.f,sampleRate_*.16f);
         quietFrames_=0;activity_=0.f;
