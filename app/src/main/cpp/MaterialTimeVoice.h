@@ -110,6 +110,19 @@ public:
                 edge.gain/=std::sqrt(static_cast<float>(
                     std::max(1,nodes_[edge.from].outCount)));
         }
+        // Radiation into downstream objects is an energy sink for a stored
+        // resonator. This is a reduced admittance approximation, not a
+        // bidirectional finite-element energy solver.
+        for(int i=0;i<nodeCount_;++i){
+            auto& n=nodes_[static_cast<size_t>(i)];
+            float transmitted=0.f;
+            for(int j=0;j<n.outCount;++j){
+                const auto& edge=edges_[static_cast<size_t>(n.outgoing[j])];
+                transmitted+=edge.gain*edge.gain;
+            }
+            n.transferRetention=std::exp(
+                -std::clamp(5.f*transmitted,0.f,15.f)/sampleRate_);
+        }
         const float hz=pitchHz_;
         primaryPitchAssigned_=false;
         for(int j=0;j<nodeCount_;++j){
@@ -333,7 +346,7 @@ private:
         std::array<float,kMaterialModes> touchLoss{};
         std::array<int,kMaxFlowLinks> incoming{},outgoing{};
         int inCount{},outCount{},modeCount{};
-        float lowpass{},phase{},jetMemory{};
+        float lowpass{},phase{},jetMemory{},transferRetention{1.f};
         uint32_t randomSeed{};
     };
     struct Edge {
@@ -620,7 +633,14 @@ private:
                 const float dimensionMass=std::sqrt(
                     std::max(.0000001f,form.lengthMeters*form.widthMeters*
                         form.depthMeters*normalizedAverageProfile(form)));
-                m.inputGain*=std::clamp(.040f/dimensionMass,.22f,1.8f);
+                // Integrate incoming mechanical force into a normalized
+                // modal state. The old v4 full-scale per-sample coefficient
+                // was too large for cascaded generic resonators; successive
+                // stages saturated and inverted the V/energy relationship.
+                // This factor is a reduced solver calibration, not a user
+                // timbre control or a final audio gain adjustment.
+                m.inputGain*=.30f*
+                    std::clamp(.040f/dimensionMass,.22f,1.8f);
             }
             m.weight=weight;
             m.maxAmp=.45f*weight; // Modal energy bound: cannot swell arbitrarily
@@ -636,7 +656,8 @@ private:
             const float extra=std::clamp(
                 1.f-n.touchLoss[static_cast<size_t>(i)]/sampleRate_,
                 0.f,1.f);
-            const float retention=m.r*extra;
+            const float retention=m.r*extra*(n.node.kind==FlowKind::Universal?
+                n.transferRetention:1.f);
             float localForce=0.f;
             for(int k=0;k<n.inCount;++k){
                 const auto& e=edges_[static_cast<size_t>(n.incoming[k])];
