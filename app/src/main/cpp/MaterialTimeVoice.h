@@ -1,8 +1,8 @@
 #pragma once
-// Aiora Material-Time Flow research synthesizer, v3.
-// Material-dependent resonant objects with strictly causal, downward-only
-// links. Vertical space is time. No mandatory string or bridge.
-// Uses reduced modal models, not a full 3D finite-element simulation.
+// Aiora universal material / energy-arrival research voice, v4.
+// V supplies source energy. M moves assigned interactions (not audio gain).
+// Nodes retain energy, Y is first arrival, link X is local entry position.
+// Reduced modal + wind models, NOT a full fluid / finite-element solver.
 // Fixed buffers; render() has no dynamic allocation or graph edits.
 #include "PhysicalInstrumentVoice.h"
 #include <algorithm>
@@ -34,6 +34,8 @@ public:
         legacyMode_=false;
         active_=true;released_=false;tick_=0;releasedAt_=0;head_=0;
         e1_=safe01(velocity);e2_=safe01(mod);e2Smooth_=e2_;
+        pitchHz_=std::clamp(440.f*std::pow(2.f,(midi-69)/12.f),25.f,sampleRate_*.16f);
+        quietFrames_=0;activity_=0.f;
         nodeCount_=std::min<int>(graph_.nodeCount,kMaxFlowNodes);
         edgeCount_=0;
         contactCount_=0;
@@ -59,6 +61,9 @@ public:
                !graph_.compatible(raw.from,raw.to))continue;
             auto& edge=edges_[static_cast<size_t>(edgeCount_)];
             edge.from=raw.from;edge.to=raw.to;
+            edge.position=std::clamp(raw.position,0.f,1.f);
+            edge.modTravel=std::clamp(raw.modTravel,-1.f,1.f);
+            edge.aperture=std::clamp(raw.aperture,.035f,1.f);
             const auto& from=nodes_[raw.from].node;
             const auto& to=nodes_[raw.to].node;
             // Vertical position represents time elapsed between interactions.
@@ -73,7 +78,13 @@ public:
             std::fill(edge.buffer.begin(),edge.buffer.end(),0.f);
             const float z0=materialImpedance(from.material);
             const float z1=materialImpedance(to.material);
-            const float match=2.f*std::sqrt(z0*z1)/(z0+z1);
+            const bool airCoupled=from.kind==FlowKind::Router||
+                from.kind==FlowKind::Reed||from.kind==FlowKind::Edge||
+                to.kind==FlowKind::Reed||to.kind==FlowKind::Edge||
+                (from.kind==FlowKind::Exciter&&
+                 from.excitation==Excitation::Blow);
+            const float match=airCoupled?.92f:
+                2.f*std::sqrt(z0*z1)/(z0+z1);
             const float contact=std::sqrt(std::clamp(to.coupling,0.f,1.f));
             edge.gain=std::clamp(.80f*match*contact,.03f,.83f);
             edge.smoothing=std::clamp(.83f-.58f*materialProperties(to.material).contactSoftness,
@@ -86,11 +97,11 @@ public:
         // arbitrary parallel branches. No feedback loops are permitted.
         for(int i=0;i<edgeCount_;++i){
             auto& edge=edges_[static_cast<size_t>(i)];
-            edge.gain/=std::sqrt(static_cast<float>(
-                std::max(1,nodes_[edge.from].outCount)));
+            if(nodes_[edge.from].node.kind!=FlowKind::Router)
+                edge.gain/=std::sqrt(static_cast<float>(
+                    std::max(1,nodes_[edge.from].outCount)));
         }
-        const float hz=std::clamp(
-            440.f*std::pow(2.f,(midi-69)/12.f),25.f,sampleRate_*.16f);
+        const float hz=pitchHz_;
         primaryPitchAssigned_=false;
         for(int j=0;j<nodeCount_;++j){
             const int id=nodeOrder_[j];
@@ -109,13 +120,16 @@ public:
             auto& touch=contacts_[static_cast<size_t>(contactCount_++)];
             touch.source=edge.from;
             touch.pressure=std::clamp(target.restPressure,0.f,1.f);
-            touch.mDepth=std::clamp(target.coupling,0.f,1.f);
+            // M moves the linked damper into the source; contact stiffness
+            // converts displacement (penetration) to mechanical dissipation.
+            touch.mDepth=std::clamp(edge.modTravel,-1.f,1.f);
+            touch.stiffness=std::clamp(target.coupling,0.f,1.f);
             touch.activateAt=static_cast<uint64_t>(std::max(0.f,
                 target.y*std::clamp(graph_.spanMs,3.f,82.f)*
                 sampleRate_*.001f));
             const auto mat=materialProperties(target.material);
             const float softness=std::clamp(mat.contactSoftness,0.f,1.f);
-            const float location=std::clamp(target.position,.005f,.995f);
+            const float location=std::clamp(edge.position,.005f,.995f);
             for(int mode=0;mode<kMaterialModes;++mode){
                 // A contact near a mode's node dissipates less vibration.
                 const float shape=std::sin(kPi*(mode+1.f)*location);
@@ -154,7 +168,7 @@ public:
             const float pressure=std::clamp(
                 touch.pressure+touch.mDepth*e2Smooth_,0.f,1.f);
             if(pressure<.0001f)continue;
-            const float amount=pressure*pressure;
+            const float amount=pressure*pressure*touch.stiffness;
             auto& source=nodes_[static_cast<size_t>(touch.source)];
             for(int m=0;m<source.modeCount;++m)
                 source.touchLoss[static_cast<size_t>(m)]+=
@@ -170,8 +184,8 @@ public:
                 input+=e.buffer[(head_-e.delay+kFlowDelayFrames)&
                     (kFlowDelayFrames-1)];
             }
-            // Multiple inputs are real mixed mechanical contributions, but
-            // bounded at the contact to avoid unrealistic energy insertion.
+            // Inputs are delayed wave/force arrivals, not instant audio gains.
+            // Modal objects retain energy after the source ceases.
             input=std::clamp(input,-1.f,1.f);
             float output=0.f;
             switch(n.node.kind) {
@@ -179,6 +193,17 @@ public:
             case FlowKind::Output:
                 output=input;
                 result+=output;
+                break;
+            case FlowKind::Router:
+                // The router is an energy-conserving moving nozzle: only
+                // outgoing port weights change when M moves its position.
+                output=input;
+                break;
+            case FlowKind::Reed:
+                output=windExcite(n,input,true);
+                break;
+            case FlowKind::Edge:
+                output=windExcite(n,input,false);
                 break;
             case FlowKind::Damper:
                 // An attached contact acts on the upstream object's
@@ -195,20 +220,63 @@ public:
                     n.lowpass;
                 break;
             }
-            default:output=ring(n,input);break;
+            default:output=ring(n,input,id);break;
             }
             output=std::clamp(output,-.98f,.98f);
+            // The router shares one finite upstream flow across receivers.
+            // A moving outlet is a physical position, not a crossfade gain.
+            float routeTotal=0.f;
+            if(n.node.kind==FlowKind::Router){
+                const float nozzle=std::clamp(
+                    n.node.position+n.node.motion*e2Smooth_,0.f,1.f);
+                for(int k=0;k<n.outCount;++k){
+                    const auto& e=edges_[static_cast<size_t>(n.outgoing[k])];
+                    const float delta=(nozzle-e.position)/e.aperture;
+                    routeTotal+=1.f/(1.f+delta*delta*delta*delta);
+                }
+            }
             for(int k=0;k<n.outCount;++k){
                 auto& e=edges_[static_cast<size_t>(n.outgoing[k])];
-                const float x=output*e.gain;
+                float portion=1.f;
+                if(n.node.kind==FlowKind::Router){
+                    const float nozzle=std::clamp(
+                        n.node.position+n.node.motion*e2Smooth_,0.f,1.f);
+                    const float delta=(nozzle-e.position)/e.aperture;
+                    const float weight=1.f/(1.f+delta*delta*delta*delta);
+                    portion=weight/std::max(routeTotal,1.e-8f);
+                }
+                const float x=output*e.gain*portion;
                 e.filter+=e.smoothing*(x-e.filter);
                 e.buffer[head_]=e.filter;
             }
         }
         head_=(head_+1)&(kFlowDelayFrames-1);
         ++tick_;
-        if(released_&&tick_-releasedAt_>
-           static_cast<uint64_t>(sampleRate_*3.f))active_=false;
+        // Never kill a physical voice at a fixed note-off duration. The
+        // simulator runs until both stored and traveling energy have decayed.
+        const auto& source=graph_.nodes[0];
+        const bool continuous=source.kind==FlowKind::Exciter&&
+            (source.excitation==Excitation::Blow||
+             source.excitation==Excitation::Scrape)&&
+            !released_&&e1_>.0001f;
+        float stored=0.f;
+        for(int i=0;i<nodeCount_;++i){
+            for(int j=0;j<nodes_[i].modeCount;++j){
+                const auto& mode=nodes_[i].modes[j];
+                stored+=mode.real*mode.real+mode.imag*mode.imag;
+            }
+            stored+=nodes_[i].lowpass*nodes_[i].lowpass;
+        }
+        // Delay lines can contain energy after nodes go quiet. Account for
+        // at least a full maximum transit before quiescence detection.
+        const float level=std::max(result*result,stored*.002f);
+        activity_+=.001f*(level-activity_);
+        const uint64_t earliest=static_cast<uint64_t>(
+            sampleRate_*(.28f+graph_.spanMs*.002f));
+        if(!continuous&&tick_>earliest&&activity_<1.e-10f){
+            if(++quietFrames_>static_cast<uint32_t>(sampleRate_*.18f))
+                active_=false;
+        }else quietFrames_=0;
         if(!std::isfinite(result)){stop();return 0.f;}
         return std::clamp(result,-1.f,1.f);
     }
@@ -222,17 +290,18 @@ private:
         std::array<float,kMaterialModes> touchLoss{};
         std::array<int,kMaxFlowLinks> incoming{},outgoing{};
         int inCount{},outCount{},modeCount{};
-        float lowpass{};
+        float lowpass{},phase{},jetMemory{};
         uint32_t randomSeed{};
     };
     struct Edge {
         int from{},to{},delay{1};
         float gain{},filter{},smoothing{};
+        float position{.5f},modTravel{},aperture{.22f};
         std::array<float,kFlowDelayFrames> buffer{};
     };
     struct Contact {
         int source{-1};
-        float pressure{},mDepth{};
+        float pressure{},mDepth{},stiffness{1.f};
         uint64_t activateAt{};
         std::array<float,kMaterialModes> lossPerSecond{};
     };
@@ -258,7 +327,8 @@ private:
         const auto mat=materialProperties(n.node.material);
         const float softness=mat.contactSoftness;
         const float hardness=safe01(n.node.hardness);
-        const float force=e1_;
+        // V is normalized source energy; force amplitudes scale as sqrt(V).
+        const float force=std::sqrt(e1_);
         const float timeMs=std::clamp(
             .18f+4.0f*(1.f-hardness)*(.25f+softness),.15f,6.0f);
         const int duration=std::max(2,static_cast<int>(
@@ -281,6 +351,35 @@ private:
                 (softness*.4f+.6f);
         }
         return 0.f;
+    }
+    // Reduced differentiable reed/edge exciters; they share the physical
+    // incoming breath source and send independently generated disturbances
+    // into a downstream air chamber. Full bore-to-valve feedback is future
+    // work and must not be implied by this approximation.
+    float windExcite(Node& n,float input,bool reed) noexcept {
+        const float pressure=std::clamp(input*8.f,0.f,1.f);
+        const float inertia=reed?.008f:.035f;
+        n.jetMemory+=inertia*(pressure-n.jetMemory);
+        const float flow=n.jetMemory;
+        if(flow<.00001f)return 0.f;
+        const float stiffness=materialWaveSpeed(n.node.material);
+        const float relative=std::clamp(stiffness/3000.f,.55f,1.65f);
+        const float frequency=pitchHz_*(reed?1.f:1.018f)*
+            (1.f+.03f*flow)*std::pow(relative,reed?.09f:.02f);
+        n.phase+=2.f*kPi*frequency/sampleRate_;
+        if(n.phase>2.f*kPi)n.phase-=2.f*kPi;
+        const float cycle=std::sin(n.phase);
+        if(reed){
+            // A periodically closing valve makes a harmonically rich
+            // pressure disturbance, modulated by compliance.
+            const float softness=materialProperties(n.node.material).contactSoftness;
+            return .40f*flow*std::tanh(
+                (2.0f+2.f*(1.f-softness))*cycle);
+        }
+        // An air jet interacting with an edge has smoother oscillation and
+        // weak turbulence. No separate energy source is introduced.
+        const float turbulence=.04f*randomSigned(n);
+        return .34f*flow*(cycle+.15f*std::sin(2.f*n.phase)+turbulence);
     }
     void setupNode(Node& n,float pitch) noexcept {
         if(!vibrates(n.node.kind))return;
@@ -386,7 +485,7 @@ private:
             m.maxAmp=.45f*weight; // Modal energy bound: cannot swell arbitrarily
         }
     }
-    float ring(Node& n,float input) noexcept {
+    float ring(Node& n,float input,int nodeId) noexcept {
         float sum=0.f;
         for(int i=0;i<n.modeCount;++i){
             auto& m=n.modes[static_cast<size_t>(i)];
@@ -397,8 +496,20 @@ private:
                 1.f-n.touchLoss[static_cast<size_t>(i)]/sampleRate_,
                 0.f,1.f);
             const float retention=m.r*extra;
+            float localForce=0.f;
+            for(int k=0;k<n.inCount;++k){
+                const auto& e=edges_[static_cast<size_t>(n.incoming[k])];
+                const float wave=e.buffer[(head_-e.delay+kFlowDelayFrames)&
+                    (kFlowDelayFrames-1)];
+                // Local position changes mode excitation, distinct from the
+                // node's physical size or its drawing position.
+                const float x=std::clamp(
+                    e.position+e.modTravel*e2Smooth_,.005f,.995f);
+                const float shape=std::sin(kPi*(i+1.f)*x);
+                localForce+=wave*(.15f+.85f*shape);
+            }
             const float real=retention*(m.real*m.cosStep-m.imag*m.sinStep)+
-                m.inputGain*input;
+                m.inputGain*localForce;
             const float imag=retention*(m.real*m.sinStep+m.imag*m.cosStep);
             const float amplitude=std::sqrt(real*real+imag*imag);
             const float limited=amplitude>m.maxAmp?
@@ -413,6 +524,8 @@ private:
     FlowGraph graph_{};
     PhysicalInstrumentVoice legacy_{};
     float sampleRate_{48000.f},e1_{.8f},e2_{0.f},e2Smooth_{0.f};
+    float pitchHz_{220.f},activity_{0.f};
+    uint32_t quietFrames_{0};
     std::array<Node,kMaxFlowNodes> nodes_{};
     std::array<Edge,kMaxFlowLinks> edges_{};
     std::array<Contact,kMaxFlowLinks> contacts_{};
