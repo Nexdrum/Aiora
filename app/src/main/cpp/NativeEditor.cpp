@@ -357,7 +357,7 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
         const auto tab=synthTabRect(0);
         const float usable=b.y+b.h-tab.y-tab.h-std::clamp(b.w*.014f,9.0f,13.0f);
         // Templates, controls, audible timeline, node canvas and properties.
-        return std::max(0.0f,273.f+614.f+70.f+6*73.f+20.f-usable);
+        return std::max(0.0f,322.f+614.f+70.f+6*73.f+20.f-usable);
     }
 
     if(page==EditorPage::Fx){
@@ -2459,9 +2459,11 @@ bool NativeEditor::openDropdownAt(
     }
     if(page==EditorPage::Synth&&synthWorkspace_==3){
         const auto& graph=physicalBlueprint_.graph;
+        if(flowSelectedLink_>=0)return false;
         if(flowSelectedNode_<0||flowSelectedNode_>=graph.nodeCount)return false;
         const auto& node=graph.nodes[static_cast<size_t>(flowSelectedNode_)];
-        if(node.kind==physical::FlowKind::Output)return false;
+        if(node.kind==physical::FlowKind::Output||
+           node.kind==physical::FlowKind::Router)return false;
         if(flowPropertyRect(0).contains(x,y)){
             std::vector<std::string> names;
             names.reserve(physical::kMaterialCount);
@@ -2897,7 +2899,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                 return true;
             }
         }else if(synthWorkspace_==3){
-            for(int i=0;i<7;++i){
+            for(int i=0;i<8;++i){
                 const Rect rr=flowTemplateRect(i);
                 if(rr.contains(x,y)){
                     changed_=flowTemplate(i)||changed_;
@@ -2905,7 +2907,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                     return true;
                 }
             }
-            for(int i=0;i<12;++i){
+            for(int i=0;i<15;++i){
                 const Rect rr=flowActionRect(i);
                 if(rr.contains(x,y)){
                     changed_=flowAction(i)||changed_;
@@ -2928,6 +2930,27 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                         changed_=flowNodeTouch(i)||changed_;
                         activeHit_=Hit{wasLinking?HitKind::PhysicalAction:
                             HitKind::PhysicalNode,i,-1,rr};
+                        return true;
+                    }
+                }
+                // Select the interaction itself: each incoming energy link
+                // owns its own position, M travel, and coupling aperture.
+                for(int i=int(physicalBlueprint_.graph.linkCount)-1;i>=0;--i){
+                    const auto& link=physicalBlueprint_.graph.links[static_cast<size_t>(i)];
+                    if(link.from>=physicalBlueprint_.graph.nodeCount||
+                       link.to>=physicalBlueprint_.graph.nodeCount)continue;
+                    const auto a=flowNodeRect(link.from),z=flowNodeRect(link.to);
+                    const float x0=a.x+a.w*.5f,y0=a.y+a.h;
+                    const float x1=z.x+z.w*std::clamp(link.position,0.f,1.f),y1=z.y;
+                    const float dx=x1-x0,dy=y1-y0;
+                    const float norm=dx*dx+dy*dy;
+                    if(norm<.01f)continue;
+                    const float t=std::clamp(
+                        ((x-x0)*dx+(y-y0)*dy)/norm,0.f,1.f);
+                    const float dX=x-(x0+t*dx),dY=y-(y0+t*dy);
+                    if(dX*dX+dY*dY<196.f){
+                        flowLinkTouch(i);
+                        activeHit_=Hit{HitKind::PhysicalAction,i,-1,{}};
                         return true;
                     }
                 }
