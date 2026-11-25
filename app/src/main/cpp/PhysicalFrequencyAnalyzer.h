@@ -165,6 +165,8 @@ inline bool findPhysicalFrequency(Blueprint& blueprint) {
     // The approximate modal solver may agree mathematically while the
     // complete system's output is dominated by a different resonance.
     // Mark this as unverified rather than falsely claiming acoustic accuracy.
+    if(calibration.valid)
+        preparePhysicalBendMap(blueprint); // UI/offline, not render()
     return calibration.valid;
 }
 } // namespace aiora::physical
