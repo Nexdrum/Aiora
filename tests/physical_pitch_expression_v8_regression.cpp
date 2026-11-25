@@ -56,8 +56,16 @@ int main(){
     MaterialTimeVoice voice;
     voice.prepare(48000.f);
     voice.start(b,60,.80f,0.f);
-    // Let the impulse propagate into the material before modifying geometry.
-    for(int i=0;i<7000;++i)(void)voice.render();
+    // Let matching impulses propagate before retuning one of two otherwise
+    // identical voices. The audio comparison proves B changes the SOUND,
+    // not merely an internal pitch/frequency readout.
+    MaterialTimeVoice unbent;
+    unbent.prepare(48000.f);
+    unbent.start(b,60,.80f,0.f);
+    for(int i=0;i<7000;++i){
+        (void)voice.render();
+        (void)unbent.render();
+    }
     const float stored=voice.storedModalEnergy();
     assert(stored>1.e-11f);
     voice.setPitchBend(.5f);
@@ -65,11 +73,20 @@ int main(){
     assert(closeCents(voice.currentPhysicalPitchHz(),interpolatedHz(b,60.5f),.1f));
     assert(voice.currentPitchPropertyValue(0)!=valueAtMidi60);
     assert(voice.storedModalEnergy()==stored); // NO modal state reset
+    double pcmDifference=0.,referenceEnergy=0.;
+    for(int i=0;i<2000;++i){
+        const double dry=unbent.render();
+        const double bent=voice.render();
+        assert(std::isfinite(bent));
+        pcmDifference+=(bent-dry)*(bent-dry);
+        referenceEnergy+=dry*dry;
+    }
+    assert(pcmDifference>referenceEnergy*1.e-5+1.e-17);
+    const float energyAfterPlayback=voice.storedModalEnergy();
     voice.setExpression(.65f,.74f); // B does not steal V or M
     voice.setPitchBend(1.375f);
     assert(closeCents(voice.currentPhysicalPitchHz(),hz(61.375f),1.1f));
-    assert(voice.storedModalEnergy()==stored);
-    for(int i=0;i<2000;++i)assert(std::isfinite(voice.render()));
+    assert(voice.storedModalEnergy()==energyAfterPlayback);
     assert(voice.active());
     voice.setPitchBend(0.f);
     assert(closeCents(voice.currentPhysicalPitchHz(),base,.2f));
