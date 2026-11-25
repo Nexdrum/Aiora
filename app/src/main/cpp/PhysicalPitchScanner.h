@@ -197,8 +197,13 @@ inline PhysicalScanResults scanAllPhysicalPitch(const Blueprint& blueprint) {
     // Rank EVERY eligible component/property combination, then verify its
     // actual audio. Unlike Find, there is no pre-selected tracked material.
     // Repeated FFT analyses run on a worker thread (never audio/UI).
-    std::array<PhysicalScanCandidate,24> staged{};
-    int stageCount=0;
+    // Preserve the strongest options PER component. A very broad parameter
+    // range on one resonator must not crowd out every other resonator before
+    // the actual audible assessment.
+    constexpr int kPerComponent=3;
+    std::array<std::array<PhysicalScanCandidate,kPerComponent>,
+               kMaxFlowNodes> staged{};
+    std::array<int,kMaxFlowNodes> stageCounts{};
     for(int i=0;i<feasibleCount;++i){
         PitchCalibration pitch{};
         pitch.referenceMidi=results.referenceMidi;
@@ -211,41 +216,36 @@ inline PhysicalScanResults scanAllPhysicalPitch(const Blueprint& blueprint) {
         PhysicalScanCandidate c{};
         c.pitch=pitch;
         c.playableNotes=contiguousPitchSpan(pitch,c.firstMidi,c.lastMidi);
-        // A broad modeled range is merely a shortlist; it does NOT imply
-        // strong audibility until the FFT confirms output pitch and level.
+        // Modeled range is only a shortlist. FFT confirmation follows.
         if(c.playableNotes<3)continue;
+        const int node=feasible[i].tracked;
+        int& n=stageCounts[node];
         int at=0;
-        while(at<stageCount&&staged[at].playableNotes>=c.playableNotes)++at;
-        if(at>=static_cast<int>(staged.size()))continue;
-        const int last=std::min(static_cast<int>(staged.size())-1,stageCount);
-        for(int j=last;j>at;--j)staged[j]=staged[j-1];
-        staged[at]=c;
-        stageCount=std::min(static_cast<int>(staged.size()),stageCount+1);
+        while(at<n&&staged[node][at].playableNotes>=c.playableNotes)++at;
+        if(at>=kPerComponent)continue;
+        const int last=std::min(kPerComponent-1,n);
+        for(int j=last;j>at;--j)staged[node][j]=staged[node][j-1];
+        staged[node][at]=c;
+        n=std::min(kPerComponent,n+1);
     }
-    // Stage two: audition a generous sample spanning different components,
-    // not just the loudest object or the first role in the graph.
-    std::array<int,kMaxFlowNodes> seen{};
-    seen.fill(0);
-    std::array<bool,24> auditioned{};
-    int selected=0;
-    for(int pass=0;pass<2;++pass){
-        for(int i=0;i<stageCount;++i){
-            if(auditioned[i])continue;
-            const int tracked=staged[i].pitch.trackedNode;
-            if(pass==0&&seen[tracked]>=2)continue;
-            if(selected>=24)break;
-            auditioned[i]=true;++seen[tracked];++selected;
+    // Each eligible object receives its own chance to be heard, rather than
+    // doing an enormous spectral test on every low-impact parameter.
+    for(int rank=0;rank<kPerComponent;++rank){
+        for(int node=0;node<graph.nodeCount;++node){
+            if(rank>=stageCounts[node])continue;
             ++results.auditionedCandidates;
             const auto scored=evaluateScanPitch(
-                blueprint,staged[i].pitch);
+                blueprint,staged[node][rank].pitch);
             scanRankInsert(results,scored);
         }
     }
     // Stage three: two cooperating physical controls on the same medium
     // can expand playable range beyond either one alone.
     const int singles=std::min(results.count,5);
+    std::array<PhysicalScanCandidate,5> singleChoices{};
+    for(int i=0;i<singles;++i)singleChoices[i]=results.best[i];
     for(int i=0;i<singles;++i){
-        const auto& primary=results.best[i];
+        const auto& primary=singleChoices[i];
         if(primary.pitch.count!=1)continue;
         for(int j=0;j<feasibleCount;++j){
             const auto& option=feasible[j];
