@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -85,6 +85,13 @@ jobs:
             tests/physical_frequency_analyzer_v6_regression.cpp \
             -o /tmp/aiora-frequency-analyzer-test
           /tmp/aiora-frequency-analyzer-test
+
+      - name: Whole instrument pitch scan v7 regression
+        run: |
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
+            tests/physical_scan_all_v7_regression.cpp \
+            -o /tmp/aiora-physical-scan-all-v7-test
+          /tmp/aiora-physical-scan-all-v7-test
 
       - name: Native project-limit regression tests
         run: |
@@ -177,6 +184,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-PhysicalTuning-debug
+          name: Aiora-ScanAll-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
