@@ -222,6 +222,7 @@ struct FlowLink {
     float aperture{.22f}; // size of interaction area / flow inlet
     float modMin{.5f},modMax{.5f};
     bool modEnabled{false}; // independent M assignment; min>max reverses direction
+    ContactLaw law{ContactLaw::Coupled};
 };
 inline constexpr bool isUniversalSource(const FlowNode& n) noexcept {
     return n.kind==FlowKind::Universal&&n.role==PhysicalRole::Source;
@@ -294,6 +295,7 @@ struct FlowGraph {
         link.from=static_cast<uint8_t>(from);
         link.to=static_cast<uint8_t>(to);
         link.position=std::clamp(nodes[to].x,0.f,1.f);
+        link.modMin=link.position;link.modMax=link.position;
         if(nodes[to].kind==FlowKind::Damper)
             link.modTravel=1.f; // M physically approaches the vibrating source
         links[linkCount++]=link;
@@ -461,6 +463,7 @@ inline int addPhysicalRole(FlowGraph& g,PhysicalRole role) noexcept {
         n.form.continuum=Continuum::Gas;
     }else if(role==PhysicalRole::Transfer){
         n.form.continuum=Continuum::Filament;
+        n.form.widthMeters=.001f;n.form.depthMeters=.001f;
         n.material=Material::Nylon;
     }else if(role==PhysicalRole::Interaction){
         n.form.continuum=Continuum::Sheet;
