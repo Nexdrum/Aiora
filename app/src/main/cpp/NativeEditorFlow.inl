@@ -1,5 +1,5 @@
-// Material-Time Instrument Flow v3 editor. Included inside namespace aiora.
-// Y is chronological time, not a cosmetic graph coordinate.
+// Universal material roles v5 editor; first-arrival time Y, physical entry X.
+// Roles are freely repeatable. Source energy V, physical position M.
 void NativeEditor::syncPhysicalBinding() noexcept {
     const auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
@@ -49,9 +49,9 @@ NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
     return {canvas.x,canvas.y+canvas.h+70.f+index*73.f,canvas.w,66.f};
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
-    if(i<0||i>7)return false;
-    physicalBlueprint_.graph=physical::templateFlowGraph(
-        static_cast<physical::FlowTemplate>(i));
+    if(i<0||i>1)return false;
+    physicalBlueprint_.graph=i==0?physical::universalStarterGraph():
+        physical::universalEmptyGraph();
     flowSelectedNode_=physicalBlueprint_.graph.nodeCount>2?2:0;
     flowLinkMode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;flowError_=false;
     physicalDirty_=true;return true;
@@ -64,7 +64,15 @@ bool NativeEditor::editFlowTime(float x) noexcept {
 }
 int NativeEditor::flowPropertyCount() const noexcept {
     const auto& g=physicalBlueprint_.graph;
-    if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount)return 3;
+    if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount)return 6;
+    if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
+       g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal){
+        switch(g.nodes[flowSelectedNode_].role){
+        case physical::PhysicalRole::Source:return 8;
+        case physical::PhysicalRole::Output:return 3;
+        default:return 21;
+        }
+    }
     if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount)return 0;
     switch(g.nodes[flowSelectedNode_].kind){
     case physical::FlowKind::Exciter:return 4;
@@ -80,14 +88,46 @@ int NativeEditor::flowPropertyCount() const noexcept {
     case physical::FlowKind::Reed:return 4;
     case physical::FlowKind::Edge:return 4;
     case physical::FlowKind::Output:return 0;
+    case physical::FlowKind::Universal:return 0;
     }
     return 0;
 }
 const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
     const auto& g=physicalBlueprint_.graph;
     if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount){
-        constexpr const char* l[]={"ENTRY X (ON TARGET)","M POSITION TRAVEL","INTERACTION WIDTH"};
-        return i>=0&&i<3?l[i]:"";
+        constexpr const char* l[]={
+            "ENTRY X (TARGET SURFACE)","M ASSIGNED","M MIN POSITION",
+            "M MAX POSITION","INTERACTION WIDTH","TRANSFER LAW"
+        };
+        return i>=0&&i<6?l[i]:"";
+    }
+    if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
+       g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal){
+        const auto role=g.nodes[flowSelectedNode_].role;
+        if(role==physical::PhysicalRole::Source){
+            constexpr const char* l[]={
+                "HUMAN ENERGY SOURCE","MOTION / DELIVERY","MOTION DURATION",
+                "PRESSURE / FORCE RISE","DIRECTION","M ASSIGNED",
+                "M MIN POSITION","M MAX POSITION"
+            };
+            return i>=0&&i<8?l[i]:"";
+        }
+        if(role==physical::PhysicalRole::Output){
+            constexpr const char* l[]={
+                "M ASSIGNED","M MIN POSITION","M MAX POSITION"
+            };
+            return i>=0&&i<3?l[i]:"";
+        }
+        constexpr const char* l[]={
+            "PHYSICAL MATERIAL","CONTINUUM / STRUCTURE",
+            "LENGTH (METERS)","WIDTH (METERS)","DEPTH (METERS)",
+            "WALL THICKNESS","CURVATURE","TAPER","OPEN BOUNDARY",
+            "END FIXING","PROFILE 0%","PROFILE 33%",
+            "PROFILE 67%","PROFILE 100%","TENSION",
+            "STRUCTURAL LOSS","CONTACT COUPLING","INTERACTION LAW",
+            "M ASSIGNED","M MIN POSITION","M MAX POSITION"
+        };
+        return i>=0&&i<21?l[i]:"";
     }
     if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount)return "";
     using physical::FlowKind;
@@ -138,41 +178,29 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
         return i>=0&&i<4?l[i]:"";
     }
     case FlowKind::Output:return "";
+    case FlowKind::Universal:return "";
     }
     return "";
 }
 bool NativeEditor::flowAction(int index) noexcept {
-    using physical::FlowKind;
+    using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
-    constexpr std::array<FlowKind,11> types{
-        FlowKind::String,FlowKind::Membrane,FlowKind::Plate,FlowKind::Bar,
-        FlowKind::AirColumn,FlowKind::Body,FlowKind::Bridge,FlowKind::Damper,
-        FlowKind::Reed,FlowKind::Edge,FlowKind::Router
-    };
-    if(index>=0&&index<static_cast<int>(types.size())){
-        // Selecting a vibrating object and tapping +TOUCH physically attaches
-        // a contact to it. No sound-path rewiring or bypass deletion needed.
-        const int source=flowSelectedNode_;
-        const bool attach=index==7&&source>=0&&source<g.nodeCount&&
-            physical::vibrates(g.nodes[static_cast<size_t>(source)].kind);
-        const int id=g.addNode(types[static_cast<size_t>(index)]);
+    if(index>=0&&index<5){
+        const PhysicalRole role=static_cast<PhysicalRole>(index);
+        const int id=physical::addPhysicalRole(g,role);
         if(id<0)return false;
-        if(attach){
-            auto& touch=g.nodes[static_cast<size_t>(id)];
-            const auto& vibrator=g.nodes[static_cast<size_t>(source)];
-            touch.y=std::clamp(vibrator.y+.14f,.10f,.90f);
-            touch.x=std::clamp(vibrator.x+.24f,.04f,.95f);
-            if(!g.connect(source,id))flowError_=true;
-        }
-        flowSelectedNode_=id;flowSelectedLink_=-1;physicalDirty_=true;return true;
+        // New roles can appear anywhere along the causally ordered grid.
+        // Linking remains deliberate: no hidden sound-path assignments.
+        flowSelectedNode_=id;flowSelectedLink_=-1;
+        flowError_=false;physicalDirty_=true;return true;
     }
-    if(index==11||index==12){
-        const int m=index==11?1:2;
+    if(index==5||index==6){
+        const int m=index==5?1:2;
         flowLinkMode_=flowLinkMode_==m?0:m;
         flowLinkSource_=-1;flowError_=false;
         return false;
     }
-    if(index==13){
+    if(index==7){
         if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount){
             const auto link=g.links[static_cast<size_t>(flowSelectedLink_)];
             const bool changed=g.disconnect(link.from,link.to);
@@ -184,8 +212,13 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowSelectedNode_=std::max(0,std::min(flowSelectedNode_,int(g.nodeCount)-1));
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
-    if(index==14){
-        g=physical::blankFlowGraph();
+    if(index==8){
+        g=physical::universalEmptyGraph();
+        flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
+        flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
+    }
+    if(index==9){
+        g=physical::universalStarterGraph();
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
@@ -227,9 +260,63 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
     if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount){
         auto& link=g.links[static_cast<size_t>(flowSelectedLink_)];
         if(i==0)link.position=t;
-        else if(i==1)link.modTravel=2.f*t-1.f;
-        else if(i==2)link.aperture=.035f+.965f*t;
+        else if(i==1){if(!first)return false;link.modEnabled=!link.modEnabled;}
+        else if(i==2)link.modMin=t;
+        else if(i==3)link.modMax=t;
+        else if(i==4)link.aperture=.035f+.965f*t;
+        else if(i==5){
+            if(!first)return false;
+            link.law=static_cast<physical::ContactLaw>(
+                (int(link.law)+1)%4);
+        }
         physicalDirty_=true;return true;
+    }
+    if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
+       g.nodes[flowSelectedNode_].kind==FlowKind::Universal){
+        auto& n=g.nodes[flowSelectedNode_];
+        const bool src=n.role==physical::PhysicalRole::Source;
+        const bool out=n.role==physical::PhysicalRole::Output;
+        if(src){
+            if(i==0){if(!first)return false;n.driver=static_cast<physical::Driver>((int(n.driver)+1)%4);}
+            else if(i==1){if(!first)return false;n.gesture=static_cast<physical::Gesture>((int(n.gesture)+1)%3);}
+            else if(i==2)n.sourceDurationMs=.4f+499.6f*t;
+            else if(i==3)n.sourceRiseMs=.4f+249.6f*t;
+            else if(i==4)n.sourceDirection=t;
+            else if(i==5){if(!first)return false;n.movingEnabled=!n.movingEnabled;}
+            else if(i==6)n.movingMin=t;
+            else if(i==7)n.movingMax=t;
+        }else if(out){
+            if(i==0){if(!first)return false;n.movingEnabled=!n.movingEnabled;}
+            else if(i==1)n.movingMin=t;
+            else if(i==2)n.movingMax=t;
+        }else{
+            auto& form=n.form;
+            if(i==0)return false; // material is selected via dropdown
+            else if(i==1){
+                if(!first)return false;
+                form.continuum=static_cast<physical::Continuum>(
+                    (int(form.continuum)+1)%4);
+            }else if(i==2)form.lengthMeters=.025f+1.975f*t;
+            else if(i==3)form.widthMeters=.0005f*std::pow(1000.f,t);
+            else if(i==4)form.depthMeters=.0002f*std::pow(1000.f,t);
+            else if(i==5)form.wallMm=.2f+19.8f*t;
+            else if(i==6)form.curvature=2.f*t-1.f;
+            else if(i==7)form.taper=2.f*t-1.f;
+            else if(i==8)form.opening=t;
+            else if(i==9)form.fixing=t;
+            else if(i>=10&&i<=13)
+                form.stations[static_cast<size_t>(i-10)]=.25f+2.75f*t;
+            else if(i==14)n.tensionNewtons=1.f+399.f*t;
+            else if(i==15)n.damping=.15f+7.85f*t;
+            else if(i==16)n.coupling=.02f+.98f*t;
+            else if(i==17){
+                if(!first)return false;
+                n.law=static_cast<physical::ContactLaw>((int(n.law)+1)%4);
+            }else if(i==18){if(!first)return false;n.movingEnabled=!n.movingEnabled;}
+            else if(i==19)n.movingMin=t;
+            else if(i==20)n.movingMax=t;
+        }
+        flowError_=false;physicalDirty_=true;return true;
     }
     if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount)return false;
     auto& n=g.nodes[flowSelectedNode_];
@@ -303,6 +390,7 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         else n.coupling=.02f+.98f*t;
         break;
     case FlowKind::Output:return false;
+    case FlowKind::Universal:return false;
     }
     flowError_=false;physicalDirty_=true;
     return true;
@@ -319,6 +407,45 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
     auto fmt=[&](const char* format,float value){
         std::snprintf(f.label,sizeof(f.label),format,value);
     };
+    if(n.kind==FlowKind::Universal){
+        const bool source=n.role==physical::PhysicalRole::Source;
+        const bool output=n.role==physical::PhysicalRole::Output;
+        if(source){
+            if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::driverName(n.driver));}
+            else if(i==1){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::gestureName(n.gesture));}
+            else if(i==2){f.position=(n.sourceDurationMs-.4f)/499.6f;fmt("%.1f ms",n.sourceDurationMs);}
+            else if(i==3){f.position=(n.sourceRiseMs-.4f)/249.6f;fmt("%.1f ms",n.sourceRiseMs);}
+            else if(i==4){f.position=n.sourceDirection;fmt("%.0f%%",n.sourceDirection*100.f);}
+            else if(i==5){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
+            else if(i==6){f.position=n.movingMin;fmt("%.0f%%",n.movingMin*100.f);}
+            else if(i==7){f.position=n.movingMax;fmt("%.0f%%",n.movingMax*100.f);}
+        }else if(output){
+            if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
+            else if(i==1){f.position=n.movingMin;fmt("%.0f%%",n.movingMin*100.f);}
+            else if(i==2){f.position=n.movingMax;fmt("%.0f%%",n.movingMax*100.f);}
+        }else{
+            const auto& g=n.form;
+            if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::materialName(n.material));}
+            else if(i==1){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::continuumName(g.continuum));}
+            else if(i==2){f.position=(g.lengthMeters-.025f)/1.975f;fmt("%.3f m",g.lengthMeters);}
+            else if(i==3){f.position=std::log(std::max(.0005f,g.widthMeters)/.0005f)/std::log(1000.f);fmt("%.4f m",g.widthMeters);}
+            else if(i==4){f.position=std::log(std::max(.0002f,g.depthMeters)/.0002f)/std::log(1000.f);fmt("%.4f m",g.depthMeters);}
+            else if(i==5){f.position=(g.wallMm-.2f)/19.8f;fmt("%.1f mm",g.wallMm);}
+            else if(i==6){f.position=(g.curvature+1.f)*.5f;fmt("%+.2f",g.curvature);}
+            else if(i==7){f.position=(g.taper+1.f)*.5f;fmt("%+.2f",g.taper);}
+            else if(i==8){f.position=g.opening;fmt("%.0f%%",g.opening*100.f);}
+            else if(i==9){f.position=g.fixing;fmt("%.0f%%",g.fixing*100.f);}
+            else if(i>=10&&i<=13){const float v=g.stations[static_cast<size_t>(i-10)];f.position=(v-.25f)/2.75f;fmt("%.2f x",v);}
+            else if(i==14){f.position=(n.tensionNewtons-1.f)/399.f;fmt("%.0f N",n.tensionNewtons);}
+            else if(i==15){f.position=(n.damping-.15f)/7.85f;fmt("%.2f x",n.damping);}
+            else if(i==16){f.position=(n.coupling-.02f)/.98f;fmt("%.0f%%",n.coupling*100.f);}
+            else if(i==17){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::contactLawName(n.law));}
+            else if(i==18){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
+            else if(i==19){f.position=n.movingMin;fmt("%.0f%%",n.movingMin*100.f);}
+            else if(i==20){f.position=n.movingMax;fmt("%.0f%%",n.movingMax*100.f);}
+        }
+        return f;
+    }
     if(i==0&&n.kind!=FlowKind::Output&&n.kind!=FlowKind::Router){
         f.picker=true;
         std::snprintf(f.label,sizeof(f.label),"%s",physical::materialName(n.material));
@@ -393,6 +520,7 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
         else if(i==3){f.position=(n.coupling-.02f)/.98f;fmt("%.0f%%",n.coupling*100.f);}
         break;
     case FlowKind::Output:break;
+    case FlowKind::Universal:break;
     }
     return f;
 }
