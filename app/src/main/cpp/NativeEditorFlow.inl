@@ -13,7 +13,7 @@ NativeEditor::Rect NativeEditor::flowTemplateRect(int index) const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
     const float y=tab.y+tab.h+gap-physicalScrollY_;
-    const float w=std::max(30.f,(b.w-24.f-6*5.f)/7.f);
+    const float w=std::max(30.f,(b.w-24.f-7*5.f)/8.f);
     return {b.x+12.f+index*(w+5.f),y+63.f,w,44.f};
 }
 NativeEditor::Rect NativeEditor::flowActionRect(int index) const noexcept {
