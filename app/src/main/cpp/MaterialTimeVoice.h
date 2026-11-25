@@ -358,14 +358,22 @@ private:
     // work and must not be implied by this approximation.
     float windExcite(Node& n,float input,bool reed) noexcept {
         const float pressure=std::clamp(input*8.f,0.f,1.f);
-        const float inertia=reed?.008f:.035f;
+        const float bodySoftness=materialProperties(n.node.material).contactSoftness;
+        const float stiffness=materialWaveSpeed(n.node.material);
+        const float compliance=reed?
+            (.6f+.8f*(1.f-n.node.hardness)):(.7f+.3f*bodySoftness);
+        const float inertia=reed?
+            std::clamp(.008f*compliance,.002f,.04f):
+            std::clamp(.035f/(.5f+n.node.thicknessMm*.07f),.002f,.05f);
         n.jetMemory+=inertia*(pressure-n.jetMemory);
         const float flow=n.jetMemory;
         if(flow<.00001f)return 0.f;
-        const float stiffness=materialWaveSpeed(n.node.material);
         const float relative=std::clamp(stiffness/3000.f,.55f,1.65f);
+        const float geometric=reed?
+            std::pow(std::clamp(n.node.size,.25f,4.f),-.14f):
+            (1.f+.06f*(n.node.position-.5f));
         const float frequency=pitchHz_*(reed?1.f:1.018f)*
-            (1.f+.03f*flow)*std::pow(relative,reed?.09f:.02f);
+            (1.f+.03f*flow)*std::pow(relative,reed?.09f:.02f)*geometric;
         n.phase+=2.f*kPi*frequency/sampleRate_;
         if(n.phase>2.f*kPi)n.phase-=2.f*kPi;
         const float cycle=std::sin(n.phase);
@@ -373,13 +381,13 @@ private:
             // A periodically closing valve makes a harmonically rich
             // pressure disturbance, modulated by compliance.
             const float softness=materialProperties(n.node.material).contactSoftness;
-            return .40f*flow*std::tanh(
-                (2.0f+2.f*(1.f-softness))*cycle);
+            return .40f*flow*n.node.coupling*std::tanh(
+                (1.2f+1.3f*n.node.hardness+2.f*(1.f-softness))*cycle);
         }
         // An air jet interacting with an edge has smoother oscillation and
         // weak turbulence. No separate energy source is introduced.
         const float turbulence=.04f*randomSigned(n);
-        return .34f*flow*(cycle+.15f*std::sin(2.f*n.phase)+turbulence);
+        return .34f*flow*n.node.coupling*(cycle+.15f*std::sin(2.f*n.phase)+turbulence);
     }
     void setupNode(Node& n,float pitch) noexcept {
         if(!vibrates(n.node.kind))return;
