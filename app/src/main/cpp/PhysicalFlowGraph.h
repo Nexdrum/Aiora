@@ -497,6 +497,58 @@ inline FlowGraph defaultFlowGraph() noexcept {
     return universalStarterGraph();
 }
 
+// A keyboard note does not pitch-shift audio: it selects the values of
+// user-assigned REAL geometric/mechanical parameters. Multiple assignments
+// are independently addressable and precomputed outside the audio callback.
+enum class PitchProperty : uint8_t {
+    Length, Width, Depth, Wall, Curvature, Taper, Opening, Fixing,
+    Tension, Profile0, Profile1, Profile2, Profile3, Coupling,
+    LinkPosition, LinkAperture, Count
+};
+inline constexpr const char* pitchPropertyName(PitchProperty p) noexcept {
+    switch(p){
+    case PitchProperty::Length:return "Length";
+    case PitchProperty::Width:return "Width";
+    case PitchProperty::Depth:return "Depth";
+    case PitchProperty::Wall:return "Wall thickness";
+    case PitchProperty::Curvature:return "Curvature";
+    case PitchProperty::Taper:return "Taper";
+    case PitchProperty::Opening:return "Opening";
+    case PitchProperty::Fixing:return "End fixing";
+    case PitchProperty::Tension:return "Tension";
+    case PitchProperty::Profile0:return "Profile 0%";
+    case PitchProperty::Profile1:return "Profile 33%";
+    case PitchProperty::Profile2:return "Profile 67%";
+    case PitchProperty::Profile3:return "Profile 100%";
+    case PitchProperty::Coupling:return "Coupling";
+    case PitchProperty::LinkPosition:return "Link entry X";
+    case PitchProperty::LinkAperture:return "Link aperture";
+    case PitchProperty::Count:break;
+    }
+    return "Physical property";
+}
+inline constexpr int kPitchSlots=4;
+struct PitchAssignment {
+    int8_t objectIndex{-1}; // node index, or link index for link properties
+    PitchProperty property{PitchProperty::Tension};
+    float lower{1.f},upper{400.f};
+    float priority{1.f}; // positive preference; never an audio gain
+};
+struct PitchCalibration {
+    bool enabled{false},valid{false};
+    uint8_t count{0};
+    int8_t trackedNode{-1};
+    int16_t referenceMidi{60};
+    float a4Hz{440.f};
+    float measuredHz{0.f}; // spectral estimate from rendered audio
+    float modelHz{0.f};    // reduced physical modal prediction
+    float confidence{0.f};
+    float centsError{0.f};
+    uint32_t graphStamp{0};
+    std::array<PitchAssignment,kPitchSlots> assignments{};
+    std::array<std::array<float,kPitchSlots>,128> values{};
+    std::array<uint8_t,128> playable{}; // unreachable notes are NOT pitch shifted
+};
 struct Blueprint {
     // Legacy standalone physical voice settings. If graph.nodeCount>0 the
     // graph is authoritative and these values are derived from connected nodes.
@@ -519,6 +571,7 @@ struct Blueprint {
     float bodyThicknessMm{3.0f};
     float bodyDamping{1.0f};
     FlowGraph graph{};
+    PitchCalibration pitch{};
 };
 
 } // namespace aiora::physical
