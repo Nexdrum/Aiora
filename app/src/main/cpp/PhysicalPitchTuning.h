@@ -1,0 +1,332 @@
+#pragma once
+// Physical-keyboard tuning v6: the played note changes ONLY assigned
+// physical properties. No output-pitch resampling / oscillator retuning.
+// All note-table construction runs off the real-time audio thread.
+#include "PhysicalFlowGraph.h"
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+
+namespace aiora::physical {
+
+inline float noteFrequency12TET(int midi,float a4=440.f) noexcept {
+    return std::clamp(a4,400.f,480.f)*
+        std::pow(2.f,(std::clamp(midi,0,127)-69.f)/12.f);
+}
+inline float physicalFundamental(const FlowNode& p) noexcept {
+    if(p.kind!=FlowKind::Universal||!physicalVibrates(p))return 0.f;
+    const auto material=materialProperties(p.material);
+    const auto& g=p.form;
+    const float rho=std::max(100.f,material.densityKgM3);
+    const float E=std::max(1.e6f,material.youngModulusPa);
+    const float L=std::clamp(g.lengthMeters,.025f,5.f);
+    const float w=std::clamp(g.widthMeters,.0001f,2.f);
+    const float d=std::clamp(g.depthMeters,.0001f,1.f);
+    const float profile=std::clamp(normalizedAverageProfile(g),.1f,3.f);
+    const float rootE=std::sqrt(E/rho);
+    float f=110.f;
+    switch(g.continuum){
+    case Continuum::Filament:{
+        const float mu=rho*w*d*profile;
+        f=.5f/L*std::sqrt(std::max(1.f,p.tensionNewtons)/mu);
+        break;
+    }
+    case Continuum::Sheet:{
+        const float slender=std::max(w,L);
+        const float bending=.13f*d/(slender*slender)*rootE;
+        const float tensionWave=.25f/slender*std::sqrt(
+            std::max(0.f,p.tensionNewtons)/(rho*d*std::max(w,.004f)));
+        f=std::sqrt(bending*bending+tensionWave*tensionWave);
+        break;
+    }
+    case Continuum::Solid:{
+        const float IOverA=d*d/12.f;
+        f=(1.875104f*1.875104f/(2.f*3.14159265358979323846f*L*L))*
+            std::sqrt(E*IOverA/rho);
+        f*=1.f+1.35f*std::clamp(g.fixing,0.f,1.f);
+        break;
+    }
+    case Continuum::Gas:{
+        const float soundSpeed=343.f;
+        const float closed=g.opening<.5f?4.f:2.f;
+        const float endCorrection=.61f*std::sqrt(w*d);
+        const float effective=L+endCorrection*(g.opening+.25f);
+        const float wallCompliance=1.f+.025f*
+            std::clamp(3.f/std::max(.2f,g.wallMm),.1f,6.f);
+        f=soundSpeed/(closed*effective*wallCompliance);
+        break;
+    }
+    }
+    f*=std::sqrt(profile)*
+        (1.f+.08f*std::clamp(g.curvature,-1.f,1.f));
+    return std::clamp(f,25.f,12000.f);
+}
+inline bool pitchIsLink(PitchProperty p) noexcept {
+    return p==PitchProperty::LinkPosition||
+        p==PitchProperty::LinkAperture;
+}
+inline std::array<float,2> pitchPropertyBounds(PitchProperty p) noexcept {
+    switch(p){
+    case PitchProperty::Length:return {.025f,2.f};
+    case PitchProperty::Width:return {.0005f,.50f};
+    case PitchProperty::Depth:return {.0002f,.20f};
+    case PitchProperty::Wall:return {.2f,20.f};
+    case PitchProperty::Curvature:
+    case PitchProperty::Taper:return {-1.f,1.f};
+    case PitchProperty::Opening:
+    case PitchProperty::Fixing:
+    case PitchProperty::LinkPosition:return {0.f,1.f};
+    case PitchProperty::Tension:return {1.f,400.f};
+    case PitchProperty::Profile0:
+    case PitchProperty::Profile1:
+    case PitchProperty::Profile2:
+    case PitchProperty::Profile3:return {.25f,3.f};
+    case PitchProperty::Coupling:return {.02f,1.f};
+    case PitchProperty::LinkAperture:return {.035f,1.f};
+    case PitchProperty::Count:break;
+    }
+    return {0.f,1.f};
+}
+inline bool pitchTargetValid(const FlowGraph& g,
+                            const PitchAssignment& a) noexcept {
+    if(a.objectIndex<0)return false;
+    if(pitchIsLink(a.property))
+        return a.objectIndex<g.linkCount;
+    if(a.objectIndex>=g.nodeCount)return false;
+    const auto& n=g.nodes[static_cast<size_t>(a.objectIndex)];
+    return n.kind==FlowKind::Universal&&physicalVibrates(n);
+}
+inline float pitchRead(const FlowGraph& g,
+                       const PitchAssignment& a) noexcept {
+    if(!pitchTargetValid(g,a))return 0.f;
+    if(pitchIsLink(a.property)){
+        const auto& link=g.links[static_cast<size_t>(a.objectIndex)];
+        return a.property==PitchProperty::LinkPosition?
+            link.position:link.aperture;
+    }
+    const auto& n=g.nodes[static_cast<size_t>(a.objectIndex)];
+    switch(a.property){
+    case PitchProperty::Length:return n.form.lengthMeters;
+    case PitchProperty::Width:return n.form.widthMeters;
+    case PitchProperty::Depth:return n.form.depthMeters;
+    case PitchProperty::Wall:return n.form.wallMm;
+    case PitchProperty::Curvature:return n.form.curvature;
+    case PitchProperty::Taper:return n.form.taper;
+    case PitchProperty::Opening:return n.form.opening;
+    case PitchProperty::Fixing:return n.form.fixing;
+    case PitchProperty::Tension:return n.tensionNewtons;
+    case PitchProperty::Profile0:
+    case PitchProperty::Profile1:
+    case PitchProperty::Profile2:
+    case PitchProperty::Profile3:
+        return n.form.stations[static_cast<int>(a.property)-
+            static_cast<int>(PitchProperty::Profile0)];
+    case PitchProperty::Coupling:return n.coupling;
+    default:return 0.f;
+    }
+}
+inline bool pitchWrite(FlowGraph& g,const PitchAssignment& a,
+                       float value) noexcept {
+    if(!pitchTargetValid(g,a)||!std::isfinite(value))return false;
+    const auto limits=pitchPropertyBounds(a.property);
+    value=std::clamp(value,limits[0],limits[1]);
+    if(pitchIsLink(a.property)){
+        auto& link=g.links[static_cast<size_t>(a.objectIndex)];
+        if(a.property==PitchProperty::LinkPosition)link.position=value;
+        else link.aperture=value;
+        return true;
+    }
+    auto& n=g.nodes[static_cast<size_t>(a.objectIndex)];
+    switch(a.property){
+    case PitchProperty::Length:n.form.lengthMeters=value;break;
+    case PitchProperty::Width:n.form.widthMeters=value;break;
+    case PitchProperty::Depth:n.form.depthMeters=value;break;
+    case PitchProperty::Wall:n.form.wallMm=value;break;
+    case PitchProperty::Curvature:n.form.curvature=value;break;
+    case PitchProperty::Taper:n.form.taper=value;break;
+    case PitchProperty::Opening:n.form.opening=value;break;
+    case PitchProperty::Fixing:n.form.fixing=value;break;
+    case PitchProperty::Tension:n.tensionNewtons=value;break;
+    case PitchProperty::Profile0:
+    case PitchProperty::Profile1:
+    case PitchProperty::Profile2:
+    case PitchProperty::Profile3:
+        n.form.stations[static_cast<int>(a.property)-
+            static_cast<int>(PitchProperty::Profile0)]=value;break;
+    case PitchProperty::Coupling:n.coupling=value;break;
+    default:return false;
+    }
+    return true;
+}
+inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
+    uint32_t h=2166136261u;
+    const auto add=[&](uint32_t v){h=(h^v)*16777619u;};
+    const auto f=[&](float v){add(std::bit_cast<uint32_t>(v));};
+    add(g.nodeCount);add(g.linkCount);f(g.spanMs);
+    for(int i=0;i<g.nodeCount;++i){
+        const auto& n=g.nodes[static_cast<size_t>(i)];
+        add(static_cast<uint32_t>(n.kind));add(static_cast<uint32_t>(n.role));
+        add(static_cast<uint32_t>(n.material));add(static_cast<uint32_t>(n.geometry));
+        add(static_cast<uint32_t>(n.driver));add(static_cast<uint32_t>(n.gesture));
+        add(static_cast<uint32_t>(n.form.continuum));
+        f(n.x);f(n.y);f(n.size);f(n.thicknessMm);
+        f(n.damping);f(n.coupling);f(n.position);f(n.tensionNewtons);
+        f(n.diameterMm);f(n.hardness);f(n.restPressure);f(n.motion);
+        f(n.sourceDurationMs);f(n.sourceRiseMs);f(n.sourceDirection);
+        f(n.form.lengthMeters);f(n.form.widthMeters);f(n.form.depthMeters);
+        f(n.form.wallMm);f(n.form.curvature);f(n.form.taper);
+        f(n.form.opening);f(n.form.fixing);
+        for(float v:n.form.stations)f(v);
+        add(n.movingEnabled);f(n.movingMin);f(n.movingMax);
+        add(static_cast<uint32_t>(n.law));
+    }
+    for(int i=0;i<g.linkCount;++i){
+        const auto& link=g.links[static_cast<size_t>(i)];
+        add(link.from);add(link.to);f(link.position);
+        f(link.modTravel);f(link.aperture);
+        f(link.modMin);f(link.modMax);
+        add(link.modEnabled);add(static_cast<uint32_t>(link.law));
+    }
+    return h;
+}
+inline float trackedFundamental(const FlowGraph& g,
+                                int trackedNode) noexcept {
+    if(trackedNode<0||trackedNode>=g.nodeCount)return 0.f;
+    return physicalFundamental(g.nodes[static_cast<size_t>(trackedNode)]);
+}
+inline bool pitchMapCurrent(const Blueprint& b) noexcept {
+    const auto& t=b.pitch;
+    return t.enabled&&t.valid&&t.count>0&&
+        t.graphStamp==physicalGraphStamp(b.graph);
+}
+inline bool applyMappedPitch(const PitchCalibration& c,FlowGraph& graph,
+                             int midi) noexcept {
+    if(!c.valid||midi<0||midi>127||!c.playable[midi])return false;
+    for(int i=0;i<c.count&&i<kPitchSlots;++i){
+        if(!pitchWrite(graph,c.assignments[i],c.values[midi][i]))
+            return false;
+    }
+    return true;
+}
+struct PitchSolveResult {
+    bool reached{false};
+    float modeledHz{0.f};
+    float centsError{0.f};
+    std::array<float,kPitchSlots> values{};
+};
+// Iterated bounded-coordinate searches allow multiple physical assignments;
+// ineffective / unreachable assignments do NOT secretly adjust oscillator Hz.
+// The selected tracked medium provides the modal fundamental of this reduced
+// solver. Wider coupled-frequency analysis is a future numerical model.
+inline PitchSolveResult solvePhysicalPitch(
+    const FlowGraph& original,const PitchCalibration& pitch,
+    float desiredHz) noexcept {
+    PitchSolveResult result{};
+    if(pitch.trackedNode<0||pitch.trackedNode>=original.nodeCount||
+       pitch.count==0||!std::isfinite(desiredHz)||desiredHz<=0.f)
+        return result;
+    FlowGraph trial=original;
+    for(int j=0;j<pitch.count&&j<kPitchSlots;++j){
+        const auto& a=pitch.assignments[j];
+        if(!pitchTargetValid(trial,a))return result;
+        result.values[j]=std::clamp(pitchRead(trial,a),
+            std::min(a.lower,a.upper),std::max(a.lower,a.upper));
+        pitchWrite(trial,a,result.values[j]);
+    }
+    const auto err=[&](){
+        const float hz=trackedFundamental(trial,pitch.trackedNode);
+        return hz>0.f?1200.f*std::log2(hz/desiredHz):1.e9f;
+    };
+    float best=std::fabs(err());
+    for(int iteration=0;iteration<6&&best>.15f;++iteration){
+        bool moved=false;
+        // Higher-priority assignments are adjusted first.
+        for(int rank=0;rank<pitch.count;++rank){
+            int slot=-1;
+            for(int j=0;j<pitch.count;++j){
+                int before=0;
+                for(int k=0;k<pitch.count;++k)
+                    if(pitch.assignments[k].priority>
+                       pitch.assignments[j].priority||
+                       (pitch.assignments[k].priority==
+                        pitch.assignments[j].priority&&k<j))++before;
+                if(before==rank){slot=j;break;}
+            }
+            if(slot<0)continue;
+            const auto& a=pitch.assignments[slot];
+            const float lo=std::min(a.lower,a.upper);
+            const float hi=std::max(a.lower,a.upper);
+            if(hi-lo<1.e-8f)continue;
+            pitchWrite(trial,a,lo);
+            const float eLo=err();
+            pitchWrite(trial,a,hi);
+            const float eHi=err();
+            float candidate=lo,score=std::fabs(eLo);
+            if(std::fabs(eHi)<score){candidate=hi;score=std::fabs(eHi);}
+            // Only bracketed monotonic responses can be safely bisected.
+            // Discontinuous opening/closed boundary changes are checked.
+            if(std::isfinite(eLo)&&std::isfinite(eHi)&&eLo*eHi<=0.f){
+                float left=lo,right=hi;
+                for(int i=0;i<26;++i){
+                    const float mid=(left+right)*.5f;
+                    pitchWrite(trial,a,mid);
+                    const float eMid=err();
+                    if(std::fabs(eMid)<score){score=std::fabs(eMid);candidate=mid;}
+                    if((eLo<0.f)==(eMid<0.f))left=mid;
+                    else right=mid;
+                }
+            }
+            pitchWrite(trial,a,candidate);
+            // Prevent the optimizer from worsening pitch accidentally.
+            if(score+1.e-4f<best){
+                best=score;result.values[slot]=candidate;moved=true;
+            }else pitchWrite(trial,a,result.values[slot]);
+        }
+        if(!moved)break;
+    }
+    result.modeledHz=trackedFundamental(trial,pitch.trackedNode);
+    if(result.modeledHz>0.f&&std::isfinite(result.modeledHz)){
+        result.centsError=1200.f*
+            std::log2(result.modeledHz/desiredHz);
+        result.reached=std::fabs(result.centsError)<1.f;
+    }
+    return result;
+}
+inline bool buildPhysicalKeyboard(const FlowGraph& graph,
+                                  PitchCalibration& pitch) noexcept {
+    pitch.valid=false;
+    if(pitch.count==0||pitch.count>kPitchSlots||
+       trackedFundamental(graph,pitch.trackedNode)<=0.f)
+        return false;
+    for(int i=0;i<pitch.count;++i){
+        const auto& a=pitch.assignments[i];
+        if(!pitchTargetValid(graph,a)||!std::isfinite(a.lower)||
+           !std::isfinite(a.upper))return false;
+        const auto bounds=pitchPropertyBounds(a.property);
+        if(std::min(a.lower,a.upper)<bounds[0]||
+           std::max(a.lower,a.upper)>bounds[1])return false;
+        for(int j=0;j<i;++j)
+            if(a.objectIndex==pitch.assignments[j].objectIndex&&
+               a.property==pitch.assignments[j].property)return false;
+    }
+    pitch.playable.fill(0);
+    const int ref=std::clamp<int>(pitch.referenceMidi,0,127);
+    for(int midi=0;midi<128;++midi){
+        const auto r=solvePhysicalPitch(graph,pitch,
+            noteFrequency12TET(midi,pitch.a4Hz));
+        pitch.values[midi]=r.values;
+        pitch.playable[midi]=r.reached?1:0;
+    }
+    pitch.graphStamp=physicalGraphStamp(graph);
+    pitch.enabled=true;
+    pitch.valid=pitch.playable[ref]!=0;
+    pitch.modelHz=trackedFundamental(graph,pitch.trackedNode);
+    const auto r=solvePhysicalPitch(graph,pitch,
+        noteFrequency12TET(ref,pitch.a4Hz));
+    pitch.centsError=r.centsError;
+    return pitch.valid;
+}
+} // namespace aiora::physical
