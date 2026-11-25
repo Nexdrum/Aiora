@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <cstdint>
 #include <optional>
 
@@ -10,6 +11,7 @@
 #include "NativeUi.h"
 #include "KineticScroll.h"
 #include "PhysicalInstrumentVoice.h"
+#include "PhysicalPitchScanner.h"
 
 namespace aiora {
 
@@ -107,6 +109,7 @@ private:
     [[nodiscard]] Rect flowTuneRangeRect(int index) const noexcept;
     bool flowTuneAction(int index) noexcept;
     bool editPitchRange(int index,float x) noexcept;
+    void updatePitchScan() noexcept;
     bool flowTemplate(int index) noexcept;
     bool editFlowTime(float x) noexcept;
     [[nodiscard]] Rect flowActionRect(int index) const noexcept;
@@ -182,6 +185,10 @@ private:
     int pitchSelectedSlot_{0};
     int pitchTuneStatus_{0}; // 0 unknown, 1 calibrated, 2 unsupported, 3 unverified output
     std::array<float,12> pitchSpectrumBands_{};
+    physical::PhysicalScanResults pitchScanResults_{};
+    std::shared_ptr<physical::PhysicalScanJob> pitchScanJob_{};
+    int pitchScanSelection_{0};
+    int pitchScanStatus_{0}; // 0 no scan, 1 running, 2 ready, 3 no match, 4 graph changed
     int ampSubtab_{0};      // Envelope / Mod
     int fxGroup_{0};
     int fxRackExpanded_{-1};
