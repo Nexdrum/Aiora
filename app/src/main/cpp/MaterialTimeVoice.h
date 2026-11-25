@@ -33,6 +33,7 @@ public:
         }
         legacyMode_=false;
         active_=true;released_=false;tick_=0;releasedAt_=0;head_=0;
+        initialPitch_=midi;
         e1_=safe01(velocity);e2_=safe01(mod);e2Smooth_=e2_;
         pitchHz_=std::clamp(440.f*std::pow(2.f,(midi-69)/12.f),25.f,sampleRate_*.16f);
         quietFrames_=0;activity_=0.f;
@@ -63,6 +64,10 @@ public:
             edge.from=raw.from;edge.to=raw.to;
             edge.position=std::clamp(raw.position,0.f,1.f);
             edge.modTravel=std::clamp(raw.modTravel,-1.f,1.f);
+            edge.modEnabled=raw.modEnabled;
+            edge.modMin=std::clamp(raw.modMin,0.f,1.f);
+            edge.modMax=std::clamp(raw.modMax,0.f,1.f);
+            edge.law=raw.law;
             edge.aperture=std::clamp(raw.aperture,.035f,1.f);
             const auto& from=nodes_[raw.from].node;
             const auto& to=nodes_[raw.to].node;
@@ -79,6 +84,11 @@ public:
             const float z0=materialImpedance(from.material);
             const float z1=materialImpedance(to.material);
             const bool airCoupled=from.kind==FlowKind::Router||
+                (from.kind==FlowKind::Universal&&
+                 (from.role==PhysicalRole::Source&&from.driver==Driver::Breath||
+                  from.form.continuum==Continuum::Gas))||
+                (to.kind==FlowKind::Universal&&
+                 to.form.continuum==Continuum::Gas)||
                 from.kind==FlowKind::Reed||from.kind==FlowKind::Edge||
                 to.kind==FlowKind::Reed||to.kind==FlowKind::Edge||
                 (from.kind==FlowKind::Exciter&&
@@ -115,14 +125,20 @@ public:
             const auto& edge=edges_[static_cast<size_t>(i)];
             const auto& target=nodes_[static_cast<size_t>(edge.to)].node;
             const auto& source=nodes_[static_cast<size_t>(edge.from)].node;
-            if(target.kind!=FlowKind::Damper||
-               !vibrates(source.kind)||contactCount_>=kMaxFlowLinks)continue;
+            const bool universalContact=target.kind==FlowKind::Universal&&
+                target.role==PhysicalRole::Interaction&&
+                (target.law==ContactLaw::Contact||edge.law==ContactLaw::Contact);
+            if(!(target.kind==FlowKind::Damper||universalContact)||
+               !physicalVibrates(source)||contactCount_>=kMaxFlowLinks)continue;
             auto& touch=contacts_[static_cast<size_t>(contactCount_++)];
             touch.source=edge.from;
             touch.pressure=std::clamp(target.restPressure,0.f,1.f);
             // M moves the linked damper into the source; contact stiffness
             // converts displacement (penetration) to mechanical dissipation.
             touch.mDepth=std::clamp(edge.modTravel,-1.f,1.f);
+            touch.modEnabled=edge.modEnabled||target.movingEnabled;
+            touch.modMin=target.movingEnabled?target.movingMin:edge.modMin;
+            touch.modMax=target.movingEnabled?target.movingMax:edge.modMax;
             touch.stiffness=std::clamp(target.coupling,0.f,1.f);
             touch.activateAt=static_cast<uint64_t>(std::max(0.f,
                 target.y*std::clamp(graph_.spanMs,3.f,82.f)*
@@ -165,8 +181,12 @@ public:
         for(int i=0;i<contactCount_;++i){
             const auto& touch=contacts_[static_cast<size_t>(i)];
             if(tick_<touch.activateAt)continue; // Y coordinate is time
-            const float pressure=std::clamp(
-                touch.pressure+touch.mDepth*e2Smooth_,0.f,1.f);
+            const float position=touch.modEnabled?
+                touch.modMin+(touch.modMax-touch.modMin)*e2Smooth_:
+                touch.pressure+touch.mDepth*e2Smooth_;
+            // Moving contact travels toward its interacting surface; only
+            // geometric overlap causes dissipation (no direct amplitude knob).
+            const float pressure=std::clamp(position,0.f,1.f);
             if(pressure<.0001f)continue;
             const float amount=pressure*pressure*touch.stiffness;
             auto& source=nodes_[static_cast<size_t>(touch.source)];
@@ -190,6 +210,13 @@ public:
             float output=0.f;
             switch(n.node.kind) {
             case FlowKind::Exciter:output=excite(n);break;
+            case FlowKind::Universal:
+                if(n.node.role==PhysicalRole::Source)
+                    output=humanSource(n);
+                else if(n.node.role==PhysicalRole::Output){
+                    output=input;result+=output;
+                }else output=ring(n,input,id);
+                break;
             case FlowKind::Output:
                 output=input;
                 result+=output;
@@ -245,8 +272,18 @@ public:
                     const float weight=1.f/(1.f+delta*delta*delta*delta);
                     portion=weight/std::max(routeTotal,1.e-8f);
                 }
-                const float x=output*e.gain*portion;
-                e.filter+=e.smoothing*(x-e.filter);
+                float flux=output*e.gain*portion;
+                // Different interaction laws propagate different mechanical
+                // disturbances, without directly changing the final audio.
+                if(e.law==ContactLaw::Friction){
+                    flux=.72f*flux+.28f*(flux-e.previousFlux);
+                }else if(e.law==ContactLaw::Contact){
+                    flux*=.72f+.28f*std::clamp(e.aperture,0.f,1.f);
+                }else if(e.law==ContactLaw::Flow){
+                    flux*=.5f+.5f*std::sqrt(std::max(0.f,e.aperture));
+                }
+                e.previousFlux=output*e.gain*portion;
+                e.filter+=e.smoothing*(flux-e.filter);
                 e.buffer[head_]=e.filter;
             }
         }
@@ -255,10 +292,17 @@ public:
         // Never kill a physical voice at a fixed note-off duration. The
         // simulator runs until both stored and traveling energy have decayed.
         const auto& source=graph_.nodes[0];
-        const bool continuous=source.kind==FlowKind::Exciter&&
-            (source.excitation==Excitation::Blow||
-             source.excitation==Excitation::Scrape)&&
-            !released_&&e1_>.0001f;
+        bool continuous=false;
+        for(int i=0;i<nodeCount_;++i){
+            const auto& n=nodes_[i].node;
+            const bool sustained=n.kind==FlowKind::Universal?
+                n.role==PhysicalRole::Source&&
+                n.gesture==Gesture::Continuous:
+                n.kind==FlowKind::Exciter&&
+                (n.excitation==Excitation::Blow||
+                 n.excitation==Excitation::Scrape);
+            if(sustained&&!released_&&e1_>.0001f){continuous=true;break;}
+        }
         float stored=0.f;
         for(int i=0;i<nodeCount_;++i){
             for(int j=0;j<nodes_[i].modeCount;++j){
@@ -297,11 +341,15 @@ private:
         int from{},to{},delay{1};
         float gain{},filter{},smoothing{};
         float position{.5f},modTravel{},aperture{.22f};
+        float modMin{.5f},modMax{.5f},previousFlux{};
+        bool modEnabled{false};
+        ContactLaw law{ContactLaw::Coupled};
         std::array<float,kFlowDelayFrames> buffer{};
     };
     struct Contact {
         int source{-1};
-        float pressure{},mDepth{},stiffness{1.f};
+        float pressure{},mDepth{},stiffness{1.f},modMin{},modMax{};
+        bool modEnabled{false};
         uint64_t activateAt{};
         std::array<float,kMaterialModes> lossPerSecond{};
     };
@@ -352,6 +400,40 @@ private:
         }
         return 0.f;
     }
+    // A human drive source, not a bow/pick/reed preset. V is energy/power
+    // supplied. Gesture and anatomy specify the force/flow history that
+    // acts upon downstream physical objects. Bowing is Hand -> bow material
+    // -> frictional contact -> string material, never a "Bow" source.
+    float humanSource(Node& n) noexcept {
+        const auto& p=n.node;
+        if(e1_<=0.f||released_)return 0.f;
+        const float power=std::sqrt(e1_);
+        const float anatomy=p.driver==Driver::Fingers?.60f:
+            p.driver==Driver::Foot?1.8f:
+            p.driver==Driver::Breath?1.15f:1.f;
+        const float duration=std::clamp(
+            p.sourceDurationMs*anatomy,.4f,5000.f)*sampleRate_*.001f;
+        const float t=static_cast<float>(tick_);
+        const float direction=p.sourceDirection>.5f?-1.f:1.f;
+        if(p.gesture==Gesture::Continuous){
+            const float rise=std::clamp(
+                p.sourceRiseMs*sampleRate_*.001f,1.f,sampleRate_*1.f);
+            const float buildup=1.f-std::exp(-(t+1.f)/rise);
+            const float fluctuation=p.driver==Driver::Breath?
+                .035f*randomSigned(n):.018f*randomSigned(n);
+            return direction*.046f*power*buildup*(1.f+fluctuation);
+        }
+        if(t>=duration)return 0.f;
+        const float phase=(t+1.f)/duration;
+        const float shape=p.gesture==Gesture::DeflectRelease?
+            std::sin(kPi*phase):
+            1.f-std::cos(2.f*kPi*phase);
+        // Lengthening the source stroke spreads finite input energy over
+        // time; we normalize the force impulse's squared magnitude.
+        const float normalizer=1.f/std::sqrt(std::max(1.f,duration/150.f));
+        return direction*.066f*power*shape*normalizer;
+    }
+
     // Reduced differentiable reed/edge exciters; they share the physical
     // incoming breath source and send independently generated disturbances
     // into a downstream air chamber. Full bore-to-valve feedback is future
@@ -390,7 +472,7 @@ private:
         return .34f*flow*n.node.coupling*(cycle+.15f*std::sin(2.f*n.phase)+turbulence);
     }
     void setupNode(Node& n,float pitch) noexcept {
-        if(!vibrates(n.node.kind))return;
+        if(!physicalVibrates(n.node))return;
         const auto& p=n.node;
         const auto material=materialProperties(p.material);
         const float speed=materialWaveSpeed(p.material);
@@ -406,7 +488,12 @@ private:
         const float bodyBase=(p.kind==FlowKind::Body)?
             std::clamp(110.f*speedRatio*std::pow(thickness,.32f)/size,
                        36.f,sampleRate_*.15f):pitch;
-        const float base=anchored?pitch:bodyBase;
+        // Unlike the legacy v4 instrument objects, a universal object's
+        // fundamental frequency is derived from geometry and material.
+        const float geometryBase=p.kind==FlowKind::Universal?
+            naturalFrequency(p):0.f;
+        const float base=p.kind==FlowKind::Universal?
+            geometryBase:(anchored?pitch:bodyBase);
         n.modeCount=kMaterialModes;
         constexpr std::array<float,kMaterialModes> membrane{
             1.f,1.59f,2.14f,2.30f,2.65f,2.92f,3.16f};
@@ -431,6 +518,30 @@ private:
             const float index=static_cast<float>(i);
             float ratio=index+1.f;
             switch(p.kind){
+            case FlowKind::Universal:{
+                const auto c=p.form.continuum;
+                if(c==Continuum::Filament){
+                    const float h=index+1.f;
+                    const float L=std::max(.025f,p.form.lengthMeters);
+                    const float diameter=std::sqrt(std::max(.00000001f,
+                        p.form.widthMeters*p.form.depthMeters));
+                    const float area=.785398f*diameter*diameter;
+                    const float EI=material.youngModulusPa*area*diameter*diameter*.0625f;
+                    const float stiff=std::clamp(
+                        kPi*kPi*EI/std::max(1.e-6f,p.tensionNewtons*L*L),0.f,.25f);
+                    ratio=h*std::sqrt((1.f+stiff*h*h)/(1.f+stiff));
+                }else if(c==Continuum::Sheet){
+                    // Bending surface with tension-dependent lower modes.
+                    ratio=(p.tensionNewtons>120.f)?
+                        membrane[i]:plate[i];
+                }else if(c==Continuum::Gas){
+                    // An open/open duct has integer harmonics; a mostly
+                    // closed end supports the odd quarter-wave family.
+                    ratio=p.form.opening<.5f?2.f*index+1.f:index+1.f;
+                }else ratio=(p.form.depthMeters<p.form.widthMeters*.24f)?
+                    plate[i]:bar[i];
+                break;
+            }
             case FlowKind::String:{
                 const float h=index+1.f;
                 ratio=h*std::sqrt((1.f+b*h*h)/(1.f+b));break;
@@ -454,6 +565,22 @@ private:
             default:break;
             }
             float f=base*ratio;
+            if(p.kind==FlowKind::Universal){
+                const auto& form=p.form;
+                const float avg=std::clamp(normalizedAverageProfile(form),.18f,3.f);
+                const float neck=(form.stations[0]+form.stations[3])*.5f;
+                const float bulge=(form.stations[1]+form.stations[2])*.5f;
+                const float profileContrast=(bulge-neck)/(bulge+neck+.01f);
+                const float curvature=std::clamp(form.curvature,-1.f,1.f);
+                const float taper=std::clamp(form.taper,-1.f,1.f);
+                // Geometry affects mode spacing, not just a common
+                // gain; cross-section stations yield a nonuniform profile.
+                const float dispersion=1.f+
+                    index*(.028f*curvature+.052f*taper+
+                           .08f*profileContrast)+
+                    index*index*.002f*(avg-1.f);
+                f*=std::clamp(dispersion,.65f,1.7f);
+            }
             const float massStiffness=std::pow(speedRatio,.18f);
             if(p.kind==FlowKind::Plate||p.kind==FlowKind::Bar)
                 f*=std::pow(thickness,.25f)*std::pow(size,-.28f)*
@@ -489,6 +616,13 @@ private:
                 std::clamp(attackPosition,.01f,.99f)));
             m.inputGain=.19f*weight*inertia*thicknessMass*
                 (.32f+.68f*shape)*(.7f+.3f*p.coupling);
+            if(p.kind==FlowKind::Universal){
+                const auto& form=p.form;
+                const float dimensionMass=std::sqrt(
+                    std::max(.0000001f,form.lengthMeters*form.widthMeters*
+                        form.depthMeters*normalizedAverageProfile(form)));
+                m.inputGain*=std::clamp(.040f/dimensionMass,.22f,1.8f);
+            }
             m.weight=weight;
             m.maxAmp=.45f*weight; // Modal energy bound: cannot swell arbitrarily
         }
@@ -511,8 +645,13 @@ private:
                     (kFlowDelayFrames-1)];
                 // Local position changes mode excitation, distinct from the
                 // node's physical size or its drawing position.
-                const float x=std::clamp(
-                    e.position+e.modTravel*e2Smooth_,.005f,.995f);
+                float physicalX=e.modEnabled?
+                    e.modMin+(e.modMax-e.modMin)*e2Smooth_:
+                    e.position+e.modTravel*e2Smooth_;
+                if(n.node.kind==FlowKind::Universal&&n.node.movingEnabled)
+                    physicalX+=n.node.movingMin+
+                        (n.node.movingMax-n.node.movingMin)*e2Smooth_-.5f;
+                const float x=std::clamp(physicalX,.005f,.995f);
                 const float shape=std::sin(kPi*(i+1.f)*x);
                 localForce+=wave*(.15f+.85f*shape);
             }
@@ -527,6 +666,56 @@ private:
             sum+=m.real;
         }
         return sum*.85f;
+    }
+    // Fixed reduced analytic wave families. All values below are derived
+    // from the actual configured material and geometry at note-on.
+    // A fully arbitrary 3D body, nonlinear contact and bidirectional wind
+    // coupling would require more sophisticated validated solvers.
+    static float naturalFrequency(const FlowNode& p) noexcept {
+        const auto material=materialProperties(p.material);
+        const auto& g=p.form;
+        const float rho=std::max(100.f,material.densityKgM3);
+        const float E=std::max(1.e6f,material.youngModulusPa);
+        const float L=std::clamp(g.lengthMeters,.025f,5.f);
+        const float w=std::clamp(g.widthMeters,.0001f,2.f);
+        const float d=std::clamp(g.depthMeters,.0001f,1.f);
+        const float profile=std::clamp(normalizedAverageProfile(g),.1f,3.f);
+        const float rootE=std::sqrt(E/rho);
+        float f=110.f;
+        switch(g.continuum){
+        case Continuum::Filament:{
+            const float mu=rho*w*d*profile;
+            f=.5f/L*std::sqrt(std::max(1.f,p.tensionNewtons)/mu);
+            break;
+        }
+        case Continuum::Sheet:{
+            const float slender=std::max(w,L);
+            const float bending=.13f*d/(slender*slender)*rootE;
+            const float tensionWave=.25f/slender*std::sqrt(
+                std::max(0.f,p.tensionNewtons)/(rho*d*std::max(w,.004f)));
+            f=std::sqrt(bending*bending+tensionWave*tensionWave);
+            break;
+        }
+        case Continuum::Solid:{
+            // Euler-Bernoulli cantilever beam approximation, corrected for
+            // partial end restraint, section profile, taper and curvature.
+            const float IOverA=d*d/12.f;
+            f=(1.875104f*1.875104f/(2.f*kPi*L*L))*
+                std::sqrt(E*IOverA/rho);
+            f*=1.f+1.35f*std::clamp(g.fixing,0.f,1.f);
+            break;
+        }
+        case Continuum::Gas:{
+            const float soundSpeed=343.f; // room-temperature air (m/s)
+            const float closed=g.opening<.5f?4.f:2.f;
+            const float endCorrection=.61f*std::sqrt(w*d);
+            const float effective=L+endCorrection*(g.opening+.25f);
+            f=soundSpeed/(closed*effective);
+            break;
+        }
+        }
+        f*=std::sqrt(profile)*(1.f+.08f*std::clamp(g.curvature,-1.f,1.f));
+        return std::clamp(f,25.f,12000.f);
     }
     Blueprint blueprint_{};
     FlowGraph graph_{};
