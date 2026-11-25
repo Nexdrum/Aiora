@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".scanall"
-            versionNameSuffix = "-physical-scan-all-v7"
+            applicationIdSuffix = ".pitchbend"
+            versionNameSuffix = "-physical-pitch-expression-v8"
         }
     }
 
