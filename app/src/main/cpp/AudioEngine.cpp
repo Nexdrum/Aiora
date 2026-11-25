@@ -19,7 +19,8 @@ std::pair<float,float> panGain(float gain,float pan) noexcept {
     return {gain*std::cos(angle),gain*std::sin(angle)};
 }
 // Interpolate the same per-note lane curves used by Spectrachord.
-// The physical engine interprets V as excitation and M as live contact.
+// The physical engine interprets V as excitation, M as live contact,
+// and B as continuous physical tuning assignments (never output resampling).
 float physicalLaneAt(const DspCurve& curve,float step,float fallback) noexcept {
     if(curve.count==0||!curve.points)return fallback;
     if(step<=curve.points[0].step)return curve.points[0].value;
@@ -209,6 +210,10 @@ void AudioEngine::triggerStep(int step,double phase) noexcept {
             slot.physicalId=id;
             slot.physicalVoice.start(physicalBlueprint_,e.midi,pressure,
                 physicalLaneAt(e.automation.mod,0.0f,0.0f));
+            // Apply the pitch drawing at the note's very first sample, not
+            // only after the next V/M control tick.
+            slot.physicalVoice.setPitchBend(
+                physicalLaneAt(e.automation.bend,0.0f,0.0f));
             slot.physicalAutomation=e.automation;
             slot.physicalSamples=0;
             slot.physicalGateSamples=gate;
@@ -400,7 +405,10 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
                     const float v=physicalLaneAt(slot.physicalAutomation.velocity,
                         step,slot.physicalInitialVelocity);
                     const float m=physicalLaneAt(slot.physicalAutomation.mod,step,0.0f);
+                    const float bend=physicalLaneAt(
+                        slot.physicalAutomation.bend,step,0.0f);
                     slot.physicalVoice.setExpression(v,m);
+                    slot.physicalVoice.setPitchBend(bend);
                 }
                 ++slot.physicalSamples;
             }
