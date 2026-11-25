@@ -28,7 +28,8 @@ Result render(Blueprint b,int midi=57,float m=0.f,float duration=1.2f){
     return r;
 }
 int main(){
-    static_assert(kMaterialCount==30);
+    // Preserve the original thirty materials while allowing universal media.
+    static_assert(kMaterialCount>=30);
     FlowGraph empty=blankFlowGraph();
     assert(empty.nodeCount==2&&empty.linkCount==0);
     Blueprint patch;
