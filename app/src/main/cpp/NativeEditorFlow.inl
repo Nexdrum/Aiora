@@ -680,6 +680,107 @@ void NativeEditor::drawPhysical() const noexcept {
             overlayColor(selected?kBg:kWhite));
     }
     {
+        const auto panel=flowTuneRect();
+        const auto& pitch=physicalBlueprint_.pitch;
+        const bool current=physical::pitchMapCurrent(physicalBlueprint_);
+        ov.addRect({panel.x,panel.y,panel.w,panel.h},overlayColor(kPanel));
+        constexpr const char* noteNames[]={
+            "C","C#","D","D#","E","F","F#","G","G#","A","A#","B"
+        };
+        const int ref=std::clamp<int>(pitch.referenceMidi,0,127);
+        char heading[132]{};
+        std::snprintf(heading,sizeof(heading),
+            "PITCH / %s%d  %.2f Hz  | TRACK: %s",
+            noteNames[ref%12],ref/12-1,
+            physical::noteFrequency12TET(ref,pitch.a4Hz),
+            pitch.trackedNode>=0?"SELECTED":"SET TRACK");
+        ov.addText(heading,panel.x+9.f,panel.y+7.f,.76f,overlayColor(kCyan));
+
+        const char* actions[]={
+            "REF -","REF +","TRACK","+PITCH","SLOT",
+            "PARAM","REMOVE","FIND","ON/OFF","A4 440/442"
+        };
+        for(int i=0;i<10;++i){
+            const auto rr=flowTuneButtonRect(i);
+            const bool highlighted=i==7||(i==8&&pitch.enabled&&current);
+            ov.addRect({rr.x,rr.y,rr.w,rr.h},
+                overlayColor(highlighted?kCyan:kButton));
+            ov.addTextCentered(actions[i],
+                {rr.x+1.f,rr.y,rr.w-2.f,rr.h},.61f,
+                overlayColor(highlighted?kBg:kWhite));
+        }
+        const int slot=pitchSelectedSlot_;
+        const bool selected=pitch.count>0&&slot>=0&&slot<pitch.count;
+        char descriptor[146]{};
+        if(selected){
+            const auto& a=pitch.assignments[slot];
+            std::snprintf(descriptor,sizeof(descriptor),
+                "SLOT %d/%d  %s %d  %s",
+                slot+1,int(pitch.count),
+                physical::pitchIsLink(a.property)?"LINK":"NODE",
+                int(a.objectIndex),physical::pitchPropertyName(a.property));
+        }else{
+            std::snprintf(descriptor,sizeof(descriptor),
+                "SELECT OBJECT > PARAM: %s > +PITCH > FIND",
+                physical::pitchPropertyName(
+                    static_cast<physical::PitchProperty>(pitchPropertyChoice_)));
+        }
+        ov.addText(descriptor,panel.x+9.f,panel.y+134.f,.69f,
+            overlayColor(kWhite));
+        for(int i=0;i<2;++i){
+            const auto rr=flowTuneRangeRect(i);
+            ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(kButton));
+            if(selected){
+                const auto& a=pitch.assignments[slot];
+                const auto bounds=physical::pitchPropertyBounds(a.property);
+                const float value=i==0?a.lower:a.upper;
+                const float normalized=std::clamp(
+                    (value-bounds[0])/std::max(1.e-6f,bounds[1]-bounds[0]),
+                    0.f,1.f);
+                char label[65]{};
+                std::snprintf(label,sizeof(label),"%s %.4g",i==0?"MIN":"MAX",value);
+                ov.addText(label,rr.x+7.f,rr.y+3.f,.77f,
+                    overlayColor(kWhite));
+                const float bar=rr.w-14.f;
+                ov.addRect({rr.x+7.f,rr.y+28.f,bar,5.f},overlayColor(kRollBg));
+                ov.addRect({rr.x+7.f,rr.y+28.f,bar*normalized,5.f},
+                    overlayColor(kCyan));
+            }else{
+                ov.addText("NO PITCH ASSIGNMENT",rr.x+7.f,rr.y+10.f,
+                    .64f,overlayColor(kMuted));
+            }
+        }
+        const float spectrumY=panel.y+218.f;
+        const float barW=(panel.w-22.f)/12.f;
+        for(int i=0;i<12;++i){
+            const float height=std::clamp(pitchSpectrumBands_[i],0.f,1.f)*21.f;
+            ov.addRect({panel.x+11.f+i*barW,spectrumY+22.f-height,
+                std::max(1.f,barW-3.f),height},overlayColor(kCyan,.75f));
+        }
+        char status[148]{};
+        if(current){
+            if(pitch.measuredHz>0.f)
+                std::snprintf(status,sizeof(status),
+                    "MODEL %.2f  HEARD %.2f Hz  %+.1f cents  %s",
+                    pitch.modelHz,pitch.measuredHz,pitch.centsError,
+                    pitchTuneStatus_==1?"VERIFIED":"CHECK SPECTRUM");
+            else std::snprintf(status,sizeof(status),
+                "MODEL %.2f Hz  /  ACOUSTIC FUNDAMENTAL UNVERIFIED",
+                pitch.modelHz);
+        }else if(pitch.valid)
+            std::snprintf(status,sizeof(status),
+                "GEOMETRY CHANGED: FIND FREQUENCY AGAIN");
+        else if(pitchTuneStatus_==2)
+            std::snprintf(status,sizeof(status),
+                "NO CALIBRATION: CHECK PHYSICAL RANGE / SOUND");
+        else
+            std::snprintf(status,sizeof(status),
+                "TUNE PHYSICAL PROPERTIES; V & M REMAIN INDEPENDENT");
+        ov.addText(status,panel.x+9.f,panel.y+246.f,.65f,
+            overlayColor(pitchTuneStatus_==2?kOrange:
+                current?kGreen:kMuted));
+    }
+    {
         const auto rr=flowTimeRect();
         ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(kPanel));
         char name[72]{};
