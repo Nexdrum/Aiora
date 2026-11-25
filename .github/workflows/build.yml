@@ -79,6 +79,13 @@ jobs:
             -o /tmp/aiora-pitch-v6-test
           /tmp/aiora-pitch-v6-test
 
+      - name: Rendered sound FFT and Find Frequency v6 regression
+        run: |
+          g++ -std=c++20 -O2 -Iapp/src/main/cpp \
+            tests/physical_frequency_analyzer_v6_regression.cpp \
+            -o /tmp/aiora-frequency-analyzer-test
+          /tmp/aiora-frequency-analyzer-test
+
       - name: Native project-limit regression tests
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
