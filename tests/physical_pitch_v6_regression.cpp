@@ -73,6 +73,10 @@ int main(){
     b.graph.nodes[chamber].form.lengthMeters=.65f;
     b.graph.nodes[chamber].form.opening=.95f;
     b.graph.nodes[chamber].x=.7f;b.graph.nodes[chamber].y=.65f;
+    // The chamber is genuinely IN the energy path, not an isolated object.
+    assert(b.graph.disconnect(1,2));
+    assert(b.graph.connect(1,chamber));
+    assert(b.graph.connect(chamber,2));
     b.pitch.trackedNode=chamber;
     b.pitch.assignments[0]={static_cast<int8_t>(chamber),
         PitchProperty::Length,.10f,1.5f,1.f};
