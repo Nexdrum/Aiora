@@ -31,6 +31,12 @@ static Blueprint filamentPatch(){
 }
 int main(){
     auto b=filamentPatch();
+    assert(pitchHasCompleteEnergyPath(b.graph,1));
+    {
+        auto disconnected=b;
+        assert(disconnected.graph.disconnect(1,2));
+        assert(!buildPhysicalKeyboard(disconnected.graph,disconnected.pitch));
+    }
     const auto natural=physicalFundamental(b.graph.nodes[1]);
     assert(natural>150.f&&natural<250.f);
     assert(nearCents(noteFrequency12TET(69),440.f,.01f));
