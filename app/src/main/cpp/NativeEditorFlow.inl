@@ -22,18 +22,18 @@ NativeEditor::Rect NativeEditor::flowActionRect(int index) const noexcept {
     const float top=tab.y+tab.h+gap-physicalScrollY_;
     const float w=std::max(38.f,(b.w-24.f-5*5.f)/6.f);
     return {b.x+12.f+(index%6)*(w+5.f),
-            top+113.f+(index/6)*49.f,w,44.f};
+            top+63.f+(index/6)*49.f,w,44.f};
 }
 NativeEditor::Rect NativeEditor::flowTimeRect() const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
-    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+264.f,
+    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+167.f,
             b.w-24.f,48.f};
 }
 NativeEditor::Rect NativeEditor::flowCanvasRect() const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
-    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+322.f,
+    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+225.f,
             std::max(150.f,b.w-24.f),614.f};
 }
 NativeEditor::Rect NativeEditor::flowNodeRect(int index) const noexcept {
@@ -534,25 +534,17 @@ void NativeEditor::drawPhysical() const noexcept {
     auto& ov=NativeOverlay::instance();
     ov.setClip({clip.x,clip.y,clip.w,clip.h});
     ov.addRect({b.x+12.f,top+7.f,b.w-24.f,48.f},overlayColor(kRollBg));
-    ov.addText("UNIVERSAL FLOW   /   Y = FIRST ENERGY ARRIVAL",
+    ov.addText("PHYSICAL BUILDER   /   Y = ENERGY ARRIVAL",
         b.x+20.f,top+15.f,.88f,overlayColor(kCyan));
-    ov.addText("X: entry position  /  V: source energy  /  M: linked motion",
+    ov.addText("Human source first; material + geometry form the instrument",
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
-    constexpr const char* templates[]={"STRING","DRUM","PLATE","BAR","AIR","BELL","EMPTY","HYBRID"};
-    for(int i=0;i<8;++i){
-        const auto rr=flowTemplateRect(i);
-        ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(kTrack));
-        ov.addTextCentered(templates[i],{rr.x+1,rr.y,rr.w-2,rr.h},.70f,
-            overlayColor(kWhite));
-    }
     constexpr const char* actions[]={
-        "+STRING","+DRUM","+PLATE","+BAR","+AIR","+BODY",
-        "+COUPL","+TOUCH","+REED","+EDGE","+ROUTE","LINK",
-        "UNLINK","DELETE","CLEAR"
+        "+SOURCE","+TRANSFER","+INTERACT","+RESONATE","+OUTPUT","LINK",
+        "UNLINK","DELETE","CLEAR","EXAMPLE"
     };
-    for(int i=0;i<15;++i){
+    for(int i=0;i<10;++i){
         const auto rr=flowActionRect(i);
-        const bool selected=(i==11&&flowLinkMode_==1)||(i==12&&flowLinkMode_==2);
+        const bool selected=(i==5&&flowLinkMode_==1)||(i==6&&flowLinkMode_==2);
         ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(selected?kCyan:kButton));
         ov.addTextCentered(actions[i],{rr.x+1,rr.y,rr.w-2,rr.h},.67f,
             overlayColor(selected?kBg:kWhite));
@@ -598,11 +590,19 @@ void NativeEditor::drawPhysical() const noexcept {
         ov.addRect({rr.x-2,rr.y-2,rr.w+4,rr.h+4},
             overlayColor(connecting?kOrange:selected?kCyan:kTrack));
         ov.addRect({rr.x+2,rr.y+2,rr.w-4,rr.h-4},overlayColor(kButton));
-        ov.addTextCentered(physical::flowKindName(node.kind),
-            {rr.x+2,rr.y+6.f,rr.w-4,25.f},.72f,
+        const bool universal=node.kind==physical::FlowKind::Universal;
+        ov.addTextCentered(universal?physical::roleName(node.role):
+            physical::flowKindName(node.kind),
+            {rr.x+2,rr.y+6.f,rr.w-4,25.f},.63f,
             overlayColor(selected?kCyan:kWhite));
-        ov.addTextCentered(node.kind==physical::FlowKind::Output?
-            "Audio":physical::materialName(node.material),
+        const char* detail=universal?
+            (node.role==physical::PhysicalRole::Source?
+                physical::driverName(node.driver):
+             node.role==physical::PhysicalRole::Output?"Acoustic radiation":
+                physical::continuumName(node.form.continuum)):
+            (node.kind==physical::FlowKind::Output?
+                "Audio":physical::materialName(node.material));
+        ov.addTextCentered(detail,
             {rr.x+2,rr.y+33.f,rr.w-4,28.f},.67f,overlayColor(kMuted));
     }
     if(flowLinkMode_||flowError_){
@@ -621,12 +621,18 @@ void NativeEditor::drawPhysical() const noexcept {
     char selectedLabel[96]{};
     if(linkSelected){
         const auto& link=g.links[static_cast<size_t>(flowSelectedLink_)];
+        const auto& from=g.nodes[link.from];
+        const auto& to=g.nodes[link.to];
         std::snprintf(selectedLabel,sizeof(selectedLabel),"LINK: %s > %s",
-            physical::flowKindName(g.nodes[link.from].kind),
-            physical::flowKindName(g.nodes[link.to].kind));
+            from.kind==physical::FlowKind::Universal?
+                physical::roleName(from.role):physical::flowKindName(from.kind),
+            to.kind==physical::FlowKind::Universal?
+                physical::roleName(to.role):physical::flowKindName(to.kind));
     }
     ov.addText(linkSelected?selectedLabel:
-        chosen?physical::flowKindName(chosen->kind):"SELECT OBJECT",
+        chosen?(chosen->kind==physical::FlowKind::Universal?
+            physical::roleName(chosen->role):physical::flowKindName(chosen->kind)):
+            "SELECT OBJECT",
         canvas.x+12.f,titleY+12.f,.90f,overlayColor(kCyan));
     if(!linkSelected&&chosen&&chosen->kind==physical::FlowKind::Damper)
         ov.addText("REST preloads contact; M moves its physical link",
@@ -644,11 +650,22 @@ void NativeEditor::drawPhysical() const noexcept {
                 field.position=link.position;
                 std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.position*100.f);
             }else if(i==1){
-                field.position=(link.modTravel+1.f)*.5f;
-                std::snprintf(field.label,sizeof(field.label),"%+.0f%%",link.modTravel*100.f);
-            }else{
+                field.picker=true;
+                std::snprintf(field.label,sizeof(field.label),"%s",
+                    link.modEnabled?"Assigned":"Unassigned");
+            }else if(i==2){
+                field.position=link.modMin;
+                std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.modMin*100.f);
+            }else if(i==3){
+                field.position=link.modMax;
+                std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.modMax*100.f);
+            }else if(i==4){
                 field.position=(link.aperture-.035f)/.965f;
                 std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.aperture*100.f);
+            }else{
+                field.picker=true;
+                std::snprintf(field.label,sizeof(field.label),"%s",
+                    physical::contactLawName(link.law));
             }
         }else if(chosen)field=physicalField(*chosen,i);
         if(field.picker){
