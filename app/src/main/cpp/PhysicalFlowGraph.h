@@ -1,7 +1,7 @@
 #pragma once
-// Aiora universal physical mechanism graph v4. Objects retain vibrational
-// state; nodes mark first arrival in time (Y), links carry energy into their
-// target at a particular local position (X), and assigned M moves mechanisms.
+// Aiora universal physical roles + parametrically constructed geometry v5.
+// Human source -> free repeatable physical roles -> output. Physical material,
+// geometry, spatial interaction, and arrival time define behavior, not presets.
 // All graph edits happen outside the real-time audio thread.
 
 #include <algorithm>
@@ -84,8 +84,80 @@ inline constexpr const char* geometryName(Geometry g) noexcept {
 // independently after its first arrival and after the source has stopped.
 enum class FlowKind : uint8_t {
     Exciter, String, Membrane, Plate, Bar, AirColumn, Body, Bridge,
-    Damper, Output, Router, Reed, Edge
+    Damper, Output, Router, Reed, Edge, Universal
 };
+// Roles describe where a constructed physical object participates in energy
+// transfer; they do not select an instrument, waveform or resonator algorithm.
+enum class PhysicalRole : uint8_t { Source, Transfer, Interaction, Resonator, Output };
+inline constexpr const char* roleName(PhysicalRole r) noexcept {
+    switch(r){
+    case PhysicalRole::Source:return "ENERGY SOURCE";
+    case PhysicalRole::Transfer:return "TRANSFER MEDIUM";
+    case PhysicalRole::Interaction:return "INTERACTION";
+    case PhysicalRole::Resonator:return "RESONATING MEDIUM";
+    case PhysicalRole::Output:return "OUTPUT";
+    }
+    return "ROLE";
+}
+enum class Continuum : uint8_t { Filament, Sheet, Solid, Gas };
+inline constexpr const char* continuumName(Continuum c) noexcept {
+    switch(c){
+    case Continuum::Filament:return "Filament";
+    case Continuum::Sheet:return "Surface";
+    case Continuum::Solid:return "Solid";
+    case Continuum::Gas:return "Air cavity";
+    }
+    return "Solid";
+}
+enum class Driver : uint8_t { Hand, Fingers, Breath, Foot };
+inline constexpr const char* driverName(Driver d) noexcept {
+    switch(d){
+    case Driver::Hand:return "Hand / arm";
+    case Driver::Fingers:return "Fingers";
+    case Driver::Breath:return "Breath";
+    case Driver::Foot:return "Foot / leg";
+    }
+    return "Hand";
+}
+enum class Gesture : uint8_t { Impulse, DeflectRelease, Continuous };
+inline constexpr const char* gestureName(Gesture g) noexcept {
+    switch(g){
+    case Gesture::Impulse:return "Impact motion";
+    case Gesture::DeflectRelease:return "Deflect / release";
+    case Gesture::Continuous:return "Sustained motion";
+    }
+    return "Impulse";
+}
+enum class ContactLaw : uint8_t { Coupled, Friction, Contact, Flow };
+inline constexpr const char* contactLawName(ContactLaw x) noexcept {
+    switch(x){
+    case ContactLaw::Coupled:return "Coupled";
+    case ContactLaw::Friction:return "Friction";
+    case ContactLaw::Contact:return "Contact";
+    case ContactLaw::Flow:return "Airflow";
+    }
+    return "Coupled";
+}
+// Geometry is explicit, including local cross-section/width control points.
+// Stations are at x=0,1/3,2/3,1. The rendering solver reduces the profile
+// to a fixed set of modal coefficients; it is NOT a general FEM mesh.
+struct ParametricGeometry {
+    Continuum continuum{Continuum::Solid};
+    float lengthMeters{.65f};
+    float widthMeters{.085f};
+    float depthMeters{.016f};
+    float wallMm{2.f};
+    float curvature{0.f};        // normalized axial curvature
+    float taper{0.f};            // signed axial taper
+    float opening{.5f};          // open boundary fraction
+    float fixing{.35f};          // mechanical end restraint
+    std::array<float,4> stations{1.f,1.f,1.f,1.f};
+};
+inline constexpr float normalizedAverageProfile(
+    const ParametricGeometry& p) noexcept {
+    return (p.stations[0]+p.stations[1]+p.stations[2]+p.stations[3])*.25f;
+}
+inline constexpr bool isUniversalSource(const struct FlowNode& n) noexcept;
 inline constexpr const char* flowKindName(FlowKind k) noexcept {
     switch(k) {
     case FlowKind::Exciter:return "EXCITER";
@@ -101,6 +173,7 @@ inline constexpr const char* flowKindName(FlowKind k) noexcept {
     case FlowKind::Router:return "FLOW ROUTER";
     case FlowKind::Reed:return "REED VALVE";
     case FlowKind::Edge:return "JET EDGE";
+    case FlowKind::Universal:return "PHYSICAL ROLE";
     }
     return "OBJECT";
 }
@@ -130,14 +203,37 @@ struct FlowNode {
     float diameterMm{.50f};
     float hardness{.70f};
     float restPressure{0.f}; // fixed preload; M causes linked displacement
-    float motion{0.f}; // router outlet travel under M (normalized position)
+    float motion{0.f}; // legacy router outlet travel
+    PhysicalRole role{PhysicalRole::Resonator};
+    ParametricGeometry form{};
+    Driver driver{Driver::Hand};
+    Gesture gesture{Gesture::Impulse};
+    float sourceDurationMs{4.f}; // mechanical motion duration, not sound envelope
+    float sourceRiseMs{2.f};
+    float sourceDirection{0.f};  // normalized physical direction
+    float movingMin{.5f},movingMax{.5f};
+    bool movingEnabled{false};   // M may reposition ANY physical object
+    ContactLaw law{ContactLaw::Coupled}; // interaction with connected media (normalized position)
 };
 struct FlowLink {
     uint8_t from{0},to{0};
     float position{.5f}; // position ON target (0..1)
     float modTravel{0.f}; // -1..1, movement of interaction under M
     float aperture{.22f}; // size of interaction area / flow inlet
+    float modMin{.5f},modMax{.5f};
+    bool modEnabled{false}; // independent M assignment; min>max reverses direction
 };
+inline constexpr bool isUniversalSource(const FlowNode& n) noexcept {
+    return n.kind==FlowKind::Universal&&n.role==PhysicalRole::Source;
+}
+inline constexpr bool isUniversalOutput(const FlowNode& n) noexcept {
+    return n.kind==FlowKind::Universal&&n.role==PhysicalRole::Output;
+}
+inline constexpr bool physicalVibrates(const FlowNode& n) noexcept {
+    return n.kind==FlowKind::Universal?
+        n.role!=PhysicalRole::Source&&n.role!=PhysicalRole::Output:
+        vibrates(n.kind);
+}
 struct FlowGraph {
     std::array<FlowNode,kMaxFlowNodes> nodes{};
     std::array<FlowLink,kMaxFlowLinks> links{};
@@ -164,7 +260,16 @@ struct FlowGraph {
         const auto& source=nodes[static_cast<size_t>(from)];
         const auto& target=nodes[static_cast<size_t>(to)];
         if(source.y+.035f>=target.y)return false;
-        if(source.kind==FlowKind::Output||target.kind==FlowKind::Exciter)return false;
+        if(source.kind==FlowKind::Output||target.kind==FlowKind::Exciter||
+           isUniversalOutput(source)||isUniversalSource(target))return false;
+        // Universal roles may be repeated freely, branching into many
+        // physical media. Only chronological arrival order is constrained.
+        if(source.kind==FlowKind::Universal||target.kind==FlowKind::Universal){
+            if(source.kind!=FlowKind::Universal&&
+               source.kind!=FlowKind::Exciter&&
+               !vibrates(source.kind)&&source.kind!=FlowKind::Router)return false;
+            return true;
+        }
         if(source.kind==FlowKind::Exciter)
             return vibrates(target.kind)||target.kind==FlowKind::Router||
                 target.kind==FlowKind::Reed||target.kind==FlowKind::Edge;
@@ -331,8 +436,56 @@ inline FlowGraph templateFlowGraph(FlowTemplate type) noexcept {
     }
     return g;
 }
+inline FlowGraph universalEmptyGraph() noexcept {
+    FlowGraph g;
+    g.nodeCount=1;
+    FlowNode& src=g.nodes[0];
+    src.kind=FlowKind::Universal;src.role=PhysicalRole::Source;
+    src.driver=Driver::Hand;src.gesture=Gesture::Impulse;
+    src.x=.43f;src.y=.03f;
+    return g;
+}
+inline int addPhysicalRole(FlowGraph& g,PhysicalRole role) noexcept {
+    if(g.nodeCount>=kMaxFlowNodes)return -1;
+    FlowNode n;
+    n.kind=FlowKind::Universal;n.role=role;
+    n.x=.43f;n.y=role==PhysicalRole::Source?.07f:
+        role==PhysicalRole::Transfer?.25f:
+        role==PhysicalRole::Interaction?.43f:
+        role==PhysicalRole::Resonator?.65f:.92f;
+    n.form.continuum=role==PhysicalRole::Resonator?
+        Continuum::Gas:Continuum::Solid;
+    if(role==PhysicalRole::Source){
+        n.driver=Driver::Hand;n.gesture=Gesture::Impulse;
+    }else if(role==PhysicalRole::Output){
+        n.form.continuum=Continuum::Gas;
+    }else if(role==PhysicalRole::Transfer){
+        n.form.continuum=Continuum::Filament;
+        n.material=Material::Nylon;
+    }else if(role==PhysicalRole::Interaction){
+        n.form.continuum=Continuum::Sheet;
+        n.material=Material::Wood;
+    }
+    const int id=g.nodeCount++;
+    g.nodes[id]=n;
+    return id;
+}
+inline FlowGraph universalStarterGraph() noexcept {
+    FlowGraph g=universalEmptyGraph();
+    const int t=addPhysicalRole(g,PhysicalRole::Transfer);
+    const int i=addPhysicalRole(g,PhysicalRole::Interaction);
+    const int r=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int o=addPhysicalRole(g,PhysicalRole::Output);
+    g.nodes[r].form.continuum=Continuum::Solid;
+    g.nodes[r].form.widthMeters=.2f;
+    g.connect(0,t);
+    g.connect(t,i);
+    g.connect(i,r);
+    g.connect(r,o);
+    return g;
+}
 inline FlowGraph defaultFlowGraph() noexcept {
-    return templateFlowGraph(FlowTemplate::Plate); // no compulsory string or bridge
+    return universalStarterGraph();
 }
 
 struct Blueprint {
