@@ -354,4 +354,155 @@ inline bool buildPhysicalKeyboard(const FlowGraph& graph,
     pitch.centsError=r.centsError;
     return pitch.valid;
 }
+
+// The fine pitch map is generated on the editor thread after a completed
+// calibration, NEVER in the note renderer or Android audio callback.
+// A calibration key prevents stale fine maps when the tuning assignments
+// or material/geometry change independently of the previous calibration.
+inline uint64_t physicalBendCalibrationKey(const Blueprint& blueprint) noexcept {
+    const auto& c=blueprint.pitch;
+    uint64_t h=14695981039346656037ULL;
+    const auto mix=[&](uint32_t x){h^=x;h*=1099511628211ULL;};
+    mix(physicalGraphStamp(blueprint.graph));
+    mix(static_cast<uint32_t>(c.count));
+    mix(static_cast<uint32_t>(c.trackedNode));
+    mix(static_cast<uint32_t>(c.referenceMidi));
+    mix(std::bit_cast<uint32_t>(c.a4Hz));
+    for(int i=0;i<c.count&&i<kPitchSlots;++i){
+        const auto& a=c.assignments[i];
+        mix(static_cast<uint32_t>(a.objectIndex));
+        mix(static_cast<uint32_t>(a.property));
+        mix(std::bit_cast<uint32_t>(a.lower));
+        mix(std::bit_cast<uint32_t>(a.upper));
+        mix(std::bit_cast<uint32_t>(a.priority));
+    }
+    return h?h:1ULL;
+}
+inline bool physicalBendMapCurrent(const Blueprint& b) noexcept {
+    return b.bend.calibrationKey!=0&&pitchMapCurrent(b)&&
+        b.bend.calibrationKey==physicalBendCalibrationKey(b);
+}
+inline float physicalPitchInterpolatedValue(
+    PitchProperty property,float a,float b,float fraction) noexcept {
+    fraction=std::clamp(fraction,0.f,1.f);
+    // For strictly positive lengths, tensions and cross-sections, log
+    // interpolation reduces curvature error between physically solved
+    // semitone samples. Other properties move linearly.
+    const bool positive=property==PitchProperty::Length||
+        property==PitchProperty::Width||
+        property==PitchProperty::Depth||
+        property==PitchProperty::Wall||
+        property==PitchProperty::Tension||
+        property==PitchProperty::Profile0||
+        property==PitchProperty::Profile1||
+        property==PitchProperty::Profile2||
+        property==PitchProperty::Profile3;
+    if(positive&&a>0.f&&b>0.f)
+        return a*std::pow(b/a,fraction);
+    return a+(b-a)*fraction;
+}
+inline bool preparePhysicalBendMap(Blueprint& blueprint) noexcept {
+    auto& bend=blueprint.bend;
+    bend.calibrationKey=0;
+    bend.playable.fill(0);
+    if(!pitchMapCurrent(blueprint))return false;
+    const auto& c=blueprint.pitch;
+    constexpr int steps=kPhysicalBendSubsteps;
+    for(int note=0;note<=127;++note){
+        const int pos=note*steps;
+        if(!c.playable[note])continue;
+        bend.playable[pos]=1;
+        bend.values[pos]=c.values[note];
+    }
+    // A physical transition is only considered achievable if both
+    // bracketing notes and that sub-semitone actually solve. Holes and
+    // instrument range limits are not bridged by pitch-shifting.
+    for(int note=0;note<127;++note){
+        if(!c.playable[note]||!c.playable[note+1])continue;
+        for(int frac=1;frac<steps;++frac){
+            const float targetMidi=note+static_cast<float>(frac)/steps;
+            const float targetHz=std::clamp(c.a4Hz,400.f,480.f)*
+                std::exp2((targetMidi-69.f)/12.f);
+            const auto solved=solvePhysicalPitch(
+                blueprint.graph,c,targetHz);
+            if(!solved.reached)continue;
+            const int pos=note*steps+frac;
+            bend.playable[pos]=1;
+            bend.values[pos]=solved.values;
+        }
+    }
+    // Precompute nearest achievable settings for a bend outside the
+    // constructed instrument's physical range, including interior holes.
+    constexpr uint16_t none=UINT16_MAX;
+    int previous=-1;
+    for(int i=0;i<kPhysicalBendEntries;++i){
+        if(bend.playable[i])previous=i;
+        bend.nearest[i]=previous>=0?
+            static_cast<uint16_t>(previous):none;
+    }
+    int following=-1;
+    for(int i=kPhysicalBendEntries-1;i>=0;--i){
+        if(bend.playable[i])following=i;
+        const auto prev=bend.nearest[i];
+        if(following>=0&&(prev==none||following-i<i-prev))
+            bend.nearest[i]=static_cast<uint16_t>(following);
+    }
+    bend.calibrationKey=physicalBendCalibrationKey(blueprint);
+    return true;
+}
+// Sample fractional MIDI position with no solver work, allocation, or audio
+// pitch-shift. Return the values of EACH assigned physical component.
+inline bool physicalPitchValuesAt(const Blueprint& blueprint,
+                                  float midiPosition,
+                                  std::array<float,kPitchSlots>& out) noexcept {
+    const auto& c=blueprint.pitch;
+    if(!pitchMapCurrent(blueprint)||!std::isfinite(midiPosition))
+        return false;
+    const float key=std::clamp(midiPosition,0.f,127.f);
+    if(physicalBendMapCurrent(blueprint)){
+        constexpr int steps=kPhysicalBendSubsteps;
+        const auto& bend=blueprint.bend;
+        const float scaled=key*steps;
+        const int i0=std::clamp(static_cast<int>(std::floor(scaled)),
+            0,kPhysicalBendEntries-1);
+        const int i1=std::min(i0+1,kPhysicalBendEntries-1);
+        const float fraction=scaled-i0;
+        if(bend.playable[i0]&&bend.playable[i1]){
+            for(int k=0;k<c.count&&k<kPitchSlots;++k){
+                out[k]=physicalPitchInterpolatedValue(
+                    c.assignments[k].property,
+                    bend.values[i0][k],bend.values[i1][k],fraction);
+            }
+            return true;
+        }
+        const int nearest=std::clamp(static_cast<int>(std::lround(scaled)),
+            0,kPhysicalBendEntries-1);
+        const auto mapped=bend.nearest[nearest];
+        if(mapped==UINT16_MAX)return false;
+        out=bend.values[mapped];
+        return true;
+    }
+    // Fallback for older integer-only calibrations: a continuous physical
+    // interpolation is still preferable to stepping audio oscillator pitch.
+    const int n0=std::clamp(static_cast<int>(std::floor(key)),0,127);
+    const int n1=std::min(127,n0+1);
+    if(c.playable[n0]&&c.playable[n1]){
+        const float fraction=key-n0;
+        for(int k=0;k<c.count&&k<kPitchSlots;++k)
+            out[k]=physicalPitchInterpolatedValue(c.assignments[k].property,
+                c.values[n0][k],c.values[n1][k],fraction);
+        return true;
+    }
+    int nearest=-1;
+    for(int distance=0;distance<=127;++distance){
+        const int low=static_cast<int>(std::lround(key))-distance;
+        const int high=static_cast<int>(std::lround(key))+distance;
+        if(low>=0&&low<128&&c.playable[low]){nearest=low;break;}
+        if(high>=0&&high<128&&c.playable[high]){nearest=high;break;}
+    }
+    if(nearest<0)return false;
+    out=c.values[nearest];
+    return true;
+}
+
 } // namespace aiora::physical
