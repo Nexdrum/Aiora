@@ -295,11 +295,36 @@ inline PitchSolveResult solvePhysicalPitch(
     }
     return result;
 }
+inline bool pitchHasCompleteEnergyPath(const FlowGraph& g,
+                                        int tracked) noexcept {
+    if(tracked<0||tracked>=g.nodeCount)return false;
+    std::array<bool,kMaxFlowNodes> fromHuman{},toOutput{};
+    for(int i=0;i<g.nodeCount;++i)
+        fromHuman[i]=g.nodes[i].kind==FlowKind::Exciter||
+            isUniversalSource(g.nodes[i]);
+    for(int pass=0;pass<g.nodeCount;++pass)
+        for(int j=0;j<g.linkCount;++j){
+            const auto& edge=g.links[j];
+            if(edge.from<g.nodeCount&&edge.to<g.nodeCount&&
+               fromHuman[edge.from])fromHuman[edge.to]=true;
+        }
+    for(int i=0;i<g.nodeCount;++i)
+        toOutput[i]=g.nodes[i].kind==FlowKind::Output||
+            isUniversalOutput(g.nodes[i]);
+    for(int pass=0;pass<g.nodeCount;++pass)
+        for(int j=0;j<g.linkCount;++j){
+            const auto& edge=g.links[j];
+            if(edge.from<g.nodeCount&&edge.to<g.nodeCount&&
+               toOutput[edge.to])toOutput[edge.from]=true;
+        }
+    return fromHuman[tracked]&&toOutput[tracked];
+}
 inline bool buildPhysicalKeyboard(const FlowGraph& graph,
                                   PitchCalibration& pitch) noexcept {
     pitch.valid=false;
     if(pitch.count==0||pitch.count>kPitchSlots||
-       trackedFundamental(graph,pitch.trackedNode)<=0.f)
+       trackedFundamental(graph,pitch.trackedNode)<=0.f||
+       !pitchHasCompleteEnergyPath(graph,pitch.trackedNode))
         return false;
     for(int i=0;i<pitch.count;++i){
         const auto& a=pitch.assignments[i];
