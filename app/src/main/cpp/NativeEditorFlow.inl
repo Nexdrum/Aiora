@@ -1,6 +1,23 @@
 // Universal material roles v5 editor; first-arrival time Y, physical entry X.
 // Roles are freely repeatable. Source energy V, physical position M.
+void NativeEditor::updatePitchScan() noexcept {
+    if(!pitchScanJob_||!pitchScanJob_->ready.load(std::memory_order_acquire))
+        return;
+    auto results=std::move(pitchScanJob_->result);
+    pitchScanJob_.reset();
+    if(results.graphStamp!=physical::physicalGraphStamp(physicalBlueprint_.graph)||
+       results.referenceMidi!=physicalBlueprint_.pitch.referenceMidi||
+       results.a4Hz!=physicalBlueprint_.pitch.a4Hz){
+        pitchScanResults_={};
+        pitchScanStatus_=4;
+        return;
+    }
+    pitchScanResults_=std::move(results);
+    pitchScanSelection_=0;
+    pitchScanStatus_=pitchScanResults_.count>0?2:3;
+}
 void NativeEditor::syncPhysicalBinding() noexcept {
+    updatePitchScan();
     const auto& project=ProjectCore::instance();
     const int track=project.selectedTrack();
     const int target=(synthWorkspace_==3&&track>=0&&!project.trackIsDrums(track))
@@ -27,14 +44,14 @@ NativeEditor::Rect NativeEditor::flowActionRect(int index) const noexcept {
 NativeEditor::Rect NativeEditor::flowTimeRect() const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
-    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+437.f,
+    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+515.f,
             b.w-24.f,48.f};
 }
 NativeEditor::Rect NativeEditor::flowTuneRect() const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
     return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+160.f,
-            b.w-24.f,269.f};
+            b.w-24.f,347.f};
 }
 NativeEditor::Rect NativeEditor::flowTuneButtonRect(int index) const noexcept {
     const auto panel=flowTuneRect();
@@ -45,7 +62,7 @@ NativeEditor::Rect NativeEditor::flowTuneButtonRect(int index) const noexcept {
 NativeEditor::Rect NativeEditor::flowTuneRangeRect(int index) const noexcept {
     const auto panel=flowTuneRect();
     const float w=(panel.w-27.f)*.5f;
-    return {panel.x+9.f+index*(w+9.f),panel.y+170.f,w,40.f};
+    return {panel.x+9.f+index*(w+9.f),panel.y+219.f,w,40.f};
 }
 bool NativeEditor::editPitchRange(int index,float x) noexcept {
     auto& t=physicalBlueprint_.pitch;
@@ -152,12 +169,60 @@ bool NativeEditor::flowTuneAction(int index) noexcept {
         t.valid=false;pitchTuneStatus_=0;
         physicalDirty_=true;return true;
     }
+    if(index==10){ // SCAN ALL: truly search the complete graph in a worker
+        if(pitchScanJob_)return false;
+        auto worker=std::make_shared<physical::PhysicalScanJob>();
+        const auto snapshot=physicalBlueprint_;
+        pitchScanResults_={};
+        pitchScanSelection_=0;
+        pitchScanStatus_=1;
+        pitchScanJob_=worker;
+        try{
+            std::thread([worker,snapshot](){
+                worker->result=physical::scanAllPhysicalPitch(snapshot);
+                worker->ready.store(true,std::memory_order_release);
+            }).detach();
+        }catch(...){
+            pitchScanJob_.reset();
+            pitchScanStatus_=3;
+        }
+        return false;
+    }
+    if(index==11||index==12){
+        if(pitchScanStatus_!=2||pitchScanResults_.count==0)return false;
+        pitchScanSelection_=(pitchScanSelection_+
+            (index==11?-1:1)+pitchScanResults_.count)%
+            pitchScanResults_.count;
+        return false;
+    }
+    if(index==13){ // Only APPLY replaces manual tuning assignments
+        if(pitchScanStatus_!=2||pitchScanResults_.count==0||
+           pitchScanResults_.graphStamp!=
+               physical::physicalGraphStamp(physicalBlueprint_.graph)||
+           pitchScanResults_.referenceMidi!=t.referenceMidi||
+           pitchScanResults_.a4Hz!=t.a4Hz)return false;
+        const auto& best=pitchScanResults_.best[pitchScanSelection_];
+        if(!best.pitch.valid)return false;
+        t=best.pitch;
+        pitchSelectedSlot_=0;
+        pitchTuneStatus_=best.audibleVerified?1:3;
+        pitchSpectrumBands_=best.spectrum;
+        physicalDirty_=true;
+        return true;
+    }
+    if(index==14){ // Dismiss results; existing manual calibration retained
+        if(pitchScanJob_)return false;
+        pitchScanResults_={};
+        pitchScanSelection_=0;
+        pitchScanStatus_=0;
+        return false;
+    }
     return false;
 }
 NativeEditor::Rect NativeEditor::flowCanvasRect() const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);
     const float gap=std::clamp(b.w*.014f,9.f,13.f);
-    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+495.f,
+    return {b.x+12.f,tab.y+tab.h+gap-physicalScrollY_+573.f,
             std::max(150.f,b.w-24.f),614.f};
 }
 NativeEditor::Rect NativeEditor::flowNodeRect(int index) const noexcept {
@@ -178,6 +243,7 @@ bool NativeEditor::flowTemplate(int i) noexcept {
         physical::universalEmptyGraph();
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
+    pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
     flowSelectedNode_=physicalBlueprint_.graph.nodeCount>2?2:0;
     flowLinkMode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;flowError_=false;
     physicalDirty_=true;return true;
