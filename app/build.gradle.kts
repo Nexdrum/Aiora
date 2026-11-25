@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".physicaltuning"
-            versionNameSuffix = "-physical-tuning-v6"
+            applicationIdSuffix = ".scanall"
+            versionNameSuffix = "-physical-scan-all-v7"
         }
     }
 
