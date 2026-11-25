@@ -61,6 +61,7 @@ int main(){
     const auto silence=render(g,0.f);
     assert(baseline.energy>1.e-18&&silence.energy<1.e-15);
     const auto quiet=render(g,.08f);
+    std::fprintf(stderr,"SOURCE DIAGNOSTIC V=.9 energy=%.12g peak=%.9g, V=.08 energy=%.12g peak=%.9g\n",baseline.energy,baseline.peak,quiet.energy,quiet.peak);
     assert(baseline.energy>quiet.energy*1.2);
     // M without assignments must not change the output, even with V constant.
     assert(std::fabs(baseline.energy-render(g,.9f,1.f).energy)<1.e-11);
