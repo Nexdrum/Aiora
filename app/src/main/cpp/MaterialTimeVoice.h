@@ -5,6 +5,7 @@
 // Reduced modal + wind models, NOT a full fluid / finite-element solver.
 // Fixed buffers; render() has no dynamic allocation or graph edits.
 #include "PhysicalInstrumentVoice.h"
+#include "PhysicalPitchTuning.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -25,6 +26,11 @@ public:
     void start(const Blueprint& blueprint,int midi,float velocity,float mod=0.f) noexcept {
         blueprint_=blueprint;
         graph_=blueprint.graph;
+        // No audio pitch shift: each keyboard note applies its previously
+        // solved physical settings before any modal/edge state is built.
+        // Stale or unreachable notes retain their unaltered physical shape.
+        if(pitchMapCurrent(blueprint))
+            applyMappedPitch(blueprint.pitch,graph_,midi);
         if(graph_.nodeCount==0){
             legacyMode_=true;
             legacy_.start(blueprint,midi,velocity,mod);
@@ -503,7 +509,7 @@ private:
         // Unlike the legacy v4 instrument objects, a universal object's
         // fundamental frequency is derived from geometry and material.
         const float geometryBase=p.kind==FlowKind::Universal?
-            naturalFrequency(p):0.f;
+            physicalFundamental(p):0.f;
         const float base=p.kind==FlowKind::Universal?
             geometryBase:(anchored?pitch:bodyBase);
         n.modeCount=kMaterialModes;
@@ -692,57 +698,6 @@ private:
             sum+=m.real;
         }
         return sum*.85f;
-    }
-    // Fixed reduced analytic wave families. All values below are derived
-    // from the actual configured material and geometry at note-on.
-    // A fully arbitrary 3D body, nonlinear contact and bidirectional wind
-    // coupling would require more sophisticated validated solvers.
-    static float naturalFrequency(const FlowNode& p) noexcept {
-        const auto material=materialProperties(p.material);
-        const auto& g=p.form;
-        const float rho=std::max(100.f,material.densityKgM3);
-        const float E=std::max(1.e6f,material.youngModulusPa);
-        const float L=std::clamp(g.lengthMeters,.025f,5.f);
-        const float w=std::clamp(g.widthMeters,.0001f,2.f);
-        const float d=std::clamp(g.depthMeters,.0001f,1.f);
-        const float profile=std::clamp(normalizedAverageProfile(g),.1f,3.f);
-        const float rootE=std::sqrt(E/rho);
-        float f=110.f;
-        switch(g.continuum){
-        case Continuum::Filament:{
-            const float mu=rho*w*d*profile;
-            f=.5f/L*std::sqrt(std::max(1.f,p.tensionNewtons)/mu);
-            break;
-        }
-        case Continuum::Sheet:{
-            const float slender=std::max(w,L);
-            const float bending=.13f*d/(slender*slender)*rootE;
-            const float tensionWave=.25f/slender*std::sqrt(
-                std::max(0.f,p.tensionNewtons)/(rho*d*std::max(w,.004f)));
-            f=std::sqrt(bending*bending+tensionWave*tensionWave);
-            break;
-        }
-        case Continuum::Solid:{
-            // Euler-Bernoulli cantilever beam approximation, corrected for
-            // partial end restraint, section profile, taper and curvature.
-            const float IOverA=d*d/12.f;
-            f=(1.875104f*1.875104f/(2.f*kPi*L*L))*
-                std::sqrt(E*IOverA/rho);
-            f*=1.f+1.35f*std::clamp(g.fixing,0.f,1.f);
-            break;
-        }
-        case Continuum::Gas:{
-            const float soundSpeed=343.f; // room-temperature air (m/s)
-            const float closed=g.opening<.5f?4.f:2.f;
-            const float endCorrection=.61f*std::sqrt(w*d);
-            const float effective=L+endCorrection*(g.opening+.25f);
-            const float wallCompliance=1.f+.025f*std::clamp(3.f/std::max(.2f,g.wallMm),.1f,6.f);
-            f=soundSpeed/(closed*effective*wallCompliance);
-            break;
-        }
-        }
-        f*=std::sqrt(profile)*(1.f+.08f*std::clamp(g.curvature,-1.f,1.f));
-        return std::clamp(f,25.f,12000.f);
     }
     Blueprint blueprint_{};
     FlowGraph graph_{};
