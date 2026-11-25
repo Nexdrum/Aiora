@@ -1,8 +1,8 @@
 #pragma once
-// Instrument Flow Lab v2. A small, typed, fixed-capacity physical mechanism
-// graph. Each edge has a mechanical meaning; invalid edge types are rejected.
-// In v2 one vibrating string supports parallel body branches and contacts.
-// No allocations in graph traversal or in the audio thread.
+// Aiora universal physical mechanism graph v4. Objects retain vibrational
+// state; nodes mark first arrival in time (Y), links carry energy into their
+// target at a particular local position (X), and assigned M moves mechanisms.
+// All graph edits happen outside the real-time audio thread.
 
 #include <algorithm>
 #include <array>
@@ -80,12 +80,11 @@ inline constexpr const char* geometryName(Geometry g) noexcept {
     return i>=0&&i<static_cast<int>(Geometry::Count)?kGeometryNames[static_cast<size_t>(i)]:"Body";
 }
 
-// Flow is an ordered physical event network. The vertical coordinate is
-// normalized time: links always move down and never form feedback loops.
-// This intentionally differs from a signal-flow graph with instant connections.
+// Y defines FIRST energy arrival / delay only; a node continues vibrating
+// independently after its first arrival and after the source has stopped.
 enum class FlowKind : uint8_t {
     Exciter, String, Membrane, Plate, Bar, AirColumn, Body, Bridge,
-    Damper, Output
+    Damper, Output, Router, Reed, Edge
 };
 inline constexpr const char* flowKindName(FlowKind k) noexcept {
     switch(k) {
@@ -99,6 +98,9 @@ inline constexpr const char* flowKindName(FlowKind k) noexcept {
     case FlowKind::Bridge:return "COUPLER";
     case FlowKind::Damper:return "CONTACT";
     case FlowKind::Output:return "OUTPUT";
+    case FlowKind::Router:return "FLOW ROUTER";
+    case FlowKind::Reed:return "REED VALVE";
+    case FlowKind::Edge:return "JET EDGE";
     }
     return "OBJECT";
 }
@@ -108,7 +110,7 @@ inline constexpr bool vibrates(FlowKind kind) noexcept {
         kind==FlowKind::AirColumn||kind==FlowKind::Body;
 }
 enum class Excitation : uint8_t { Pluck, Hammer, Blow, Scrape };
-enum class FlowTemplate : uint8_t { String, Drum, Plate, Bar, Air, Bell, Blank };
+enum class FlowTemplate : uint8_t { String, Drum, Plate, Bar, Air, Bell, Blank, HybridWind };
 inline constexpr int kMaxFlowNodes=14;
 inline constexpr int kMaxFlowLinks=22;
 inline constexpr int kMaxFlowBodies=4; // compatibility with v2 offline voice
@@ -118,7 +120,7 @@ struct FlowNode {
     Material material{Material::Steel};
     Geometry geometry{Geometry::Plate};
     Excitation excitation{Excitation::Hammer};
-    float x{.5f},y{.5f}; // x = branching; y = time of interaction
+    float x{.5f},y{.5f}; // X = interaction location; Y = first energy arrival
     float size{1.0f};
     float thicknessMm{3.0f};
     float damping{1.0f};
@@ -127,9 +129,15 @@ struct FlowNode {
     float tensionNewtons{80.f};
     float diameterMm{.50f};
     float hardness{.70f};
-    float restPressure{0.f}; // static physical contact even when M is zero
+    float restPressure{0.f}; // fixed preload; M causes linked displacement
+    float motion{0.f}; // router outlet travel under M (normalized position)
 };
-struct FlowLink { uint8_t from{0},to{0}; };
+struct FlowLink {
+    uint8_t from{0},to{0};
+    float position{.5f}; // position ON target (0..1)
+    float modTravel{0.f}; // -1..1, movement of interaction under M
+    float aperture{.22f}; // size of interaction area / flow inlet
+};
 struct FlowGraph {
     std::array<FlowNode,kMaxFlowNodes> nodes{};
     std::array<FlowLink,kMaxFlowLinks> links{};
@@ -158,9 +166,15 @@ struct FlowGraph {
         if(source.y+.035f>=target.y)return false;
         if(source.kind==FlowKind::Output||target.kind==FlowKind::Exciter)return false;
         if(source.kind==FlowKind::Exciter)
-            return vibrates(target.kind);
+            return vibrates(target.kind)||target.kind==FlowKind::Router||
+                target.kind==FlowKind::Reed||target.kind==FlowKind::Edge;
         if(target.kind==FlowKind::Output)
-            return source.kind!=FlowKind::Exciter;
+            return source.kind!=FlowKind::Exciter&&source.kind!=FlowKind::Router;
+        if(source.kind==FlowKind::Router)
+            return vibrates(target.kind)||target.kind==FlowKind::Reed||
+                target.kind==FlowKind::Edge;
+        if(source.kind==FlowKind::Reed||source.kind==FlowKind::Edge)
+            return vibrates(target.kind)||target.kind==FlowKind::Bridge;
         if(vibrates(source.kind))
             return vibrates(target.kind)||target.kind==FlowKind::Bridge||
                 target.kind==FlowKind::Damper;
@@ -171,7 +185,13 @@ struct FlowGraph {
     }
     bool connect(int from,int to) noexcept {
         if(!compatible(from,to)||linked(from,to)||linkCount>=kMaxFlowLinks)return false;
-        links[linkCount++]={static_cast<uint8_t>(from),static_cast<uint8_t>(to)};
+        FlowLink link;
+        link.from=static_cast<uint8_t>(from);
+        link.to=static_cast<uint8_t>(to);
+        link.position=std::clamp(nodes[to].x,0.f,1.f);
+        if(nodes[to].kind==FlowKind::Damper)
+            link.modTravel=1.f; // M physically approaches the vibrating source
+        links[linkCount++]=link;
         return true;
     }
     bool disconnect(int from,int to) noexcept {
@@ -188,11 +208,13 @@ struct FlowGraph {
         n.kind=kind;
         n.x=(count(kind)%3)*.30f+.15f;
         n.y=(kind==FlowKind::Bridge||kind==FlowKind::Damper)?.58f:
-            kind==FlowKind::Body?.70f:.36f;
+            kind==FlowKind::Body?.70f:kind==FlowKind::Router?.21f:.36f;
         n.material=kind==FlowKind::AirColumn?Material::Wood:
             kind==FlowKind::Membrane?Material::Leather:
             kind==FlowKind::Bridge?Material::Hardwood:
-            kind==FlowKind::Damper?Material::Felt:Material::Steel;
+            kind==FlowKind::Damper?Material::Felt:
+            kind==FlowKind::Reed?Material::Bamboo:
+            kind==FlowKind::Edge?Material::Hardwood:Material::Steel;
         n.geometry=kind==FlowKind::AirColumn?Geometry::Tube:
             kind==FlowKind::Body?Geometry::HollowBox:Geometry::Plate;
         n.coupling=.6f;
@@ -230,6 +252,8 @@ struct FlowGraph {
         if(lower>upper)return false;
         n.x=std::clamp(x,0.f,1.f);
         n.y=std::clamp(y,lower,upper);
+        for(int i=0;i<linkCount;++i)
+            if(links[i].to==id)links[i].position=n.x;
         return true;
     }
 };
@@ -247,6 +271,35 @@ inline FlowGraph blankFlowGraph() noexcept {
 inline FlowGraph templateFlowGraph(FlowTemplate type) noexcept {
     FlowGraph g=blankFlowGraph();
     if(type==FlowTemplate::Blank)return g;
+    if(type==FlowTemplate::HybridWind){
+        // One breath source, movable flow router, independent reed & edge,
+        // two different entry locations on the SAME air column.
+        g.nodes[0].excitation=Excitation::Blow;
+        const int router=g.addNode(FlowKind::Router);
+        const int reed=g.addNode(FlowKind::Reed);
+        const int edge=g.addNode(FlowKind::Edge);
+        const int bore=g.addNode(FlowKind::AirColumn);
+        g.nodes[router].x=.5f;g.nodes[router].y=.18f;
+        g.nodes[router].position=.20f;g.nodes[router].motion=.60f;
+        g.nodes[reed].x=.22f;g.nodes[reed].y=.39f;
+        g.nodes[edge].x=.78f;g.nodes[edge].y=.39f;
+        g.nodes[bore].x=.5f;g.nodes[bore].y=.67f;
+        g.nodes[bore].material=Material::Bamboo;
+        g.connect(0,router);
+        g.connect(router,reed);
+        g.connect(router,edge);
+        g.connect(reed,bore);
+        g.connect(edge,bore);
+        g.connect(bore,1);
+        for(int i=0;i<g.linkCount;++i){
+            auto& link=g.links[i];
+            if(link.from==router&&link.to==reed)link.position=.20f;
+            if(link.from==router&&link.to==edge)link.position=.80f;
+            if(link.to==bore&&link.from==reed)link.position=.12f;
+            if(link.to==bore&&link.from==edge)link.position=.52f;
+        }
+        return g;
+    }
     FlowKind primary=FlowKind::String;
     switch(type){
     case FlowTemplate::Drum:primary=FlowKind::Membrane;break;
