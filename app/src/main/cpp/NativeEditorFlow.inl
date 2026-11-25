@@ -173,6 +173,13 @@ bool NativeEditor::flowAction(int index) noexcept {
         return false;
     }
     if(index==13){
+        if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount){
+            const auto link=g.links[static_cast<size_t>(flowSelectedLink_)];
+            const bool changed=g.disconnect(link.from,link.to);
+            flowSelectedLink_=-1;
+            if(changed)physicalDirty_=true;
+            return changed;
+        }
         if(!g.removeNode(flowSelectedNode_))return false;
         flowSelectedNode_=std::max(0,std::min(flowSelectedNode_,int(g.nodeCount)-1));
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
@@ -192,14 +199,15 @@ bool NativeEditor::flowNodeTouch(int index) noexcept {
     if(flowLinkSource_<0){
         flowLinkSource_=index;flowError_=false;return false;
     }
-    const bool changed=flowLinkMode_==1?
+    const bool adding=flowLinkMode_==1;
+    const bool changed=adding?
         g.connect(flowLinkSource_,index):
         g.disconnect(flowLinkSource_,index);
     flowError_=!changed;flowLinkMode_=0;flowLinkSource_=-1;
     if(changed){
         physicalDirty_=true;
         flowSelectedLink_=-1;
-        if(flowLinkMode_==0&&g.linkCount>0)flowSelectedLink_=g.linkCount-1;
+        if(adding&&g.linkCount>0)flowSelectedLink_=g.linkCount-1;
     }
     return changed;
 }
@@ -311,7 +319,7 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
     auto fmt=[&](const char* format,float value){
         std::snprintf(f.label,sizeof(f.label),format,value);
     };
-    if(i==0&&n.kind!=FlowKind::Output){
+    if(i==0&&n.kind!=FlowKind::Output&&n.kind!=FlowKind::Router){
         f.picker=true;
         std::snprintf(f.label,sizeof(f.label),"%s",physical::materialName(n.material));
         return f;
