@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -71,6 +71,13 @@ jobs:
             tests/universal_roles_v5_regression.cpp \
             -o /tmp/aiora-universal-roles-v5-test
           /tmp/aiora-universal-roles-v5-test
+
+      - name: Physical pitch v6 calibration regression
+        run: |
+          g++ -std=c++20 -O2 -Iapp/src/main/cpp \
+            tests/physical_pitch_v6_regression.cpp \
+            -o /tmp/aiora-pitch-v6-test
+          /tmp/aiora-pitch-v6-test
 
       - name: Native project-limit regression tests
         run: |
@@ -163,6 +170,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-MaterialRoles-debug
+          name: Aiora-PhysicalTuning-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
