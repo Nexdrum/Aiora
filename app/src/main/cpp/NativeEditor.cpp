@@ -11,6 +11,8 @@
 #include <cstdio>
 #include <cmath>
 #include <string>
+#include <thread>
+#include <memory>
 
 namespace aiora {
 namespace {
@@ -358,7 +360,7 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
         const auto tab=synthTabRect(0);
         const float usable=b.y+b.h-tab.y-tab.h-std::clamp(b.w*.014f,9.0f,13.0f);
         // Templates, controls, audible timeline, node canvas and properties.
-        return std::max(0.0f,495.f+614.f+70.f+21*73.f+20.f-usable);
+        return std::max(0.0f,573.f+614.f+70.f+21*73.f+20.f-usable);
     }
 
     if(page==EditorPage::Fx){
@@ -2903,7 +2905,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                 return true;
             }
         }else if(synthWorkspace_==3){
-            for(int i=0;i<10;++i){
+            for(int i=0;i<15;++i){
                 const Rect tune=flowTuneButtonRect(i);
                 if(tune.contains(x,y)){
                     changed_=flowTuneAction(i)||changed_;
