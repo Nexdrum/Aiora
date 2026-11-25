@@ -14,7 +14,7 @@ enum class Material : uint8_t {
     Steel, Nylon, Bronze, Wood, Glass, Ceramic, Rubber, Felt,
     Aluminum, Copper, Brass, Iron, Titanium, Silver, Gold, CarbonFiber,
     Bamboo, Hardwood, Plywood, Cork, Acrylic, ABS, Polycarbonate,
-    Silicone, Leather, Wool, Stone, Concrete, Porcelain, Paper,
+    Silicone, Leather, Wool, Stone, Concrete, Porcelain, Paper, Air,
     Count
 };
 inline constexpr int kMaterialCount=static_cast<int>(Material::Count);
@@ -23,7 +23,7 @@ inline constexpr std::array<const char*,kMaterialCount> kMaterialNames{
     "Aluminum","Copper","Brass","Iron","Titanium","Silver","Gold",
     "Carbon fiber","Bamboo","Hardwood","Plywood","Cork","Acrylic",
     "ABS plastic","Polycarbonate","Silicone","Leather","Wool",
-    "Stone","Concrete","Porcelain","Paper"
+    "Stone","Concrete","Porcelain","Paper","Air"
 };
 inline constexpr const char* materialName(Material m) noexcept {
     const int i=static_cast<int>(m);
@@ -67,6 +67,8 @@ inline constexpr MaterialProperties materialProperties(Material material) noexce
     case Material::Concrete:return {2400.f,30.e9f,.023f,.06f};
     case Material::Porcelain:return {2400.f,67.e9f,.003f,.02f};
     case Material::Paper:return {800.f,2.0e9f,.080f,.55f};
+    // For a gas, the elastic parameter denotes bulk modulus, not Young's E.
+    case Material::Air:return {1.225f,1.42e5f,.010f,.92f};
     case Material::Count:break;
     }
     return {7850.f,200.e9f,.001f,.05f};
@@ -458,9 +460,11 @@ inline int addPhysicalRole(FlowGraph& g,PhysicalRole role) noexcept {
     n.form.continuum=role==PhysicalRole::Resonator?
         Continuum::Gas:Continuum::Solid;
     if(role==PhysicalRole::Source){
+        n.material=Material::Rubber;
         n.driver=Driver::Hand;n.gesture=Gesture::Impulse;
     }else if(role==PhysicalRole::Output){
         n.form.continuum=Continuum::Gas;
+        n.material=Material::Air;
     }else if(role==PhysicalRole::Transfer){
         n.form.continuum=Continuum::Filament;
         n.form.widthMeters=.001f;n.form.depthMeters=.001f;
@@ -469,6 +473,7 @@ inline int addPhysicalRole(FlowGraph& g,PhysicalRole role) noexcept {
         n.form.continuum=Continuum::Sheet;
         n.material=Material::Wood;
     }
+    if(role==PhysicalRole::Resonator)n.material=Material::Air;
     const int id=g.nodeCount++;
     g.nodes[id]=n;
     return id;
@@ -480,6 +485,7 @@ inline FlowGraph universalStarterGraph() noexcept {
     const int r=addPhysicalRole(g,PhysicalRole::Resonator);
     const int o=addPhysicalRole(g,PhysicalRole::Output);
     g.nodes[r].form.continuum=Continuum::Solid;
+    g.nodes[r].material=Material::Wood;
     g.nodes[r].form.widthMeters=.2f;
     g.connect(0,t);
     g.connect(t,i);
