@@ -549,6 +549,17 @@ struct PitchCalibration {
     std::array<std::array<float,kPitchSlots>,128> values{};
     std::array<uint8_t,128> playable{}; // unreachable notes are NOT pitch shifted
 };
+// Fine physically solved note positions used for *continuous* pitch bend.
+// Built by Find/Apply away from the audio thread. This is not a sample
+// resampler: each entry contains physical geometry/mechanical settings.
+inline constexpr int kPhysicalBendSubsteps=8;
+inline constexpr int kPhysicalBendEntries=127*kPhysicalBendSubsteps+1;
+struct PitchBendMap {
+    uint64_t calibrationKey{0}; // zero means not prepared
+    std::array<std::array<float,kPitchSlots>,kPhysicalBendEntries> values{};
+    std::array<uint8_t,kPhysicalBendEntries> playable{};
+    std::array<uint16_t,kPhysicalBendEntries> nearest{}; // out-of-range clamp
+};
 struct Blueprint {
     // Legacy standalone physical voice settings. If graph.nodeCount>0 the
     // graph is authoritative and these values are derived from connected nodes.
@@ -572,6 +583,7 @@ struct Blueprint {
     float bodyDamping{1.0f};
     FlowGraph graph{};
     PitchCalibration pitch{};
+    PitchBendMap bend{}; // voice-private copies keep polyphony independent
 };
 
 } // namespace aiora::physical
