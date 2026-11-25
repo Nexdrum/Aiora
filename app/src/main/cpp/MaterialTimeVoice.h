@@ -648,6 +648,12 @@ private:
                 float physicalX=e.modEnabled?
                     e.modMin+(e.modMax-e.modMin)*e2Smooth_:
                     e.position+e.modTravel*e2Smooth_;
+                const auto& movingSource=nodes_[static_cast<size_t>(e.from)].node;
+                if(movingSource.kind==FlowKind::Universal&&
+                   movingSource.movingEnabled)
+                    physicalX+=movingSource.movingMin+
+                        (movingSource.movingMax-movingSource.movingMin)*
+                        e2Smooth_-.5f;
                 if(n.node.kind==FlowKind::Universal&&n.node.movingEnabled)
                     physicalX+=n.node.movingMin+
                         (n.node.movingMax-n.node.movingMin)*e2Smooth_-.5f;
@@ -710,7 +716,8 @@ private:
             const float closed=g.opening<.5f?4.f:2.f;
             const float endCorrection=.61f*std::sqrt(w*d);
             const float effective=L+endCorrection*(g.opening+.25f);
-            f=soundSpeed/(closed*effective);
+            const float wallCompliance=1.f+.025f*std::clamp(3.f/std::max(.2f,g.wallMm),.1f,6.f);
+            f=soundSpeed/(closed*effective*wallCompliance);
             break;
         }
         }
