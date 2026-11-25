@@ -26,6 +26,10 @@ public:
     void start(const Blueprint& blueprint,int midi,float velocity,float mod=0.f) noexcept {
         blueprint_=blueprint;
         graph_=blueprint.graph;
+        baseMidi_=std::clamp(midi,0,127);
+        currentBendSemitones_=0.f;
+        pitchBendReady_=pitchMapCurrent(blueprint)&&
+            blueprint.pitch.playable[baseMidi_]!=0;
         // No audio pitch shift: each keyboard note applies its previously
         // solved physical settings before any modal/edge state is built.
         // Stale or unreachable notes retain their unaltered physical shape.
@@ -176,6 +180,67 @@ public:
     void setExpression(float v,float m) noexcept {
         if(legacyMode_){legacy_.setExpression(v,m);return;}
         e1_=safe01(v);e2_=safe01(m);
+    }
+    // The piano-roll B curve is in fractional semitones. Retune the
+    // ASSIGNED physical properties, not the audio output. The modal states
+    // (real/imaginary oscillation, delayed forces, source gesture and energy)
+    // are deliberately preserved, so an already-ringing note can glide.
+    // Call on the audio thread at the same control cadence as V and M.
+    void setPitchBend(float semitones) noexcept {
+        if(legacyMode_||!pitchBendReady_||!std::isfinite(semitones))return;
+        const float bend=std::clamp(semitones,-127.f,127.f);
+        if(std::fabs(bend-currentBendSemitones_)<.00002f)return;
+        std::array<float,kPitchSlots> physicalValues{};
+        if(!physicalPitchValuesAt(blueprint_,baseMidi_+bend,physicalValues))
+            return;
+        currentBendSemitones_=bend;
+        std::array<bool,kMaxFlowNodes> dirty{};
+        const auto& tuning=blueprint_.pitch;
+        for(int i=0;i<tuning.count&&i<kPitchSlots;++i){
+            const auto& assignment=tuning.assignments[i];
+            if(!pitchTargetValid(graph_,assignment))continue;
+            const float oldValue=pitchRead(graph_,assignment);
+            const float newValue=physicalValues[i];
+            if(std::fabs(newValue-oldValue)<1.e-8f)continue;
+            if(!pitchWrite(graph_,assignment,newValue))continue;
+            if(pitchIsLink(assignment.property)){
+                const auto& link=graph_.links[
+                    static_cast<size_t>(assignment.objectIndex)];
+                for(int j=0;j<edgeCount_;++j){
+                    auto& edge=edges_[static_cast<size_t>(j)];
+                    if(edge.from!=link.from||edge.to!=link.to)continue;
+                    if(assignment.property==PitchProperty::LinkPosition)
+                        edge.position=link.position;
+                    else edge.aperture=link.aperture;
+                    break;
+                }
+            }else dirty[static_cast<size_t>(assignment.objectIndex)]=true;
+        }
+        for(int i=0;i<nodeCount_;++i){
+            if(!dirty[static_cast<size_t>(i)])continue;
+            auto& n=nodes_[static_cast<size_t>(i)];
+            n.node=graph_.nodes[static_cast<size_t>(i)];
+            // setupNode updates modal frequency/partial/damping and
+            // mechanical input gains but DOES NOT reset stored real/imag
+            // oscillation or node arrival buffers.
+            setupNode(n,pitchHz_);
+        }
+    }
+    [[nodiscard]] float currentPhysicalPitchHz() const noexcept {
+        return trackedFundamental(graph_,blueprint_.pitch.trackedNode);
+    }
+    [[nodiscard]] float currentPitchPropertyValue(int slot=0) const noexcept {
+        if(slot<0||slot>=blueprint_.pitch.count)return 0.f;
+        return pitchRead(graph_,blueprint_.pitch.assignments[slot]);
+    }
+    [[nodiscard]] float storedModalEnergy() const noexcept {
+        float energy=0.f;
+        for(int n=0;n<nodeCount_;++n)
+            for(int i=0;i<nodes_[n].modeCount;++i){
+                const auto& mode=nodes_[n].modes[i];
+                energy+=mode.real*mode.real+mode.imag*mode.imag;
+            }
+        return energy;
     }
     void release() noexcept {
         if(legacyMode_){legacy_.release();return;}
@@ -704,6 +769,9 @@ private:
     PhysicalInstrumentVoice legacy_{};
     float sampleRate_{48000.f},e1_{.8f},e2_{0.f},e2Smooth_{0.f};
     float pitchHz_{220.f},activity_{0.f};
+    float currentBendSemitones_{0.f};
+    int baseMidi_{60};
+    bool pitchBendReady_{false};
     uint32_t quietFrames_{0};
     std::array<Node,kMaxFlowNodes> nodes_{};
     std::array<Edge,kMaxFlowLinks> edges_{};
