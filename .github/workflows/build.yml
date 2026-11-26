@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -100,6 +100,13 @@ jobs:
             -o /tmp/aiora-physical-bend-v8-test
           /tmp/aiora-physical-bend-v8-test
 
+      - name: Universal APT and material interaction v9 regression
+        run: |
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
+            tests/physical_apt_interaction_v9_regression.cpp \
+            -o /tmp/aiora-apt-v9-test
+          /tmp/aiora-apt-v9-test
+
       - name: Native project-limit regression tests
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
@@ -191,6 +198,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-PhysicalPitchExpression-debug
+          name: Aiora-PhysicalAPT-Interaction-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
