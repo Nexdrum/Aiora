@@ -100,12 +100,12 @@ int main(){
     g.nodes[1].movingMin=.10f;
     g.nodes[1].movingMax=.95f;
     assert(different(render(g,.9f,0.f),render(g,.9f,1.f)));
-    // Source motion, not the bow/pick, decides how energy is introduced.
+    // Universal sustained source is driven by note-length lock, not a
+    // human-body or wind instrument preset. Release preserves modal tails.
     g=universalStarterGraph();
-    g.nodes[0].driver=Driver::Breath;
-    g.nodes[0].gesture=Gesture::Continuous;
-    const auto breath=render(g,.6f,.0f,true);
-    assert(breath.energy>1.e-14&&breath.tail>0.);
+    g.nodes[0].sourceFollowNote=true;
+    const auto sustained=render(g,.6f,.0f,true);
+    assert(sustained.energy>1.e-14&&sustained.tail>0.);
     // The first-arrival Y coordinate delays onset but does not halt ringing.
     g=universalStarterGraph();
     g.spanMs=3.f;
@@ -115,5 +115,5 @@ int main(){
     assert(early.first>=0&&late.first>early.first+200);
     std::printf("PASS universal material roles v5: baseline %.9g material %.9g geometry %.9g profile %.9g M %.9g/%.9g tail %.9g\n",
         baseline.energy,rubber.energy,shortBody.energy,profile.energy,
-        left.energy,right.energy,breath.tail);
+        left.energy,right.energy,sustained.tail);
 }
