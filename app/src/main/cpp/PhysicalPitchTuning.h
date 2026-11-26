@@ -176,6 +176,9 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
         f(n.damping);f(n.coupling);f(n.position);f(n.tensionNewtons);
         f(n.diameterMm);f(n.hardness);f(n.restPressure);f(n.motion);
         f(n.sourceDurationMs);f(n.sourceRiseMs);f(n.sourceDirection);
+        f(n.sourceAcceleration);f(n.sourcePotential);f(n.sourceTimeMs);
+        add(n.sourceFollowNote);f(n.interactionAngleDeg);
+        f(n.interactionEngagement);
         f(n.form.lengthMeters);f(n.form.widthMeters);f(n.form.depthMeters);
         f(n.form.wallMm);f(n.form.curvature);f(n.form.taper);
         f(n.form.opening);f(n.form.fixing);
