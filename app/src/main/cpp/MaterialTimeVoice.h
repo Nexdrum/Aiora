@@ -1,6 +1,8 @@
 #pragma once
-// Aiora universal material / energy-arrival research voice, v4.
-// V supplies source energy. M moves assigned interactions (not audio gain).
+// Aiora universal material / energy-arrival research voice, v9.
+// APT accelerates the transfer mass, with Potential limiting mechanical work
+// (finite) or power (note-locked). V modulates Potential continuously and
+// modestly scales INITIAL acceleration; M moves assigned physical objects.
 // Nodes retain energy, Y is first arrival, link X is local entry position.
 // Reduced modal + wind models, NOT a full fluid / finite-element solver.
 // Fixed buffers; render() has no dynamic allocation or graph edits.
@@ -44,6 +46,7 @@ public:
         legacyMode_=false;
         active_=true;released_=false;tick_=0;releasedAt_=0;head_=0;
         e1_=safe01(velocity);e2_=safe01(mod);e2Smooth_=e2_;
+        noteOnEffort_=e1_;reactionForceN_=0.f;nextReactionForceN_=0.f;
         pitchHz_=std::clamp(440.f*std::pow(2.f,(midi-69)/12.f),25.f,sampleRate_*.16f);
         quietFrames_=0;activity_=0.f;
         nodeCount_=std::min<int>(graph_.nodeCount,kMaxFlowNodes);
@@ -56,6 +59,17 @@ public:
         for(int i=0;i<nodeCount_;++i){
             nodes_[i].node=graph_.nodes[static_cast<size_t>(i)];
             nodes_[i].randomSeed=0x713f9a35u+static_cast<uint32_t>(i)*0x3c6ef35fu;
+            if(isUniversalSource(nodes_[i].node)){
+                // Source acceleration is applied to actual connected medium
+                // mass, rather than prescribing an output velocity or waveform.
+                float mass=0.f;
+                for(int l=0;l<graph_.linkCount;++l){
+                    const auto& link=graph_.links[l];
+                    if(link.from==i&&link.to<nodeCount_)
+                        mass+=physicalMediumMass(graph_.nodes[link.to]);
+                }
+                nodes_[i].driveMassKg=std::clamp(mass,1.e-6f,40.f);
+            }
         }
         // Insertion sort avoids allocation on the real-time note-on path.
         for(int i=1;i<nodeCount_;++i){
@@ -233,6 +247,22 @@ public:
         if(slot<0||slot>=blueprint_.pitch.count)return 0.f;
         return pitchRead(graph_,blueprint_.pitch.assignments[slot]);
     }
+    [[nodiscard]] float sourceMotionVelocity(int sourceIndex=0) const noexcept {
+        return sourceIndex>=0&&sourceIndex<nodeCount_?
+            nodes_[sourceIndex].driveVelocity:0.f;
+    }
+    [[nodiscard]] float sourceMechanicalWork(int sourceIndex=0) const noexcept {
+        return sourceIndex>=0&&sourceIndex<nodeCount_?
+            nodes_[sourceIndex].driveWorkJ:0.f;
+    }
+    [[nodiscard]] float sourceDrivenMass(int sourceIndex=0) const noexcept {
+        return sourceIndex>=0&&sourceIndex<nodeCount_?
+            nodes_[sourceIndex].driveMassKg:0.f;
+    }
+    [[nodiscard]] float interactionElasticState(int nodeIndex) const noexcept {
+        return nodeIndex>=0&&nodeIndex<nodeCount_?
+            nodes_[nodeIndex].contactElastic:0.f;
+    }
     [[nodiscard]] float storedModalEnergy() const noexcept {
         float energy=0.f;
         for(int n=0;n<nodeCount_;++n)
@@ -257,6 +287,7 @@ public:
         if(legacyMode_)return legacy_.render();
         if(!active_)return 0.f;
         e2Smooth_+=.002f*(e2_-e2Smooth_);
+        nextReactionForceN_=0.f;
         // Recompute passive loss from ongoing physical contacts each
         // sample so an M gesture can silence an *already ringing* string.
         // The contact acts on every outgoing branch of its source object.
@@ -298,7 +329,9 @@ public:
                     output=humanSource(n);
                 else if(n.node.role==PhysicalRole::Output){
                     output=input;result+=output;
-                }else output=ring(n,input,id);
+                }else if(n.node.role==PhysicalRole::Interaction)
+                    output=interact(n,input,id);
+                else output=ring(n,input,id);
                 break;
             case FlowKind::Output:
                 output=input;
@@ -371,6 +404,10 @@ public:
             }
         }
         head_=(head_+1)&(kFlowDelayFrames-1);
+        // Contacts react on the driving transfer mass on the NEXT sample:
+        // graph travel remains forward-only, physical force feedback does not.
+        reactionForceN_=std::clamp(
+            .96f*reactionForceN_+.04f*nextReactionForceN_,0.f,30.f);
         ++tick_;
         // Never kill a physical voice at a fixed note-off duration. The
         // simulator runs until both stored and traveling energy have decayed.
@@ -378,13 +415,12 @@ public:
         bool continuous=false;
         for(int i=0;i<nodeCount_;++i){
             const auto& n=nodes_[i].node;
-            const bool sustained=n.kind==FlowKind::Universal?
-                n.role==PhysicalRole::Source&&
-                n.gesture==Gesture::Continuous:
+            const bool sustained=isUniversalSource(n)?
+                sourceDriveActive(n):
                 n.kind==FlowKind::Exciter&&
                 (n.excitation==Excitation::Blow||
-                 n.excitation==Excitation::Scrape);
-            if(sustained&&!released_&&e1_>.0001f){continuous=true;break;}
+                 n.excitation==Excitation::Scrape)&&!released_;
+            if(sustained&&e1_>.0001f){continuous=true;break;}
         }
         float stored=0.f;
         for(int i=0;i<nodeCount_;++i){
@@ -418,6 +454,10 @@ private:
         std::array<int,kMaxFlowLinks> incoming{},outgoing{};
         int inCount{},outCount{},modeCount{};
         float lowpass{},phase{},jetMemory{},transferRetention{1.f};
+        // Voice-local mechanical motion and contact storage; never shared
+        // across notes and never reinitialized by B pitch recalibration.
+        float driveMassKg{1.e-3f},driveVelocity{},driveWorkJ{};
+        float contactElastic{},contactSlip{};
         uint32_t randomSeed{};
     };
     struct Edge {
@@ -483,38 +523,170 @@ private:
         }
         return 0.f;
     }
-    // A human drive source, not a bow/pick/reed preset. V is energy/power
-    // supplied. Gesture and anatomy specify the force/flow history that
-    // acts upon downstream physical objects. Bowing is Hand -> bow material
-    // -> frictional contact -> string material, never a "Bow" source.
+    static float physicalMediumMass(const FlowNode& n) noexcept {
+        // Real material density times geometric volume. Filaments use their
+        // cross section, sheets use thickness, gas uses cavity volume.
+        const auto& g=n.form;
+        const float L=std::clamp(g.lengthMeters,.001f,4.f);
+        const float W=std::clamp(g.widthMeters,1.e-5f,2.f);
+        const float D=std::clamp(g.depthMeters,1.e-5f,2.f);
+        const float profile=std::clamp(normalizedAverageProfile(g),.1f,4.f);
+        const float section=g.continuum==Continuum::Filament?
+            kPi*.25f*W*D:W*D;
+        const float volume=L*section*profile;
+        return std::clamp(volume*materialProperties(n.material).densityKgM3,
+                          1.e-6f,40.f);
+    }
+    bool sourceDriveActive(const FlowNode& p) const noexcept {
+        if(p.sourceFollowNote)return !released_;
+        return tick_<static_cast<uint64_t>(
+            std::max(1.f,std::clamp(p.sourceTimeMs,.4f,2000.f)*
+                sampleRate_*.001f));
+    }
+    // APT: acceleration sets free driving force F=m*a against the connected
+    // transfer mass. Potential limits delivered work (finite) or power
+    // (sustained). Reaction from contact opposes the source on the next
+    // sample, but NEVER modifies the user's stored Potential setting.
     float humanSource(Node& n) noexcept {
         const auto& p=n.node;
-        if(e1_<=0.f||released_)return 0.f;
-        const float power=std::sqrt(e1_);
-        const float anatomy=p.driver==Driver::Fingers?.60f:
-            p.driver==Driver::Foot?1.8f:
-            p.driver==Driver::Breath?1.15f:1.f;
-        const float duration=std::clamp(
-            p.sourceDurationMs*anatomy,.4f,5000.f)*sampleRate_*.001f;
-        const float t=static_cast<float>(tick_);
-        const float direction=p.sourceDirection>.5f?-1.f:1.f;
-        if(p.gesture==Gesture::Continuous){
-            const float rise=std::clamp(
-                p.sourceRiseMs*sampleRate_*.001f,1.f,sampleRate_*1.f);
-            const float buildup=1.f-std::exp(-(t+1.f)/rise);
-            const float fluctuation=p.driver==Driver::Breath?
-                .035f*randomSigned(n):.018f*randomSigned(n);
-            return direction*.046f*power*buildup*(1.f+fluctuation);
+        const float mass=n.driveMassKg;
+        const float dt=1.f/sampleRate_;
+        const float demand=std::clamp(p.sourceAcceleration,.1f,120.f)*
+            (.88f+.12f*noteOnEffort_); // V changes initial acceleration gently
+        const float potential=safe01(p.sourcePotential)*e1_;
+        const bool drive=sourceDriveActive(p)&&potential>0.f;
+        float force=drive?mass*demand:0.f;
+        if(drive){
+            const float forwardSpeed=std::max(.004f,n.driveVelocity);
+            if(p.sourceFollowNote){
+                // Normalized Potential becomes continuous mechanical power.
+                const float maxPower=.006f*potential;
+                force=std::min(force,maxPower/forwardSpeed);
+            }else{
+                // Potential is a FINITE total mechanical work budget.
+                const float budget=.000022f*potential;
+                const float workLeft=std::max(0.f,budget-n.driveWorkJ);
+                force=std::min(force,workLeft/(forwardSpeed*dt));
+            }
         }
-        if(t>=duration)return 0.f;
-        const float phase=(t+1.f)/duration;
-        const float shape=p.gesture==Gesture::DeflectRelease?
-            std::sin(kPi*phase):
-            1.f-std::cos(2.f*kPi*phase);
-        // Lengthening the source stroke spreads finite input energy over
-        // time; we normalize the force impulse's squared magnitude.
-        const float normalizer=1.f/std::sqrt(std::max(1.f,duration/150.f));
-        return direction*.066f*power*shape*normalizer;
+        // Viscous drag ensures bounded motion for an indefinitely held note.
+        // Contact reaction may reverse moving mass briefly (rebound).
+        const float drag=mass*42.f*n.driveVelocity;
+        const float oppose=std::min(reactionForceN_,mass*120.f);
+        const float acceleration=(force-drag-oppose)/mass;
+        n.driveVelocity=std::clamp(
+            n.driveVelocity+acceleration*dt,-2.f,2.f);
+        if(force>0.f){
+            const float work=force*std::max(0.f,n.driveVelocity)*dt;
+            n.driveWorkJ+=std::max(0.f,work);
+        }
+        // Transfer carries bounded mechanical movement; it is NOT a
+        // predefined pluck/bow/breath waveform or a final-output envelope.
+        // No new acoustic input is emitted after the finite source stops;
+        // modal and delay-line energy downstream continues to ring.
+        if(!drive)return 0.f;
+        return .060f*std::tanh(3.8f*n.driveVelocity);
+    }
+    // Reduced two-material contact solver. The moving material and receiving
+    // resonator act on each other: previous resonant state changes relative
+    // velocity and contact stores, releases or dissipates mechanical energy.
+    // It is a stable local approximation, not a full finite-element solver.
+    float interact(Node& n,float input,int id) noexcept {
+        const FlowNode& p=n.node;
+        float incomingSoftness=materialProperties(p.material).contactSoftness;
+        float area=1.f;
+        for(int j=0;j<n.inCount;++j){
+            const auto& edge=edges_[static_cast<size_t>(n.incoming[j])];
+            incomingSoftness=materialProperties(
+                nodes_[static_cast<size_t>(edge.from)].node.material).contactSoftness;
+            area=std::clamp(edge.aperture,.035f,1.f);
+            break;
+        }
+        float returnMotion=0.f;
+        float receivingSoftness=incomingSoftness;
+        for(int j=0;j<n.outCount;++j){
+            const auto& edge=edges_[static_cast<size_t>(n.outgoing[j])];
+            const Node& receiver=nodes_[static_cast<size_t>(edge.to)];
+            receivingSoftness=materialProperties(receiver.node.material).contactSoftness;
+            // Quadrature components approximate local returning velocity.
+            for(int m=0;m<receiver.modeCount;++m)
+                returnMotion+=receiver.modes[m].imag*
+                    receiver.modes[m].weight;
+        }
+        returnMotion=std::clamp(returnMotion,-.25f,.25f);
+        const float rel=std::clamp(input-.20f*returnMotion,-.8f,.8f);
+        const float angle=std::clamp(p.interactionAngleDeg,-90.f,90.f)*
+            (kPi/180.f);
+        const float normal=std::max(0.f,std::cos(angle));
+        const float tangent=std::sin(angle);
+        const float engagement=safe01(p.interactionEngagement)*
+            std::clamp(p.coupling,0.f,1.f);
+        const float softness=std::clamp(
+            (incomingSoftness+materialProperties(p.material).contactSoftness+
+             receivingSoftness)/3.f,0.f,1.f);
+        const float stiffness=1.f-softness;
+        const float previousElastic=n.contactElastic;
+        float excitation=0.f,reaction=0.f;
+        switch(p.law){
+        case ContactLaw::Coupled:
+            // Compliant coupling transmits the relative force both ways.
+            n.contactElastic+=.09f*(rel-n.contactElastic);
+            excitation=engagement*(.74f*rel+.26f*n.contactElastic);
+            reaction=engagement*std::fabs(rel-n.contactElastic);
+            break;
+        case ContactLaw::Friction:{
+            // A tangential stick-slip approximation: sticking stores
+            // deformation, threshold crossing releases it as a pulse.
+            // Receiver motion shifts this crossing; no lock frequency exists.
+            const float speed=tangent*rel;
+            n.contactElastic+=.24f*speed;
+            const float threshold=(.002f+.026f*softness)*
+                (.35f+.65f*engagement);
+            const bool slips=std::fabs(n.contactElastic)>threshold;
+            if(slips){
+                const float excess=n.contactElastic-
+                    std::copysign(threshold*.40f,n.contactElastic);
+                n.contactElastic-=.82f*excess;
+                n.contactSlip=excess;
+            }else n.contactSlip*=.73f;
+            const float restoring=n.contactElastic-previousElastic;
+            excitation=engagement*area*(.65f*restoring+
+                (slips?2.8f*n.contactSlip:0.f));
+            reaction=engagement*(std::fabs(speed)*(.3f+.7f*stiffness)+
+                2.f*std::fabs(n.contactSlip));
+            break;
+        }
+        case ContactLaw::Contact:{
+            // Normal compression and elastic rebound; tangential energy
+            // can slip away rather than being forced into the resonator.
+            const float compression=std::max(0.f,normal*rel);
+            n.contactElastic=std::clamp(
+                .90f*n.contactElastic+.32f*compression,0.f,.3f);
+            const float delta=n.contactElastic-previousElastic;
+            excitation=engagement*(.8f*delta+.18f*n.contactElastic);
+            reaction=engagement*std::fabs(compression-delta);
+            break;
+        }
+        case ContactLaw::Flow:{
+            // Pressure difference through a finite opening produces a
+            // nonlinear signed flow. Gas properties live in the medium.
+            n.contactElastic+=.055f*(rel-n.contactElastic);
+            const float pressureDifference=n.contactElastic;
+            excitation=engagement*area*std::copysign(
+                std::sqrt(std::fabs(pressureDifference))*.28f,
+                pressureDifference);
+            reaction=engagement*.3f*std::fabs(rel-pressureDifference);
+            break;
+        }
+        }
+        // Port reaction is capped and smoothed by the mechanical source.
+        // The source is not reprogrammed: its actual transfer motion changes.
+        nextReactionForceN_+=std::clamp(
+            reaction*std::max(1.e-6f,nodes_[0].driveMassKg)*240.f,
+            0.f,8.f);
+        // Keep role's own material modes; interactions are not an audio
+        // gain stage. Physical state survives pitch bend and note-off.
+        return ring(n,std::clamp(excitation,-.8f,.8f),id);
     }
 
     // Reduced differentiable reed/edge exciters; they share the physical
@@ -768,6 +940,7 @@ private:
     FlowGraph graph_{};
     PhysicalInstrumentVoice legacy_{};
     float sampleRate_{48000.f},e1_{.8f},e2_{0.f},e2Smooth_{0.f};
+    float noteOnEffort_{.8f},reactionForceN_{0.f},nextReactionForceN_{0.f};
     float pitchHz_{220.f},activity_{0.f};
     float currentBendSemitones_{0.f};
     int baseMidi_{60};
