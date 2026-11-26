@@ -572,7 +572,11 @@ private:
         // Viscous drag ensures bounded motion for an indefinitely held note.
         // Contact reaction may reverse moving mass briefly (rebound).
         const float drag=mass*42.f*n.driveVelocity;
-        const float oppose=std::min(reactionForceN_,mass*120.f);
+        // Resistive contact force opposes CURRENT velocity. Once a mass
+        // rebounds it must not keep being accelerated backwards by the
+        // same positive scalar reaction (a source of numerical energy).
+        const float oppose=std::copysign(
+            std::min(reactionForceN_,mass*120.f),n.driveVelocity);
         const float acceleration=(force-drag-oppose)/mass;
         n.driveVelocity=std::clamp(
             n.driveVelocity+acceleration*dt,-2.f,2.f);
