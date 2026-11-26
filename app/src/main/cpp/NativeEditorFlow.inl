@@ -265,8 +265,9 @@ int NativeEditor::flowPropertyCount() const noexcept {
     if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
        g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal){
         switch(g.nodes[flowSelectedNode_].role){
-        case physical::PhysicalRole::Source:return 8;
+        case physical::PhysicalRole::Source:return 7;
         case physical::PhysicalRole::Output:return 3;
+        case physical::PhysicalRole::Interaction:return 23;
         default:return 21;
         }
     }
@@ -303,11 +304,11 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
         const auto role=g.nodes[flowSelectedNode_].role;
         if(role==physical::PhysicalRole::Source){
             constexpr const char* l[]={
-                "HUMAN ENERGY SOURCE","MOTION / DELIVERY","MOTION DURATION",
-                "PRESSURE / FORCE RISE","DIRECTION","M ASSIGNED",
-                "M MIN POSITION","M MAX POSITION"
+                "ACCELERATION","POTENTIAL","TIME",
+                "LOCK TO NOTE LENGTH","M ASSIGNED","M MIN POSITION",
+                "M MAX POSITION"
             };
-            return i>=0&&i<8?l[i]:"";
+            return i>=0&&i<7?l[i]:"";
         }
         if(role==physical::PhysicalRole::Output){
             constexpr const char* l[]={
@@ -324,6 +325,10 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
             "STRUCTURAL LOSS","CONTACT COUPLING","INTERACTION LAW",
             "M ASSIGNED","M MIN POSITION","M MAX POSITION"
         };
+        if(role==physical::PhysicalRole::Interaction){
+            if(i==21)return "RELATIVE MOTION ANGLE";
+            if(i==22)return "CONTACT ENGAGEMENT";
+        }
         return i>=0&&i<21?l[i]:"";
     }
     if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount)return "";
@@ -478,14 +483,13 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         const bool src=n.role==physical::PhysicalRole::Source;
         const bool out=n.role==physical::PhysicalRole::Output;
         if(src){
-            if(i==0){if(!first)return false;n.driver=static_cast<physical::Driver>((int(n.driver)+1)%4);n.gesture=n.driver==physical::Driver::Breath?physical::Gesture::Continuous:physical::Gesture::Impulse;}
-            else if(i==1){if(!first)return false;n.gesture=static_cast<physical::Gesture>((int(n.gesture)+1)%3);}
-            else if(i==2)n.sourceDurationMs=.4f+499.6f*t;
-            else if(i==3)n.sourceRiseMs=.4f+249.6f*t;
-            else if(i==4)n.sourceDirection=t;
-            else if(i==5){if(!first)return false;n.movingEnabled=!n.movingEnabled;}
-            else if(i==6)n.movingMin=t;
-            else if(i==7)n.movingMax=t;
+            if(i==0)n.sourceAcceleration=.1f+119.9f*t;
+            else if(i==1)n.sourcePotential=t;
+            else if(i==2)n.sourceTimeMs=.4f+1999.6f*t;
+            else if(i==3){if(!first)return false;n.sourceFollowNote=!n.sourceFollowNote;}
+            else if(i==4){if(!first)return false;n.movingEnabled=!n.movingEnabled;}
+            else if(i==5)n.movingMin=t;
+            else if(i==6)n.movingMax=t;
         }else if(out){
             if(i==0){if(!first)return false;n.movingEnabled=!n.movingEnabled;}
             else if(i==1)n.movingMin=t;
@@ -516,6 +520,10 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
             }else if(i==18){if(!first)return false;n.movingEnabled=!n.movingEnabled;}
             else if(i==19)n.movingMin=t;
             else if(i==20)n.movingMax=t;
+            else if(i==21&&n.role==physical::PhysicalRole::Interaction)
+                n.interactionAngleDeg=-90.f+180.f*t;
+            else if(i==22&&n.role==physical::PhysicalRole::Interaction)
+                n.interactionEngagement=t;
         }
         flowError_=false;physicalDirty_=true;return true;
     }
@@ -612,14 +620,13 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
         const bool source=n.role==physical::PhysicalRole::Source;
         const bool output=n.role==physical::PhysicalRole::Output;
         if(source){
-            if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::driverName(n.driver));}
-            else if(i==1){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::gestureName(n.gesture));}
-            else if(i==2){f.position=(n.sourceDurationMs-.4f)/499.6f;fmt("%.1f ms",n.sourceDurationMs);}
-            else if(i==3){f.position=(n.sourceRiseMs-.4f)/249.6f;fmt("%.1f ms",n.sourceRiseMs);}
-            else if(i==4){f.position=n.sourceDirection;fmt("%.0f%%",n.sourceDirection*100.f);}
-            else if(i==5){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
-            else if(i==6){f.position=n.movingMin;fmt("%.0f%%",n.movingMin*100.f);}
-            else if(i==7){f.position=n.movingMax;fmt("%.0f%%",n.movingMax*100.f);}
+            if(i==0){f.position=(n.sourceAcceleration-.1f)/119.9f;fmt("%.1f m/s2",n.sourceAcceleration);}
+            else if(i==1){f.position=n.sourcePotential;fmt("%.0f%%",n.sourcePotential*100.f);}
+            else if(i==2){f.position=(n.sourceTimeMs-.4f)/1999.6f;fmt("%.1f ms",n.sourceTimeMs);}
+            else if(i==3){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.sourceFollowNote?"Follow note":"Manual time");}
+            else if(i==4){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
+            else if(i==5){f.position=n.movingMin;fmt("%.0f%%",n.movingMin*100.f);}
+            else if(i==6){f.position=n.movingMax;fmt("%.0f%%",n.movingMax*100.f);}
         }else if(output){
             if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
             else if(i==1){f.position=n.movingMin;fmt("%.0f%%",n.movingMin*100.f);}
@@ -644,6 +651,13 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
             else if(i==18){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
             else if(i==19){f.position=n.movingMin;fmt("%.0f%%",n.movingMin*100.f);}
             else if(i==20){f.position=n.movingMax;fmt("%.0f%%",n.movingMax*100.f);}
+            else if(i==21&&n.role==physical::PhysicalRole::Interaction){
+                f.position=(n.interactionAngleDeg+90.f)/180.f;
+                fmt("%+.0f deg",n.interactionAngleDeg);
+            }else if(i==22&&n.role==physical::PhysicalRole::Interaction){
+                f.position=n.interactionEngagement;
+                fmt("%.0f%%",n.interactionEngagement*100.f);
+            }
         }
         return f;
     }
@@ -737,7 +751,7 @@ void NativeEditor::drawPhysical() const noexcept {
     ov.addRect({b.x+12.f,top+7.f,b.w-24.f,48.f},overlayColor(kRollBg));
     ov.addText("PHYSICAL BUILDER   /   Y = ENERGY ARRIVAL",
         b.x+20.f,top+15.f,.88f,overlayColor(kCyan));
-    ov.addText("Human source first; material + geometry form the instrument",
+    ov.addText("APT drive > transfer material > interaction > resonator > output",
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
     constexpr const char* actions[]={
         "+SOURCE","+TRANSFER","+INTERACT","+RESONATE","+OUTPUT","LINK",
@@ -929,7 +943,7 @@ void NativeEditor::drawPhysical() const noexcept {
             overlayColor(selected?kCyan:kWhite));
         const char* detail=universal?
             (node.role==physical::PhysicalRole::Source?
-                physical::driverName(node.driver):
+                node.sourceFollowNote?"APT / NOTE LOCK":"APT / TIMED":
              node.role==physical::PhysicalRole::Output?"Acoustic radiation":
                 physical::continuumName(node.form.continuum)):
             (node.kind==physical::FlowKind::Output?
