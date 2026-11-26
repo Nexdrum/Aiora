@@ -96,7 +96,8 @@ public:
             const auto& to=nodes_[raw.to].node;
             // Vertical position represents time elapsed between interactions.
             // A small transit term accounts for sound velocity in the source.
-            const float speed=materialWaveSpeed(from.material);
+            const float speed=materialWaveSpeed(
+                isUniversalSource(from)?to.material:from.material);
             const float physicalMs=1000.f*.12f/std::max(40.f,speed);
             const float delayMs=(to.y-from.y)*
                 std::clamp(graph_.spanMs,3.f,82.f)+physicalMs;
@@ -108,16 +109,15 @@ public:
             const float z1=materialImpedance(to.material);
             const bool airCoupled=from.kind==FlowKind::Router||
                 (from.kind==FlowKind::Universal&&
-                 (from.role==PhysicalRole::Source&&from.driver==Driver::Breath||
-                  from.form.continuum==Continuum::Gas))||
+                 from.form.continuum==Continuum::Gas)||
                 (to.kind==FlowKind::Universal&&
                  to.form.continuum==Continuum::Gas)||
                 from.kind==FlowKind::Reed||from.kind==FlowKind::Edge||
                 to.kind==FlowKind::Reed||to.kind==FlowKind::Edge||
                 (from.kind==FlowKind::Exciter&&
                  from.excitation==Excitation::Blow);
-            const float match=airCoupled?.92f:
-                2.f*std::sqrt(z0*z1)/(z0+z1);
+            const float match=isUniversalSource(from)?.92f:
+                airCoupled?.92f:2.f*std::sqrt(z0*z1)/(z0+z1);
             const float contact=std::sqrt(std::clamp(to.coupling,0.f,1.f));
             edge.gain=std::clamp(.80f*match*contact,.03f,.83f);
             edge.smoothing=std::clamp(.83f-.58f*materialProperties(to.material).contactSoftness,
