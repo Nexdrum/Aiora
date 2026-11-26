@@ -11,8 +11,8 @@ android {
         applicationId = "com.nexdrum.aiora"
         minSdk = 26
         targetSdk = 36
-        versionCode = 141
-        versionName = "0.7.114-beta"
+        versionCode = 142
+        versionName = "0.7.115-beta"
 
         externalNativeBuild {
             cmake {
@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".pitchbend"
-            versionNameSuffix = "-physical-pitch-expression-v8"
+            applicationIdSuffix = ".aptv9"
+            versionNameSuffix = "-universal-apt-interactions-v9"
         }
     }
 
