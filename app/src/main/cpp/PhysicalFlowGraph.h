@@ -212,7 +212,17 @@ struct FlowNode {
     Gesture gesture{Gesture::Impulse};
     float sourceDurationMs{4.f}; // mechanical motion duration, not sound envelope
     float sourceRiseMs{2.f};
-    float sourceDirection{0.f};  // normalized physical direction
+    float sourceDirection{0.f};  // legacy direction, retained for saved graphs
+    // Universal APT source: acceleration acts on connected transfer mass.
+    // Finite input limits total work; note-locked input limits power over time.
+    float sourceAcceleration{32.f}; // nominal free acceleration, m/s^2
+    float sourcePotential{.65f};    // normalized energy / sustained power capacity
+    float sourceTimeMs{4.f};
+    bool sourceFollowNote{false};   // stop driving on note-off, no fixed deadline
+    // Only INTERACTION nodes interpret these two settings. 0 degrees is
+    // normal impact; +/-90 degrees is opposite tangential sliding directions.
+    float interactionAngleDeg{65.f};
+    float interactionEngagement{.55f};
     float movingMin{.5f},movingMax{.5f};
     bool movingEnabled{false};   // M may reposition ANY physical object
     ContactLaw law{ContactLaw::Coupled}; // interaction with connected media (normalized position)
@@ -445,7 +455,8 @@ inline FlowGraph universalEmptyGraph() noexcept {
     g.nodeCount=1;
     FlowNode& src=g.nodes[0];
     src.kind=FlowKind::Universal;src.role=PhysicalRole::Source;
-    src.driver=Driver::Hand;src.gesture=Gesture::Impulse;
+    src.sourceAcceleration=32.f;src.sourcePotential=.65f;
+    src.sourceTimeMs=4.f;src.sourceFollowNote=false;
     src.x=.43f;src.y=.03f;
     return g;
 }
@@ -461,7 +472,8 @@ inline int addPhysicalRole(FlowGraph& g,PhysicalRole role) noexcept {
         Continuum::Gas:Continuum::Solid;
     if(role==PhysicalRole::Source){
         n.material=Material::Rubber;
-        n.driver=Driver::Hand;n.gesture=Gesture::Impulse;
+        n.sourceAcceleration=32.f;n.sourcePotential=.65f;
+        n.sourceTimeMs=4.f;n.sourceFollowNote=false;
     }else if(role==PhysicalRole::Output){
         n.form.continuum=Continuum::Gas;
         n.material=Material::Air;
