@@ -403,6 +403,20 @@ public:
                 if(graph_.objectFlow&&physicalVibrates(n.node)&&
                    physicalVibrates(nodes_[e.to].node)){
                     flux=objectInteraction(e,n,flux);
+                }else if(graph_.objectFlow&&n.node.substance.enabled&&isUniversalOutput(nodes_[e.to].node)){
+                    const float x=std::clamp(e.modEnabled?e.modMin+(e.modMax-e.modMin)*e2Smooth_:e.position,.005f,.995f);
+                    const float width=e.aperture*.5f;
+                    float pickup=0.f;
+                    for(int m=0;m<n.modeCount;++m){
+                        const float k=kPi*(m+1.f);
+                        const float span=k*width;
+                        const float avg=span>.00001f?std::sin(span)/span:1.f;
+                        pickup+=n.modes[m].real*std::sin(k*x)*avg;
+                    }
+                    const auto& port=e.interaction;
+                    const float orientation=.12f+.88f*std::fabs(std::cos(port.angleDeg*kPi/180.f));
+                    const float location=(.4f+.6f*(1.f-.5f*(std::fabs(port.receiverY-.5f)+std::fabs(port.receiverZ-.5f))))/(1.f+4.f*port.clearance);
+                    flux=e.gain*e.aperture*orientation*location*pickup*.85f;
                 }else if(!graph_.objectFlow&&e.law==ContactLaw::Friction){
                     flux=.72f*flux+.28f*(flux-e.previousFlux);
                 }else if(!graph_.objectFlow&&e.law==ContactLaw::Contact){
@@ -550,6 +564,7 @@ private:
     static float physicalMediumMass(const FlowNode& n) noexcept {
         // Real material density times geometric volume. Filaments use their
         // cross section, sheets use thickness, gas uses cavity volume.
+        if(n.substance.enabled)return std::clamp(occupiedVolume(n)*objectMaterial(n).densityKgM3,1.e-6f,40.f);
         const auto& g=n.form;
         const float L=std::clamp(g.lengthMeters,.001f,4.f);
         const float W=std::clamp(g.widthMeters,1.e-5f,2.f);
@@ -645,16 +660,26 @@ private:
         const float gap=safe01(p.clearance)*.10f;
         const float gate=gap>0.f?std::clamp((std::fabs(rel)-gap)/.025f,0.f,1.f):1.f;
         const float angle=std::clamp(p.angleDeg,-90.f,90.f)*kPi/180.f;
+        const float elevation=p.elevationDeg*kPi/180.f;
+        const float spatial=.35f+.65f*std::clamp(1.f-.5f*(std::fabs(p.senderY-p.receiverY)+std::fabs(p.senderZ-p.receiverZ)),0.f,1.f);
         const float previous=e.elastic;
         float flux=0.f,resistance=0.f;
         // Stationary adhesive coupling transfers signed force, no invented motion.
         const float attached=adhesion*(1.f-motion);
-        const float normal=std::max(0.f,std::cos(angle)*rel);
-        const float tangential=std::sin(angle)*rel*motion;
+        const float normal=std::max(0.f,std::cos(angle)*std::cos(elevation)*rel);
+        const float tangential=std::clamp(std::sin(angle)+.5f*std::sin(elevation),-1.f,1.f)*rel*motion;
         if(sender.fluid||receiver.fluid){
             const float viscous=1.f/(1.f+.15f*(sender.viscosity+receiver.viscosity));
             e.elastic+=.055f*elasticity*viscous*(rel-e.elastic);
-            flux=.28f*viscous*std::copysign(std::sqrt(std::fabs(e.elastic)),e.elastic);
+            float coherence=1.f;
+            const Node* fluid=sender.fluid?&sender:&receiver;
+            if(fluid->node.substance.enabled){
+                const auto& g=fluid->node.form;
+                coherence=(.2f+.8f*g.fillLevel)*(.4f+.6f*g.confinement)*
+                    (1.f-.6f*g.spread*(1.f-g.confinement))*
+                    (.25f+.75f*std::fabs(std::cos((g.flowAngle-p.angleDeg)*kPi/180.f)));
+            }
+            flux=.28f*viscous*coherence*std::copysign(std::sqrt(std::fabs(e.elastic)),e.elastic);
             resistance=.3f*std::fabs(rel-e.elastic);
         }else{
             const float compression=(1.f-attached)*normal;
@@ -669,13 +694,20 @@ private:
             resistance=(1.f-attached)*normal+friction*std::fabs(tangential)+
                 std::fabs(e.slip)*motion+attached*.2f*std::fabs(rel-e.elastic);
         }
-        flux*=area*gate;
-        resistance*=area*gate;
+        flux*=area*gate*spatial;
+        resistance*=area*gate*spatial;
         // Local passive loss opposes sender vibration; only directly driven
         // transfer contacts feed the APT drive reaction.
         const float retain=1.f-std::clamp(resistance*.08f,0.f,.025f);
         for(int m=0;m<sender.modeCount;++m){
             sender.modes[m].real*=retain;sender.modes[m].imag*=retain;
+            if(sender.node.substance.enabled||receiver.node.substance.enabled){
+                // Bounded reciprocal receiver reaction on the source modes.
+                // Passive convex mixing of modal velocity, not an extra exciter.
+                const float k=std::clamp(area*gate*attached*.003f,0.f,.003f);
+                const float rv=m<receiver.modeCount?receiver.modes[m].imag:0.f;
+                sender.modes[m].imag=(1.f-k)*sender.modes[m].imag+k*rv;
+            }
         }
         if(sender.node.role==PhysicalRole::Transfer)
             nextReactionForceN_+=std::clamp(resistance*
@@ -976,6 +1008,10 @@ private:
                 f*=std::pow(massStiffness,index*.09f);
             else if(p.kind==FlowKind::String)
                 f*=std::pow(size,-.12f);
+            if(p.substance.enabled&&!objectIsFluid(p)&&i>=n.modeCount-2){
+                const float cavity=cavityHz(p.form,i-(n.modeCount-2));
+                if(cavity>0.f)f=cavity;
+            }
             f=std::clamp(f,28.f,sampleRate_*.44f);
             const float omega=2.f*kPi*f/sampleRate_;
             const float damping=std::clamp(p.damping,.12f,8.f);
@@ -987,6 +1023,10 @@ private:
                 structuralLoss+=.12f*(1.f-v[StructureOrder])*v[StructureScale]*index*index+
                     .25f*v[Porosity]*index;
                 structuralLoss+=.08f*std::log1p(constructedViscosity(p.substance))*(1.f+index);
+                if(objectIsFluid(p))structuralLoss+=4.f*(1.f-p.form.confinement)*(1.f+p.form.spread)+2.f*fluidLeak(p.form);
+                else structuralLoss+=voidFraction(p.form)*.3f+fluidLeak(p.form)*voidFraction(p.form)*index*.25f;
+                for(const auto& hole:p.form.openings)structuralLoss+=.08f*hole.size*hole.size*
+                    (1.f+std::fabs(std::sin(kPi*(index+1.f)*hole.position+hole.azimuth*2.f*kPi)));
             }
             const float modalQ=std::clamp(
                 .90f/(loss*damping*(1.f+.23f*index*index)*structuralLoss),1.8f,160.f);
@@ -1011,7 +1051,7 @@ private:
             if(p.kind==FlowKind::Universal){
                 const auto& form=p.form;
                 const float dimensionMass=std::sqrt(
-                    std::max(.0000001f,form.lengthMeters*form.widthMeters*
+                    std::max(.0000001f,p.substance.enabled?occupiedVolume(p):form.lengthMeters*form.widthMeters*
                         form.depthMeters*normalizedAverageProfile(form)));
                 // Integrate incoming mechanical force into a normalized
                 // modal state. The old v4 full-scale per-sample coefficient
@@ -1059,7 +1099,8 @@ private:
                         (n.node.movingMax-n.node.movingMin)*e2Smooth_-.5f;
                 const float x=std::clamp(physicalX,.005f,.995f);
                 const float shape=std::sin(kPi*(i+1.f)*x);
-                localForce+=wave*(.15f+.85f*shape);
+                const float cross=n.node.substance.enabled?(.5f+.5f*std::fabs(std::cos(kPi*(e.interaction.receiverY-.5f))*std::cos(kPi*(e.interaction.receiverZ-.5f)))):1.f;
+                localForce+=wave*(.15f+.85f*shape)*cross;
             }
             const float real=retention*(m.real*m.cosStep-m.imag*m.sinStep)+
                 m.inputGain*localForce;

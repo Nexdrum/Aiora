@@ -30,7 +30,7 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
     float f=110.f;
     switch(objectContinuum(p)){
     case Continuum::Filament:{
-        const float mu=rho*w*d*profile;
+        const float mu=p.substance.enabled?rho*occupiedVolume(p)/L:rho*w*d*profile;
         f=.5f/L*std::sqrt(std::max(1.f,p.tensionNewtons)/mu);
         break;
     }
@@ -43,7 +43,7 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
         break;
     }
     case Continuum::Solid:{
-        const float IOverA=d*d/12.f;
+        const float IOverA=d*d/12.f*(p.substance.enabled?1.f+.65f*voidFraction(g):1.f);
         f=(1.875104f*1.875104f/(2.f*3.14159265358979323846f*L*L))*
             std::sqrt(E*IOverA/rho);
         f*=1.f+1.35f*std::clamp(g.fixing,0.f,1.f);
@@ -53,15 +53,28 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
     case Continuum::Liquid:{
         const float soundSpeed=p.substance.enabled||g.continuum==Continuum::Liquid?
             std::sqrt(material.youngModulusPa/std::max(p.substance.enabled?.05f:1.f,material.densityKgM3)):343.f;
-        const float closed=g.opening<.5f?4.f:2.f;
+        const float open=p.substance.enabled?fluidLeak(g):g.opening;
+        const float closed=open<.5f?4.f:2.f;
         const float endCorrection=.61f*std::sqrt(w*d);
-        const float effective=L+endCorrection*(g.opening+.25f);
+        const float effective=L+endCorrection*(open+.25f);
         const float wallCompliance=1.f+.025f*
             std::clamp(3.f/std::max(.2f,g.wallMm),.1f,6.f);
         f=soundSpeed/(closed*effective*wallCompliance);
+        if(p.substance.enabled){
+            // Free fluid is not a rigid pipe: finite jet length, spread and
+            // confinement reduce coherent pressure resonance. Gravity and
+            // capillary restoring terms act on a partially free liquid surface.
+            const float conf=materialUnit(g.confinement);
+            f*=.45f+.55f*conf;
+            const float k=3.14159265f/L;
+            const float surface=std::sqrt(kGravityMps2*k+constructedSurfaceTension(p.substance)*k*k*k/rho)/6.2831853f;
+            const float blend=(1.f-conf)*(1.f-materialUnit(g.fillLevel))*(rho/(rho+20.f));
+            f=(1.f-blend)*f+blend*surface;
+        }
         break;
     }
     }
+    if(p.substance.enabled&&!objectIsFluid(p))f*=std::sqrt(sectionFactor(g))*(1.f-.12f*voidFraction(g));
     f*=std::sqrt(profile)*
         (1.f+.08f*std::clamp(g.curvature,-1.f,1.f));
     return std::clamp(f,25.f,12000.f);
@@ -193,6 +206,12 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
         f(n.form.wallMm);f(n.form.curvature);f(n.form.taper);
         f(n.form.opening);f(n.form.fixing);
         for(float v:n.form.stations)f(v);
+        if(n.substance.enabled){
+            f(n.form.wallFill);f(n.form.rounding);add(n.form.edges);
+            f(n.form.confinement);f(n.form.spread);f(n.form.flowAngle);f(n.form.fillLevel);
+            for(const auto& c:n.form.cavities){f(c.length);f(c.width);f(c.depth);f(c.position);f(c.offset);}
+            for(const auto& o:n.form.openings){f(o.size);f(o.position);f(o.azimuth);f(o.aspect);f(o.neck);}
+        }
         add(n.movingEnabled);f(n.movingMin);f(n.movingMax);
         add(static_cast<uint32_t>(n.law));
     }
@@ -204,6 +223,7 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
         add(link.modEnabled);add(static_cast<uint32_t>(link.law));
         f(link.fromPosition);f(link.motion);f(link.angleDeg);f(link.engagement);
         f(link.friction);f(link.elasticity);f(link.restitution);f(link.clearance);f(link.adhesion);
+        f(link.senderY);f(link.senderZ);f(link.receiverY);f(link.receiverZ);f(link.elevationDeg);
     }
     return h;
 }

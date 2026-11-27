@@ -178,6 +178,7 @@ private:
     bool flowError_{false};
     float physicalScrollY_{0.0f};
     int flowSelectedNode_{0};
+    int flowConstructionSection_{0}; // material, geometry, cavities, openings, fluid form
     int flowSelectedLink_{-1}; // selected physical energy-transfer link
     int flowLinkMode_{0}; // 0 idle, 1 connect, 2 disconnect
     int flowLinkSource_{-1};

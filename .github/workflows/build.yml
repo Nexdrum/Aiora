@@ -119,6 +119,12 @@ jobs:
             tests/physical_universal_material_v12_regression.cpp -o /tmp/aiora-material-v12-test
           /tmp/aiora-material-v12-test
 
+      - name: Universal construction v12 integrated regression
+        run: |
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
+            tests/physical_universal_construction_v12_regression.cpp -o /tmp/aiora-construction-v12-test
+          /tmp/aiora-construction-v12-test
+
       - name: Native project-limit regression tests
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \

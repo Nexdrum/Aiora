@@ -157,6 +157,14 @@ inline constexpr const char* contactLawName(ContactLaw x) noexcept {
 // Geometry is explicit, including local cross-section/width control points.
 // Stations are at x=0,1/3,2/3,1. The rendering solver reduces the profile
 // to a fixed set of modal coefficients; it is NOT a general FEM mesh.
+// Bounded parametric features; zero size disables a feature. Coordinates are
+// normalized to the object's envelope. No allocation in the audio thread.
+struct CavityFeature {
+    float length{},width{.6f},depth{.6f},position{.5f},offset{.5f};
+};
+struct OpeningFeature {
+    float size{},position{.5f},azimuth{.25f},aspect{.5f},neck{.1f};
+};
 struct ParametricGeometry {
     Continuum continuum{Continuum::Solid};
     float lengthMeters{.65f};
@@ -168,6 +176,11 @@ struct ParametricGeometry {
     float opening{.5f};          // open boundary fraction
     float fixing{.35f};          // mechanical end restraint
     std::array<float,4> stations{1.f,1.f,1.f,1.f};
+    float wallFill{1.f},rounding{0.f};
+    int edges{4}; // 32 approximates a circle
+    std::array<CavityFeature,2> cavities{};
+    std::array<OpeningFeature,3> openings{};
+    float confinement{.8f},spread{.2f},flowAngle{0.f},fillLevel{1.f};
 };
 inline constexpr float normalizedAverageProfile(
     const ParametricGeometry& p) noexcept {
@@ -212,15 +225,15 @@ inline constexpr float kAmbientDensity=1.204f;
 inline constexpr float kAmbientSoundSpeed=343.f;
 enum MaterialControl : int { Density, Hardness, ElasticRecovery, ShearStiffness,
     Compressibility, InternalLoss, Viscosity, StructureOrder, StructureAlignment,
-    StructureScale, Porosity, Roughness, MaterialControlCount };
+    StructureScale, Porosity, Roughness, SurfaceTension, MaterialControlCount };
 inline constexpr const char* kMaterialControlLabels[MaterialControlCount]={
     "DENSITY (kg/m3)","HARDNESS","ELASTIC RECOVERY","SHEAR STIFFNESS (Pa)",
     "COMPRESSIBILITY / BULK MODULUS","INTERNAL DAMPING","VISCOSITY (Pa s)",
-    "STRUCTURE ORDER","STRUCTURE ALIGNMENT","STRUCTURE SCALE","POROSITY","ROUGHNESS"};
+    "STRUCTURE ORDER","STRUCTURE ALIGNMENT","STRUCTURE SCALE","POROSITY","ROUGHNESS","SURFACE TENSION (N/m)"};
 struct ConstructedMaterial {
     bool enabled{false};
     std::array<float,MaterialControlCount> value{
-        .70f,.72f,.88f,.78f,.23f,.18f,.18f,.65f,.30f,.30f,.05f,.25f};
+        .70f,.72f,.88f,.78f,.23f,.18f,.18f,.65f,.30f,.30f,.05f,.25f,.12f};
 };
 inline float materialUnit(float x) noexcept {
     return std::isfinite(x)?std::clamp(x,0.f,1.f):0.f;
@@ -237,6 +250,9 @@ inline float constructedBulk(const ConstructedMaterial& m) noexcept {
 }
 inline float constructedViscosity(const ConstructedMaterial& m) noexcept {
     return std::pow(10.f,10.f*materialUnit(m.value[Viscosity])-5.f);
+}
+inline float constructedSurfaceTension(const ConstructedMaterial& m) noexcept {
+    return .6f*materialUnit(m.value[SurfaceTension]);
 }
 inline float constructedLoss(const ConstructedMaterial& m) noexcept {
     return std::pow(10.f,-4.f+3.5f*materialUnit(m.value[InternalLoss]));
@@ -328,8 +344,83 @@ inline const char* objectMaterialLabel(const FlowNode& n) noexcept {
 // Starting values are explicit editable slider positions, not a solver preset.
 inline void initializeConstruction(FlowNode& n,bool transfer=false) noexcept {
     n.substance.enabled=true;
-    if(transfer)n.substance.value={.75f,.65f,.90f,.75f,.30f,.25f,.18f,.65f,.25f,.25f,.02f,.20f};
-    else n.substance.value={.70f,.72f,.88f,.78f,.23f,.32f,.18f,.65f,.30f,.30f,.05f,.25f};
+    if(transfer)n.substance.value={.75f,.65f,.90f,.75f,.30f,.25f,.18f,.65f,.25f,.25f,.02f,.20f,.12f};
+    else n.substance.value={.70f,.72f,.88f,.78f,.23f,.32f,.18f,.65f,.30f,.30f,.05f,.25f,.12f};
+}
+// Geometry reduction shared by the editor, pitch analysis and voice.
+inline float sectionFactor(const ParametricGeometry& g) noexcept {
+    const float n=static_cast<float>(std::clamp(g.edges,3,32));
+    // Regular polygon normalized to the rectangle at four edges.
+    const float polygon=std::clamp(n*std::sin(6.28318530718f/n)/4.f,.65f,1.57f);
+    return .78539816f*(polygon+(1.5707963f-polygon)*materialUnit(g.rounding))/1.5707963f+.21460184f;
+}
+inline float envelopeVolume(const ParametricGeometry& g) noexcept {
+    const float taper=std::clamp(g.taper,-1.f,1.f);
+    return std::max(1.e-12f,g.lengthMeters*g.widthMeters*g.depthMeters*
+        std::clamp(normalizedAverageProfile(g),.1f,3.f)*sectionFactor(g)*(1.f+taper*taper/12.f));
+}
+inline float shellVoid(const ParametricGeometry& g) noexcept {
+    const float t=std::max(0.f,g.wallMm*.001f);
+    return (1.f-materialUnit(g.wallFill))*
+        std::max(0.f,1.f-2.f*t/std::max(.00001f,g.lengthMeters))*
+        std::max(0.f,1.f-2.f*t/std::max(.00001f,g.widthMeters))*
+        std::max(0.f,1.f-2.f*t/std::max(.00001f,g.depthMeters));
+}
+inline float pocketFraction(const CavityFeature& c) noexcept {
+    // Ellipsoidal pocket, clipped at the axial and transverse envelope.
+    const float l=std::min(materialUnit(c.length),2.f*std::min(materialUnit(c.position),1.f-materialUnit(c.position)));
+    const float w=std::min(materialUnit(c.width),2.f*std::min(materialUnit(c.offset),1.f-materialUnit(c.offset)));
+    return .5235988f*l*w*materialUnit(c.depth);
+}
+inline float voidFraction(const ParametricGeometry& g) noexcept {
+    float remain=1.f-shellVoid(g);
+    for(const auto& c:g.cavities)remain*=1.f-pocketFraction(c);
+    return std::clamp(1.f-remain,0.f,.98f);
+}
+inline float openingArea(const ParametricGeometry& g,const OpeningFeature& o) noexcept {
+    const float side=std::max(.00001f,std::min(g.widthMeters,g.depthMeters));
+    const float r=.5f*side*materialUnit(o.size);
+    return 3.14159265f*r*r*(.15f+.85f*materialUnit(o.aspect));
+}
+inline float occupiedVolume(const FlowNode& n) noexcept {
+    const auto& g=n.form;
+    float fraction=1.f-voidFraction(g);
+    for(const auto& o:g.openings){
+        const float hole=openingArea(g,o)*std::min(g.depthMeters,
+            std::max(.00001f,g.wallMm*.001f)+materialUnit(o.neck)*g.depthMeters);
+        fraction-=hole/envelopeVolume(g);
+    }
+    if(objectIsFluid(n))fraction*=materialUnit(g.fillLevel);
+    return envelopeVolume(g)*std::clamp(fraction,.005f,1.f);
+}
+inline float cavityVolume(const ParametricGeometry& g,int index) noexcept {
+    return envelopeVolume(g)*(index==0?std::min(.98f,shellVoid(g)+pocketFraction(g.cavities[0])*(1.f-shellVoid(g))):
+        pocketFraction(g.cavities[1])*(1.f-shellVoid(g)));
+}
+inline float cavityHz(const ParametricGeometry& g,int index) noexcept {
+    const float volume=cavityVolume(g,index);
+    if(volume<1.e-12f)return 0.f;
+    float neckConductance=0.f;
+    const float center=g.cavities[index].position;
+    for(const auto& o:g.openings){
+        const float area=openingArea(g,o);
+        const float neck=std::max(.0001f,g.wallMm*.001f+o.neck*g.depthMeters+
+            .85f*std::sqrt(area/3.14159265f));
+        // Openings preferentially couple to the nearest pocket.
+        const float locality=std::max(0.f,1.f-2.f*std::fabs(o.position-center));
+        neckConductance+=area/neck*locality;
+    }
+    if(neckConductance<=1.e-12f){
+        // Closed cavity's first longitudinal pressure mode.
+        return kAmbientSoundSpeed/(2.f*std::max(.001f,g.lengthMeters*
+            std::max(g.cavities[index].length,index==0?std::sqrt(shellVoid(g)):0.f)));
+    }
+    return kAmbientSoundSpeed/6.28318530718f*std::sqrt(neckConductance/volume);
+}
+inline float fluidLeak(const ParametricGeometry& g) noexcept {
+    float open=materialUnit(g.opening);
+    for(const auto& o:g.openings)open+=materialUnit(o.size)*materialUnit(o.size)*.22f;
+    return std::clamp(open,0.f,1.f);
 }
 struct FlowLink {
     uint8_t from{0},to{0};
@@ -344,6 +435,7 @@ struct FlowLink {
     float motion{0.f},angleDeg{0.f},engagement{.8f};
     float friction{.5f},elasticity{.5f},restitution{.5f};
     float clearance{0.f},adhesion{1.f};
+    float senderY{.5f},senderZ{.5f},receiverY{.5f},receiverZ{.5f},elevationDeg{0.f};
 };
 inline constexpr bool isUniversalSource(const FlowNode& n) noexcept {
     return n.kind==FlowKind::Universal&&n.role==PhysicalRole::Source;

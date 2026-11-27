@@ -268,12 +268,95 @@ bool NativeEditor::editFlowTime(float x) noexcept {
     physicalBlueprint_.graph.spanMs=3.f+79.f*t;
     physicalDirty_=true;return true;
 }
+// Construction sections are UI navigation only, never behavioral presets.
+static constexpr const char* constructionSections[]={"Material","Geometry","Cavities","Openings","Fluid form"};
+static constexpr const char* constructionGeometryLabels[]={
+    "LENGTH (m)","WIDTH (m)","DEPTH (m)","WALL THICKNESS (mm)","WALL FILL",
+    "CURVATURE","TAPER","END OPEN FRACTION","END FIXING","CROSS-SECTION EDGES","CORNER ROUNDING",
+    "PROFILE 0%","PROFILE 33%","PROFILE 67%","PROFILE 100%","TENSION (N)","STRUCTURAL LOSS"};
+static constexpr const char* constructionCavityLabels[]={
+    "POCKET 1 LENGTH","POCKET 1 WIDTH","POCKET 1 DEPTH","POCKET 1 AXIAL POSITION","POCKET 1 OFFSET",
+    "POCKET 2 LENGTH","POCKET 2 WIDTH","POCKET 2 DEPTH","POCKET 2 AXIAL POSITION","POCKET 2 OFFSET"};
+static constexpr const char* constructionOpeningLabels[]={
+    "HOLE 1 SIZE","HOLE 1 AXIAL POSITION","HOLE 1 AZIMUTH","HOLE 1 ASPECT","HOLE 1 NECK DEPTH",
+    "HOLE 2 SIZE","HOLE 2 AXIAL POSITION","HOLE 2 AZIMUTH","HOLE 2 ASPECT","HOLE 2 NECK DEPTH",
+    "HOLE 3 SIZE","HOLE 3 AXIAL POSITION","HOLE 3 AZIMUTH","HOLE 3 ASPECT","HOLE 3 NECK DEPTH"};
+static constexpr const char* constructionFluidLabels[]={"CONFINEMENT","STREAM SPREAD","FLOW ANGLE","FILL LEVEL"};
+static int constructionRows(int section) noexcept {
+    constexpr int counts[]={physical::MaterialControlCount,17,10,15,4};
+    return 1+counts[std::clamp(section,0,4)];
+}
+static float constructionRead(const physical::FlowNode& n,int section,int i) noexcept {
+    const auto& g=n.form;
+    if(section==0)return n.substance.value[i];
+    if(section==1){
+        switch(i){
+        case 0:return (g.lengthMeters-.025f)/1.975f;
+        case 1:return std::log(std::max(.0005f,g.widthMeters)/.0005f)/std::log(1000.f);
+        case 2:return std::log(std::max(.0002f,g.depthMeters)/.0002f)/std::log(1000.f);
+        case 3:return (g.wallMm-.2f)/19.8f;
+        case 4:return g.wallFill;
+        case 5:return (g.curvature+1.f)*.5f;
+        case 6:return (g.taper+1.f)*.5f;
+        case 7:return g.opening;
+        case 8:return g.fixing;
+        case 9:return (g.edges-3.f)/29.f;
+        case 10:return g.rounding;
+        case 15:return (n.tensionNewtons-1.f)/399.f;
+        case 16:return (n.damping-.15f)/7.85f;
+        default:return (g.stations[i-11]-.25f)/2.75f;
+        }
+    }
+    if(section==2){
+        const auto& c=g.cavities[i/5];
+        const float v[]={c.length,c.width,c.depth,c.position,c.offset};return v[i%5];
+    }
+    if(section==3){
+        const auto& o=g.openings[i/5];
+        const float v[]={o.size,o.position,o.azimuth,o.aspect,o.neck};return v[i%5];
+    }
+    const float v[]={g.confinement,g.spread,(g.flowAngle+90.f)/180.f,g.fillLevel};return v[i];
+}
+static void constructionWrite(physical::FlowNode& n,int section,int i,float t) noexcept {
+    auto& g=n.form;
+    if(section==0){n.substance.value[i]=t;return;}
+    if(section==1){
+        switch(i){
+        case 0:g.lengthMeters=.025f+1.975f*t;break;
+        case 1:g.widthMeters=.0005f*std::pow(1000.f,t);break;
+        case 2:g.depthMeters=.0002f*std::pow(1000.f,t);break;
+        case 3:g.wallMm=.2f+19.8f*t;break;
+        case 4:g.wallFill=t;break;
+        case 5:g.curvature=2.f*t-1.f;break;
+        case 6:g.taper=2.f*t-1.f;break;
+        case 7:g.opening=t;break;
+        case 8:g.fixing=t;break;
+        case 9:g.edges=3+static_cast<int>(std::lround(29.f*t));break;
+        case 10:g.rounding=t;break;
+        case 15:n.tensionNewtons=1.f+399.f*t;break;
+        case 16:n.damping=.15f+7.85f*t;break;
+        default:g.stations[i-11]=.25f+2.75f*t;break;
+        }
+        return;
+    }
+    if(section==2){
+        auto& c=g.cavities[i/5];float* v[]={&c.length,&c.width,&c.depth,&c.position,&c.offset};*v[i%5]=t;return;
+    }
+    if(section==3){
+        auto& o=g.openings[i/5];float* v[]={&o.size,&o.position,&o.azimuth,&o.aspect,&o.neck};*v[i%5]=t;return;
+    }
+    if(i==0)g.confinement=t;
+    else if(i==1)g.spread=t;
+    else if(i==2)g.flowAngle=180.f*t-90.f;
+    else g.fillLevel=t;
+}
 int NativeEditor::flowPropertyCount() const noexcept {
     const auto& g=physicalBlueprint_.graph;
     if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount){
         const auto& l=g.links[flowSelectedLink_];
         if(g.objectFlow)return physical::isUniversalSource(g.nodes[l.from])?0:
-            physical::isUniversalOutput(g.nodes[l.to])?4:14;
+            physical::isUniversalOutput(g.nodes[l.to])?(g.nodes[l.from].substance.enabled?9:4):
+            (g.nodes[l.from].substance.enabled||g.nodes[l.to].substance.enabled?19:14);
         return 6;
     }
     if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
@@ -282,7 +365,7 @@ int NativeEditor::flowPropertyCount() const noexcept {
         case physical::PhysicalRole::Source:return g.objectFlow?4:7;
         case physical::PhysicalRole::Output:return g.objectFlow?0:3;
         case physical::PhysicalRole::Interaction:return 30;
-        default:return g.nodes[flowSelectedNode_].substance.enabled?physical::MaterialControlCount+14:g.objectFlow?16:21;
+        default:return g.nodes[flowSelectedNode_].substance.enabled?constructionRows(flowConstructionSection_):g.objectFlow?16:21;
         }
     }
     if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount)return 0;
@@ -310,7 +393,13 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
         if(g.objectFlow){
             constexpr const char* labels[]={"RECEIVER POSITION","M POSITION ASSIGNED","M MIN POSITION","M MAX POSITION",
                 "CONTACT AREA","SENDER POSITION","RELATIVE MOTION","MOTION ANGLE","ENGAGEMENT","FRICTION","ELASTIC RESPONSE","RESTITUTION","CLEARANCE","ADHESION"};
-            return i>=0&&i<14?labels[i]:"";
+            const auto& l=g.links[flowSelectedLink_];
+            if(physical::isUniversalOutput(g.nodes[l.to])&&g.nodes[l.from].substance.enabled){
+                constexpr const char* pickup[]={"PICKUP AXIAL POSITION","M POSITION ASSIGNED","M MIN POSITION","M MAX POSITION","RECEPTION AREA","PICKUP TRANSVERSE","PICKUP DEPTH","PICKUP ANGLE","PICKUP DISTANCE"};
+                return i>=0&&i<9?pickup[i]:"";
+            }
+            constexpr const char* spatial[]={"SENDER TRANSVERSE","SENDER DEPTH","RECEIVER TRANSVERSE","RECEIVER DEPTH","MOTION ELEVATION"};
+            return i>=14&&i<19?spatial[i-14]:i>=0&&i<14?labels[i]:"";
         }
         constexpr const char* l[]={
             "ENTRY X (TARGET SURFACE)","M ASSIGNED","M MIN POSITION",
@@ -322,8 +411,15 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
        g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal){
         const auto role=g.nodes[flowSelectedNode_].role;
         if(g.nodes[flowSelectedNode_].substance.enabled){
-            if(i<physical::MaterialControlCount)return physical::kMaterialControlLabels[i];
-            i=i-physical::MaterialControlCount+2;
+            if(i==0)return "EDIT SECTION / TAP TO SWITCH";
+            --i;
+            switch(flowConstructionSection_){
+            case 0:return physical::kMaterialControlLabels[i];
+            case 1:return constructionGeometryLabels[i];
+            case 2:return constructionCavityLabels[i];
+            case 3:return constructionOpeningLabels[i];
+            default:return constructionFluidLabels[i];
+            }
         }
         if(role==physical::PhysicalRole::Source){
             constexpr const char* l[]={
@@ -508,7 +604,10 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         else if(i==2)link.modMin=t;
         else if(i==3)link.modMax=t;
         else if(i==4)link.aperture=.035f+.965f*t;
-        else if(g.objectFlow){
+        else if(g.objectFlow&&physical::isUniversalOutput(g.nodes[link.to])&&g.nodes[link.from].substance.enabled){
+            if(i==5)link.receiverY=t;else if(i==6)link.receiverZ=t;
+            else if(i==7)link.angleDeg=-90.f+180.f*t;else if(i==8)link.clearance=t;
+        }else if(g.objectFlow){
             if(i==5)link.fromPosition=t;
             else if(i==6)link.motion=t;
             else if(i==7)link.angleDeg=-90.f+180.f*t;
@@ -518,6 +617,9 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
             else if(i==11)link.restitution=t;
             else if(i==12)link.clearance=t;
             else if(i==13)link.adhesion=t;
+            else if(i==14)link.senderY=t;else if(i==15)link.senderZ=t;
+            else if(i==16)link.receiverY=t;else if(i==17)link.receiverZ=t;
+            else if(i==18)link.elevationDeg=-90.f+180.f*t;
         }else if(i==5){
             if(!first)return false;
             link.law=static_cast<physical::ContactLaw>(
@@ -545,8 +647,8 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         }else{
             auto& form=n.form;
             if(n.substance.enabled){
-                if(i<physical::MaterialControlCount){n.substance.value[i]=t;physicalDirty_=true;return true;}
-                i=i-physical::MaterialControlCount+2;
+                if(i==0){if(first)flowConstructionSection_=(flowConstructionSection_+1)%5;return false;}
+                constructionWrite(n,flowConstructionSection_,i-1,t);physicalDirty_=true;return true;
             }
             if(i==0)return false; // material is selected via dropdown
             else if(i==1){
@@ -676,7 +778,7 @@ struct FlowField {
     float position{.5f};
     bool picker{false};
 };
-static FlowField physicalField(const physical::FlowNode& n,int i) {
+static FlowField physicalField(const physical::FlowNode& n,int i,int section=0) {
     using physical::FlowKind;
     FlowField f;
     auto fmt=[&](const char* format,float value){
@@ -700,17 +802,28 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
         }else{
             const auto& g=n.form;
             if(n.substance.enabled){
-                if(i<physical::MaterialControlCount){
-                    f.position=n.substance.value[i];
+                if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",constructionSections[section]);return f;}
+                --i;
+                f.position=constructionRead(n,section,i);
+                if(section==0){
                     if(i==physical::Density)fmt("%.2f kg/m3",physical::constructedDensity(n.substance));
                     else if(i==physical::ShearStiffness)fmt("%.3g Pa",physical::constructedShear(n.substance));
                     else if(i==physical::Compressibility)fmt("K %.3g Pa",physical::constructedBulk(n.substance));
                     else if(i==physical::Viscosity)fmt("%.3g Pa s",physical::constructedViscosity(n.substance));
                     else if(i==physical::InternalLoss)fmt("%.4f",physical::constructedLoss(n.substance));
+                    else if(i==physical::SurfaceTension)fmt("%.3f N/m",physical::constructedSurfaceTension(n.substance));
                     else fmt("%.0f%%",f.position*100.f);
                     return f;
                 }
-                i=i-physical::MaterialControlCount+2;
+                if(section==1&&i==0)fmt("%.3f m",g.lengthMeters);
+                else if(section==1&&i==1)fmt("%.4f m",g.widthMeters);
+                else if(section==1&&i==2)fmt("%.4f m",g.depthMeters);
+                else if(section==1&&i==3)fmt("%.1f mm",g.wallMm);
+                else if(section==1&&i==9)fmt("%.0f",static_cast<float>(g.edges));
+                else if(section==1&&i==15)fmt("%.0f N",n.tensionNewtons);
+                else if(section==4&&i==2)fmt("%+.0f deg",g.flowAngle);
+                else fmt("%.0f%%",f.position*100.f);
+                return f;
             }
             if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::materialName(n.material));}
             else if(i==1){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::continuumName(g.continuum));}
@@ -1130,7 +1243,32 @@ void NativeEditor::drawPhysical() const noexcept {
         const float sw=std::clamp(8.f+std::log1p(f.widthMeters*1000.f)*5.f,8.f,35.f);
         const float sd=std::clamp(5.f+std::log1p(f.depthMeters*1000.f)*5.f,5.f,35.f);
         ov.addRect({sx-sw,sy-sd,sw*2.f,sd*2.f},overlayColor(kCyan,.5f));
-        if(physical::objectIsFluid(*chosen)){
+        if(chosen->substance.enabled){
+            const float hollow=std::sqrt(physical::voidFraction(f));
+            if(hollow>.01f)ov.addRect({sx-sw*hollow,sy-sd*hollow,2.f*sw*hollow,2.f*sd*hollow},overlayColor(kRollBg));
+            const int sides=std::clamp(f.edges,3,32);
+            for(int k=0;k<sides;++k){
+                const float a=6.2831853f*k/sides,b=6.2831853f*(k+1)/sides;
+                ov.addLine(sx+sw*std::cos(a),sy+sd*std::sin(a),sx+sw*std::cos(b),sy+sd*std::sin(b),1.5f,overlayColor(kWhite));
+            }
+            for(const auto& c:f.cavities){
+                if(c.length<=0.f)continue;
+                const float px=xx[0]+len*c.position;
+                ov.addRect({px-len*c.length*.5f,cy+(c.offset-.5f)*half-half*c.width*.5f,len*c.length,half*c.width},overlayColor(kRollBg));
+            }
+            for(const auto& o:f.openings){
+                if(o.size<=0.f)continue;
+                const float px=xx[0]+len*o.position;
+                ov.addFilledCircle(px,cy-half*std::sin(o.azimuth*6.2831853f),2.f+o.size*7.f,overlayColor(kGreen));
+            }
+            if(physical::objectIsFluid(*chosen)){
+                const float a=f.flowAngle*3.14159265f/180.f;
+                const float spread=(1.f-f.confinement)*f.spread*18.f;
+                ov.addLine(cx,cy,cx+30.f*std::cos(a),cy+30.f*std::sin(a),2.f,overlayColor(kGreen));
+                ov.addLine(cx,cy,cx+30.f*std::cos(a),cy+30.f*std::sin(a)+spread,1.f,overlayColor(kGreen));
+                ov.addLine(cx,cy,cx+30.f*std::cos(a),cy+30.f*std::sin(a)-spread,1.f,overlayColor(kGreen));
+            }
+        }else if(physical::objectIsFluid(*chosen)){
             const float wall=std::clamp(f.wallMm*.7f,1.f,std::min(sw,sd)-1.f);
             ov.addRect({sx-sw+wall,sy-sd+wall,2.f*(sw-wall),2.f*(sd-wall)},overlayColor(kRollBg));
             ov.addLine(sx-sw,sy+sd+7.f,sx-sw+2.f*sw*f.opening,sy+sd+7.f,3.f,overlayColor(kGreen));
@@ -1189,16 +1327,19 @@ void NativeEditor::drawPhysical() const noexcept {
                 std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.aperture*100.f);
             }else if(g.objectFlow){
                 const float v[]={link.fromPosition,link.motion,(link.angleDeg+90.f)/180.f,
-                    link.engagement,link.friction,link.elasticity,link.restitution,link.clearance,link.adhesion};
-                field.position=v[i-5];
-                if(i==7)std::snprintf(field.label,sizeof(field.label),"%+.0f deg",link.angleDeg);
+                    link.engagement,link.friction,link.elasticity,link.restitution,link.clearance,link.adhesion,
+                    link.senderY,link.senderZ,link.receiverY,link.receiverZ,(link.elevationDeg+90.f)/180.f};
+                const bool pickup=physical::isUniversalOutput(g.nodes[link.to])&&g.nodes[link.from].substance.enabled;
+                const float pv[]={link.receiverY,link.receiverZ,(link.angleDeg+90.f)/180.f,link.clearance};
+                field.position=pickup?pv[i-5]:v[i-5];
+                if(i==7||i==18)std::snprintf(field.label,sizeof(field.label),"%+.0f deg",i==18?link.elevationDeg:link.angleDeg);
                 else std::snprintf(field.label,sizeof(field.label),"%.0f%%",field.position*100.f);
             }else{
                 field.picker=true;
                 std::snprintf(field.label,sizeof(field.label),"%s",
                     physical::contactLawName(link.law));
             }
-        }else if(chosen)field=physicalField(*chosen,i);
+        }else if(chosen)field=physicalField(*chosen,i,flowConstructionSection_);
         if(field.picker){
             ov.addTextCentered(field.label,{rr.x+10.f,rr.y+31.f,rr.w-20.f,30.f},
                 .94f,overlayColor(kWhite));
