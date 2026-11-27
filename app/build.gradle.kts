@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".objectflowv11"
-            versionNameSuffix = "-object-flow-v11"
+            applicationIdSuffix = ".universalv12"
+            versionNameSuffix = "-universal-construction-v12"
         }
     }
 

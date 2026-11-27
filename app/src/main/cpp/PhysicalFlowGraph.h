@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 
 namespace aiora::physical {
 
@@ -203,9 +204,68 @@ inline constexpr int kMaxFlowNodes=14;
 inline constexpr int kMaxFlowLinks=22;
 inline constexpr int kMaxFlowBodies=4; // compatibility with v2 offline voice
 inline constexpr int kMaxFlowDampers=3;
+// Fixed reference environment for universal construction.
+inline constexpr float kAmbientPressurePa=101325.f;
+inline constexpr float kAmbientTemperatureC=20.f;
+inline constexpr float kGravityMps2=9.80665f;
+inline constexpr float kAmbientDensity=1.204f;
+inline constexpr float kAmbientSoundSpeed=343.f;
+enum MaterialControl : int { Density, Hardness, ElasticRecovery, ShearStiffness,
+    Compressibility, InternalLoss, Viscosity, StructureOrder, StructureAlignment,
+    StructureScale, Porosity, Roughness, MaterialControlCount };
+inline constexpr const char* kMaterialControlLabels[MaterialControlCount]={
+    "DENSITY (kg/m3)","HARDNESS","ELASTIC RECOVERY","SHEAR STIFFNESS (Pa)",
+    "COMPRESSIBILITY / BULK MODULUS","INTERNAL DAMPING","VISCOSITY (Pa s)",
+    "STRUCTURE ORDER","STRUCTURE ALIGNMENT","STRUCTURE SCALE","POROSITY","ROUGHNESS"};
+struct ConstructedMaterial {
+    bool enabled{false};
+    std::array<float,MaterialControlCount> value{
+        .70f,.72f,.88f,.78f,.23f,.18f,.18f,.65f,.30f,.30f,.05f,.25f};
+};
+inline float materialUnit(float x) noexcept {
+    return std::isfinite(x)?std::clamp(x,0.f,1.f):0.f;
+}
+inline float constructedDensity(const ConstructedMaterial& m) noexcept {
+    return std::pow(10.f,4.5f*materialUnit(m.value[Density])-.3f);
+}
+inline float constructedShear(const ConstructedMaterial& m) noexcept {
+    const float x=materialUnit(m.value[ShearStiffness]);
+    return x<=0.f?0.f:std::pow(10.f,12.f*x)-1.f;
+}
+inline float constructedBulk(const ConstructedMaterial& m) noexcept {
+    return std::pow(10.f,12.f-8.f*materialUnit(m.value[Compressibility]));
+}
+inline float constructedViscosity(const ConstructedMaterial& m) noexcept {
+    return std::pow(10.f,10.f*materialUnit(m.value[Viscosity])-5.f);
+}
+inline float constructedLoss(const ConstructedMaterial& m) noexcept {
+    return std::pow(10.f,-4.f+3.5f*materialUnit(m.value[InternalLoss]));
+}
+inline float fluidWeight(const ConstructedMaterial& m) noexcept {
+    // Broad, continuous crossover based on shear-to-bulk ratio, not identity.
+    const float ratio=constructedShear(m)/constructedBulk(m);
+    return 1.f/(1.f+ratio*100.f);
+}
+inline MaterialProperties constructedProperties(const ConstructedMaterial& m) noexcept {
+    const float pores=materialUnit(m.value[Porosity])*.9f;
+    const float density=constructedDensity(m)*(1.f-pores);
+    const float G=constructedShear(m);
+    const float K=constructedBulk(m);
+    const float E=9.f*K*G/std::max(1.f,3.f*K+G);
+    const float fluid=fluidWeight(m);
+    const float alignment=materialUnit(m.value[StructureAlignment]);
+    // Reduced axial anisotropy and void-volume weakening.
+    const float stiffness=((1.f-fluid)*E*(1.f+.35f*alignment)+fluid*K)*
+        (1.f-pores)*(1.f-pores);
+    const float recover=materialUnit(m.value[ElasticRecovery]);
+    const float loss=constructedLoss(m)+.03f*(1.f-recover)+.04f*pores;
+    return {std::max(.05f,density),std::max(1.f,stiffness),
+        std::clamp(loss,.0001f,.8f),1.f-materialUnit(m.value[Hardness])};
+}
 struct FlowNode {
     FlowKind kind{FlowKind::Plate};
-    Material material{Material::Steel};
+    Material material{Material::Steel}; // legacy identity, ignored by constructed objects
+    ConstructedMaterial substance{};
     Geometry geometry{Geometry::Plate};
     Excitation excitation{Excitation::Hammer};
     float x{.5f},y{.5f}; // X = interaction location; Y = first energy arrival
@@ -246,6 +306,30 @@ struct FlowNode {
     bool movingEnabled{false};   // M may reposition ANY physical object
     ContactLaw law{ContactLaw::Coupled}; // interaction with connected media (normalized position)
 };
+inline MaterialProperties objectMaterial(const FlowNode& n) noexcept {
+    return n.substance.enabled?constructedProperties(n.substance):materialProperties(n.material);
+}
+inline Continuum objectContinuum(const FlowNode& n) noexcept {
+    if(!n.substance.enabled)return n.form.continuum;
+    // Geometry selects reduced modal approximation; material identity never does.
+    if(fluidWeight(n.substance)>.5f)return Continuum::Liquid;
+    const float l=n.form.lengthMeters,w=n.form.widthMeters,d=n.form.depthMeters;
+    if(std::max(w,d)<.035f*l)return Continuum::Filament;
+    if(d<.16f*std::min(l,w))return Continuum::Sheet;
+    return Continuum::Solid;
+}
+inline bool objectIsFluid(const FlowNode& n) noexcept {
+    return fluidContinuum(objectContinuum(n));
+}
+inline const char* objectMaterialLabel(const FlowNode& n) noexcept {
+    return n.substance.enabled?"Editable material":materialName(n.material);
+}
+// Starting values are explicit editable slider positions, not a solver preset.
+inline void initializeConstruction(FlowNode& n,bool transfer=false) noexcept {
+    n.substance.enabled=true;
+    if(transfer)n.substance.value={.75f,.65f,.90f,.75f,.30f,.25f,.18f,.65f,.25f,.25f,.02f,.20f};
+    else n.substance.value={.70f,.72f,.88f,.78f,.23f,.32f,.18f,.65f,.30f,.30f,.05f,.25f};
+}
 struct FlowLink {
     uint8_t from{0},to{0};
     float position{.5f}; // position ON target (0..1)
@@ -559,6 +643,17 @@ inline FlowGraph objectFlowStarterGraph() noexcept {
     contact.motion=.7f;contact.angleDeg=25.f;contact.adhesion=0.f;
     contact.aperture=.65f;
     g.connect(r,o);
+    return g;
+}
+inline FlowGraph constructionEmptyGraph() noexcept {
+    FlowGraph g=objectFlowEmptyGraph();
+    initializeConstruction(g.nodes[1],true);
+    return g;
+}
+inline FlowGraph constructionStarterGraph() noexcept {
+    FlowGraph g=objectFlowStarterGraph();
+    initializeConstruction(g.nodes[1],true);
+    initializeConstruction(g.nodes[2]);
     return g;
 }
 inline FlowGraph defaultFlowGraph() noexcept {

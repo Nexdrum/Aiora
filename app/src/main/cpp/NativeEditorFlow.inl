@@ -249,12 +249,12 @@ NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
         g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal&&
         g.nodes[flowSelectedNode_].role!=physical::PhysicalRole::Source&&
         g.nodes[flowSelectedNode_].role!=physical::PhysicalRole::Output;
-    return {canvas.x,canvas.y+canvas.h+70.f+(preview?224.f:linkPreview?150.f:0.f)+index*73.f,canvas.w,66.f};
+    return {canvas.x,canvas.y+canvas.h+70.f+(preview?(g.nodes[flowSelectedNode_].substance.enabled?344.f:224.f):linkPreview?150.f:0.f)+index*73.f,canvas.w,66.f};
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
-    physicalBlueprint_.graph=i==0?physical::objectFlowStarterGraph():
-        physical::objectFlowEmptyGraph();
+    physicalBlueprint_.graph=i==0?physical::constructionStarterGraph():
+        physical::constructionEmptyGraph();
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
     pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -282,7 +282,7 @@ int NativeEditor::flowPropertyCount() const noexcept {
         case physical::PhysicalRole::Source:return g.objectFlow?4:7;
         case physical::PhysicalRole::Output:return g.objectFlow?0:3;
         case physical::PhysicalRole::Interaction:return 30;
-        default:return g.objectFlow?16:21;
+        default:return g.nodes[flowSelectedNode_].substance.enabled?physical::MaterialControlCount+14:g.objectFlow?16:21;
         }
     }
     if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount)return 0;
@@ -321,6 +321,10 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
     if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
        g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal){
         const auto role=g.nodes[flowSelectedNode_].role;
+        if(g.nodes[flowSelectedNode_].substance.enabled){
+            if(i<physical::MaterialControlCount)return physical::kMaterialControlLabels[i];
+            i=i-physical::MaterialControlCount+2;
+        }
         if(role==physical::PhysicalRole::Source){
             constexpr const char* l[]={
                 "ACCELERATION","POTENTIAL","TIME",
@@ -423,6 +427,7 @@ bool NativeEditor::flowAction(int index) noexcept {
         if(g.objectFlow&&role==PhysicalRole::Resonator){
             g.nodes[id].form.continuum=physical::Continuum::Solid;
             g.nodes[id].material=physical::Material::Wood;
+            physical::initializeConstruction(g.nodes[id]);
         }
         // New roles can appear anywhere along the causally ordered grid.
         // Linking remains deliberate: no hidden sound-path assignments.
@@ -448,14 +453,14 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
     if(index==8){
-        g=physical::objectFlowEmptyGraph();
+        g=physical::constructionEmptyGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
-        g=physical::objectFlowStarterGraph();
+        g=physical::constructionStarterGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
@@ -539,6 +544,10 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
             else if(i==2)n.movingMax=t;
         }else{
             auto& form=n.form;
+            if(n.substance.enabled){
+                if(i<physical::MaterialControlCount){n.substance.value[i]=t;physicalDirty_=true;return true;}
+                i=i-physical::MaterialControlCount+2;
+            }
             if(i==0)return false; // material is selected via dropdown
             else if(i==1){
                 if(!first)return false;
@@ -690,6 +699,19 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
             else if(i==2){f.position=n.movingMax;fmt("%.0f%%",n.movingMax*100.f);}
         }else{
             const auto& g=n.form;
+            if(n.substance.enabled){
+                if(i<physical::MaterialControlCount){
+                    f.position=n.substance.value[i];
+                    if(i==physical::Density)fmt("%.2f kg/m3",physical::constructedDensity(n.substance));
+                    else if(i==physical::ShearStiffness)fmt("%.3g Pa",physical::constructedShear(n.substance));
+                    else if(i==physical::Compressibility)fmt("K %.3g Pa",physical::constructedBulk(n.substance));
+                    else if(i==physical::Viscosity)fmt("%.3g Pa s",physical::constructedViscosity(n.substance));
+                    else if(i==physical::InternalLoss)fmt("%.4f",physical::constructedLoss(n.substance));
+                    else fmt("%.0f%%",f.position*100.f);
+                    return f;
+                }
+                i=i-physical::MaterialControlCount+2;
+            }
             if(i==0){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::materialName(n.material));}
             else if(i==1){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",physical::continuumName(g.continuum));}
             else if(i==2){f.position=(g.lengthMeters-.025f)/1.975f;fmt("%.3f m",g.lengthMeters);}
@@ -1015,9 +1037,9 @@ void NativeEditor::drawPhysical() const noexcept {
             (node.role==physical::PhysicalRole::Source?
                 node.sourceFollowNote?"APT / NOTE LOCK":"APT / TIMED":
              node.role==physical::PhysicalRole::Output?"Acoustic radiation":
-                physical::materialName(node.material)):
+                physical::objectMaterialLabel(node)):
             (node.kind==physical::FlowKind::Output?
-                "Audio":physical::materialName(node.material));
+                "Audio":physical::objectMaterialLabel(node));
         ov.addTextCentered(detail,
             {rr.x+2,rr.y+33.f,rr.w-4,28.f},.67f,overlayColor(kMuted));
     }
@@ -1068,8 +1090,8 @@ void NativeEditor::drawPhysical() const noexcept {
         ov.addRect({x+14.f,py,w-28.f,18.f},overlayColor(kCyan,.35f));
         ov.addLine(endX,endY-24.f,px,py-gap,9.f,overlayColor(kOrange,.75f));
         ov.addFilledCircle(px,py-gap,2.f+9.f*l.aperture*l.engagement,overlayColor(kGreen));
-        ov.addText(physical::materialName(from.material),x+8.f,y+27.f,.66f,overlayColor(kOrange));
-        ov.addText(physical::materialName(to.material),x+8.f,y+106.f,.66f,overlayColor(kCyan));
+        ov.addText(physical::objectMaterialLabel(from),x+8.f,y+27.f,.66f,overlayColor(kOrange));
+        ov.addText(physical::objectMaterialLabel(to),x+8.f,y+106.f,.66f,overlayColor(kCyan));
         ov.addText(l.adhesion>.5f&&l.motion<.05f?"ATTACHED":"RELATIVE MOTION",
             x+w*.53f,y+27.f,.6f,overlayColor(kWhite));
     }
@@ -1108,7 +1130,7 @@ void NativeEditor::drawPhysical() const noexcept {
         const float sw=std::clamp(8.f+std::log1p(f.widthMeters*1000.f)*5.f,8.f,35.f);
         const float sd=std::clamp(5.f+std::log1p(f.depthMeters*1000.f)*5.f,5.f,35.f);
         ov.addRect({sx-sw,sy-sd,sw*2.f,sd*2.f},overlayColor(kCyan,.5f));
-        if(physical::fluidContinuum(f.continuum)){
+        if(physical::objectIsFluid(*chosen)){
             const float wall=std::clamp(f.wallMm*.7f,1.f,std::min(sw,sd)-1.f);
             ov.addRect({sx-sw+wall,sy-sd+wall,2.f*(sw-wall),2.f*(sd-wall)},overlayColor(kRollBg));
             ov.addLine(sx-sw,sy+sd+7.f,sx-sw+2.f*sw*f.opening,sy+sd+7.f,3.f,overlayColor(kGreen));
@@ -1125,6 +1147,20 @@ void NativeEditor::drawPhysical() const noexcept {
             ov.addText("CONTACT",px-30.f,y+14.f,.55f,overlayColor(kMuted));
         }
         ov.addText("Scaled schematic / sliders edit actual model",x+8.f,y+191.f,.61f,overlayColor(kMuted));
+        if(chosen->substance.enabled){
+            const auto& v=chosen->substance.value;
+            const float yy0=y+218.f;
+            ov.addRect({x,yy0,w,112.f},overlayColor(kRollBg));
+            ov.addText("INTERNAL STRUCTURE / SCHEMATIC",x+8.f,yy0+6.f,.66f,overlayColor(kCyan));
+            for(int col=0;col<20;++col)for(int row=0;row<4;++row){
+                if(((col*37+row*23)%100)<100.f*v[physical::Porosity])continue;
+                const float dx=(1.f-v[physical::StructureOrder])*std::sin(col*4.f+row*9.f)*5.f;
+                const float dy=(1.f-v[physical::StructureAlignment])*std::cos(col*7.f+row*3.f)*4.f;
+                ov.addFilledCircle(x+14.f+col*(w-28.f)/19.f+dx,yy0+28.f+row*16.f+dy,
+                    1.4f+2.2f*v[physical::StructureScale],overlayColor(kCyan,.7f));
+            }
+            ov.addText("Illustrative structure / not atomic simulation",x+8.f,yy0+96.f,.55f,overlayColor(kMuted));
+        }
     }
     for(int i=0;i<flowPropertyCount();++i){
         const auto rr=flowPropertyRect(i);

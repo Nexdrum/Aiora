@@ -2472,7 +2472,7 @@ bool NativeEditor::openDropdownAt(
            (node.kind==physical::FlowKind::Universal&&
             (node.role==physical::PhysicalRole::Source||
              node.role==physical::PhysicalRole::Output)))return false;
-        if(flowPropertyRect(0).contains(x,y)){
+        if(!node.substance.enabled&&flowPropertyRect(0).contains(x,y)){
             std::vector<std::string> names;
             names.reserve(physical::kMaterialCount);
             for(const auto* name:physical::kMaterialNames)names.emplace_back(name);

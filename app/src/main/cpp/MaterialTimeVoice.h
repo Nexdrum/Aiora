@@ -58,6 +58,9 @@ public:
         }
         for(int i=0;i<nodeCount_;++i){
             nodes_[i].node=graph_.nodes[static_cast<size_t>(i)];
+            nodes_[i].physicalMaterial=objectMaterial(nodes_[i].node);
+            nodes_[i].fluid=objectIsFluid(nodes_[i].node);
+            nodes_[i].viscosity=nodes_[i].node.substance.enabled?constructedViscosity(nodes_[i].node.substance):0.f;
             nodes_[i].randomSeed=0x713f9a35u+static_cast<uint32_t>(i)*0x3c6ef35fu;
             if(isUniversalSource(nodes_[i].node)){
                 // Source acceleration is applied to actual connected medium
@@ -98,7 +101,7 @@ public:
             // Vertical position represents time elapsed between interactions.
             // A small transit term accounts for sound velocity in the source.
             const float speed=materialWaveSpeed(
-                isUniversalSource(from)?to.material:from.material);
+                isUniversalSource(from)?to:from);
             const float physicalMs=1000.f*.12f/std::max(40.f,speed);
             const float delayMs=(to.y-from.y)*
                 std::clamp(graph_.spanMs,3.f,82.f)+physicalMs;
@@ -106,13 +109,13 @@ public:
             edge.delay=std::clamp(delay,1,kFlowDelayFrames-1);
             edge.filter=0.f;
             std::fill(edge.buffer.begin(),edge.buffer.end(),0.f);
-            const float z0=materialImpedance(from.material);
-            const float z1=materialImpedance(to.material);
+            const float z0=materialImpedance(from);
+            const float z1=materialImpedance(to);
             const bool airCoupled=from.kind==FlowKind::Router||
                 (from.kind==FlowKind::Universal&&
-                 fluidContinuum(from.form.continuum))||
+                 objectIsFluid(from))||
                 (to.kind==FlowKind::Universal&&
-                 fluidContinuum(to.form.continuum))||
+                 objectIsFluid(to))||
                 from.kind==FlowKind::Reed||from.kind==FlowKind::Edge||
                 to.kind==FlowKind::Reed||to.kind==FlowKind::Edge||
                 (from.kind==FlowKind::Exciter&&
@@ -121,7 +124,7 @@ public:
                 airCoupled?.92f:2.f*std::sqrt(z0*z1)/(z0+z1);
             const float contact=std::sqrt(std::clamp(to.coupling,0.f,1.f));
             edge.gain=std::clamp(.80f*match*contact,.03f,.83f);
-            edge.smoothing=std::clamp(.83f-.58f*materialProperties(to.material).contactSoftness,
+            edge.smoothing=std::clamp(.83f-.58f*objectMaterial(to).contactSoftness,
                                        .14f,.93f);
             nodes_[raw.from].outgoing[nodes_[raw.from].outCount++]=edgeCount_;
             nodes_[raw.to].incoming[nodes_[raw.to].inCount++]=edgeCount_;
@@ -458,6 +461,9 @@ private:
     };
     struct Node {
         FlowNode node{};
+        MaterialProperties physicalMaterial{};
+        bool fluid{};
+        float viscosity{};
         std::array<Mode,kMaterialModes> modes{};
         std::array<float,kMaterialModes> touchLoss{};
         std::array<int,kMaxFlowLinks> incoming{},outgoing{};
@@ -489,6 +495,13 @@ private:
     };
     static float safe01(float v) noexcept {
         return std::isfinite(v)?std::clamp(v,0.f,1.f):0.f;
+    }
+    static float materialWaveSpeed(const FlowNode& n) noexcept {
+        const auto m=objectMaterial(n);
+        return std::sqrt(m.youngModulusPa/std::max(n.substance.enabled?.05f:1.f,m.densityKgM3));
+    }
+    static float materialImpedance(const FlowNode& n) noexcept {
+        const auto m=objectMaterial(n);return std::sqrt(m.youngModulusPa*m.densityKgM3);
     }
     static float materialWaveSpeed(Material material) noexcept {
         const auto m=materialProperties(material);
@@ -542,10 +555,10 @@ private:
         const float W=std::clamp(g.widthMeters,1.e-5f,2.f);
         const float D=std::clamp(g.depthMeters,1.e-5f,2.f);
         const float profile=std::clamp(normalizedAverageProfile(g),.1f,4.f);
-        const float section=g.continuum==Continuum::Filament?
+        const float section=objectContinuum(n)==Continuum::Filament?
             kPi*.25f*W*D:W*D;
         const float volume=L*section*profile;
-        return std::clamp(volume*materialProperties(n.material).densityKgM3,
+        return std::clamp(volume*objectMaterial(n).densityKgM3,
                           1.e-6f,40.f);
     }
     bool sourceDriveActive(const FlowNode& p) const noexcept {
@@ -618,13 +631,17 @@ private:
             returning+=receiver.modes[m].imag*receiver.modes[m].weight*
                 std::sin(kPi*(m+1.f)*targetX);
         const float rel=std::clamp(input+.12f*outgoing-.18f*returning,-.8f,.8f);
-        const float softness=.5f*(materialProperties(sender.node.material).contactSoftness+
-            materialProperties(receiver.node.material).contactSoftness);
+        const float softness=.5f*(sender.physicalMaterial.contactSoftness+
+            receiver.physicalMaterial.contactSoftness);
         const float area=std::clamp(e.aperture,0.f,1.f)*safe01(p.engagement);
         const float adhesion=safe01(p.adhesion),motion=safe01(p.motion);
         const float elasticity=.15f+1.7f*safe01(p.elasticity);
-        const float friction=2.f*safe01(p.friction);
-        const float restitution=safe01(p.restitution);
+        const float roughness=.5f*((sender.node.substance.enabled?sender.node.substance.value[Roughness]:.5f)+
+            (receiver.node.substance.enabled?receiver.node.substance.value[Roughness]:.5f));
+        const float friction=2.f*safe01(p.friction)*(sender.node.substance.enabled||receiver.node.substance.enabled?.35f+1.3f*roughness:1.f);
+        const float recovery=.5f*((sender.node.substance.enabled?sender.node.substance.value[ElasticRecovery]:1.f)+
+            (receiver.node.substance.enabled?receiver.node.substance.value[ElasticRecovery]:1.f));
+        const float restitution=safe01(p.restitution)*recovery;
         const float gap=safe01(p.clearance)*.10f;
         const float gate=gap>0.f?std::clamp((std::fabs(rel)-gap)/.025f,0.f,1.f):1.f;
         const float angle=std::clamp(p.angleDeg,-90.f,90.f)*kPi/180.f;
@@ -634,10 +651,10 @@ private:
         const float attached=adhesion*(1.f-motion);
         const float normal=std::max(0.f,std::cos(angle)*rel);
         const float tangential=std::sin(angle)*rel*motion;
-        if(fluidContinuum(sender.node.form.continuum)||
-           fluidContinuum(receiver.node.form.continuum)){
-            e.elastic+=.055f*elasticity*(rel-e.elastic);
-            flux=.28f*std::copysign(std::sqrt(std::fabs(e.elastic)),e.elastic);
+        if(sender.fluid||receiver.fluid){
+            const float viscous=1.f/(1.f+.15f*(sender.viscosity+receiver.viscosity));
+            e.elastic+=.055f*elasticity*viscous*(rel-e.elastic);
+            flux=.28f*viscous*std::copysign(std::sqrt(std::fabs(e.elastic)),e.elastic);
             resistance=.3f*std::fabs(rel-e.elastic);
         }else{
             const float compression=(1.f-attached)*normal;
@@ -841,8 +858,8 @@ private:
     void setupNode(Node& n,float pitch) noexcept {
         if(!physicalVibrates(n.node))return;
         const auto& p=n.node;
-        const auto material=materialProperties(p.material);
-        const float speed=materialWaveSpeed(p.material);
+        const auto material=objectMaterial(p);
+        const float speed=materialWaveSpeed(p);
         const float refSpeed=std::sqrt(11.e9f/650.f);
         const float speedRatio=std::clamp(speed/refSpeed,.2f,6.f);
         const float inertia=std::clamp(std::sqrt(650.f/material.densityKgM3),.22f,2.8f);
@@ -886,7 +903,7 @@ private:
             float ratio=index+1.f;
             switch(p.kind){
             case FlowKind::Universal:{
-                const auto c=p.form.continuum;
+                const auto c=objectContinuum(p);
                 if(c==Continuum::Filament){
                     const float h=index+1.f;
                     const float L=std::max(.025f,p.form.lengthMeters);
@@ -963,8 +980,16 @@ private:
             const float omega=2.f*kPi*f/sampleRate_;
             const float damping=std::clamp(p.damping,.12f,8.f);
             // Material loss, surface friction and higher-frequency damping.
+            float structuralLoss=1.f;
+            if(p.substance.enabled){
+                const auto& v=p.substance.value;
+                // Empirical audible-band scattering proxy; not atomic simulation.
+                structuralLoss+=.12f*(1.f-v[StructureOrder])*v[StructureScale]*index*index+
+                    .25f*v[Porosity]*index;
+                structuralLoss+=.08f*std::log1p(constructedViscosity(p.substance))*(1.f+index);
+            }
             const float modalQ=std::clamp(
-                .90f/(loss*damping*(1.f+.23f*index*index)),1.8f,160.f);
+                .90f/(loss*damping*(1.f+.23f*index*index)*structuralLoss),1.8f,160.f);
             const float r=std::exp(-kPi*f/(modalQ*sampleRate_));
             // Stiff objects retain higher partials; soft materials absorb them.
             const float bright=std::clamp(.35f+speed/4600.f,.4f,1.45f);

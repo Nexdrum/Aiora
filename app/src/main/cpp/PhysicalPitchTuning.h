@@ -18,17 +18,17 @@ inline float noteFrequency12TET(int midi,float a4=440.f) noexcept {
 }
 inline float physicalFundamental(const FlowNode& p) noexcept {
     if(p.kind!=FlowKind::Universal||!physicalVibrates(p))return 0.f;
-    const auto material=materialProperties(p.material);
+    const auto material=objectMaterial(p);
     const auto& g=p.form;
-    const float rho=std::max(100.f,material.densityKgM3);
-    const float E=std::max(1.e6f,material.youngModulusPa);
+    const float rho=std::max(p.substance.enabled?.05f:100.f,material.densityKgM3);
+    const float E=std::max(p.substance.enabled?1.f:1.e6f,material.youngModulusPa);
     const float L=std::clamp(g.lengthMeters,.025f,5.f);
     const float w=std::clamp(g.widthMeters,.0001f,2.f);
     const float d=std::clamp(g.depthMeters,.0001f,1.f);
     const float profile=std::clamp(normalizedAverageProfile(g),.1f,3.f);
     const float rootE=std::sqrt(E/rho);
     float f=110.f;
-    switch(g.continuum){
+    switch(objectContinuum(p)){
     case Continuum::Filament:{
         const float mu=rho*w*d*profile;
         f=.5f/L*std::sqrt(std::max(1.f,p.tensionNewtons)/mu);
@@ -51,8 +51,8 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
     }
     case Continuum::Gas:
     case Continuum::Liquid:{
-        const float soundSpeed=g.continuum==Continuum::Liquid?
-            std::sqrt(material.youngModulusPa/std::max(1.f,material.densityKgM3)):343.f;
+        const float soundSpeed=p.substance.enabled||g.continuum==Continuum::Liquid?
+            std::sqrt(material.youngModulusPa/std::max(p.substance.enabled?.05f:1.f,material.densityKgM3)):343.f;
         const float closed=g.opening<.5f?4.f:2.f;
         const float endCorrection=.61f*std::sqrt(w*d);
         const float effective=L+endCorrection*(g.opening+.25f);
@@ -174,6 +174,7 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
         add(static_cast<uint32_t>(n.material));add(static_cast<uint32_t>(n.geometry));
         add(static_cast<uint32_t>(n.driver));add(static_cast<uint32_t>(n.gesture));
         add(static_cast<uint32_t>(n.form.continuum));
+        add(n.substance.enabled);if(n.substance.enabled)for(float v:n.substance.value)f(v);
         f(n.x);f(n.y);f(n.size);f(n.thicknessMm);
         f(n.damping);f(n.coupling);f(n.position);f(n.tensionNewtons);
         f(n.diameterMm);f(n.hardness);f(n.restPressure);f(n.motion);

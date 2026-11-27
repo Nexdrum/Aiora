@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11", "experiment/physical-universal-construction-v12" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -113,6 +113,12 @@ jobs:
             tests/physical_object_flow_v11_regression.cpp -o /tmp/aiora-object-flow-v11-test
           /tmp/aiora-object-flow-v11-test
 
+      - name: Universal material v12 regression
+        run: |
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
+            tests/physical_universal_material_v12_regression.cpp -o /tmp/aiora-material-v12-test
+          /tmp/aiora-material-v12-test
+
       - name: Native project-limit regression tests
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
@@ -204,6 +210,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-PhysicalObjectFlow-v11-debug
+          name: Aiora-UniversalConstruction-v12-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
