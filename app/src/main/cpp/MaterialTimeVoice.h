@@ -95,7 +95,8 @@ public:
             edge.modMin=std::clamp(raw.modMin,0.f,1.f);
             edge.modMax=std::clamp(raw.modMax,0.f,1.f);
             edge.law=raw.law;
-            edge.aperture=std::clamp(raw.aperture,.035f,1.f);
+            edge.aperture=std::clamp(raw.aperture,
+                graph_.nodes[raw.from].substance.enabled||graph_.nodes[raw.to].substance.enabled?0.f:.035f,1.f);
             const auto& from=nodes_[raw.from].node;
             const auto& to=nodes_[raw.to].node;
             // Vertical position represents time elapsed between interactions.
@@ -946,6 +947,12 @@ private:
                     const float stiff=std::clamp(
                         kPi*kPi*EI/std::max(1.e-6f,p.tensionNewtons*L*L),0.f,.25f);
                     ratio=h*std::sqrt((1.f+stiff*h*h)/(1.f+stiff));
+                    if(p.substance.enabled){
+                        const float tension=std::max(0.f,p.tensionNewtons);
+                        const float bend=EI/std::max(1.e-8f,L*L);
+                        const float mix=bend/std::max(1.e-12f,bend+tension);
+                        ratio=(1.f-mix)*ratio+mix*h*h;
+                    }
                 }else if(c==Continuum::Sheet){
                     // Bending surface with tension-dependent lower modes.
                     ratio=(p.tensionNewtons>120.f)?
@@ -953,7 +960,7 @@ private:
                 }else if(fluidContinuum(c)){
                     // An open/open duct has integer harmonics; a mostly
                     // closed end supports the odd quarter-wave family.
-                    ratio=p.form.opening<.5f?2.f*index+1.f:index+1.f;
+                    ratio=(p.substance.enabled?fluidLeak(p.form):p.form.opening)<.5f?2.f*index+1.f:index+1.f;
                 }else ratio=(p.form.depthMeters<p.form.widthMeters*.24f)?
                     plate[i]:bar[i];
                 break;

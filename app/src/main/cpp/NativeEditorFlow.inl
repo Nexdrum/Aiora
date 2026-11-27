@@ -302,7 +302,7 @@ static float constructionRead(const physical::FlowNode& n,int section,int i) noe
         case 8:return g.fixing;
         case 9:return (g.edges-3.f)/29.f;
         case 10:return g.rounding;
-        case 15:return (n.tensionNewtons-1.f)/399.f;
+        case 15:return n.tensionNewtons/400.f;
         case 16:return (n.damping-.15f)/7.85f;
         default:return (g.stations[i-11]-.25f)/2.75f;
         }
@@ -333,7 +333,7 @@ static void constructionWrite(physical::FlowNode& n,int section,int i,float t) n
         case 8:g.fixing=t;break;
         case 9:g.edges=3+static_cast<int>(std::lround(29.f*t));break;
         case 10:g.rounding=t;break;
-        case 15:n.tensionNewtons=1.f+399.f*t;break;
+        case 15:n.tensionNewtons=400.f*t;break;
         case 16:n.damping=.15f+7.85f*t;break;
         default:g.stations[i-11]=.25f+2.75f*t;break;
         }
@@ -603,7 +603,7 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         else if(i==1){if(!first)return false;link.modEnabled=!link.modEnabled;}
         else if(i==2)link.modMin=t;
         else if(i==3)link.modMax=t;
-        else if(i==4)link.aperture=.035f+.965f*t;
+        else if(i==4)link.aperture=(g.nodes[link.from].substance.enabled||g.nodes[link.to].substance.enabled)?t:.035f+.965f*t;
         else if(g.objectFlow&&physical::isUniversalOutput(g.nodes[link.to])&&g.nodes[link.from].substance.enabled){
             if(i==5)link.receiverY=t;else if(i==6)link.receiverZ=t;
             else if(i==7)link.angleDeg=-90.f+180.f*t;else if(i==8)link.clearance=t;
@@ -1323,7 +1323,7 @@ void NativeEditor::drawPhysical() const noexcept {
                 field.position=link.modMax;
                 std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.modMax*100.f);
             }else if(i==4){
-                field.position=(link.aperture-.035f)/.965f;
+                field.position=(g.nodes[link.from].substance.enabled||g.nodes[link.to].substance.enabled)?link.aperture:(link.aperture-.035f)/.965f;
                 std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.aperture*100.f);
             }else if(g.objectFlow){
                 const float v[]={link.fromPosition,link.motion,(link.angleDeg+90.f)/180.f,

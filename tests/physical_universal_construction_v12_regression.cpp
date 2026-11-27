@@ -23,6 +23,11 @@ int main(){
     assert(std::isfinite(render(b)));
     g.edges=3;g.rounding=0.f;const float triangle=sectionFactor(g);
     g.edges=32;assert(sectionFactor(g)!=triangle);
+    b.graph.links[2].aperture=0.f;assert(render(b)==0.);
+    b.graph.links[2].aperture=.22f;
+    auto& filament=b.graph.nodes[1];
+    filament.tensionNewtons=0.f;
+    assert(std::isfinite(physicalFundamental(filament))&&physicalFundamental(filament)>0.f);
     auto& t=b.graph.nodes[1];t.substance.value[ShearStiffness]=0.f;
     t.substance.value[Density]=.087f;t.substance.value[Compressibility]=.856f;
     assert(objectIsFluid(t));

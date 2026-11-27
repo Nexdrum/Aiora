@@ -350,9 +350,10 @@ inline void initializeConstruction(FlowNode& n,bool transfer=false) noexcept {
 // Geometry reduction shared by the editor, pitch analysis and voice.
 inline float sectionFactor(const ParametricGeometry& g) noexcept {
     const float n=static_cast<float>(std::clamp(g.edges,3,32));
-    // Regular polygon normalized to the rectangle at four edges.
-    const float polygon=std::clamp(n*std::sin(6.28318530718f/n)/4.f,.65f,1.57f);
-    return .78539816f*(polygon+(1.5707963f-polygon)*materialUnit(g.rounding))/1.5707963f+.21460184f;
+    // Area of a regular polygon inscribed in an ellipse, relative to its
+    // bounding rectangle. Rounding interpolates toward the ellipse.
+    const float polygon=n*std::sin(6.28318530718f/n)/8.f;
+    return polygon+(.78539816f-polygon)*materialUnit(g.rounding);
 }
 inline float envelopeVolume(const ParametricGeometry& g) noexcept {
     const float taper=std::clamp(g.taper,-1.f,1.f);

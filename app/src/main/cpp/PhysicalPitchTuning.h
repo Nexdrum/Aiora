@@ -31,7 +31,12 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
     switch(objectContinuum(p)){
     case Continuum::Filament:{
         const float mu=p.substance.enabled?rho*occupiedVolume(p)/L:rho*w*d*profile;
-        f=.5f/L*std::sqrt(std::max(1.f,p.tensionNewtons)/mu);
+        f=.5f/L*std::sqrt(std::max(p.substance.enabled?0.f:1.f,p.tensionNewtons)/std::max(1.e-12f,mu));
+        if(p.substance.enabled){
+            const float bend=1.875104f*1.875104f/(6.2831853f*L*L)*
+                std::sqrt(E*d*d/(12.f*rho))*(1.f+1.35f*materialUnit(g.fixing));
+            f=std::sqrt(f*f+bend*bend);
+        }
         break;
     }
     case Continuum::Sheet:{
