@@ -171,10 +171,14 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
     for(int i=0;i<g.nodeCount;++i){
         const auto& n=g.nodes[static_cast<size_t>(i)];
         add(static_cast<uint32_t>(n.kind));add(static_cast<uint32_t>(n.role));
-        add(static_cast<uint32_t>(n.material));add(static_cast<uint32_t>(n.geometry));
-        add(static_cast<uint32_t>(n.driver));add(static_cast<uint32_t>(n.gesture));
-        add(static_cast<uint32_t>(n.form.continuum));
-        add(n.substance.enabled);if(n.substance.enabled)for(float v:n.substance.value)f(v);
+        add(n.substance.enabled);
+        if(n.substance.enabled){
+            for(float v:n.substance.value)f(v);
+        }else{
+            add(static_cast<uint32_t>(n.material));add(static_cast<uint32_t>(n.geometry));
+            add(static_cast<uint32_t>(n.driver));add(static_cast<uint32_t>(n.gesture));
+            add(static_cast<uint32_t>(n.form.continuum));
+        }
         f(n.x);f(n.y);f(n.size);f(n.thicknessMm);
         f(n.damping);f(n.coupling);f(n.position);f(n.tensionNewtons);
         f(n.diameterMm);f(n.hardness);f(n.restPressure);f(n.motion);

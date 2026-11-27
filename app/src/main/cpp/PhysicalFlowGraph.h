@@ -242,9 +242,10 @@ inline float constructedLoss(const ConstructedMaterial& m) noexcept {
     return std::pow(10.f,-4.f+3.5f*materialUnit(m.value[InternalLoss]));
 }
 inline float fluidWeight(const ConstructedMaterial& m) noexcept {
-    // Broad, continuous crossover based on shear-to-bulk ratio, not identity.
-    const float ratio=constructedShear(m)/constructedBulk(m);
-    return 1.f/(1.f+ratio*100.f);
+    // A zero static shear modulus defines the fluid limit. A low G/K
+    // ratio by itself does not make a nearly incompressible rubber a liquid.
+    // Separate shear/bulk modes for viscoelastic transitions are future work.
+    return constructedShear(m)<=1.f?1.f:0.f;
 }
 inline MaterialProperties constructedProperties(const ConstructedMaterial& m) noexcept {
     const float pores=materialUnit(m.value[Porosity])*.9f;

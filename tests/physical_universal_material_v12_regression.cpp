@@ -19,7 +19,10 @@ int main(){
     const auto before=objectMaterial(n);
     const auto f=physicalFundamental(n);
     const double e=render(b);assert(e>1.e-20);
+    const auto identityStamp=physicalGraphStamp(b.graph);
     n.material=Material::Gold;
+    n.form.continuum=Continuum::Gas;
+    assert(physicalGraphStamp(b.graph)==identityStamp);
     assert(objectMaterial(n).densityKgM3==before.densityKgM3);
     assert(physicalFundamental(n)==f&&render(b)==e);
     const auto stamp=physicalGraphStamp(b.graph);
@@ -27,6 +30,9 @@ int main(){
     assert(physicalGraphStamp(b.graph)!=stamp);
     assert(objectMaterial(n).densityKgM3>before.densityKgM3);
     assert(physicalFundamental(n)<=f);
+    n.substance.value[ShearStiffness]=.35f;
+    n.substance.value[Compressibility]=.2f;
+    assert(!objectIsFluid(n)); // a compliant near-incompressible solid
     n.substance.value[ShearStiffness]=0.f;
     assert(objectIsFluid(n));
     assert(constructedShear(n.substance)==0.f);
