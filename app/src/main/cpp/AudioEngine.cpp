@@ -18,6 +18,22 @@ std::pair<float,float> panGain(float gain,float pan) noexcept {
     const float angle=(p+1.0f)*kPi*0.25f;
     return {gain*std::cos(angle),gain*std::sin(angle)};
 }
+// Interpolate the same per-note lane curves used by Spectrachord.
+// The physical engine interprets V as excitation, M as live contact,
+// and B as continuous physical tuning assignments (never output resampling).
+float physicalLaneAt(const DspCurve& curve,float step,float fallback) noexcept {
+    if(curve.count==0||!curve.points)return fallback;
+    if(step<=curve.points[0].step)return curve.points[0].value;
+    for(size_t i=1;i<curve.count;++i){
+        if(step>curve.points[i].step)continue;
+        const auto& a=curve.points[i-1];
+        const auto& b=curve.points[i];
+        const float t=std::clamp((step-a.step)/
+            std::max(0.00001f,b.step-a.step),0.0f,1.0f);
+        return curveSegment(t,a.value,b.value,b.midpoint,b.handleActive,b.handleValue);
+    }
+    return curve.points[curve.count-1].value;
+}
 }
 
 AudioEngine& AudioEngine::instance(){static AudioEngine engine;return engine;}
@@ -32,7 +48,7 @@ bool AudioEngine::start(){
     if(result!=oboe::Result::OK||!stream_){__android_log_print(ANDROID_LOG_ERROR,kTag,"openStream failed: %s",oboe::convertToText(result));stream_.reset();return false;}
     const int sr=stream_->getSampleRate();sampleRate_.store(sr,std::memory_order_relaxed);
     while(voices_.size()<96)voices_.emplace_back();
-    for(auto&slot:voices_)slot.voice.prepare(static_cast<float>(sr));
+    for(auto&slot:voices_){slot.voice.prepare(static_cast<float>(sr));slot.physicalVoice.prepare(static_cast<float>(sr));}
     previewFx_.prepare(static_cast<float>(sr),1.2f,true);
     previewKitFx_.prepare(static_cast<float>(sr),1.2f,true);
     masterFx_.prepare(static_cast<float>(sr),1.2f,true);
@@ -45,7 +61,7 @@ bool AudioEngine::start(){
 
 void AudioEngine::stop(){
     std::shared_ptr<oboe::AudioStream> old;{std::scoped_lock lock(streamMutex_);old=std::move(stream_);}if(old){old->requestStop();old->close();}
-    transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)slot.voice.kill();
+    transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_){slot.voice.kill();slot.physicalVoice.stop();}
     previewFx_.reset();previewKitFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();playbackFxCount_=0;
     Event pending;while(events_.pop(pending))if(pending.type==EventType::Snapshot&&pending.pointer)delete reinterpret_cast<PlaybackSnapshot*>(pending.pointer);
     if(playback_){delete playback_;playback_=nullptr;}collectRetiredSnapshots();
@@ -61,6 +77,7 @@ int AudioEngine::noteOn(int midi,float velocity) noexcept {
     auto& project=ProjectCore::instance();
     e.patch=project.selectedDspPatch();
     const int track=project.selectedTrack();
+    e.source=track;
     if(track>=0){
         const auto [l,r]=panGain(project.trackVolume(track),project.trackPan(track));
         e.gainLeft=l;e.gainRight=r;
@@ -101,6 +118,14 @@ void AudioEngine::setLiveExpression(float v,float m) noexcept {
     Event e{};e.type=EventType::LiveExpression;
     e.value=std::clamp(v,0.0f,1.0f);
     e.gainLeft=std::clamp(m,0.0f,1.0f);
+    events_.push(e);
+}
+void AudioEngine::setPhysicalExperiment(int track,
+    const physical::Blueprint& blueprint) noexcept {
+    Event e{};
+    e.type=EventType::PhysicalConfig;
+    e.source=track;
+    e.physicalBlueprint=blueprint;
     events_.push(e);
 }
 void AudioEngine::noteOff(int voiceId) noexcept {events_.push({EventType::NoteOff,voiceId,0,0,0,0});}
@@ -159,9 +184,10 @@ void AudioEngine::copyScopeStereo(
 }
 
 AudioEngine::VoiceSlot& AudioEngine::allocateVoice(){
-    for(auto&slot:voices_)if(!slot.voice.active())return slot;
+    for(auto&slot:voices_)if(!slot.active())return slot;
     voices_.emplace_back();
     voices_.back().voice.prepare(static_cast<float>(sampleRate_.load(std::memory_order_relaxed)));
+    voices_.back().physicalVoice.prepare(static_cast<float>(sampleRate_.load(std::memory_order_relaxed)));
     return voices_.back();
 }
 void AudioEngine::configureFx(const Fx&fx) noexcept {previewFx_.set(fx);}
@@ -178,7 +204,33 @@ void AudioEngine::triggerStep(int step,double phase) noexcept {
         const uint64_t gate=playbackGateFrames(
             e.durationSeconds,sampleRate_.load(std::memory_order_relaxed));
         const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
-        slot.voice.start(id,e.patch,e.midi,pressure,gate,static_cast<float>(std::max(1.0,e.durationSeconds*sampleRate_.load(std::memory_order_relaxed)/std::max(kMinNoteLengthSteps,e.lengthSteps))),e.automation);slot.voice.setAge(++ageCounter_);
+        if(!e.drum&&e.sourceTrack>=0&&e.sourceTrack==physicalTrack_){
+            slot.voice.kill();
+            slot.physicalMode=true;
+            slot.physicalId=id;
+            slot.physicalVoice.start(physicalBlueprint_,e.midi,pressure,
+                physicalLaneAt(e.automation.mod,0.0f,0.0f));
+            // Apply the pitch drawing at the note's very first sample, not
+            // only after the next V/M control tick.
+            slot.physicalVoice.setPitchBend(
+                physicalLaneAt(e.automation.bend,0.0f,0.0f));
+            slot.physicalAutomation=e.automation;
+            slot.physicalSamples=0;
+            slot.physicalGateSamples=gate;
+            slot.physicalSamplesPerStep=static_cast<float>(std::max(1.0,
+                e.durationSeconds*sampleRate_.load(std::memory_order_relaxed)/
+                std::max(kMinNoteLengthSteps,e.lengthSteps)));
+            slot.physicalInitialVelocity=pressure;
+            slot.physicalReleased=false;
+        }else{
+            slot.physicalVoice.stop();
+            slot.physicalMode=false;
+            slot.voice.start(id,e.patch,e.midi,pressure,gate,
+                static_cast<float>(std::max(1.0,e.durationSeconds*
+                sampleRate_.load(std::memory_order_relaxed)/
+                std::max(kMinNoteLengthSteps,e.lengthSteps))),e.automation);
+            slot.voice.setAge(++ageCounter_);
+        }
         slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;slot.fxBus=e.fxBus;
         slot.midi=e.midi;slot.transport=true;
     }
@@ -205,25 +257,53 @@ void AudioEngine::advanceTransport() noexcept {
 
 void AudioEngine::applyEvent(const Event&e) noexcept {
     switch(e.type){
+        case EventType::PhysicalConfig:
+            physicalTrack_=e.source;
+            physicalBlueprint_=e.physicalBlueprint;
+            return;
         case EventType::LiveExpression:
-            for(auto& slot:voices_)if(slot.voice.active()&&!slot.transport)
-                slot.voice.setLiveExpression(e.value,e.gainLeft);
+            for(auto& slot:voices_)if(slot.active()&&!slot.transport){
+                if(slot.physicalMode)slot.physicalVoice.setExpression(e.value,e.gainLeft);
+                else slot.voice.setLiveExpression(e.value,e.gainLeft);
+            }
             return;
         case EventType::Panic:
-            for(auto&slot:voices_)slot.voice.kill();
+            for(auto&slot:voices_){slot.voice.kill();slot.physicalVoice.stop();}
             previewFx_.reset();previewKitFx_.reset();masterFx_.reset();if(playback_)for(auto&bus:playback_->preparedFx)bus.reset();
             return;
         case EventType::Preset:configureFxForPreset(e.source);return;
         case EventType::NoteOff:
-            for(auto&slot:voices_)if(slot.voice.active()&&slot.voice.id()==e.id){slot.voice.release();return;}return;
+            for(auto&slot:voices_)if(slot.active()){
+                if(slot.physicalMode&&slot.physicalId==e.id){
+                    slot.physicalVoice.release();slot.physicalReleased=true;return;
+                }
+                if(!slot.physicalMode&&slot.voice.id()==e.id){
+                    slot.voice.release();return;
+                }
+            }
+            return;
         case EventType::NoteOn:{
-            auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
+            auto&slot=allocateVoice();
+            if(e.source>=0&&e.source==physicalTrack_){
+                slot.voice.kill();
+                slot.physicalMode=true;
+                slot.physicalId=e.id;
+                slot.physicalVoice.start(physicalBlueprint_,e.midi,e.value);
+                slot.physicalSamples=0;slot.physicalGateSamples=0;
+                slot.physicalInitialVelocity=e.value;slot.physicalReleased=false;
+                slot.physicalAutomation={};
+            }else{
+                slot.physicalVoice.stop();
+                slot.physicalMode=false;
+                slot.voice.start(e.id,e.patch,e.midi,e.value);
+                slot.voice.setAge(++ageCounter_);
+            }
             slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;
             slot.fxBus=-1;slot.midi=e.midi;slot.transport=false;
             configureFx(e.patch.fx);previewKitFx_.set(Fx{});return;
         }
         case EventType::PadOn:{
-            auto&slot=allocateVoice();slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
+            auto&slot=allocateVoice();slot.physicalVoice.stop();slot.physicalMode=false;slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
             slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;
             slot.fxBus=-1;slot.midi=e.midi;slot.transport=false;
             configureFx(e.patch.fx);previewKitFx_.set(e.kitFx);return;
@@ -270,7 +350,7 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
         }
         case EventType::Play:
             if(!playback_)return;
-            for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
+            for(auto&slot:voices_)if(slot.transport){slot.voice.kill();slot.physicalVoice.stop();}
             for(int i=0;i<playbackFxCount_;++i)playback_->preparedFx[static_cast<size_t>(i)].reset();
             masterFx_.reset();
             masterFx_.set(playback_->masterEffects);
@@ -288,7 +368,7 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             triggerStep(transportStep_,0.0);
             return;
         case EventType::StopTransport:
-            transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport)slot.voice.kill();
+            transportPlaying_.store(false,std::memory_order_relaxed);for(auto&slot:voices_)if(slot.transport){slot.voice.kill();slot.physicalVoice.stop();}
             for(int i=0;i<playbackFxCount_;++i)playback_->preparedFx[static_cast<size_t>(i)].reset();masterFx_.reset();
             transportStep_=0;samplesIntoStep_=0;stepEventCursor_=0;
             playheadStep_.store(0,std::memory_order_relaxed);
@@ -310,8 +390,35 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
     float previewLeft=0.0f,previewRight=0.0f;
 
     for(auto&slot:voices_){
-        if(!slot.voice.active())continue;
-        const float sample=slot.voice.render();
+        if(!slot.active())continue;
+        float sample=0.0f;
+        if(slot.physicalMode){
+            if(slot.transport){
+                if(!slot.physicalReleased&&
+                    slot.physicalSamples>=slot.physicalGateSamples){
+                    slot.physicalVoice.release();
+                    slot.physicalReleased=true;
+                }
+                if((slot.physicalSamples&31u)==0){
+                    const float step=static_cast<float>(slot.physicalSamples)/
+                        std::max(1.0f,slot.physicalSamplesPerStep);
+                    const float v=physicalLaneAt(slot.physicalAutomation.velocity,
+                        step,slot.physicalInitialVelocity);
+                    const float m=physicalLaneAt(slot.physicalAutomation.mod,step,0.0f);
+                    const float bend=physicalLaneAt(
+                        slot.physicalAutomation.bend,step,0.0f);
+                    slot.physicalVoice.setExpression(v,m);
+                    slot.physicalVoice.setPitchBend(bend);
+                }
+                ++slot.physicalSamples;
+            }
+            // Matches an instrument-level source without a synth oscillator.
+            // Physical body modes are peak-normalized; match the preview path's
+            // existing 0.165 attenuation without increasing resonant Q gain.
+            sample=slot.physicalVoice.render()*(slot.transport?1.0f:6.0f);
+        }else{
+            sample=slot.voice.render();
+        }
         const float l=sample*slot.gainLeft;
         const float r=sample*slot.gainRight;
         if(slot.transport&&transportPlaying_.load(std::memory_order_relaxed)){

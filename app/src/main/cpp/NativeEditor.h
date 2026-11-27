@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <memory>
 #include <cstdint>
 #include <optional>
 
@@ -8,6 +10,8 @@
 #include "ProjectCore.h"
 #include "NativeUi.h"
 #include "KineticScroll.h"
+#include "PhysicalInstrumentVoice.h"
+#include "PhysicalPitchScanner.h"
 
 namespace aiora {
 
@@ -34,6 +38,9 @@ public:
         viewport_={x,y,std::max(0.0f,w),std::max(0.0f,h)};
     }
     void renderSynth() const noexcept;
+    // Called on UI thread each Synth frame; only sends a new config on change.
+    void syncPhysicalBinding() noexcept;
+    [[nodiscard]] bool physicalEditorActive() const noexcept { return synthWorkspace_==3; }
     void renderFx() const noexcept;
 
     bool pointerDown(EditorPage page, float x, float y);
@@ -67,11 +74,11 @@ public:
     }
 
 private:
-    NativeEditor() = default;
+    NativeEditor() { physicalBlueprint_.graph=physical::defaultFlowGraph(); }
 
     enum class HitKind : uint8_t {
         None,
-        SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
+        PhysicalNode, PhysicalAction, PhysicalProperty, PhysicalTime, PhysicalPitchRange, PhysicalTemplate, SynthTab, OperatorSelect, WaveSelect, OperatorToggle,
         OperatorParam, Harmonic, Matrix,
         FxGroup, FilterOpen, FilterEditor, UnisonEditor, AmpModEditor, PeakToggle, PeakMode, LfoTarget, PatchParam,
         RackExpand, RackUp, RackDown, RackBypass, RackDelete, RackParameter, RackAdd
@@ -94,6 +101,27 @@ private:
 
     [[nodiscard]] Rect factoryPresetRect(int index) const noexcept;
     [[nodiscard]] Rect synthTabRect(int index) const noexcept;
+    [[nodiscard]] Rect flowCanvasRect() const noexcept;
+    [[nodiscard]] Rect flowTemplateRect(int index) const noexcept;
+    [[nodiscard]] Rect flowTimeRect() const noexcept;
+    [[nodiscard]] Rect flowTuneRect() const noexcept;
+    [[nodiscard]] Rect flowTuneButtonRect(int index) const noexcept;
+    [[nodiscard]] Rect flowTuneRangeRect(int index) const noexcept;
+    bool flowTuneAction(int index) noexcept;
+    bool editPitchRange(int index,float x) noexcept;
+    void updatePitchScan() noexcept;
+    bool flowTemplate(int index) noexcept;
+    bool editFlowTime(float x) noexcept;
+    [[nodiscard]] Rect flowActionRect(int index) const noexcept;
+    [[nodiscard]] Rect flowNodeRect(int index) const noexcept;
+    [[nodiscard]] Rect flowPropertyRect(int index) const noexcept;
+    [[nodiscard]] int flowPropertyCount() const noexcept;
+    [[nodiscard]] const char* flowPropertyLabel(int index) const noexcept;
+    void drawPhysical() const noexcept;
+    bool flowAction(int index) noexcept;
+    bool flowNodeTouch(int index) noexcept;
+    bool flowLinkTouch(int index) noexcept;
+    bool editFlowProperty(int index,float x,bool initial) noexcept;
     [[nodiscard]] Rect operatorCardRect(int index) const noexcept;
     [[nodiscard]] Rect operatorWaveFieldRect(int op) const noexcept;
     [[nodiscard]] Rect operatorCardParamRect(int op,int param) const noexcept;
@@ -143,7 +171,24 @@ private:
     int safeBottom_{0};
     Rect viewport_{};
     int selectedOperator_{0};
-    int synthWorkspace_{0}; // Operators / Filter / Amp
+    int synthWorkspace_{0}; // Operators / Filter / Amp / Instrument prototype
+    physical::Blueprint physicalBlueprint_{};
+    int physicalConfiguredTrack_{-2};
+    bool physicalDirty_{true};
+    bool flowError_{false};
+    float physicalScrollY_{0.0f};
+    int flowSelectedNode_{0};
+    int flowSelectedLink_{-1}; // selected physical energy-transfer link
+    int flowLinkMode_{0}; // 0 idle, 1 connect, 2 disconnect
+    int flowLinkSource_{-1};
+    int pitchPropertyChoice_{8}; // tension
+    int pitchSelectedSlot_{0};
+    int pitchTuneStatus_{0}; // 0 unknown, 1 calibrated, 2 unsupported, 3 unverified output
+    std::array<float,12> pitchSpectrumBands_{};
+    physical::PhysicalScanResults pitchScanResults_{};
+    std::shared_ptr<physical::PhysicalScanJob> pitchScanJob_{};
+    int pitchScanSelection_{0};
+    int pitchScanStatus_{0}; // 0 no scan, 1 running, 2 ready, 3 no match, 4 graph changed
     int ampSubtab_{0};      // Envelope / Mod
     int fxGroup_{0};
     int fxRackExpanded_{-1};

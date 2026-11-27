@@ -104,7 +104,8 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
     };
 
     const bool anySolo=std::any_of(project_.tracks.begin(),project_.tracks.end(),[](const Track&t){return t.solo;});
-    for(const auto& track:project_.tracks){
+    for(size_t trackIndex=0;trackIndex<project_.tracks.size();++trackIndex){
+        const auto& track=project_.tracks[trackIndex];
         if(track.mute || (anySolo&&!track.solo))continue;
         const int melodicBus=track.drums?-1:addFxBus(track.patch.fx);
         std::vector<int> padBuses(track.pads.size(),-2);
@@ -121,6 +122,8 @@ std::unique_ptr<PlaybackSnapshot> ProjectCore::makePlaybackSnapshot() const {
                 0,snap->lengthSteps-1);
             PlaybackEvent event;
             event.midi=note.midi;
+            event.sourceTrack=static_cast<int32_t>(trackIndex);
+            event.drum=track.drums;
             event.lengthSteps=std::max(kMinNoteLengthSteps,note.lengthSteps);
             event.offsetSteps=std::clamp(start-static_cast<float>(step),0.0f,0.999999f);
             event.durationSeconds=tempoTimeSeconds(project_,static_cast<double>(start)+event.lengthSteps)-tempoTimeSeconds(project_,start);

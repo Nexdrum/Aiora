@@ -8,6 +8,7 @@
 #include <mutex>
 #include "SpscQueue.h"
 #include "SpectrachordVoice.h"
+#include "MaterialTimeVoice.h"
 #include "FxProcessor.h"
 #include "PlaybackSnapshot.h"
 
@@ -23,6 +24,8 @@ public:
     int noteOnPad(int padIndex, int midi, float velocity) noexcept;
     void noteOff(int voiceId) noexcept;
     void setLiveExpression(float v,float m) noexcept;
+    // Opt-in session-only physical instrument for one melodic track.
+    void setPhysicalExperiment(int track, const physical::Blueprint& blueprint) noexcept;
     void panic() noexcept;
     void setFactoryPreset(int index) noexcept;
     bool syncProject();
@@ -52,7 +55,7 @@ private:
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
 
-    enum class EventType : uint8_t { NoteOn, PadOn, NoteOff, Panic, Preset, Snapshot, Play, StopTransport, LiveExpression };
+    enum class EventType : uint8_t { NoteOn, PadOn, NoteOff, Panic, Preset, Snapshot, Play, StopTransport, LiveExpression, PhysicalConfig };
     struct Event {
         EventType type{EventType::Panic};
         int32_t id{-1};
@@ -64,9 +67,21 @@ private:
         Fx kitFx{}; // Pad preview: drum-track bus after the pad FX
         float gainLeft{1.0f};
         float gainRight{1.0f};
+        physical::Blueprint physicalBlueprint{};
     };
     struct VoiceSlot {
         SpectrachordVoice voice{};
+        physical::MaterialTimeVoice physicalVoice{};
+        bool physicalMode{false};
+        int32_t physicalId{-1};
+        uint64_t physicalSamples{0}, physicalGateSamples{0};
+        float physicalSamplesPerStep{1.0f};
+        float physicalInitialVelocity{0.8f};
+        VoiceAutomation physicalAutomation{};
+        bool physicalReleased{false};
+        bool active() const noexcept {
+            return physicalMode ? physicalVoice.active() : voice.active();
+        }
         float gainLeft{1.0f};
         float gainRight{1.0f};
         int32_t fxBus{-1};
@@ -91,6 +106,9 @@ private:
     FxProcessor previewKitFx_{};
     FxProcessor masterFx_{};
     int32_t playbackFxCount_{0};
+    // Read and mutated only from the audio callback thread via SPSC events.
+    int32_t physicalTrack_{-1};
+    physical::Blueprint physicalBlueprint_{};
     PlaybackSnapshot* playback_{nullptr};
     std::atomic<int32_t> nextVoiceId_{1};
     std::atomic<int32_t> sampleRate_{48000};
