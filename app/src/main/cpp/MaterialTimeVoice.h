@@ -18,6 +18,14 @@ namespace aiora::physical {
 constexpr int kMaterialModes=7;
 constexpr int kFlowDelayFrames=4096; // 85.3 ms at 48 kHz per connection
 
+// Fixed instrument-level calibration for constructed graphs, not automatic
+// normalization. Zero physical energy remains silent; relative changes remain.
+inline constexpr float kConstructionOutputGain=16.f;
+inline bool usesConstructedMaterial(const FlowGraph& graph) noexcept {
+    if(!graph.objectFlow)return false;
+    for(int i=0;i<graph.nodeCount;++i)if(graph.nodes[i].substance.enabled)return true;
+    return false;
+}
 class MaterialTimeVoice {
 public:
     void prepare(float sr) noexcept {

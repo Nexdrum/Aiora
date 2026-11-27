@@ -1093,11 +1093,28 @@ void previewDrumPitch(NativeState& state,int midi) {
     if(state.editorPreviewVoice>=0)state.editorPreviewStopMs=nowMs()+420;
 }
 
+// Explicit graph audition is used in the lab even if a drum track happens
+// to be selected. Track binding remains session-only and melodic.
+int auditionPhysical(NativeState& state,int midi){
+    auto& editor=aiora::NativeEditor::instance();
+    editor.syncPhysicalBinding();
+    return aiora::AudioEngine::instance().noteOnPhysical(midi,
+        state.ui.expressionVelocity(),state.ui.expressionMod(),editor.physicalAuditionBlueprint());
+}
 void previewEditorPatch(NativeState& state) {
     auto& project=aiora::ProjectCore::instance();
     const int track=project.selectedTrack();
     if(track<0)return;
+    auto& editor=aiora::NativeEditor::instance();
+    const bool physicalLab=state.ui.page()==aiora::NativePage::Synth&&editor.physicalEditorActive();
+    editor.syncPhysicalBinding();
 
+    if(physicalLab){
+        if(state.editorPreviewVoice>=0)aiora::AudioEngine::instance().noteOff(state.editorPreviewVoice);
+        state.editorPreviewVoice=auditionPhysical(state,62);
+        state.editorPreviewStopMs=state.editorPreviewVoice>=0?nowMs()+420:0;
+        return;
+    }
     if(project.trackIsDrums(track)){
         const int pad=project.selectedPad(track);
         if(pad>=0&&pad<project.padCount(track))previewDrumPitch(state,project.padCenter(track,pad));
@@ -1776,6 +1793,7 @@ void drawFrame(NativeState& state) {
             state.scopeRestoreUntilMs=0;
         }
     }
+    aiora::NativeEditor::instance().syncPhysicalBinding();
     serviceEditorPreview(state);
     serviceAutosave(state);
     serviceRollLongPress(state);
@@ -1837,7 +1855,9 @@ void previewRollPitch(NativeState& state,int midi){
         if(pad<0)return;
         state.editorPreviewVoice=audio.noteOnPad(pad,midi,state.ui.expressionVelocity());
     }else{
-        state.editorPreviewVoice=audio.noteOn(midi,state.ui.expressionVelocity());
+        auto& editor=aiora::NativeEditor::instance();
+        editor.syncPhysicalBinding();
+        state.editorPreviewVoice=editor.physicalEditorActive()?auditionPhysical(state,midi):audio.noteOn(midi,state.ui.expressionVelocity());
     }
 
     if(state.editorPreviewVoice>=0){
@@ -1882,7 +1902,12 @@ void startPitch(NativeState& state, PointerVoice& touch, int midi) {
         return;
     }
 
-    touch.voiceId=audio.noteOn(midi,state.ui.expressionVelocity());
+    auto& editor=aiora::NativeEditor::instance();
+    editor.syncPhysicalBinding();
+    if(editor.physicalEditorActive()&&track>=0&&
+       (!project.trackIsDrums(track)||state.ui.page()==aiora::NativePage::Synth)){
+        touch.voiceId=auditionPhysical(state,midi);
+    }else touch.voiceId=audio.noteOn(midi,state.ui.expressionVelocity());
     audio.setLiveExpression(state.ui.expressionVelocity(),state.ui.expressionMod());
 }
 
@@ -1990,11 +2015,12 @@ bool handleUiTap(NativeState& state, float x, float y) {
             case 0:state.ui.toggleScopeControls();break;
             case 1:
                 state.ui.setRollStartStep(0);
+                aiora::NativeEditor::instance().syncPhysicalBinding();
                 audio.playTransport(0);
                 break;
             case 2:
                 if(audio.transportPlaying())audio.stopTransport();
-                else audio.playTransport(state.ui.rollStartStep());
+                else {aiora::NativeEditor::instance().syncPhysicalBinding();audio.playTransport(state.ui.rollStartStep());}
                 break;
             case 3:
                 audio.stopTransport();
@@ -2240,6 +2266,7 @@ bool handleUiTap(NativeState& state, float x, float y) {
                     audio.stopTransport();
                 }else{
                     state.ui.setPerformanceFollow(true);
+                    aiora::NativeEditor::instance().syncPhysicalBinding();
                     audio.playTransport(state.ui.rollStartStep());
                 }
                 break;

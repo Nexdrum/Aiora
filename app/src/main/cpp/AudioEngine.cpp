@@ -82,8 +82,27 @@ int AudioEngine::noteOn(int midi,float velocity) noexcept {
         const auto [l,r]=panGain(project.trackVolume(track),project.trackPan(track));
         e.gainLeft=l;e.gainRight=r;
     }
-    events_.push(e);
-    return id;
+    return events_.push(e)?id:-1;
+}
+int AudioEngine::noteOnPhysical(int midi,float velocity,float mod,
+    const physical::Blueprint& blueprint) noexcept {
+    // Explicit audition event owns its graph snapshot. It can never fall
+    // through to an operator patch if a separate config event is stale.
+    Event e{};
+    e.type=EventType::PhysicalNoteOn;
+    e.id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
+    e.midi=std::clamp(midi,0,127);
+    e.value=std::clamp(velocity,0.f,1.f);
+    e.physicalMod=std::clamp(mod,0.f,1.f);
+    e.physicalBlueprint=blueprint;
+    auto& project=ProjectCore::instance();
+    const int track=project.selectedTrack();
+    e.source=track;
+    if(track>=0){
+        const auto [l,r]=panGain(project.trackVolume(track),project.trackPan(track));
+        e.gainLeft=l;e.gainRight=r;
+    }
+    return events_.push(e)?e.id:-1;
 }
 int AudioEngine::noteOnPad(int padIndex,int midi,float velocity) noexcept {
     const int id=nextVoiceId_.fetch_add(1,std::memory_order_relaxed);
@@ -120,13 +139,13 @@ void AudioEngine::setLiveExpression(float v,float m) noexcept {
     e.gainLeft=std::clamp(m,0.0f,1.0f);
     events_.push(e);
 }
-void AudioEngine::setPhysicalExperiment(int track,
+bool AudioEngine::setPhysicalExperiment(int track,
     const physical::Blueprint& blueprint) noexcept {
     Event e{};
     e.type=EventType::PhysicalConfig;
     e.source=track;
     e.physicalBlueprint=blueprint;
-    events_.push(e);
+    return events_.push(e);
 }
 void AudioEngine::noteOff(int voiceId) noexcept {events_.push({EventType::NoteOff,voiceId,0,0,0,0});}
 void AudioEngine::panic() noexcept {events_.push({EventType::Panic,-1,0,0,0,0});}
@@ -207,6 +226,7 @@ void AudioEngine::triggerStep(int step,double phase) noexcept {
         if(!e.drum&&e.sourceTrack>=0&&e.sourceTrack==physicalTrack_){
             slot.voice.kill();
             slot.physicalMode=true;
+            slot.constructedPhysical=physical::usesConstructedMaterial(physicalBlueprint_.graph);
             slot.physicalId=id;
             slot.physicalVoice.start(physicalBlueprint_,e.midi,pressure,
                 physicalLaneAt(e.automation.mod,0.0f,0.0f));
@@ -258,6 +278,11 @@ void AudioEngine::advanceTransport() noexcept {
 void AudioEngine::applyEvent(const Event&e) noexcept {
     switch(e.type){
         case EventType::PhysicalConfig:
+            if(physicalTrack_!=e.source){
+                // Do not leave an old operator audition ringing over the lab.
+                for(auto& slot:voices_)if(!slot.transport){slot.voice.kill();slot.physicalVoice.stop();}
+                previewFx_.reset();previewKitFx_.reset();
+            }
             physicalTrack_=e.source;
             physicalBlueprint_=e.physicalBlueprint;
             return;
@@ -282,13 +307,17 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
                 }
             }
             return;
+        case EventType::PhysicalNoteOn:
         case EventType::NoteOn:{
+            const bool explicitPhysical=e.type==EventType::PhysicalNoteOn;
             auto&slot=allocateVoice();
-            if(e.source>=0&&e.source==physicalTrack_){
+            if(explicitPhysical||(e.source>=0&&e.source==physicalTrack_)){
+                const auto& blueprint=explicitPhysical?e.physicalBlueprint:physicalBlueprint_;
                 slot.voice.kill();
                 slot.physicalMode=true;
+                slot.constructedPhysical=physical::usesConstructedMaterial(blueprint.graph);
                 slot.physicalId=e.id;
-                slot.physicalVoice.start(physicalBlueprint_,e.midi,e.value);
+                slot.physicalVoice.start(blueprint,e.midi,e.value,explicitPhysical?e.physicalMod:0.f);
                 slot.physicalSamples=0;slot.physicalGateSamples=0;
                 slot.physicalInitialVelocity=e.value;slot.physicalReleased=false;
                 slot.physicalAutomation={};
@@ -300,7 +329,8 @@ void AudioEngine::applyEvent(const Event&e) noexcept {
             }
             slot.gainLeft=e.gainLeft;slot.gainRight=e.gainRight;
             slot.fxBus=-1;slot.midi=e.midi;slot.transport=false;
-            configureFx(e.patch.fx);previewKitFx_.set(Fx{});return;
+            if(!slot.physicalMode||!slot.constructedPhysical){configureFx(e.patch.fx);previewKitFx_.set(Fx{});}
+            return;
         }
         case EventType::PadOn:{
             auto&slot=allocateVoice();slot.physicalVoice.stop();slot.physicalMode=false;slot.voice.start(e.id,e.patch,e.midi,e.value);slot.voice.setAge(++ageCounter_);
@@ -388,6 +418,7 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
     }
     float transportLeft=0.0f,transportRight=0.0f;
     float previewLeft=0.0f,previewRight=0.0f;
+    float physicalPreviewLeft=0.f,physicalPreviewRight=0.f;
 
     for(auto&slot:voices_){
         if(!slot.active())continue;
@@ -415,7 +446,8 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
             // Matches an instrument-level source without a synth oscillator.
             // Physical body modes are peak-normalized; match the preview path's
             // existing 0.165 attenuation without increasing resonant Q gain.
-            sample=slot.physicalVoice.render()*(slot.transport?1.0f:6.0f);
+            sample=slot.physicalVoice.render()*(slot.constructedPhysical?
+                physical::kConstructionOutputGain:(slot.transport?1.0f:6.0f));
         }else{
             sample=slot.voice.render();
         }
@@ -428,6 +460,9 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
             }else{
                 transportLeft+=l;transportRight+=r;
             }
+        }else if(slot.physicalMode&&slot.constructedPhysical){
+            // Dry audition is independent of the old operator/pad FX state.
+            physicalPreviewLeft+=l;physicalPreviewRight+=r;
         }else{
             previewLeft+=l;previewRight+=r;
         }
@@ -453,7 +488,8 @@ std::array<float,2> AudioEngine::renderFrame() noexcept {
     const auto padWet=previewFx_.processStereo(
         previewLeft*0.165f,previewRight*0.165f);
     const auto preview=previewKitFx_.processStereo(padWet[0],padWet[1]);
-    return {std::tanh(transportLeft+preview[0]),std::tanh(transportRight+preview[1])};
+    return {std::tanh(transportLeft+preview[0]+physicalPreviewLeft),
+            std::tanh(transportRight+preview[1]+physicalPreviewRight)};
 }
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*,void*audioData,int32_t numFrames){

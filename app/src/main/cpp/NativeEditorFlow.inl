@@ -23,8 +23,9 @@ void NativeEditor::syncPhysicalBinding() noexcept {
     const int target=(synthWorkspace_==3&&track>=0&&!project.trackIsDrums(track))
         ?track:-1;
     if(target==physicalConfiguredTrack_&&!physicalDirty_)return;
-    AudioEngine::instance().setPhysicalExperiment(target,physicalBlueprint_);
-    physicalConfiguredTrack_=target;physicalDirty_=false;
+    if(AudioEngine::instance().setPhysicalExperiment(target,physicalBlueprint_)){
+        physicalConfiguredTrack_=target;physicalDirty_=false;
+    } // Retry next frame if queue is full.
 }
 NativeEditor::Rect NativeEditor::flowTemplateRect(int index) const noexcept {
     const auto b=bodyRect(),tab=synthTabRect(0);

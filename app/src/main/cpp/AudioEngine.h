@@ -21,11 +21,12 @@ public:
     bool start();
     void stop();
     int noteOn(int midi, float velocity) noexcept;
+    int noteOnPhysical(int midi,float velocity,float mod,const physical::Blueprint& blueprint) noexcept;
     int noteOnPad(int padIndex, int midi, float velocity) noexcept;
     void noteOff(int voiceId) noexcept;
     void setLiveExpression(float v,float m) noexcept;
     // Opt-in session-only physical instrument for one melodic track.
-    void setPhysicalExperiment(int track, const physical::Blueprint& blueprint) noexcept;
+    bool setPhysicalExperiment(int track, const physical::Blueprint& blueprint) noexcept;
     void panic() noexcept;
     void setFactoryPreset(int index) noexcept;
     bool syncProject();
@@ -55,7 +56,7 @@ private:
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
 
-    enum class EventType : uint8_t { NoteOn, PadOn, NoteOff, Panic, Preset, Snapshot, Play, StopTransport, LiveExpression, PhysicalConfig };
+    enum class EventType : uint8_t { NoteOn, PadOn, NoteOff, Panic, Preset, Snapshot, Play, StopTransport, LiveExpression, PhysicalConfig, PhysicalNoteOn };
     struct Event {
         EventType type{EventType::Panic};
         int32_t id{-1};
@@ -68,11 +69,13 @@ private:
         float gainLeft{1.0f};
         float gainRight{1.0f};
         physical::Blueprint physicalBlueprint{};
+        float physicalMod{0.f};
     };
     struct VoiceSlot {
         SpectrachordVoice voice{};
         physical::MaterialTimeVoice physicalVoice{};
         bool physicalMode{false};
+        bool constructedPhysical{false};
         int32_t physicalId{-1};
         uint64_t physicalSamples{0}, physicalGateSamples{0};
         float physicalSamplesPerStep{1.0f};

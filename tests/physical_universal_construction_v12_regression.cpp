@@ -13,6 +13,11 @@ int main(){
     Blueprint b;b.graph=constructionStarterGraph();
     auto& n=b.graph.nodes[2];auto& g=n.form;
     const double a=render(b);assert(a>1.e-20);
+    assert(usesConstructedMaterial(b.graph));
+    assert(!usesConstructedMaterial(objectFlowStarterGraph()));
+    const double calibratedRms=std::sqrt(a/30000.)*kConstructionOutputGain;
+    assert(calibratedRms>.005&&calibratedRms<.5);
+    std::printf("Default dry preview calibrated RMS %.8g\n",calibratedRms);
     const float full=occupiedVolume(n);
     const auto stamp=physicalGraphStamp(b.graph);
     g.wallMm=1.f;g.wallFill=0.f;g.cavities[0].length=.6f;

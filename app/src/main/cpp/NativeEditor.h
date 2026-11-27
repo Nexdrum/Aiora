@@ -41,6 +41,7 @@ public:
     // Called on UI thread each Synth frame; only sends a new config on change.
     void syncPhysicalBinding() noexcept;
     [[nodiscard]] bool physicalEditorActive() const noexcept { return synthWorkspace_==3; }
+    [[nodiscard]] const physical::Blueprint& physicalAuditionBlueprint() const noexcept { return physicalBlueprint_; }
     void renderFx() const noexcept;
 
     bool pointerDown(EditorPage page, float x, float y);
