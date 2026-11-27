@@ -511,6 +511,14 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
 bool NativeEditor::flowAction(int index) noexcept {
     using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
+    if(index==3&&g.objectFlow){
+        g=physical::constructionGuitarGraph();
+        physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
+        pitchSpectrumBands_.fill(0.f);
+        pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
+        flowSelectedNode_=2;flowSelectedLink_=-1;flowLinkSource_=-1;flowLinkMode_=0;
+        flowError_=false;physicalDirty_=true;return true;
+    }
     if(index>=0&&index<5){
         if(g.objectFlow&&(index==0||index==1)){
             flowSelectedNode_=index;flowSelectedLink_=-1;flowLinkMode_=0;flowLinkSource_=-1;
@@ -952,11 +960,10 @@ void NativeEditor::drawPhysical() const noexcept {
     ov.addText("Energy > transfer object > interaction > object > output",
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
     constexpr const char* actions[]={
-        "ENERGY","TRANSFER","+OBJECT","","+OUTPUT","INTERACT",
+        "ENERGY","TRANSFER","+OBJECT","GUITAR","+OUTPUT","INTERACT",
         "UNLINK","DELETE","CLEAR","EXAMPLE"
     };
     for(int i=0;i<10;++i){
-        if(g.objectFlow&&i==3)continue;
         const auto rr=flowActionRect(i);
         const bool selected=(i==5&&flowLinkMode_==1)||(i==6&&flowLinkMode_==2);
         ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(selected?kCyan:kButton));

@@ -654,10 +654,19 @@ private:
         for(int m=0;m<receiver.modeCount;++m)
             returning+=receiver.modes[m].imag*receiver.modes[m].weight*
                 std::sin(kPi*(m+1.f)*targetX);
-        const float rel=std::clamp(input+.12f*outgoing-.18f*returning,-.8f,.8f);
+        const bool constructed=sender.node.substance.enabled||receiver.node.substance.enabled;
+        // A receiver must not be reinjected into its own delayed force input.
+        // The forward path is driven only by the sender; passive back reaction
+        // is applied separately below. Preserve older experiment behavior.
+        const float rel=std::clamp(constructed?input:input+.12f*outgoing-.18f*returning,-.8f,.8f);
         const float softness=.5f*(sender.physicalMaterial.contactSoftness+
             receiver.physicalMaterial.contactSoftness);
-        const float area=std::clamp(e.aperture,0.f,1.f)*safe01(p.engagement);
+        // M moves the contact across the receiver's finite axial surface.
+        // Endpoints have zero overlap, midpoint full overlap in this reduced
+        // contact profile. This is geometry, not an output volume automation.
+        const float mx=e.modEnabled?e.modMin+(e.modMax-e.modMin)*e2Smooth_:e.position;
+        const float overlap=constructed&&e.modEnabled?std::pow(std::sin(kPi*safe01(mx)),2.f):1.f;
+        const float area=std::clamp(e.aperture,0.f,1.f)*safe01(p.engagement)*overlap;
         const float adhesion=safe01(p.adhesion),motion=safe01(p.motion);
         const float elasticity=.15f+1.7f*safe01(p.elasticity);
         const float roughness=.5f*((sender.node.substance.enabled?sender.node.substance.value[Roughness]:.5f)+
@@ -688,7 +697,8 @@ private:
                     (1.f-.6f*g.spread*(1.f-g.confinement))*
                     (.25f+.75f*std::fabs(std::cos((g.flowAngle-p.angleDeg)*kPi/180.f)));
             }
-            flux=.28f*viscous*coherence*std::copysign(std::sqrt(std::fabs(e.elastic)),e.elastic);
+            flux=.28f*viscous*coherence*(constructed?e.elastic:
+                std::copysign(std::sqrt(std::fabs(e.elastic)),e.elastic));
             resistance=.3f*std::fabs(rel-e.elastic);
         }else{
             const float compression=(1.f-attached)*normal;
@@ -705,18 +715,31 @@ private:
         }
         flux*=area*gate*spatial;
         resistance*=area*gate*spatial;
+        if(constructed){
+            // Stable forward transmission: the elastic state may shape an
+            // input but cannot emit a larger force than the incoming wave
+            // plus its decaying stored displacement. No feedback gain.
+            const float bound=area*gate*spatial*(std::fabs(input)+.25f*std::fabs(previous));
+            flux=std::clamp(flux,-bound,bound);
+        }
         // Local passive loss opposes sender vibration; only directly driven
         // transfer contacts feed the APT drive reaction.
         const float retain=1.f-std::clamp(resistance*.08f,0.f,.025f);
         for(int m=0;m<sender.modeCount;++m){
-            sender.modes[m].real*=retain;sender.modes[m].imag*=retain;
-            if(sender.node.substance.enabled||receiver.node.substance.enabled){
-                // Bounded reciprocal receiver reaction on the source modes.
-                // Passive convex mixing of modal velocity, not an extra exciter.
-                const float k=std::clamp(area*gate*attached*.003f,0.f,.003f);
-                const float rv=m<receiver.modeCount?receiver.modes[m].imag:0.f;
-                sender.modes[m].imag=(1.f-k)*sender.modes[m].imag+k*rv;
+            float localRetain=retain;
+            if(constructed){
+                // Passive contact loading: a stationary lossy receiver absorbs
+                // vibration at the sender contact point even after drive stops.
+                // No receiver state is copied into the sender or vice versa.
+                const float shape=std::sin(kPi*(m+1.f)*sourceX);
+                const float loss=receiver.physicalMaterial.lossFactor;
+                const float absorption=area*gate*spatial*(1.f-motion)*
+                    (1.f-safe01(p.restitution))*(.15f+.85f*receiver.physicalMaterial.contactSoftness)*
+                    std::clamp(loss*4.f,0.f,1.f);
+                const float rate=2200.f*absorption*shape*shape;
+                localRetain*=std::exp(-rate/sampleRate_);
             }
+            sender.modes[m].real*=localRetain;sender.modes[m].imag*=localRetain;
         }
         if(sender.node.role==PhysicalRole::Transfer)
             nextReactionForceN_+=std::clamp(resistance*

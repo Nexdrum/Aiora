@@ -750,6 +750,41 @@ inline FlowGraph constructionStarterGraph() noexcept {
     initializeConstruction(g.nodes[2]);
     return g;
 }
+// Example only: these are the same editable values exposed by the builder.
+// No guitar-specific behavior is selected by the solver.
+inline FlowGraph constructionGuitarGraph() noexcept {
+    FlowGraph g=constructionEmptyGraph();
+    g.spanMs=8.f;
+    auto& energy=g.nodes[0];
+    energy.sourceAcceleration=85.f;energy.sourcePotential=.85f;energy.sourceTimeMs=5.f;
+    auto& pick=g.nodes[1];pick.x=.42f;pick.y=.20f;
+    pick.form.lengthMeters=.03f;pick.form.widthMeters=.015f;pick.form.depthMeters=.0008f;
+    pick.form.edges=3;pick.form.rounding=.2f;pick.form.fixing=.8f;pick.tensionNewtons=0.f;
+    pick.substance.value={.75f,.7f,.95f,.75f,.30f,.32f,.18f,.65f,.25f,.25f,0.f,.32f,.12f};
+    const int string=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int palm=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int output=addPhysicalRole(g,PhysicalRole::Output);
+    auto& s=g.nodes[string];initializeConstruction(s);
+    s.x=.43f;s.y=.43f;s.form.lengthMeters=.65f;s.form.widthMeters=.0005f;s.form.depthMeters=.0005f;
+    s.form.edges=32;s.form.rounding=1.f;s.form.fixing=.8f;s.tensionNewtons=56.f;s.damping=.35f;
+    s.substance.value={.933f,.93f,.99f,.908f,.100f,.05f,.0f,.9f,.2f,.2f,0.f,.15f,.12f};
+    auto& h=g.nodes[palm];initializeConstruction(h);
+    h.x=.13f;h.y=.72f;h.form.lengthMeters=.08f;h.form.widthMeters=.04f;h.form.depthMeters=.016f;
+    h.form.rounding=.8f;h.form.fixing=.25f;h.tensionNewtons=0.f;h.damping=2.f;
+    h.substance.value={.738f,.12f,.35f,.40f,.34f,.90f,.35f,.15f,.3f,.4f,.02f,.65f,.12f};
+    g.nodes[output].x=.73f;g.nodes[output].y=.92f;
+    g.connect(1,string);
+    auto& strike=g.links[g.linkCount-1];strike.position=.21f;strike.fromPosition=.8f;
+    strike.aperture=.85f;strike.engagement=1.f;strike.motion=.8f;strike.angleDeg=30.f;
+    strike.adhesion=0.f;strike.friction=.55f;strike.elasticity=.55f;strike.restitution=.55f;
+    g.connect(string,palm);
+    auto& mute=g.links[g.linkCount-1];mute.position=0.f;mute.modEnabled=true;mute.modMin=0.f;mute.modMax=.5f;
+    mute.fromPosition=.12f;mute.aperture=.8f;mute.engagement=1.f;mute.motion=0.f;
+    mute.adhesion=0.f;mute.friction=.8f;mute.elasticity=.45f;mute.restitution=.05f;
+    g.connect(string,output);
+    auto& pickup=g.links[g.linkCount-1];pickup.position=.23f;pickup.aperture=.8f;
+    return g;
+}
 inline FlowGraph defaultFlowGraph() noexcept {
     return universalStarterGraph();
 }
