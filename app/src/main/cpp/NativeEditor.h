@@ -74,7 +74,7 @@ public:
     }
 
 private:
-    NativeEditor() { physicalBlueprint_.graph=physical::defaultFlowGraph(); }
+    NativeEditor() { physicalBlueprint_.graph=physical::objectFlowStarterGraph(); }
 
     enum class HitKind : uint8_t {
         None,

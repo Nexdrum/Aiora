@@ -2549,6 +2549,11 @@ bool NativeEditor::applyDropdownChoice(const DropdownChoice& choice){
                 if(choice.option<0||choice.option>=physical::kMaterialCount||
                    node.kind==physical::FlowKind::Output)return false;
                 node.material=static_cast<physical::Material>(choice.option);
+                if(graph.objectFlow){
+                    if(node.material==physical::Material::Air)node.form.continuum=physical::Continuum::Gas;
+                    else if(physical::liquidMaterial(node.material))node.form.continuum=physical::Continuum::Liquid;
+                    else if(physical::fluidContinuum(node.form.continuum))node.form.continuum=physical::Continuum::Solid;
+                }
             }else{
                 if(node.kind==physical::FlowKind::AirColumn){
                     if(choice.option<0||choice.option>1)return false;

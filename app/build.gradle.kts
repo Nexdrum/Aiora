@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".geometryv10"
-            versionNameSuffix = "-geometry-interaction-v10"
+            applicationIdSuffix = ".objectflowv11"
+            versionNameSuffix = "-object-flow-v11"
         }
     }
 

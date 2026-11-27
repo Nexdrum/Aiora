@@ -14,7 +14,7 @@ enum class Material : uint8_t {
     Steel, Nylon, Bronze, Wood, Glass, Ceramic, Rubber, Felt,
     Aluminum, Copper, Brass, Iron, Titanium, Silver, Gold, CarbonFiber,
     Bamboo, Hardwood, Plywood, Cork, Acrylic, ABS, Polycarbonate,
-    Silicone, Leather, Wool, Stone, Concrete, Porcelain, Paper, Air,
+    Silicone, Leather, Wool, Stone, Concrete, Porcelain, Paper, Air, Water, Oil, SoftTissue, HardTissue,
     Count
 };
 inline constexpr int kMaterialCount=static_cast<int>(Material::Count);
@@ -23,7 +23,8 @@ inline constexpr std::array<const char*,kMaterialCount> kMaterialNames{
     "Aluminum","Copper","Brass","Iron","Titanium","Silver","Gold",
     "Carbon fiber","Bamboo","Hardwood","Plywood","Cork","Acrylic",
     "ABS plastic","Polycarbonate","Silicone","Leather","Wool",
-    "Stone","Concrete","Porcelain","Paper","Air"
+    "Stone","Concrete","Porcelain","Paper","Air",
+    "Water","Oil","Human soft tissue","Human hard tissue"
 };
 inline constexpr const char* materialName(Material m) noexcept {
     const int i=static_cast<int>(m);
@@ -69,6 +70,11 @@ inline constexpr MaterialProperties materialProperties(Material material) noexce
     case Material::Paper:return {800.f,2.0e9f,.080f,.55f};
     // For a gas, the elastic parameter denotes bulk modulus, not Young's E.
     case Material::Air:return {1.225f,1.42e5f,.010f,.92f};
+    case Material::Water:return {998.f,2.2e9f,.015f,.92f};
+    case Material::Oil:return {870.f,1.5e9f,.08f,.96f};
+    // Representative reduced-model tissue values, not anatomical simulations.
+    case Material::SoftTissue:return {1050.f,0.15e6f,.25f,.94f};
+    case Material::HardTissue:return {1850.f,15.e9f,.03f,.20f};
     case Material::Count:break;
     }
     return {7850.f,200.e9f,.001f,.05f};
@@ -93,21 +99,28 @@ enum class FlowKind : uint8_t {
 enum class PhysicalRole : uint8_t { Source, Transfer, Interaction, Resonator, Output };
 inline constexpr const char* roleName(PhysicalRole r) noexcept {
     switch(r){
-    case PhysicalRole::Source:return "ENERGY SOURCE";
-    case PhysicalRole::Transfer:return "TRANSFER MEDIUM";
+    case PhysicalRole::Source:return "ENERGY";
+    case PhysicalRole::Transfer:return "TRANSFER OBJECT";
     case PhysicalRole::Interaction:return "INTERACTION";
-    case PhysicalRole::Resonator:return "RESONATING MEDIUM";
+    case PhysicalRole::Resonator:return "OBJECT";
     case PhysicalRole::Output:return "OUTPUT";
     }
     return "ROLE";
 }
-enum class Continuum : uint8_t { Filament, Sheet, Solid, Gas };
+enum class Continuum : uint8_t { Filament, Sheet, Solid, Gas, Liquid };
+inline constexpr bool fluidContinuum(Continuum c) noexcept {
+    return c==Continuum::Gas||c==Continuum::Liquid;
+}
+inline constexpr bool liquidMaterial(Material m) noexcept {
+    return m==Material::Water||m==Material::Oil;
+}
 inline constexpr const char* continuumName(Continuum c) noexcept {
     switch(c){
     case Continuum::Filament:return "Filament";
     case Continuum::Sheet:return "Surface";
     case Continuum::Solid:return "Solid";
-    case Continuum::Gas:return "Air cavity";
+    case Continuum::Gas:return "Gas cavity";
+    case Continuum::Liquid:return "Liquid volume";
     }
     return "Solid";
 }
@@ -240,7 +253,12 @@ struct FlowLink {
     float aperture{.22f}; // size of interaction area / flow inlet
     float modMin{.5f},modMax{.5f};
     bool modEnabled{false}; // independent M assignment; min>max reverses direction
-    ContactLaw law{ContactLaw::Coupled};
+    ContactLaw law{ContactLaw::Coupled}; // legacy only
+    // Object-flow interaction: no material, geometry or resonator of its own.
+    float fromPosition{.5f};
+    float motion{0.f},angleDeg{0.f},engagement{.8f};
+    float friction{.5f},elasticity{.5f},restitution{.5f};
+    float clearance{0.f},adhesion{1.f};
 };
 inline constexpr bool isUniversalSource(const FlowNode& n) noexcept {
     return n.kind==FlowKind::Universal&&n.role==PhysicalRole::Source;
@@ -258,6 +276,7 @@ struct FlowGraph {
     std::array<FlowLink,kMaxFlowLinks> links{};
     uint8_t nodeCount{0},linkCount{0};
     float spanMs{48.f}; // full top-bottom travel time, not literal distance
+    bool objectFlow{false}; // legacy graphs retain their earlier solver
 
     int first(FlowKind kind) const noexcept {
         for(int i=0;i<nodeCount;++i)
@@ -281,6 +300,13 @@ struct FlowGraph {
         if(source.y+.035f>=target.y)return false;
         if(source.kind==FlowKind::Output||target.kind==FlowKind::Exciter||
            isUniversalOutput(source)||isUniversalSource(target))return false;
+        if(objectFlow){
+            if(source.kind!=FlowKind::Universal||target.kind!=FlowKind::Universal||
+               source.role==PhysicalRole::Interaction||target.role==PhysicalRole::Interaction)return false;
+            if(isUniversalSource(source))return from==0&&to==1&&target.role==PhysicalRole::Transfer;
+            if(target.role==PhysicalRole::Transfer)return false;
+            return physicalVibrates(source)&&(physicalVibrates(target)||isUniversalOutput(target));
+        }
         // Universal roles may be repeated freely, branching into many
         // physical media. Only chronological arrival order is constrained.
         if(source.kind==FlowKind::Universal||target.kind==FlowKind::Universal){
@@ -312,7 +338,7 @@ struct FlowGraph {
         FlowLink link;
         link.from=static_cast<uint8_t>(from);
         link.to=static_cast<uint8_t>(to);
-        link.position=std::clamp(nodes[to].x,0.f,1.f);
+        link.position=objectFlow?.5f:std::clamp(nodes[to].x,0.f,1.f);
         link.modMin=link.position;link.modMax=link.position;
         if(nodes[to].kind==FlowKind::Damper)
             link.modTravel=1.f; // M physically approaches the vibrating source
@@ -320,6 +346,7 @@ struct FlowGraph {
         return true;
     }
     bool disconnect(int from,int to) noexcept {
+        if(objectFlow&&from==0&&to==1)return false;
         for(int i=0;i<linkCount;++i)if(links[i].from==from&&links[i].to==to){
             for(int j=i;j+1<linkCount;++j)links[j]=links[j+1];
             --linkCount;return true;
@@ -348,7 +375,7 @@ struct FlowGraph {
         return i;
     }
     bool removeNode(int id) noexcept {
-        if(id<0||id>=nodeCount)return false;
+        if(id<0||id>=nodeCount||(objectFlow&&id<2))return false;
         if(nodes[id].kind==FlowKind::Exciter||nodes[id].kind==FlowKind::Output)return false;
         for(int i=0;i<linkCount;){
             if(links[i].from==id||links[i].to==id){
@@ -378,7 +405,7 @@ struct FlowGraph {
         n.x=std::clamp(x,0.f,1.f);
         n.y=std::clamp(y,lower,upper);
         for(int i=0;i<linkCount;++i)
-            if(links[i].to==id)links[i].position=n.x;
+            if(!objectFlow&&links[i].to==id)links[i].position=n.x;
         return true;
     }
 };
@@ -508,6 +535,29 @@ inline FlowGraph universalStarterGraph() noexcept {
     g.connect(0,t);
     g.connect(t,i);
     g.connect(i,r);
+    g.connect(r,o);
+    return g;
+}
+inline FlowGraph objectFlowEmptyGraph() noexcept {
+    FlowGraph g=universalEmptyGraph();
+    g.objectFlow=true;
+    const int t=addPhysicalRole(g,PhysicalRole::Transfer);
+    g.nodes[t].y=.23f;
+    g.connect(0,t);
+    return g;
+}
+inline FlowGraph objectFlowStarterGraph() noexcept {
+    FlowGraph g=objectFlowEmptyGraph();
+    const int r=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int o=addPhysicalRole(g,PhysicalRole::Output);
+    g.nodes[r].form.continuum=Continuum::Solid;
+    g.nodes[r].material=Material::Wood;
+    g.nodes[r].form.widthMeters=.2f;
+    g.nodes[r].y=.58f;
+    g.connect(1,r);
+    auto& contact=g.links[g.linkCount-1];
+    contact.motion=.7f;contact.angleDeg=25.f;contact.adhesion=0.f;
+    contact.aperture=.65f;
     g.connect(r,o);
     return g;
 }

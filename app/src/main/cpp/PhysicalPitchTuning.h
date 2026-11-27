@@ -49,8 +49,10 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
         f*=1.f+1.35f*std::clamp(g.fixing,0.f,1.f);
         break;
     }
-    case Continuum::Gas:{
-        const float soundSpeed=343.f;
+    case Continuum::Gas:
+    case Continuum::Liquid:{
+        const float soundSpeed=g.continuum==Continuum::Liquid?
+            std::sqrt(material.youngModulusPa/std::max(1.f,material.densityKgM3)):343.f;
         const float closed=g.opening<.5f?4.f:2.f;
         const float endCorrection=.61f*std::sqrt(w*d);
         const float effective=L+endCorrection*(g.opening+.25f);
@@ -165,7 +167,7 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
     uint32_t h=2166136261u;
     const auto add=[&](uint32_t v){h=(h^v)*16777619u;};
     const auto f=[&](float v){add(std::bit_cast<uint32_t>(v));};
-    add(g.nodeCount);add(g.linkCount);f(g.spanMs);
+    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);
     for(int i=0;i<g.nodeCount;++i){
         const auto& n=g.nodes[static_cast<size_t>(i)];
         add(static_cast<uint32_t>(n.kind));add(static_cast<uint32_t>(n.role));
@@ -195,6 +197,8 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
         f(link.modTravel);f(link.aperture);
         f(link.modMin);f(link.modMax);
         add(link.modEnabled);add(static_cast<uint32_t>(link.law));
+        f(link.fromPosition);f(link.motion);f(link.angleDeg);f(link.engagement);
+        f(link.friction);f(link.elasticity);f(link.restitution);f(link.clearance);f(link.adhesion);
     }
     return h;
 }

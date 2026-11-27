@@ -1,0 +1,7 @@
+# Object flow v11 prototype
+
+The experimental editor starts with Energy (APT) and one connected transfer object. Add ordinary objects and an output, then use INTERACT to connect earlier and later objects. Tap the connection to edit the interface. Objects alone own material, geometry and modes. The transfer object carries both imposed APT motion and its own vibration. Receiving objects may connect directly to output. Further objects and interactions are optional.
+
+Connection parameters: receiver and sender positions, M position range, aperture/contact area, relative motion magnitude and angle, engagement, friction, elastic response, restitution, clearance, adhesion. Zero relative motion plus strong adhesion represents stationary coupling; fluid contact is selected from endpoint continuum, not a human gesture preset. The output link is a pickup and the source link is fixed. Added water, oil, representative human soft and hard tissue. Values are approximate, not physiological simulations. Gas/liquid use a reduced pressure-wave model; the existing modal and bounded contact approximations remain. No true geometry collision or full two-way fluid-structure solver. Legacy graph format and earlier regression cases remain available internally.
+
+The geometry schematic remains slider-driven. Interaction preview displays the two actual material names, direction, engagement and clearance. No project persistence or sustain reset in this iteration.

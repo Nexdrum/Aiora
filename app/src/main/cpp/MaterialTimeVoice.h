@@ -85,6 +85,7 @@ public:
                !graph_.compatible(raw.from,raw.to))continue;
             auto& edge=edges_[static_cast<size_t>(edgeCount_)];
             edge.from=raw.from;edge.to=raw.to;
+            edge.interaction=raw;edge.elastic=0.f;edge.slip=0.f;edge.previousFlux=0.f;
             edge.position=std::clamp(raw.position,0.f,1.f);
             edge.modTravel=std::clamp(raw.modTravel,-1.f,1.f);
             edge.modEnabled=raw.modEnabled;
@@ -109,9 +110,9 @@ public:
             const float z1=materialImpedance(to.material);
             const bool airCoupled=from.kind==FlowKind::Router||
                 (from.kind==FlowKind::Universal&&
-                 from.form.continuum==Continuum::Gas)||
+                 fluidContinuum(from.form.continuum))||
                 (to.kind==FlowKind::Universal&&
-                 to.form.continuum==Continuum::Gas)||
+                 fluidContinuum(to.form.continuum))||
                 from.kind==FlowKind::Reed||from.kind==FlowKind::Edge||
                 to.kind==FlowKind::Reed||to.kind==FlowKind::Edge||
                 (from.kind==FlowKind::Exciter&&
@@ -331,7 +332,12 @@ public:
                     output=input;result+=output;
                 }else if(n.node.role==PhysicalRole::Interaction)
                     output=interact(n,input,id);
-                else output=ring(n,input,id);
+                else {
+                    output=ring(n,input,id);
+                    // The first object carries imposed motion AND its own vibration.
+                    if(graph_.objectFlow&&n.node.role==PhysicalRole::Transfer)
+                        output=std::clamp(output+input,-.98f,.98f);
+                }
                 break;
             case FlowKind::Output:
                 output=input;
@@ -391,11 +397,14 @@ public:
                 float flux=output*e.gain*portion;
                 // Different interaction laws propagate different mechanical
                 // disturbances, without directly changing the final audio.
-                if(e.law==ContactLaw::Friction){
+                if(graph_.objectFlow&&physicalVibrates(n.node)&&
+                   physicalVibrates(nodes_[e.to].node)){
+                    flux=objectInteraction(e,n,flux);
+                }else if(!graph_.objectFlow&&e.law==ContactLaw::Friction){
                     flux=.72f*flux+.28f*(flux-e.previousFlux);
-                }else if(e.law==ContactLaw::Contact){
+                }else if(!graph_.objectFlow&&e.law==ContactLaw::Contact){
                     flux*=.72f+.28f*std::clamp(e.aperture,0.f,1.f);
-                }else if(e.law==ContactLaw::Flow){
+                }else if(!graph_.objectFlow&&e.law==ContactLaw::Flow){
                     flux*=.5f+.5f*std::sqrt(std::max(0.f,e.aperture));
                 }
                 e.previousFlux=output*e.gain*portion;
@@ -467,6 +476,8 @@ private:
         float modMin{.5f},modMax{.5f},previousFlux{};
         bool modEnabled{false};
         ContactLaw law{ContactLaw::Coupled};
+        FlowLink interaction{};
+        float elastic{},slip{};
         std::array<float,kFlowDelayFrames> buffer{};
     };
     struct Contact {
@@ -590,6 +601,69 @@ private:
         // modal and delay-line energy downstream continues to ring.
         if(!drive)return 0.f;
         return .060f*std::tanh(3.8f*n.driveVelocity);
+    }
+    // Contact state belongs to this edge; only the two endpoints resonate.
+    // Reduced normalized mechanics, not an energy-exact distributed solver.
+    float objectInteraction(Edge& e,Node& sender,float input) noexcept {
+        const auto& p=e.interaction;
+        const auto& receiver=nodes_[e.to];
+        float outgoing=0.f,returning=0.f;
+        const float targetX=std::clamp(e.modEnabled?
+            e.modMin+(e.modMax-e.modMin)*e2Smooth_:e.position,.005f,.995f);
+        const float sourceX=std::clamp(p.fromPosition,.005f,.995f);
+        for(int m=0;m<sender.modeCount;++m)
+            outgoing+=sender.modes[m].imag*sender.modes[m].weight*
+                std::sin(kPi*(m+1.f)*sourceX);
+        for(int m=0;m<receiver.modeCount;++m)
+            returning+=receiver.modes[m].imag*receiver.modes[m].weight*
+                std::sin(kPi*(m+1.f)*targetX);
+        const float rel=std::clamp(input+.12f*outgoing-.18f*returning,-.8f,.8f);
+        const float softness=.5f*(materialProperties(sender.node.material).contactSoftness+
+            materialProperties(receiver.node.material).contactSoftness);
+        const float area=std::clamp(e.aperture,0.f,1.f)*safe01(p.engagement);
+        const float adhesion=safe01(p.adhesion),motion=safe01(p.motion);
+        const float elasticity=.15f+1.7f*safe01(p.elasticity);
+        const float friction=2.f*safe01(p.friction);
+        const float restitution=safe01(p.restitution);
+        const float gap=safe01(p.clearance)*.10f;
+        const float gate=gap>0.f?std::clamp((std::fabs(rel)-gap)/.025f,0.f,1.f):1.f;
+        const float angle=std::clamp(p.angleDeg,-90.f,90.f)*kPi/180.f;
+        const float previous=e.elastic;
+        float flux=0.f,resistance=0.f;
+        // Stationary adhesive coupling transfers signed force, no invented motion.
+        const float attached=adhesion*(1.f-motion);
+        const float normal=std::max(0.f,std::cos(angle)*rel);
+        const float tangential=std::sin(angle)*rel*motion;
+        if(fluidContinuum(sender.node.form.continuum)||
+           fluidContinuum(receiver.node.form.continuum)){
+            e.elastic+=.055f*elasticity*(rel-e.elastic);
+            flux=.28f*std::copysign(std::sqrt(std::fabs(e.elastic)),e.elastic);
+            resistance=.3f*std::fabs(rel-e.elastic);
+        }else{
+            const float compression=(1.f-attached)*normal;
+            const float shear=friction*tangential;
+            e.elastic=std::clamp((.86f+.10f*restitution)*e.elastic+
+                .12f*elasticity*(attached*rel+compression+shear),-.3f,.3f);
+            const float threshold=.005f+.025f*softness+.02f*adhesion;
+            e.slip=std::copysign(std::max(0.f,std::fabs(e.elastic)-threshold),e.elastic);
+            e.elastic-=.45f*motion*e.slip;
+            flux=attached*.75f*rel+.75f*(e.elastic-previous)+
+                .22f*restitution*e.elastic+1.8f*motion*e.slip;
+            resistance=(1.f-attached)*normal+friction*std::fabs(tangential)+
+                std::fabs(e.slip)*motion+attached*.2f*std::fabs(rel-e.elastic);
+        }
+        flux*=area*gate;
+        resistance*=area*gate;
+        // Local passive loss opposes sender vibration; only directly driven
+        // transfer contacts feed the APT drive reaction.
+        const float retain=1.f-std::clamp(resistance*.08f,0.f,.025f);
+        for(int m=0;m<sender.modeCount;++m){
+            sender.modes[m].real*=retain;sender.modes[m].imag*=retain;
+        }
+        if(sender.node.role==PhysicalRole::Transfer)
+            nextReactionForceN_+=std::clamp(resistance*
+                nodes_[0].driveMassKg*240.f,0.f,8.f);
+        return std::clamp(flux,-.8f,.8f);
     }
     // Reduced two-material contact solver. The moving material and receiving
     // resonator act on each other: previous resonant state changes relative
@@ -827,7 +901,7 @@ private:
                     // Bending surface with tension-dependent lower modes.
                     ratio=(p.tensionNewtons>120.f)?
                         membrane[i]:plate[i];
-                }else if(c==Continuum::Gas){
+                }else if(fluidContinuum(c)){
                     // An open/open duct has integer harmonics; a mostly
                     // closed end supports the odd quarter-wave family.
                     ratio=p.form.opening<.5f?2.f*index+1.f:index+1.f;

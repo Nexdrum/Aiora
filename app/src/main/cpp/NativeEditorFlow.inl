@@ -241,17 +241,20 @@ NativeEditor::Rect NativeEditor::flowNodeRect(int index) const noexcept {
 NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
     const auto canvas=flowCanvasRect();
     const auto& g=physicalBlueprint_.graph;
+    const bool linkPreview=flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount&&g.objectFlow&&
+        physical::physicalVibrates(g.nodes[g.links[flowSelectedLink_].from])&&
+        physical::physicalVibrates(g.nodes[g.links[flowSelectedLink_].to]);
     const bool preview=flowSelectedLink_<0&&flowSelectedNode_>=0&&
         flowSelectedNode_<g.nodeCount&&
         g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal&&
         g.nodes[flowSelectedNode_].role!=physical::PhysicalRole::Source&&
         g.nodes[flowSelectedNode_].role!=physical::PhysicalRole::Output;
-    return {canvas.x,canvas.y+canvas.h+70.f+(preview?224.f:0.f)+index*73.f,canvas.w,66.f};
+    return {canvas.x,canvas.y+canvas.h+70.f+(preview?224.f:linkPreview?150.f:0.f)+index*73.f,canvas.w,66.f};
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
-    physicalBlueprint_.graph=i==0?physical::universalStarterGraph():
-        physical::universalEmptyGraph();
+    physicalBlueprint_.graph=i==0?physical::objectFlowStarterGraph():
+        physical::objectFlowEmptyGraph();
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
     pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -267,14 +270,19 @@ bool NativeEditor::editFlowTime(float x) noexcept {
 }
 int NativeEditor::flowPropertyCount() const noexcept {
     const auto& g=physicalBlueprint_.graph;
-    if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount)return 6;
+    if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount){
+        const auto& l=g.links[flowSelectedLink_];
+        if(g.objectFlow)return physical::isUniversalSource(g.nodes[l.from])?0:
+            physical::isUniversalOutput(g.nodes[l.to])?4:14;
+        return 6;
+    }
     if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
        g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal){
         switch(g.nodes[flowSelectedNode_].role){
-        case physical::PhysicalRole::Source:return 7;
-        case physical::PhysicalRole::Output:return 3;
+        case physical::PhysicalRole::Source:return g.objectFlow?4:7;
+        case physical::PhysicalRole::Output:return g.objectFlow?0:3;
         case physical::PhysicalRole::Interaction:return 30;
-        default:return 21;
+        default:return g.objectFlow?16:21;
         }
     }
     if(flowSelectedNode_<0||flowSelectedNode_>=g.nodeCount)return 0;
@@ -299,6 +307,11 @@ int NativeEditor::flowPropertyCount() const noexcept {
 const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
     const auto& g=physicalBlueprint_.graph;
     if(flowSelectedLink_>=0&&flowSelectedLink_<g.linkCount){
+        if(g.objectFlow){
+            constexpr const char* labels[]={"RECEIVER POSITION","M POSITION ASSIGNED","M MIN POSITION","M MAX POSITION",
+                "CONTACT AREA","SENDER POSITION","RELATIVE MOTION","MOTION ANGLE","ENGAGEMENT","FRICTION","ELASTIC RESPONSE","RESTITUTION","CLEARANCE","ADHESION"};
+            return i>=0&&i<14?labels[i]:"";
+        }
         constexpr const char* l[]={
             "ENTRY X (TARGET SURFACE)","M ASSIGNED","M MIN POSITION",
             "M MAX POSITION","INTERACTION WIDTH","TRANSFER LAW"
@@ -398,9 +411,19 @@ bool NativeEditor::flowAction(int index) noexcept {
     using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
     if(index>=0&&index<5){
-        const PhysicalRole role=static_cast<PhysicalRole>(index);
+        if(g.objectFlow&&(index==0||index==1)){
+            flowSelectedNode_=index;flowSelectedLink_=-1;flowLinkMode_=0;flowLinkSource_=-1;
+            return false;
+        }
+        if(g.objectFlow&&index==3)return false;
+        const PhysicalRole role=g.objectFlow?(index==2?PhysicalRole::Resonator:PhysicalRole::Output):
+            static_cast<PhysicalRole>(index);
         const int id=physical::addPhysicalRole(g,role);
         if(id<0)return false;
+        if(g.objectFlow&&role==PhysicalRole::Resonator){
+            g.nodes[id].form.continuum=physical::Continuum::Solid;
+            g.nodes[id].material=physical::Material::Wood;
+        }
         // New roles can appear anywhere along the causally ordered grid.
         // Linking remains deliberate: no hidden sound-path assignments.
         flowSelectedNode_=id;flowSelectedLink_=-1;
@@ -425,14 +448,14 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
     if(index==8){
-        g=physical::universalEmptyGraph();
+        g=physical::objectFlowEmptyGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
-        g=physical::universalStarterGraph();
+        g=physical::objectFlowStarterGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
@@ -480,7 +503,17 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         else if(i==2)link.modMin=t;
         else if(i==3)link.modMax=t;
         else if(i==4)link.aperture=.035f+.965f*t;
-        else if(i==5){
+        else if(g.objectFlow){
+            if(i==5)link.fromPosition=t;
+            else if(i==6)link.motion=t;
+            else if(i==7)link.angleDeg=-90.f+180.f*t;
+            else if(i==8)link.engagement=t;
+            else if(i==9)link.friction=t;
+            else if(i==10)link.elasticity=t;
+            else if(i==11)link.restitution=t;
+            else if(i==12)link.clearance=t;
+            else if(i==13)link.adhesion=t;
+        }else if(i==5){
             if(!first)return false;
             link.law=static_cast<physical::ContactLaw>(
                 (int(link.law)+1)%4);
@@ -511,6 +544,11 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
                 if(!first)return false;
                 form.continuum=static_cast<physical::Continuum>(
                     (int(form.continuum)+1)%4);
+                if(g.objectFlow){
+                    if(n.material==physical::Material::Air)form.continuum=physical::Continuum::Gas;
+                    else if(physical::liquidMaterial(n.material))form.continuum=physical::Continuum::Liquid;
+                    else form.continuum=static_cast<physical::Continuum>((int(form.continuum)%3));
+                }
             }else if(i==2)form.lengthMeters=.025f+1.975f*t;
             else if(i==3)form.widthMeters=.0005f*std::pow(1000.f,t);
             else if(i==4)form.depthMeters=.0002f*std::pow(1000.f,t);
@@ -775,13 +813,14 @@ void NativeEditor::drawPhysical() const noexcept {
     ov.addRect({b.x+12.f,top+7.f,b.w-24.f,48.f},overlayColor(kRollBg));
     ov.addText("PHYSICAL BUILDER   /   Y = ENERGY ARRIVAL",
         b.x+20.f,top+15.f,.88f,overlayColor(kCyan));
-    ov.addText("APT drive > transfer material > interaction > resonator > output",
+    ov.addText("Energy > transfer object > interaction > object > output",
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
     constexpr const char* actions[]={
-        "+SOURCE","+TRANSFER","+INTERACT","+RESONATE","+OUTPUT","LINK",
+        "ENERGY","TRANSFER","+OBJECT","","+OUTPUT","INTERACT",
         "UNLINK","DELETE","CLEAR","EXAMPLE"
     };
     for(int i=0;i<10;++i){
+        if(g.objectFlow&&i==3)continue;
         const auto rr=flowActionRect(i);
         const bool selected=(i==5&&flowLinkMode_==1)||(i==6&&flowLinkMode_==2);
         ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(selected?kCyan:kButton));
@@ -951,6 +990,13 @@ void NativeEditor::drawPhysical() const noexcept {
             overlayColor(selected?kOrange:kCyan,selected?1.f:.75f));
         ov.addFilledCircle(x1,y1,selected?7.f:5.f,
             overlayColor(selected?kOrange:kCyan));
+        if(g.objectFlow&&physical::physicalVibrates(g.nodes[link.from])&&
+           physical::physicalVibrates(g.nodes[link.to])){
+            const float mx=(x0+x1)*.5f,my=(y0+y1)*.5f;
+            ov.addRect({mx-32.f,my-10.f,64.f,20.f},overlayColor(kButton));
+            ov.addTextCentered(link.adhesion>.5f&&link.motion<.05f?"COUPLING":"CONTACT",
+                {mx-32.f,my-10.f,64.f,20.f},.55f,overlayColor(selected?kOrange:kWhite));
+        }
     }
     for(int i=0;i<g.nodeCount;++i){
         const auto& node=g.nodes[static_cast<size_t>(i)];
@@ -969,7 +1015,7 @@ void NativeEditor::drawPhysical() const noexcept {
             (node.role==physical::PhysicalRole::Source?
                 node.sourceFollowNote?"APT / NOTE LOCK":"APT / TIMED":
              node.role==physical::PhysicalRole::Output?"Acoustic radiation":
-                physical::continuumName(node.form.continuum)):
+                physical::materialName(node.material)):
             (node.kind==physical::FlowKind::Output?
                 "Audio":physical::materialName(node.material));
         ov.addTextCentered(detail,
@@ -993,7 +1039,7 @@ void NativeEditor::drawPhysical() const noexcept {
         const auto& link=g.links[static_cast<size_t>(flowSelectedLink_)];
         const auto& from=g.nodes[link.from];
         const auto& to=g.nodes[link.to];
-        std::snprintf(selectedLabel,sizeof(selectedLabel),"LINK: %s > %s",
+        std::snprintf(selectedLabel,sizeof(selectedLabel),"CONNECTION: %s > %s",
             from.kind==physical::FlowKind::Universal?
                 physical::roleName(from.role):physical::flowKindName(from.kind),
             to.kind==physical::FlowKind::Universal?
@@ -1007,6 +1053,26 @@ void NativeEditor::drawPhysical() const noexcept {
     if(!linkSelected&&chosen&&chosen->kind==physical::FlowKind::Damper)
         ov.addText("REST preloads contact; M moves its physical link",
             canvas.x+120.f,titleY+17.f,.66f,overlayColor(kMuted));
+    if(linkSelected&&g.objectFlow&&physical::physicalVibrates(g.nodes[g.links[flowSelectedLink_].from])&&
+       physical::physicalVibrates(g.nodes[g.links[flowSelectedLink_].to])){
+        const auto& l=g.links[flowSelectedLink_];
+        const auto& from=g.nodes[l.from];const auto& to=g.nodes[l.to];
+        const float x=canvas.x+10.f,y=titleY+56.f,w=canvas.w-20.f;
+        ov.addRect({x,y,w,136.f},overlayColor(kRollBg));
+        ov.addText("INTERACTION / TWO OBJECTS",x+8.f,y+5.f,.7f,overlayColor(kCyan));
+        const float px=x+w*.5f,py=y+83.f;
+        const float gap=l.clearance*22.f;
+        const float angle=l.angleDeg*3.14159265f/180.f;
+        const float endX=px-std::sin(angle)*28.f*l.motion;
+        const float endY=py-gap-std::cos(angle)*28.f*l.motion;
+        ov.addRect({x+14.f,py,w-28.f,18.f},overlayColor(kCyan,.35f));
+        ov.addLine(endX,endY-24.f,px,py-gap,9.f,overlayColor(kOrange,.75f));
+        ov.addFilledCircle(px,py-gap,2.f+9.f*l.aperture*l.engagement,overlayColor(kGreen));
+        ov.addText(physical::materialName(from.material),x+8.f,y+27.f,.66f,overlayColor(kOrange));
+        ov.addText(physical::materialName(to.material),x+8.f,y+106.f,.66f,overlayColor(kCyan));
+        ov.addText(l.adhesion>.5f&&l.motion<.05f?"ATTACHED":"RELATIVE MOTION",
+            x+w*.53f,y+27.f,.6f,overlayColor(kWhite));
+    }
     if(!linkSelected&&chosen&&chosen->kind==physical::FlowKind::Universal&&
        chosen->role!=physical::PhysicalRole::Source&&
        chosen->role!=physical::PhysicalRole::Output){
@@ -1042,7 +1108,7 @@ void NativeEditor::drawPhysical() const noexcept {
         const float sw=std::clamp(8.f+std::log1p(f.widthMeters*1000.f)*5.f,8.f,35.f);
         const float sd=std::clamp(5.f+std::log1p(f.depthMeters*1000.f)*5.f,5.f,35.f);
         ov.addRect({sx-sw,sy-sd,sw*2.f,sd*2.f},overlayColor(kCyan,.5f));
-        if(f.continuum==physical::Continuum::Gas){
+        if(physical::fluidContinuum(f.continuum)){
             const float wall=std::clamp(f.wallMm*.7f,1.f,std::min(sw,sd)-1.f);
             ov.addRect({sx-sw+wall,sy-sd+wall,2.f*(sw-wall),2.f*(sd-wall)},overlayColor(kRollBg));
             ov.addLine(sx-sw,sy+sd+7.f,sx-sw+2.f*sw*f.opening,sy+sd+7.f,3.f,overlayColor(kGreen));
@@ -1085,6 +1151,12 @@ void NativeEditor::drawPhysical() const noexcept {
             }else if(i==4){
                 field.position=(link.aperture-.035f)/.965f;
                 std::snprintf(field.label,sizeof(field.label),"%.0f%%",link.aperture*100.f);
+            }else if(g.objectFlow){
+                const float v[]={link.fromPosition,link.motion,(link.angleDeg+90.f)/180.f,
+                    link.engagement,link.friction,link.elasticity,link.restitution,link.clearance,link.adhesion};
+                field.position=v[i-5];
+                if(i==7)std::snprintf(field.label,sizeof(field.label),"%+.0f deg",link.angleDeg);
+                else std::snprintf(field.label,sizeof(field.label),"%.0f%%",field.position*100.f);
             }else{
                 field.picker=true;
                 std::snprintf(field.label,sizeof(field.label),"%s",
