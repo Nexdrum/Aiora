@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".aptv9"
-            versionNameSuffix = "-universal-apt-interactions-v9"
+            applicationIdSuffix = ".geometryv10"
+            versionNameSuffix = "-geometry-interaction-v10"
         }
     }
 

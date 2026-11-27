@@ -2092,8 +2092,6 @@ bool handleUiTap(NativeState& state, float x, float y) {
                         aiora::kAvailableFxTypes[static_cast<size_t>(choice->option)]);
                 return true;
 
-            case aiora::DropdownKind::PhysicalMaterial:
-            case aiora::DropdownKind::PhysicalGeometry:
             case aiora::DropdownKind::FxType:
             case aiora::DropdownKind::Wave:
             case aiora::DropdownKind::Texture:
@@ -2107,19 +2105,11 @@ bool handleUiTap(NativeState& state, float x, float y) {
         }
 
         if(changed){
-            const bool physicalChoice=choice->kind==aiora::DropdownKind::PhysicalMaterial||
-                choice->kind==aiora::DropdownKind::PhysicalGeometry;
-            if(physicalChoice){
-                // Physical Lab is a session-only experiment: no project edits.
-                aiora::NativeEditor::instance().syncPhysicalBinding();
+            audio.syncProject();
+            scheduleAutosave(state,0);
+            if(state.ui.page()==aiora::NativePage::Synth||
+               state.ui.page()==aiora::NativePage::Fx)
                 previewEditorPatch(state);
-            }else{
-                audio.syncProject();
-                scheduleAutosave(state,0);
-                if(state.ui.page()==aiora::NativePage::Synth||
-                   state.ui.page()==aiora::NativePage::Fx)
-                    previewEditorPatch(state);
-            }
         }
         return true;
     }
@@ -3894,15 +3884,9 @@ int32_t handleInput(android_app* app, AInputEvent* event) {
                 const bool changed=aiora::NativeEditor::instance().pointerUp();
                 state.editorPointerId=-1;
                 if(changed){
-                    // Session-only physical changes must reach the audio thread
-                    // before the audition note, but do not change saved patches.
-                    aiora::NativeEditor::instance().syncPhysicalBinding();
                     previewEditorPatch(state);
-                    if(state.ui.page()!=aiora::NativePage::Synth ||
-                       !aiora::NativeEditor::instance().physicalEditorActive()){
-                        scheduleAutosave(state);
-                        aiora::AudioEngine::instance().syncProject();
-                    }
+                    scheduleAutosave(state);
+                    aiora::AudioEngine::instance().syncProject();
                 }
                 return 1;
             }

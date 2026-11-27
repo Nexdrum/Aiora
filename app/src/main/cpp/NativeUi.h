@@ -89,9 +89,7 @@ enum class DropdownKind : int {
     WaveInteraction,
     LfoTarget,
     FxType,
-    MasterFxType,
-    PhysicalMaterial,
-    PhysicalGeometry
+    MasterFxType
 };
 
 struct DropdownChoice {

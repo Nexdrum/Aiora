@@ -17,8 +17,6 @@ inline uint64_t playbackGateFrames(double seconds,int sampleRate) noexcept {
 
 struct PlaybackEvent {
     int32_t midi{62};
-    int32_t sourceTrack{-1};
-    bool drum{false};
     float lengthSteps{1.0f};
     double durationSeconds{0.0};
     float offsetSteps{0.0f}; // fractional note onset within its time-grid step

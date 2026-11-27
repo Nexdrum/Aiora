@@ -4489,7 +4489,6 @@ void NativeUi::render() const noexcept {
             NativeEditor::instance().setViewport(
                 body.x,body.y,body.w,body.h);
             fillRect(body,kPanel);
-            NativeEditor::instance().syncPhysicalBinding();
             NativeEditor::instance().renderSynth();
             break;
         }

@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -198,6 +198,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-PhysicalAPT-Interaction-debug
+          name: Aiora-PhysicalGeometry-Interaction-v10-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

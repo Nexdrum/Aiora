@@ -358,9 +358,11 @@ float NativeEditor::editorScrollMax(EditorPage page) const noexcept {
     if(page==EditorPage::Synth){
         if(synthWorkspace_!=3)return 0.0f;
         const auto tab=synthTabRect(0);
-        const float usable=b.y+b.h-tab.y-tab.h-std::clamp(b.w*.014f,9.0f,13.0f);
+        (void)tab;
         // Templates, controls, audible timeline, node canvas and properties.
-        return std::max(0.0f,573.f+614.f+70.f+21*73.f+20.f-usable);
+        const int count=flowPropertyCount();
+        const auto last=flowPropertyRect(std::max(0,count-1));
+        return std::max(0.f,last.y+last.h+physicalScrollY_+20.f-(b.y+b.h));
     }
 
     if(page==EditorPage::Fx){

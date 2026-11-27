@@ -628,13 +628,21 @@ private:
         const float softness=std::clamp(
             (incomingSoftness+materialProperties(p.material).contactSoftness+
              receivingSoftness)/3.f,0.f,1.f);
+        const float friction=2.f*safe01(p.interactionFriction);
+        const float elasticity=2.f*safe01(p.interactionElasticity);
+        const float restitution=2.f*safe01(p.interactionRestitution);
+        const float adhesion=safe01(p.interactionAdhesion);
+        const float clearance=safe01(p.interactionClearance)*.12f;
+        const float gapFactor=clearance>0.f?
+            std::clamp((std::fabs(rel)-clearance)/.025f,0.f,1.f):1.f;
+        area=std::clamp(area*2.f*safe01(p.interactionArea),0.f,1.f);
         const float stiffness=1.f-softness;
         const float previousElastic=n.contactElastic;
         float excitation=0.f,reaction=0.f;
         switch(p.law){
         case ContactLaw::Coupled:
             // Compliant coupling transmits the relative force both ways.
-            n.contactElastic+=.09f*(rel-n.contactElastic);
+            n.contactElastic+=.09f*elasticity*(rel-n.contactElastic);
             excitation=engagement*(.74f*rel+.26f*n.contactElastic);
             reaction=engagement*std::fabs(rel-n.contactElastic);
             break;
@@ -643,20 +651,20 @@ private:
             // deformation, threshold crossing releases it as a pulse.
             // Receiver motion shifts this crossing; no lock frequency exists.
             const float speed=tangent*rel;
-            n.contactElastic+=.24f*speed;
+            n.contactElastic+=.24f*speed*friction;
             const float threshold=(.002f+.026f*softness)*
-                (.35f+.65f*engagement);
+                (.35f+.65f*engagement)*(1.f+adhesion);
             const bool slips=std::fabs(n.contactElastic)>threshold;
             if(slips){
                 const float excess=n.contactElastic-
                     std::copysign(threshold*.40f,n.contactElastic);
-                n.contactElastic-=.82f*excess;
+                n.contactElastic-=std::clamp(.82f*restitution,.05f,.98f)*excess;
                 n.contactSlip=excess;
             }else n.contactSlip*=.73f;
             const float restoring=n.contactElastic-previousElastic;
             excitation=engagement*area*(.65f*restoring+
                 (slips?2.8f*n.contactSlip:0.f));
-            reaction=engagement*(std::fabs(speed)*(.3f+.7f*stiffness)+
+            reaction=engagement*(friction*std::fabs(speed)*(.3f+.7f*stiffness)+
                 2.f*std::fabs(n.contactSlip));
             break;
         }
@@ -665,7 +673,7 @@ private:
             // can slip away rather than being forced into the resonator.
             const float compression=std::max(0.f,normal*rel);
             n.contactElastic=std::clamp(
-                .90f*n.contactElastic+.32f*compression,0.f,.3f);
+                std::clamp(.90f+.07f*(restitution-1.f),.75f,.98f)*n.contactElastic+.32f*elasticity*compression,0.f,.3f);
             const float delta=n.contactElastic-previousElastic;
             excitation=engagement*(.8f*delta+.18f*n.contactElastic);
             reaction=engagement*std::fabs(compression-delta);
@@ -683,6 +691,32 @@ private:
             break;
         }
         }
+        // A continuous solid-contact option combines normal and tangential motion.
+        // Flow retains its separate pressure/flow law.
+        const float mix=p.law==ContactLaw::Flow?0.f:safe01(p.interactionBlend);
+        if(mix>0.f){
+            const float compression=std::max(0.f,normal*rel);
+            const float sliding=tangent*rel;
+            const float target=std::clamp(elasticity*compression+
+                friction*sliding,-.3f,.3f);
+            const float elastic=std::clamp(previousElastic+
+                .12f*(target-previousElastic),-.3f,.3f);
+            const float delta=elastic-previousElastic;
+            const float threshold=.006f+.025f*softness+.02f*adhesion;
+            const float slip=std::copysign(std::max(0.f,
+                std::fabs(elastic)-threshold),elastic);
+            const float unified=engagement*area*(.65f*delta+
+                restitution*.18f*elastic+friction*1.2f*slip);
+            const float resistance=engagement*area*(compression+
+                friction*std::fabs(sliding)+std::fabs(slip));
+            n.contactElastic=std::clamp((1.f-mix)*n.contactElastic+
+                mix*(elastic-.4f*slip),-.3f,.3f);
+            excitation=(1.f-mix)*excitation+mix*unified;
+            reaction=(1.f-mix)*reaction+mix*resistance;
+        }
+        excitation*=gapFactor*(p.law==ContactLaw::Friction||
+            p.law==ContactLaw::Flow?1.f:std::clamp(2.f*safe01(p.interactionArea),0.f,2.f));
+        reaction*=gapFactor*(1.f+.4f*adhesion);
         // Port reaction is capped and smoothed by the mechanical source.
         // The source is not reprogrammed: its actual transfer motion changes.
         nextReactionForceN_+=std::clamp(

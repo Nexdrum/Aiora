@@ -240,7 +240,13 @@ NativeEditor::Rect NativeEditor::flowNodeRect(int index) const noexcept {
 }
 NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
     const auto canvas=flowCanvasRect();
-    return {canvas.x,canvas.y+canvas.h+70.f+index*73.f,canvas.w,66.f};
+    const auto& g=physicalBlueprint_.graph;
+    const bool preview=flowSelectedLink_<0&&flowSelectedNode_>=0&&
+        flowSelectedNode_<g.nodeCount&&
+        g.nodes[flowSelectedNode_].kind==physical::FlowKind::Universal&&
+        g.nodes[flowSelectedNode_].role!=physical::PhysicalRole::Source&&
+        g.nodes[flowSelectedNode_].role!=physical::PhysicalRole::Output;
+    return {canvas.x,canvas.y+canvas.h+70.f+(preview?224.f:0.f)+index*73.f,canvas.w,66.f};
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
@@ -267,7 +273,7 @@ int NativeEditor::flowPropertyCount() const noexcept {
         switch(g.nodes[flowSelectedNode_].role){
         case physical::PhysicalRole::Source:return 7;
         case physical::PhysicalRole::Output:return 3;
-        case physical::PhysicalRole::Interaction:return 23;
+        case physical::PhysicalRole::Interaction:return 30;
         default:return 21;
         }
     }
@@ -328,6 +334,10 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
         if(role==physical::PhysicalRole::Interaction){
             if(i==21)return "RELATIVE MOTION ANGLE";
             if(i==22)return "CONTACT ENGAGEMENT";
+            constexpr const char* contact[]={"FRICTION","ELASTIC RESPONSE",
+                "RESTITUTION","CONTACT AREA","CLEARANCE","ADHESION",
+                "UNIFIED SOLID CONTACT MIX"};
+            if(i>=23&&i<30)return contact[i-23];
         }
         return i>=0&&i<21?l[i]:"";
     }
@@ -524,6 +534,15 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
                 n.interactionAngleDeg=-90.f+180.f*t;
             else if(i==22&&n.role==physical::PhysicalRole::Interaction)
                 n.interactionEngagement=t;
+            else if(n.role==physical::PhysicalRole::Interaction){
+                if(i==23)n.interactionFriction=t;
+                else if(i==24)n.interactionElasticity=t;
+                else if(i==25)n.interactionRestitution=t;
+                else if(i==26)n.interactionArea=t;
+                else if(i==27)n.interactionClearance=t;
+                else if(i==28)n.interactionAdhesion=t;
+                else if(i==29)n.interactionBlend=t;
+            }
         }
         flowError_=false;physicalDirty_=true;return true;
     }
@@ -657,6 +676,11 @@ static FlowField physicalField(const physical::FlowNode& n,int i) {
             }else if(i==22&&n.role==physical::PhysicalRole::Interaction){
                 f.position=n.interactionEngagement;
                 fmt("%.0f%%",n.interactionEngagement*100.f);
+            }else if(i>=23&&i<30&&n.role==physical::PhysicalRole::Interaction){
+                const float values[]={n.interactionFriction,n.interactionElasticity,
+                    n.interactionRestitution,n.interactionArea,n.interactionClearance,
+                    n.interactionAdhesion,n.interactionBlend};
+                f.position=values[i-23];fmt("%.0f%%",f.position*100.f);
             }
         }
         return f;
@@ -983,6 +1007,59 @@ void NativeEditor::drawPhysical() const noexcept {
     if(!linkSelected&&chosen&&chosen->kind==physical::FlowKind::Damper)
         ov.addText("REST preloads contact; M moves its physical link",
             canvas.x+120.f,titleY+17.f,.66f,overlayColor(kMuted));
+    if(!linkSelected&&chosen&&chosen->kind==physical::FlowKind::Universal&&
+       chosen->role!=physical::PhysicalRole::Source&&
+       chosen->role!=physical::PhysicalRole::Output){
+        const auto& f=chosen->form;
+        const float x=canvas.x+10.f,y=titleY+56.f,w=canvas.w-20.f;
+        ov.addRect({x,y,w,210.f},overlayColor(kRollBg));
+        ov.addText("GEOMETRY / LIVE SCHEMATIC",x+8.f,y+6.f,.72f,overlayColor(kCyan));
+        const float cx=x+w*.34f,cy=y+91.f;
+        const float len=std::clamp(.20f+.80f*std::log1p(f.lengthMeters*10.f)/std::log(21.f),.20f,1.f)*w*.55f;
+        const float half=std::clamp(4.f+std::log1p(f.widthMeters*1000.f)*4.5f,4.f,29.f);
+        float xx[4],yy[4],hh[4];
+        for(int j=0;j<4;++j){
+            const float t=j/3.f;
+            xx[j]=cx-len*.5f+t*len;
+            yy[j]=cy-30.f*f.curvature*4.f*t*(1.f-t);
+            hh[j]=std::clamp(half*f.stations[j]*(1.f+f.taper*(t-.5f)),2.f,46.f);
+        }
+        for(int j=0;j<3;++j){
+            ov.addQuad(xx[j],yy[j]-hh[j],xx[j+1],yy[j+1]-hh[j+1],
+                xx[j+1],yy[j+1]+hh[j+1],xx[j],yy[j]+hh[j],overlayColor(kCyan,.30f));
+            ov.addLine(xx[j],yy[j]-hh[j],xx[j+1],yy[j+1]-hh[j+1],2.f,overlayColor(kCyan));
+            ov.addLine(xx[j],yy[j]+hh[j],xx[j+1],yy[j+1]+hh[j+1],2.f,overlayColor(kCyan));
+        }
+        for(int j=0;j<4;++j)ov.addFilledCircle(xx[j],yy[j]-hh[j],3.f,overlayColor(kWhite));
+        const float dimY=y+145.f;
+        ov.addLine(xx[0],dimY,xx[3],dimY,1.f,overlayColor(kMuted));
+        ov.addLine(xx[0],dimY-5.f,xx[0],dimY+5.f,2.f,overlayColor(kWhite));
+        ov.addLine(xx[3],dimY-5.f,xx[3],dimY+5.f,2.f,overlayColor(kWhite));
+        char label[96]{};
+        std::snprintf(label,sizeof(label),"L %.3f m  W %.4f m",f.lengthMeters,f.widthMeters);
+        ov.addText(label,x+8.f,y+155.f,.65f,overlayColor(kWhite));
+        const float sx=x+w*.81f,sy=y+86.f;
+        const float sw=std::clamp(8.f+std::log1p(f.widthMeters*1000.f)*5.f,8.f,35.f);
+        const float sd=std::clamp(5.f+std::log1p(f.depthMeters*1000.f)*5.f,5.f,35.f);
+        ov.addRect({sx-sw,sy-sd,sw*2.f,sd*2.f},overlayColor(kCyan,.5f));
+        if(f.continuum==physical::Continuum::Gas){
+            const float wall=std::clamp(f.wallMm*.7f,1.f,std::min(sw,sd)-1.f);
+            ov.addRect({sx-sw+wall,sy-sd+wall,2.f*(sw-wall),2.f*(sd-wall)},overlayColor(kRollBg));
+            ov.addLine(sx-sw,sy+sd+7.f,sx-sw+2.f*sw*f.opening,sy+sd+7.f,3.f,overlayColor(kGreen));
+        }
+        ov.addText("SECTION",sx-28.f,y+129.f,.61f,overlayColor(kMuted));
+        std::snprintf(label,sizeof(label),"D %.4f m  WALL %.1f mm",f.depthMeters,f.wallMm);
+        ov.addText(label,x+8.f,y+173.f,.65f,overlayColor(kWhite));
+        if(chosen->role==physical::PhysicalRole::Interaction){
+            const float a=chosen->interactionAngleDeg*3.14159265f/180.f;
+            const float px=x+w*.81f,py=y+45.f;
+            ov.addLine(px-30.f,py,px+30.f,py,3.f,overlayColor(kMuted));
+            ov.addLine(px-std::sin(a)*27.f,py-std::cos(a)*27.f,px,py,3.f,overlayColor(kOrange));
+            ov.addFilledCircle(px,py,2.f+8.f*chosen->interactionEngagement,overlayColor(kGreen,.75f));
+            ov.addText("CONTACT",px-30.f,y+14.f,.55f,overlayColor(kMuted));
+        }
+        ov.addText("Scaled schematic / sliders edit actual model",x+8.f,y+191.f,.61f,overlayColor(kMuted));
+    }
     for(int i=0;i<flowPropertyCount();++i){
         const auto rr=flowPropertyRect(i);
         if(rr.y+rr.h<clip.y||rr.y>clip.y+clip.h)continue;

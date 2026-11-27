@@ -223,6 +223,12 @@ struct FlowNode {
     // normal impact; +/-90 degrees is opposite tangential sliding directions.
     float interactionAngleDeg{65.f};
     float interactionEngagement{.55f};
+    // Normalized experimental contact coefficients; .5 preserves the v9 response.
+    float interactionFriction{.5f},interactionElasticity{.5f};
+    float interactionRestitution{.5f},interactionArea{.5f};
+    float interactionClearance{0.f},interactionAdhesion{0.f};
+    // Blend from the original law to a shared normal/tangential contact model.
+    float interactionBlend{0.f};
     float movingMin{.5f},movingMax{.5f};
     bool movingEnabled{false};   // M may reposition ANY physical object
     ContactLaw law{ContactLaw::Coupled}; // interaction with connected media (normalized position)
