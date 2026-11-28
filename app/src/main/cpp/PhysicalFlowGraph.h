@@ -1007,8 +1007,9 @@ inline FlowGraph integratedBowedGraph(bool body=true) noexcept {
     auto& s=g.nodes[2];s.form.lengthMeters=.33f;s.form.widthMeters=.0005f;s.form.depthMeters=.0005f;
     s.tensionNewtons=50.f;s.damping=.35f;
     auto& c=g.links[1];c.motion=1.f;c.angleDeg=90.f;c.friction=.85f;c.aperture=.9f;c.engagement=1.f;
-    c.adhesion=0.f;c.normalLoadN=.30f;c.kineticRatio=.12f;c.frictionRecoveryMs=.8f;
+    c.adhesion=0.f;c.normalLoadN=.28f;c.kineticRatio=.12f;c.frictionRecoveryMs=.8f;
     c.position=.12f;c.fromPosition=.5f;c.modEnabled=false;
+    if(body)for(int k=0;k<g.linkCount;++k)if(g.links[k].from==2){g.links[k].fromPosition=.008f;g.links[k].aperture=.10f;}
     return g;
 }
 inline FlowGraph integratedValveGraph(float polarity=-1.f) noexcept {

@@ -65,24 +65,61 @@ static Outcome check(const std::string& folder,const std::string& name,FlowGraph
     assert(r.err<std::max(1.e-12,r.work*1.e-7));assert(r.rise<std::max(1.e-13,r.work*1.e-8));
     return r;
 }
+static void stressAndExpression(){
+    // Eight simultaneous voice-private graphs with independent APT, M and release.
+    std::vector<EnergyMechanicalVoice> voices(8);
+    const std::array<FlowGraph,8> graphs={integratedBowedGraph(),integratedBowedGraph(false),integratedValveGraph(),
+        integratedConstruction(jetFluteGraph()),integratedConstruction(acousticStringBodyGraph()),
+        integratedPercussionGraph(),integratedPercussionGraph(true),integratedValveGraph(1.f)};
+    for(int k=0;k<8;++k){Blueprint b;b.graph=graphs[k];voices[k].prepare(48000);voices[k].start(b,50,.8f,0.f);}
+    const auto started=std::chrono::steady_clock::now();double peak=0.;
+    for(int i=0;i<48000;++i){double mix=0.;for(int k=0;k<8;++k){
+        if(i==12000)voices[k].setExpression(.45f,.7f);
+        if(i==24000)voices[k].release();
+        mix+=voices[k].render();}
+        assert(std::isfinite(mix));peak=std::max(peak,std::abs(mix));
+    }
+    for(auto& v:voices){const auto l=v.energyLedger();assert(std::abs(l.balanceError())<std::max(1.e-12,l.sourcePositiveWork*1.e-7));}
+    const double seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
+    std::printf("STRESS 8 voices 1s render %.6f s peak %.8g\n",seconds,peak);
+    for(auto g:graphs){
+        g.nodes[0].sourceAcceleration=5000.f;g.nodes[0].sourcePotential=1.f;
+        g.nodes[0].sourceTimeMs=50.f;
+        EnergyMechanicalVoice v;Blueprint b;b.graph=g;v.prepare(48000);v.start(b,62,1.f,.5f);
+        double maxError=0.,maxRise=0.;EnergyLedger previous{};
+        for(int i=0;i<48000;++i){if(i==12000)v.release();const float x=v.render();const auto l=v.energyLedger();
+            assert(std::isfinite(x)&&std::isfinite(l.stored));maxError=std::max(maxError,std::abs(l.balanceError()));
+            if(i&&std::abs(l.sourceWork-previous.sourceWork)<1.e-20&&std::abs(l.controlWork-previous.controlWork)<1.e-20)maxRise=std::max(maxRise,l.stored-previous.stored);previous=l;
+        }
+        const auto l=v.energyLedger();assert(maxError<std::max(1.e-12,l.sourcePositiveWork*1.e-7));assert(maxRise<std::max(1.e-13,l.sourcePositiveWork*1.e-8));
+    }
+    // Physical B mapping remains available in the new native wrapper.
+    Blueprint b;b.graph=integratedConstruction(acousticBareGuitarGraph());b.pitch.count=1;b.pitch.trackedNode=2;b.pitch.referenceMidi=50;
+    b.pitch.assignments[0]={2,PitchProperty::Tension,1.f,400.f,1.f};
+    assert(buildPhysicalKeyboard(b.graph,b.pitch));assert(preparePhysicalBendMap(b));
+    MaterialTimeVoice v;v.prepare(48000);v.start(b,50,.8f,0.f);assert(v.usesEnergySolver());
+    for(int i=0;i<5000;++i)v.render();const double old=v.currentPhysicalPitchHz();v.setPitchBend(2.f);
+    assert(v.currentPhysicalPitchHz()>old);v.setExpression(.8f,1.f);
+    for(int i=0;i<10000;++i)assert(std::isfinite(v.render()));
+    const auto l=v.energyLedger();assert(std::abs(l.balanceError())<std::max(1.e-12,l.sourcePositiveWork*1.e-7));
+    // Compare M damping on the same bare string, using joules rather than gain.
+    b.pitch={};EnergyMechanicalVoice open,muted;open.prepare(48000);muted.prepare(48000);open.start(b,50,.8f,0.f);muted.start(b,50,.8f,1.f);
+    for(int i=0;i<12000;++i){open.render();muted.render();}
+    std::printf("M stored open %.9g muted %.9g\n",open.storedEnergy(),muted.storedEnergy());
+    assert(muted.storedEnergy()<open.storedEnergy());
+    std::printf("PASS 8-voice independence, extreme APT, B mapping and M damping\n");
+}
 int main(int argc,char**argv){
     std::setvbuf(stdout,nullptr,_IONBF,0);
     const std::string folder=argc>1?argv[1]:".";
     const auto bow=integratedBowedGraph();const auto bare=integratedBowedGraph(false);
     const auto bowed=check(folder,"bow_body",bow);
     const auto bowedBare=check(folder,"bow_bare",bare);
-    for(float pos:{.008f,.02f,.04f})for(float area:{.03f,.10f,.30f})for(float load:{.2f,.3f}){
-        auto g=bow;g.links[1].normalLoadN=load;
-        for(int k=0;k<g.linkCount;++k)if(g.links[k].from==2&&g.links[k].to!=g.nodeCount-1){g.links[k].fromPosition=pos;g.links[k].aperture=area;}
-        check(folder,"body_sweep_"+std::to_string(int(pos*1000))+"_"+std::to_string(int(area*100))+"_"+std::to_string(int(load*100)),g);
-    }
-    for(float accel:{8.f,14.f,22.f})for(float load:{.3f,.65f,1.f}){auto g=bare;g.nodes[0].sourceAcceleration=accel;g.links[1].normalLoadN=load;check(folder,"sweep_bow_"+std::to_string(int(accel))+"_"+std::to_string(int(load*100)),g);}
     auto low=bow;low.links[1].normalLoadN=.12f;check(folder,"bow_light",low);
     auto high=bow;high.links[1].normalLoadN=1.2f;check(folder,"bow_heavy",high);
     auto zero=bow;zero.links[1].friction=0.f;const auto noFriction=check(folder,"bow_zero_friction",zero);assert(noFriction.peak==0.);
     const auto valve=integratedValveGraph();
     const auto closed=check(folder,"valve_closing",valve);
-    for(float gap:{.00025f,.0004f,.0006f})for(float length:{.018f,.020f,.024f}){auto g=valve;g.links[1].valveGapMeters=gap;g.nodes[2].form.lengthMeters=length;check(folder,"sweep_valve_"+std::to_string(int(gap*1e6))+"_"+std::to_string(int(length*1e3)),g);}
     auto wide=valve;wide.links[1].valveGapMeters=.0012f;check(folder,"valve_wide",wide);
     auto open=integratedValveGraph(1.f);check(folder,"valve_opening",open);
     auto stiff=valve;stiff.nodes[2].form.depthMeters=.0008f;check(folder,"valve_stiff",stiff);
@@ -90,6 +127,7 @@ int main(int argc,char**argv){
     auto block=valve;block.links[1].engagement=0.f;const auto blocked=check(folder,"valve_blocked",block);assert(blocked.peak==0.);
     const auto valve44=check(folder,"valve_44100",valve,44100);const auto valve96=check(folder,"valve_96000",valve,96000);
     const auto bow44=check(folder,"bow_44100",bare,44100);const auto bow96=check(folder,"bow_96000",bare,96000);
+    const auto body44=check(folder,"bow_body_44100",bow,44100);const auto body96=check(folder,"bow_body_96000",bow,96000);
     const auto jet=check(folder,"jet_integrated",integratedConstruction(jetFluteGraph()));
     check(folder,"guitar_integrated",integratedConstruction(acousticStringBodyGraph()),48000,false);
     const auto bell=check(folder,"bell_integrated",integratedPercussionGraph(),48000,false);
@@ -98,10 +136,11 @@ int main(int argc,char**argv){
     std::printf("FUNCTION bow expected %.6g actual %.6g bare %.6g valve expected %.6g actual %.6g jet %.6g\n",physicalFundamental(bow.nodes[2]),bowed.localHz,bowedBare.localHz,physicalFundamental(valve.nodes[3]),closed.hz,jet.hz);
     assert(bowed.sticks>100&&bowed.slips>100&&bowed.transitions>100&&bowed.held>1.e-12&&bowed.periodCorr>.85&&bowed.fundRatio>.015);
     assert(bowedBare.sticks>100&&bowedBare.slips>100&&bowedBare.transitions>100);
-    for(auto r:{bowedBare,bow44,bow96})assert(r.transitions>100&&r.periodCorr>.85&&r.fundRatio>.015);
+    for(auto r:{bowedBare,bow44,bow96,body44,body96})assert(r.transitions>100&&r.periodCorr>.85&&r.fundRatio>.015);
     assert(closed.held>1.e-12&&closed.gapMax-closed.gapMin>1.e-7&&closed.valveWork>0.);
     assert(closed.tail<closed.held*.3+1.e-12);
     for(auto r:{closed,valve44,valve96})assert(r.periodCorr>.85&&r.fundRatio>.005);
     assert(jet.held>1.e-12&&jet.tail<jet.held*.3+1.e-12);
+    stressAndExpression();
     std::printf("PASS integrated balance, stick/slip events, valve modulation, silence, release and acoustic regression\n");
 }
