@@ -18,6 +18,7 @@ inline constexpr double kPressureFullScalePa=2.0;
 struct EnergyLedger {
     double sourceWork{},sourcePositiveWork{},controlWork{};
     double materialLoss{},contactLoss{},radiated{},stored{};
+    double jetWork{},jetExhaust{}; // subsets of transfer/contact losses, not additional ledger terms
     double balanceError() const noexcept {
         return sourceWork+controlWork-materialLoss-contactLoss-radiated-stored;
     }
@@ -35,11 +36,25 @@ class EnergyMechanicalVoice {
     using Port=std::array<double,kSiModes>;
     struct Contact {
         int a{},b{};
-        bool output{};
+        bool output{},jetManaged{};
         uint64_t arrival{};
         double spring{},extension{},baseStiffness{},gap{},lastX{-1.};
         double radiationArea{},radiationDamping{};
         Port pa{},pb{};
+    };
+    // One driven stream can feed several windows; each keeps its own
+    // causal history. The source remains the first transfer object.
+    static constexpr int kJetHistory=4096;
+    static constexpr int kMaxJets=4;
+    struct Jet {
+        int edgeContact{},windowContact{},tube{};
+        uint64_t arrival{};
+        Port port{};
+        std::array<float,kJetHistory> history{};
+        int head{};
+        double split{},noise{},lastPressure{},speed{},delaySeconds{};
+        uint32_t random{0x2e3459abu};
+        bool primed{};
     };
 public:
     void prepare(float sr) noexcept {sr_=std::clamp<double>(sr,8000.,192000.);dt_=1./sr_;stop();}
@@ -48,7 +63,7 @@ public:
         if(pitchMapCurrent(b))applyMappedPitch(b.pitch,graph_,note_);
         v_=unit(velocity);initialV_=v_;m_=smoothM_=unit(mod);bend_=0.;
         tick_=0;released_=false;active_=true;ledger_={};pressure_=0.;quiet_=0;count_=0;
-        objects_={};contacts_={};
+        objects_={};contacts_={};jets_={};jetCount_=0;
         for(int i=0;i<graph_.nodeCount;++i)configureObject(i,false);
         for(int i=0;i<graph_.linkCount;++i){
             const auto& l=graph_.links[i];
@@ -60,6 +75,7 @@ public:
             e.arrival=static_cast<uint64_t>(std::max(0.,double(graph_.nodes[l.to].y*graph_.spanMs*.001f)*sr_));
             configureContact(e,l,false);
         }
+        if(graph_.jetSolver)discoverJets();
     }
     void stop() noexcept {active_=false;}
     void release() noexcept {released_=true;}
@@ -78,6 +94,7 @@ public:
         }
         for(int i=0;i<graph_.nodeCount;++i)if(dirty[i])configureObject(i,true);
         for(int i=0;i<count_;++i)configureContact(contacts_[i],graph_.links[linkIndices_[i]],true);
+        for(int i=0;i<jetCount_;++i)configureJetPort(jets_[i]);
         ledger_.controlWork+=storedEnergy()-before; // external tuning work, not hidden energy
         bend_=semitones;
     }
@@ -88,6 +105,10 @@ public:
     double sourceVelocity() const noexcept {return graph_.nodeCount>1?objects_[1].modes[0].v:0.;}
     double sourceMass() const noexcept {return graph_.nodeCount>1?objects_[1].mass:0.;}
     double pressurePa() const noexcept {return pressure_;}
+    int jetCount() const noexcept {return jetCount_;}
+    double jetSpeed() const noexcept {return jetCount_?jets_[0].speed:0.;}
+    double jetDelay() const noexcept {return jetCount_?jets_[0].delaySeconds:0.;}
+    double jetPressure() const noexcept {return jetCount_?jets_[0].lastPressure:0.;}
     double displacement(int object,int mode=1) const noexcept {
         return object>=0&&object<graph_.nodeCount&&mode>=0&&mode<kSiModes?objects_[object].modes[mode].q:0.;
     }
@@ -115,10 +136,11 @@ public:
                 ledger_.materialLoss+=old*(1.-m.retain*m.retain);
             }
         }
+        for(int i=0;i<jetCount_;++i)driveJet(jets_[i]);
         pressure_=0.;
         for(int i=0;i<count_;++i){
             auto& c=contacts_[i];
-            if(tick_<c.arrival)continue;
+            if(tick_<c.arrival||c.jetManaged)continue;
             const auto& l=graph_.links[linkIndices_[i]];
             const double x=l.modEnabled?l.modMin+(l.modMax-l.modMin)*smoothM_:l.position;
             if(std::abs(x-c.lastX)>1.e-7){
@@ -229,6 +251,9 @@ private:
             }else if(n.siAcoustics&&objectContinuum(n)==Continuum::Sheet){
                 constexpr int xs[]={1,2,1,2,3,1,3},ys[]={1,1,2,2,1,3,2};
                 a[h]=std::sin(kSiPi*xs[h-1]*std::clamp(x,.001,.999))*std::sin(kSiPi*ys[h-1]*std::clamp(y,.001,.999))*avg;
+            }else if(graph_.jetSolver&&objects_[object].fluid&&n.form.opening>=.5f){
+                // Open pressure boundaries have velocity antinodes at ends.
+                a[h]=std::cos(k*std::clamp(x,0.,1.))*cross*avg;
             }else a[h]=std::sin(k*std::clamp(x,.001,.999))*cross*avg;
         }
         return a;
@@ -263,6 +288,107 @@ private:
         c.baseStiffness=std::max(1.e-8,E*A/length*(.05+.95*unit(l.elasticity)));
         c.gap=unit(l.clearance)*length;
         if(!preserve){c.extension=-c.gap;c.spring=0.;}
+    }
+    void configureJetPort(Jet& j) noexcept {
+        const auto& l=graph_.links[linkIndices_[j.windowContact]];
+        j.port=port(j.tube,l.position,l.receiverY,l.receiverZ,false,0.);
+    }
+    void discoverJets() noexcept {
+        for(int i=0;i<count_&&jetCount_<kMaxJets;++i){
+            const auto& l=graph_.links[linkIndices_[i]];
+            if(!jetEdgeCandidate(graph_,l)||l.jetDistanceMeters<=0.)continue;
+            for(int k=0;k<count_&&jetCount_<kMaxJets;++k){
+                const auto& w=graph_.links[linkIndices_[k]];
+                if(w.from!=l.to||!objects_[w.to].fluid||graph_.nodes[w.to].form.confinement<.7f)continue;
+                auto& j=jets_[jetCount_++];j.edgeContact=i;j.windowContact=k;j.tube=w.to;
+                j.arrival=std::max(contacts_[i].arrival,contacts_[k].arrival);
+                j.random+=static_cast<uint32_t>(k*127+i*31);
+                configureJetPort(j);
+                contacts_[i].jetManaged=true;contacts_[k].jetManaged=true;
+            }
+        }
+    }
+    // Jet-drive approximation (Auvray/Ernoult/Fabre/Lagré 2014;
+    // equations summarized at euphonics.org/11-8-1-the-jet-drive-model-for-a-recorder-or-flute/).
+    // Geometry defines the shear layer delay, split and pressure source.
+    // All positive acoustic work is debited from the actual jet kinetic
+    // reservoir, and unconverted through-flow energy is dissipated.
+    void driveJet(Jet& j) noexcept {
+        auto& jet=objects_[1];auto& rigid=jet.modes[0];auto& tube=objects_[j.tube];
+        const auto& l=graph_.links[linkIndices_[j.edgeContact]];
+        const auto& window=graph_.links[linkIndices_[j.windowContact]];
+        const auto& g=graph_.nodes[1].form;const auto& edge=graph_.nodes[l.to].form;
+        if(rigid.mass<=0.)return;
+        const double U=std::max(0.,rigid.v);j.speed=U;
+        const double rho=objectMaterial(graph_.nodes[1]).densityKgM3;
+        const double h=std::max(.0001,double(g.depthMeters));
+        const double width=std::max(.0001,double(g.widthMeters));
+        const double W=std::max(.0005,double(l.jetDistanceMeters));
+        const double A=width*h*sectionFactor(g)*unit(g.fillLevel);
+        const double mouth=std::max(1.e-9,W*std::min(width,double(edge.widthMeters))*unit(window.aperture));
+        const double bore=std::max(1.e-9,tube.area);
+        const double inv=invMass(tube,j.port);
+        const double acoustic=velocity(tube,j.port);
+        const double u=acoustic*bore/mouth;
+        j.history[j.head]=static_cast<float>(u);
+        const double delay=W/(.4*std::max(.1,U));
+        j.delaySeconds=delay;
+        const double delayFrames=std::clamp(delay*sr_,1.,double(kJetHistory-2));
+        const int whole=static_cast<int>(delayFrames);
+        const double frac=delayFrames-whole;
+        const double past=(1.-frac)*j.history[(j.head-whole+kJetHistory)%kJetHistory]+
+            frac*j.history[(j.head-whole-1+kJetHistory)%kJetHistory];
+        j.head=(j.head+1)%kJetHistory;
+        // Kinetic energy flux of the moving stream; capped by reservoir.
+        const double available=std::min(.5*rigid.mass*U*U,.5*rho*A*U*U*U*dt_/std::max(1,jetCount_));
+        if(tick_<j.arrival||U<.1||inv<=0.||available<=0.){
+            j.lastPressure=0.;j.primed=false;return;
+        }
+        const double pos=l.modEnabled?l.modMin+(l.modMax-l.modMin)*smoothM_:l.position;
+        const double angle=(g.flowAngle-l.angleDeg)*kSiPi/180.;
+        const double offset=(unit(pos)-.5)*4.*h+W*std::sin(angle)+(unit(l.receiverZ)-.5)*2.*h;
+        const double spread=unit(g.spread);
+        const double b=.4*h+W*.12*spread; // effective Bickley profile half-width
+        const double growth=std::exp(std::min(5.,.3*W/h))/(1.+2.*spread);
+        const double bevel=std::clamp(double(l.edgeBevelDeg),5.,90.)*kSiPi/180.;
+        const double sharpness=(1.-.9*unit(edge.rounding))*
+            (.2+.8*std::abs(std::cos(bevel*.5)))*
+            (.35+.65*std::min(1.,W/(2.*h)));
+        const double alignment=std::max(0.,std::cos(angle))*std::abs(std::cos(l.elevationDeg*kSiPi/180.));
+        const double gate=unit(l.engagement)*unit(l.aperture)*unit(window.engagement)*unit(window.aperture)*
+            sharpness*alignment*(1.-.8*unit(l.clearance));
+        // Small broadband perturbation seeds the hydrodynamic instability,
+        // not a pitch oscillator. Its energy is debited like all jet work.
+        j.random^=j.random<<13;j.random^=j.random>>17;j.random^=j.random<<5;
+        const double noise=double(j.random)/2147483648.-1.;
+        j.noise+=std::min(1.,4000.*dt_)*(noise-j.noise);
+        const double eta=h/std::max(.1,U)*growth*past+.0005*h*j.noise;
+        const double split=std::tanh((eta-offset)/b);
+        const double delta=4./kSiPi*std::sqrt(2.*h*W);
+        const double pressure=j.primed?gate*rho*delta*U*b/W*(split-j.split)/dt_:0.;
+        j.split=split;j.primed=true;j.lastPressure=pressure;
+        double impulseJ=pressure*bore*dt_;
+        // Exact acoustic work of generalized impulse: J*u + J²*A/2.
+        // Limit positive work to through-flow kinetic energy, without
+        // limiting the acoustic displacement or amplitude itself.
+        const double proposed=impulseJ*acoustic+.5*inv*impulseJ*impulseJ;
+        if(proposed>available){
+            const double direction=std::copysign(1.,impulseJ),vel=direction*acoustic;
+            const double root=std::sqrt(vel*vel+2.*inv*available);
+            const double magnitude=vel>=0.?2.*available/(root+vel):(root-vel)/inv;
+            impulseJ=direction*std::min(std::abs(impulseJ),magnitude);
+        }
+        const double work=impulseJ*acoustic+.5*inv*impulseJ*impulseJ;
+        impulse(tube,j.port,impulseJ);
+        rigid.v=std::sqrt(std::max(0.,U*U-2.*available/rigid.mass));
+        const double exhaust=std::max(0.,available-work);
+        ledger_.contactLoss+=exhaust;ledger_.jetExhaust+=exhaust;ledger_.jetWork+=work;
+        // Bernoulli mouth loss: signed pressure drop opposes acoustic flow.
+        const double current=velocity(tube,j.port);
+        const double lossForce=.5*rho*std::pow(current*bore/mouth,2.)/(.6*.6)*bore;
+        const double lossJ=std::copysign(std::min(std::abs(current)/inv,lossForce*dt_),current);
+        impulse(tube,j.port,-lossJ);
+        ledger_.contactLoss+=std::max(0.,lossJ*current-.5*inv*lossJ*lossJ);
     }
     void drive() noexcept {
         if(!sourceActive()||graph_.nodeCount<2)return;
@@ -427,6 +553,8 @@ private:
     Blueprint blueprint_{};FlowGraph graph_{};
     std::array<Object,kMaxFlowNodes> objects_{};
     std::array<Contact,kMaxFlowLinks> contacts_{};
+    std::array<Jet,kMaxJets> jets_{};
+    int jetCount_{};
     std::array<int,kMaxFlowLinks> linkIndices_{};
     EnergyLedger ledger_{};
     double sr_{48000.},dt_{1./48000.},v_{.8},initialV_{.8},m_{},smoothM_{},bend_{},pressure_{};

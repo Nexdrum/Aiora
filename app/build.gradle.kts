@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".acousticv14"
-            versionNameSuffix = "-acoustic-radiation-v14"
+            applicationIdSuffix = ".jetv15"
+            versionNameSuffix = "-fluid-edge-v15"
         }
     }
 

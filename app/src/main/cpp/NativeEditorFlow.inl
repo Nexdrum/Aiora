@@ -254,8 +254,8 @@ NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
-    physicalBlueprint_.graph=i==0?physical::acousticStarterGraph():
-        physical::acousticEmptyGraph();
+    physicalBlueprint_.graph=i==0?physical::jetConstruction(physical::acousticStarterGraph()):
+        physical::jetConstruction(physical::acousticEmptyGraph());
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
     pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -357,7 +357,7 @@ int NativeEditor::flowPropertyCount() const noexcept {
         const auto& l=g.links[flowSelectedLink_];
         if(g.objectFlow)return physical::isUniversalSource(g.nodes[l.from])?0:
             physical::isUniversalOutput(g.nodes[l.to])?(g.nodes[l.from].substance.enabled?9:4):
-            (g.nodes[l.from].substance.enabled||g.nodes[l.to].substance.enabled?19:14);
+            (physical::jetEdgeCandidate(g,l)?21:(g.nodes[l.from].substance.enabled||g.nodes[l.to].substance.enabled?19:14));
         return 6;
     }
     if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
@@ -400,6 +400,8 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
                 return i>=0&&i<9?pickup[i]:"";
             }
             constexpr const char* spatial[]={"SENDER TRANSVERSE","SENDER DEPTH","RECEIVER TRANSVERSE","RECEIVER DEPTH","MOTION ELEVATION"};
+            if(i==19)return "JET TRAVEL (mm; zero = contact)";
+            if(i==20)return "EDGE BEVEL (deg)";
             return i>=14&&i<19?spatial[i-14]:i>=0&&i<14?labels[i]:"";
         }
         constexpr const char* l[]={
@@ -512,7 +514,7 @@ bool NativeEditor::flowAction(int index) noexcept {
     using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
     if((index==3||index==10||index==11)&&g.objectFlow){
-        g=index==3?physical::acousticStringBodyGraph():physical::acousticBellDrumGraph(index==11);
+        g=physical::jetConstruction(index==3?physical::acousticStringBodyGraph():physical::acousticBellDrumGraph(index==11));
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -559,14 +561,14 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
     if(index==8){
-        g=physical::acousticEmptyGraph();
+        g=physical::jetConstruction(physical::acousticEmptyGraph());
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
-        g=physical::acousticStarterGraph();
+        g=physical::jetFluteGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
@@ -630,6 +632,8 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
             else if(i==14)link.senderY=t;else if(i==15)link.senderZ=t;
             else if(i==16)link.receiverY=t;else if(i==17)link.receiverZ=t;
             else if(i==18)link.elevationDeg=-90.f+180.f*t;
+            else if(i==19)link.jetDistanceMeters=.030f*t;
+            else if(i==20)link.edgeBevelDeg=5.f+85.f*t;
         }else if(i==5){
             if(!first)return false;
             link.law=static_cast<physical::ContactLaw>(
@@ -962,7 +966,7 @@ void NativeEditor::drawPhysical() const noexcept {
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
     constexpr const char* actions[]={
         "ENERGY","TRANSFER","+OBJECT","GUITAR","+OUTPUT","INTERACT",
-        "UNLINK","DELETE","CLEAR","EXAMPLE","BELL","DRUM"
+        "UNLINK","DELETE","CLEAR","JET EDGE","BELL","DRUM"
     };
     for(int i=0;i<12;++i){
         const auto rr=flowActionRect(i);
@@ -1340,9 +1344,11 @@ void NativeEditor::drawPhysical() const noexcept {
                     link.senderY,link.senderZ,link.receiverY,link.receiverZ,(link.elevationDeg+90.f)/180.f};
                 const bool pickup=physical::isUniversalOutput(g.nodes[link.to])&&g.nodes[link.from].substance.enabled;
                 const float pv[]={link.receiverY,link.receiverZ,(link.angleDeg+90.f)/180.f,link.clearance};
-                field.position=pickup?pv[i-5]:v[i-5];
+                if(i==19){field.position=link.jetDistanceMeters/.030f;std::snprintf(field.label,sizeof(field.label),"%.2f mm",link.jetDistanceMeters*1000.f);}
+                else if(i==20){field.position=(link.edgeBevelDeg-5.f)/85.f;std::snprintf(field.label,sizeof(field.label),"%.1f deg",link.edgeBevelDeg);}
+                else {field.position=pickup?pv[i-5]:v[i-5];
                 if(i==7||i==18)std::snprintf(field.label,sizeof(field.label),"%+.0f deg",i==18?link.elevationDeg:link.angleDeg);
-                else std::snprintf(field.label,sizeof(field.label),"%.0f%%",field.position*100.f);
+                else std::snprintf(field.label,sizeof(field.label),"%.0f%%",field.position*100.f);}
             }else{
                 field.picker=true;
                 std::snprintf(field.label,sizeof(field.label),"%s",

@@ -232,7 +232,7 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
     uint32_t h=2166136261u;
     const auto add=[&](uint32_t v){h=(h^v)*16777619u;};
     const auto f=[&](float v){add(std::bit_cast<uint32_t>(v));};
-    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);add(g.energySolver);add(g.acousticSolver);
+    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);add(g.energySolver);add(g.acousticSolver);add(g.jetSolver);
     for(int i=0;i<g.nodeCount;++i){
         const auto& n=g.nodes[static_cast<size_t>(i)];
         add(static_cast<uint32_t>(n.kind));add(static_cast<uint32_t>(n.role));
@@ -275,7 +275,7 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
         add(link.modEnabled);add(static_cast<uint32_t>(link.law));
         f(link.fromPosition);f(link.motion);f(link.angleDeg);f(link.engagement);
         f(link.friction);f(link.elasticity);f(link.restitution);f(link.clearance);f(link.adhesion);
-        f(link.senderY);f(link.senderZ);f(link.receiverY);f(link.receiverZ);f(link.elevationDeg);
+        f(link.senderY);f(link.senderZ);f(link.receiverY);f(link.receiverZ);f(link.elevationDeg);f(link.jetDistanceMeters);f(link.edgeBevelDeg);
     }
     return h;
 }

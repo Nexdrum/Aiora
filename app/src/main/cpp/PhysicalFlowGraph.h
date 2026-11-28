@@ -478,6 +478,7 @@ struct FlowLink {
     float friction{.5f},elasticity{.5f},restitution{.5f};
     float clearance{0.f},adhesion{1.f};
     float senderY{.5f},senderZ{.5f},receiverY{.5f},receiverZ{.5f},elevationDeg{0.f};
+    float jetDistanceMeters{0.f},edgeBevelDeg{30.f}; // zero distance: ordinary contact
 };
 inline constexpr bool isUniversalSource(const FlowNode& n) noexcept {
     return n.kind==FlowKind::Universal&&n.role==PhysicalRole::Source;
@@ -498,6 +499,7 @@ struct FlowGraph {
     bool objectFlow{false}; // legacy graphs retain their earlier solver
     bool energySolver{false}; // versioned integrator; legacy tests retain their path
     bool acousticSolver{false};
+    bool jetSolver{false};
 
     int first(FlowKind kind) const noexcept {
         for(int i=0;i<nodeCount;++i)
@@ -939,6 +941,41 @@ inline FlowGraph acousticBellDrumGraph(bool drum=false) noexcept {
     auto& c=g.links[1];c.motion=.8f;c.angleDeg=0.f;c.engagement=1.f;c.aperture=.9f;
     c.elasticity=.7f;c.restitution=.75f;c.fromPosition=.8f;c.position=drum?.35f:.82f;
     g.links[2].position=.32f;g.links[2].aperture=.9f;g.links[2].clearance=.15f;
+    return g;
+}
+inline FlowGraph jetConstruction(FlowGraph g) noexcept {g.jetSolver=true;return g;}
+inline bool jetEdgeCandidate(const FlowGraph& g,const FlowLink& l) noexcept {
+    return g.jetSolver&&l.from==1&&l.to<g.nodeCount&&
+        objectIsFluid(g.nodes[l.from])&&!objectIsFluid(g.nodes[l.to])&&
+        physicalVibrates(g.nodes[l.to])&&g.nodes[l.from].form.confinement<.5f;
+}
+inline FlowGraph jetFluteGraph() noexcept {
+    auto g=jetConstruction(acousticEmptyGraph());g.spanMs=5.f;
+    auto& source=g.nodes[0];
+    source.sourceAcceleration=4500.f;source.sourcePotential=static_cast<float>(aptCapacitySlider(.5,true));
+    source.sourceFollowNote=true;source.sourceTimeMs=10.f;
+    auto& jet=g.nodes[1];jet.x=.28f;jet.y=.20f;jet.form.lengthMeters=.08f;
+    jet.form.widthMeters=.010f;jet.form.depthMeters=.0012f;jet.form.edges=4;jet.form.rounding=.3f;
+    jet.form.confinement=.1f;jet.form.spread=.10f;jet.form.flowAngle=0.f;
+    jet.substance.value={.0846f,.02f,.99f,0.f,.856f,.12f,.0256f,.05f,0.f,.1f,0.f,0.f,0.f};
+    const int edge=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int tube=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int out=addPhysicalRole(g,PhysicalRole::Output);
+    auto& e=g.nodes[edge];initializeConstruction(e);e.siMechanics=e.siAcoustics=true;
+    e.x=.52f;e.y=.40f;e.form.lengthMeters=.012f;e.form.widthMeters=.010f;e.form.depthMeters=.0015f;
+    e.form.edges=3;e.form.rounding=.04f;e.form.taper=.8f;e.form.fixing=1.f;e.tensionNewtons=0.f;
+    e.substance.value={.82f,.85f,.98f,.82f,.18f,.15f,.08f,.75f,.15f,.2f,0.f,.10f,.12f};
+    auto& t=g.nodes[tube];initializeConstruction(t);t.siMechanics=t.siAcoustics=true;t.substance=jet.substance;
+    t.x=.55f;t.y=.64f;t.form.lengthMeters=.30f;t.form.widthMeters=.014f;t.form.depthMeters=.014f;
+    t.form.edges=32;t.form.rounding=1.f;t.form.confinement=1.f;t.form.opening=1.f;t.form.wallMm=2.f;t.damping=.32f;
+    g.nodes[out].x=.65f;g.nodes[out].y=.94f;
+    g.connect(1,edge);auto& l=g.links[g.linkCount-1];
+    l.jetDistanceMeters=.0045f;l.edgeBevelDeg=30.f;l.angleDeg=0.f;l.elevationDeg=0.f;
+    l.motion=1.f;l.adhesion=0.f;l.aperture=1.f;l.engagement=1.f;l.position=.52f;
+    l.modEnabled=true;l.modMin=.40f;l.modMax=.60f;
+    g.connect(edge,tube);auto& window=g.links[g.linkCount-1];window.position=.01f;
+    window.aperture=1.f;window.engagement=1.f;window.adhesion=0.f;window.motion=1.f;
+    g.connect(tube,out);auto& pickup=g.links[g.linkCount-1];pickup.position=.98f;pickup.aperture=.9f;pickup.clearance=.15f;
     return g;
 }
 inline FlowGraph defaultFlowGraph() noexcept {
