@@ -21,11 +21,19 @@ static void period(const std::vector<float>& data,int sr,double expected,Outcome
         const double c=ab/std::max(1.e-30,std::sqrt(aa*bb));if(c>best){best=c;lag=k;}}
     r.periodCorr=best;r.periodHz=lag?double(sr)/lag:0.;
     // Fundamental line relative to total AC RMS; excludes a pure higher mode.
-    double re=0.,im=0.,energy=0.,weight=0.;
+    double energy=0.,weight=0.;std::vector<double> windowed;windowed.reserve(end-start);
     for(int i=start;i<end;++i){const double w=.5-.5*std::cos(2.*kSiPi*(i-start)/(end-start-1));
-        const double x=data[i]-mean,a=2.*kSiPi*r.periodHz*(i-start)/sr;
-        re+=w*x*std::cos(a);im+=w*x*std::sin(a);energy+=w*x*x;weight+=w;}
-    r.fundRatio=2.*(re*re+im*im)/std::max(1.e-30,weight*energy);
+        const double x=data[i]-mean;windowed.push_back(w*x);energy+=w*x*x;weight+=w;}
+    // Integer-sample autocorrelation estimates are too coarse for a
+    // half-second coherent DFT. Search a narrow physical frequency range.
+    double bestLine=0.,bestHz=r.periodHz;
+    for(double f=r.periodHz*.985;f<=r.periodHz*1.015;f+=.2){
+        double re=0.,im=0.;const double w=2.*kSiPi*f/sr,cs=std::cos(w),sn=std::sin(w);
+        double c=1.,s=0.;for(double x:windowed){re+=x*c;im+=x*s;const double nc=c*cs-s*sn;s=s*cs+c*sn;c=nc;}
+        const double line=re*re+im*im;if(line>bestLine){bestLine=line;bestHz=f;}
+    }
+    r.fundRatio=2.*bestLine/std::max(1.e-30,weight*energy);
+    if(r.fundRatio>.001)r.periodHz=bestHz;
 }
 static Outcome check(const std::string& folder,const std::string& name,FlowGraph g,int sr=48000,bool sustained=true){
     Blueprint b;b.graph=g;EnergyMechanicalVoice v;v.prepare(sr);v.start(b,62,.8f,.5f);
@@ -63,6 +71,11 @@ int main(int argc,char**argv){
     const auto bow=integratedBowedGraph();const auto bare=integratedBowedGraph(false);
     const auto bowed=check(folder,"bow_body",bow);
     const auto bowedBare=check(folder,"bow_bare",bare);
+    for(float pos:{.008f,.02f,.04f})for(float area:{.03f,.10f,.30f})for(float load:{.2f,.3f}){
+        auto g=bow;g.links[1].normalLoadN=load;
+        for(int k=0;k<g.linkCount;++k)if(g.links[k].from==2&&g.links[k].to!=g.nodeCount-1){g.links[k].fromPosition=pos;g.links[k].aperture=area;}
+        check(folder,"body_sweep_"+std::to_string(int(pos*1000))+"_"+std::to_string(int(area*100))+"_"+std::to_string(int(load*100)),g);
+    }
     for(float accel:{8.f,14.f,22.f})for(float load:{.3f,.65f,1.f}){auto g=bare;g.nodes[0].sourceAcceleration=accel;g.links[1].normalLoadN=load;check(folder,"sweep_bow_"+std::to_string(int(accel))+"_"+std::to_string(int(load*100)),g);}
     auto low=bow;low.links[1].normalLoadN=.12f;check(folder,"bow_light",low);
     auto high=bow;high.links[1].normalLoadN=1.2f;check(folder,"bow_heavy",high);
@@ -83,7 +96,7 @@ int main(int argc,char**argv){
     const auto drum=check(folder,"drum_integrated",integratedPercussionGraph(true),48000,false);
     assert(bell.peak<1.&&drum.peak<1.&&bell.peak>1.e-5&&drum.peak>1.e-5);
     std::printf("FUNCTION bow expected %.6g actual %.6g bare %.6g valve expected %.6g actual %.6g jet %.6g\n",physicalFundamental(bow.nodes[2]),bowed.localHz,bowedBare.localHz,physicalFundamental(valve.nodes[3]),closed.hz,jet.hz);
-    assert(bowed.sticks>100&&bowed.slips>100&&bowed.transitions>100&&bowed.held>1.e-12);
+    assert(bowed.sticks>100&&bowed.slips>100&&bowed.transitions>100&&bowed.held>1.e-12&&bowed.periodCorr>.85&&bowed.fundRatio>.015);
     assert(bowedBare.sticks>100&&bowedBare.slips>100&&bowedBare.transitions>100);
     for(auto r:{bowedBare,bow44,bow96})assert(r.transitions>100&&r.periodCorr>.85&&r.fundRatio>.015);
     assert(closed.held>1.e-12&&closed.gapMax-closed.gapMin>1.e-7&&closed.valveWork>0.);
