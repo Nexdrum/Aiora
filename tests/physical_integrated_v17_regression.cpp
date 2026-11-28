@@ -43,11 +43,13 @@ int main(int argc,char**argv){
     const auto bow=integratedBowedGraph();const auto bare=integratedBowedGraph(false);
     const auto bowed=check(folder,"bow_body",bow);
     const auto bowedBare=check(folder,"bow_bare",bare);
+    for(float accel:{8.f,14.f,22.f})for(float load:{.3f,.65f,1.f}){auto g=bare;g.nodes[0].sourceAcceleration=accel;g.links[1].normalLoadN=load;check(folder,"sweep_bow_"+std::to_string(int(accel))+"_"+std::to_string(int(load*100)),g);}
     auto low=bow;low.links[1].normalLoadN=.12f;check(folder,"bow_light",low);
     auto high=bow;high.links[1].normalLoadN=1.2f;check(folder,"bow_heavy",high);
     auto zero=bow;zero.links[1].friction=0.f;const auto noFriction=check(folder,"bow_zero_friction",zero);assert(noFriction.peak==0.);
     const auto valve=integratedValveGraph();
     const auto closed=check(folder,"valve_closing",valve);
+    for(float gap:{.00025f,.0004f,.0006f})for(float length:{.018f,.020f,.024f}){auto g=valve;g.links[1].valveGapMeters=gap;g.nodes[2].form.lengthMeters=length;check(folder,"sweep_valve_"+std::to_string(int(gap*1e6))+"_"+std::to_string(int(length*1e3)),g);}
     auto wide=valve;wide.links[1].valveGapMeters=.0012f;check(folder,"valve_wide",wide);
     auto open=integratedValveGraph(1.f);check(folder,"valve_opening",open);
     auto stiff=valve;stiff.nodes[2].form.depthMeters=.0008f;check(folder,"valve_stiff",stiff);

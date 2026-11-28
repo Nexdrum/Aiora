@@ -132,7 +132,7 @@ public:
     }
     double storedEnergy() const noexcept {
         double e=0.;
-        for(int i=0;i<graph_.nodeCount;++i)for(const auto& m:objects_[i].modes)e+=m.energy();
+        for(int i=0;i<graph_.nodeCount;++i)for(int h=0;h<objects_[i].modeCount;++h)e+=objects_[i].modes[h].energy();
         for(int i=0;i<count_;++i)e+=.5*contacts_[i].spring*contacts_[i].extension*contacts_[i].extension;
         return e;
     }
@@ -143,8 +143,8 @@ public:
         drive();
         // Exact undamped harmonic rotations with uniform passive attenuation.
         for(int i=0;i<graph_.nodeCount;++i)if(objects_[i].vibrates){
-            for(auto& m:objects_[i].modes){
-                if(m.mass<=0.)continue;
+            for(int h=0;h<objects_[i].modeCount;++h){
+                auto& m=objects_[i].modes[h];if(m.mass<=0.)continue;
                 const double old=m.energy();
                 if(m.omega>0.){
                     const double q=m.q*m.cosStep+m.v*m.sinStep/m.omega;
@@ -282,13 +282,13 @@ private:
         return a;
     }
     static double velocity(const Object& o,const Port& a) noexcept {
-        double v=0.;for(int h=0;h<kSiModes;++h)if(o.modes[h].mass>0.)v+=a[h]*o.modes[h].v;return v;
+        double v=0.;for(int h=0;h<o.modeCount;++h)if(o.modes[h].mass>0.)v+=a[h]*o.modes[h].v;return v;
     }
     static double invMass(const Object& o,const Port& a) noexcept {
-        double z=0.;for(int h=0;h<kSiModes;++h)if(o.modes[h].mass>0.)z+=a[h]*a[h]/o.modes[h].mass;return z;
+        double z=0.;for(int h=0;h<o.modeCount;++h)if(o.modes[h].mass>0.)z+=a[h]*a[h]/o.modes[h].mass;return z;
     }
     static void impulse(Object& o,const Port& a,double j) noexcept {
-        for(int h=0;h<kSiModes;++h)if(o.modes[h].mass>0.)o.modes[h].v+=j*a[h]/o.modes[h].mass;
+        for(int h=0;h<o.modeCount;++h)if(o.modes[h].mass>0.)o.modes[h].v+=j*a[h]/o.modes[h].mass;
     }
     void configureContact(Contact& c,const FlowLink& l,bool preserve) noexcept {
         auto& a=objects_[c.a];auto& b=objects_[c.b];
@@ -450,8 +450,12 @@ private:
         // volume displacement, with acoustic compliance from modal energy.
         valve.port={};
         const auto& tube=objects_[valve.tube];
-        for(int h=1;h<tube.modeCount;++h)if(tube.modes[h].mass>0.)
-            valve.port[h]=1./std::sqrt(double(h));
+        const auto& fluid=graph_.nodes[valve.tube];
+        const double K=objectMaterial(fluid).youngModulusPa;
+        const double complianceStiffness=2.*K/std::max(1.e-12,double(occupiedVolume(fluid)));
+        for(int h=1;h<tube.modeCount;++h){const auto& m=tube.modes[h];
+            if(m.mass>0.)valve.port[h]=tube.area*std::sqrt(complianceStiffness/(m.mass*m.omega*m.omega));
+        }
     }
     void discoverValves() noexcept {
         for(int i=0;i<count_&&valveCount_<kMaxJets;++i){
@@ -515,12 +519,19 @@ private:
         const double flowSpeed=std::sqrt(2.*std::abs(diff)/rho);
         const double Re=rho*flowSpeed*2.*gap/std::max(1.e-8,stream.viscosity);
         const double discharge=.62*std::sqrt(Re/(Re+40.));
-        const double Q=std::copysign(discharge*width*gap*flowSpeed*gate,diff);
-        valve.flow=Q;
-        valve.meanFlow+=std::min(1.,2.*kSiPi*12.*dt_)*(Q-valve.meanFlow);
-        // Mean through-flow leaves the bore. AC volume compresses modal
-        // acoustic coordinates. p*dV is the conjugate work, measured exactly.
+        const double coeff=discharge*width*gap*gate*std::sqrt(2./rho);
+        auto flowAt=[&](double pressure){const double d=supply-pressure;return std::copysign(coeff*std::sqrt(std::abs(d)),d);};
+        // Implicit midpoint pressure makes the nonlinear orifice a monotone
+        // scalar solve for each step, rather than a delayed explicit feedback.
+        const double q0=flowAt(p);
+        double lo=std::min(q0,valve.meanFlow),hi=std::max(q0,valve.meanFlow);
+        for(int k=0;k<18;++k){const double Q=.5*(lo+hi);
+            const double pm=p+.5*stiffness*(Q-valve.meanFlow)*dt_/(bore*bore);
+            if(Q>flowAt(pm))hi=Q;else lo=Q;
+        }
+        const double Q=.5*(lo+hi);valve.flow=Q;
         const double dq=boundedIncrement((Q-valve.meanFlow)*dt_/bore,p*bore,stiffness,std::max(0.,available-reedWork));
+        valve.meanFlow+=std::min(1.,2.*kSiPi*12.*dt_)*(Q-valve.meanFlow);
         const double tubeWork=p*bore*dq+.5*stiffness*dq*dq;
         for(int h=1;h<tube.modeCount;++h)tube.modes[h].q+=dq*valve.port[h];
         rigid.v=std::sqrt(std::max(0.,U*U-2.*available/rigid.mass));
@@ -534,23 +545,26 @@ private:
         if(inv<=0.||scale<=0.||l.friction<=0.||l.normalLoadN<=0.){c.sticking=false;return;}
         const double normal=std::max(0.,double(l.normalLoadN))*scale;
         const double mu=unit(l.friction)*(.35+.65*(a.roughness+b.roughness)*.5);
-        const double staticLimit=normal*mu*(.35+.65*c.frictionState);
+        const double staticLimit=normal*mu*(.65+.35*c.frictionState);
         const double desired=rel/inv;
-        // Static friction is a velocity constraint, not a fixed friction
-        // force. Sliding weakens the contact and recovery restores it.
         const bool was=c.sticking;
         const double kinetic=normal*mu*unit(l.kineticRatio);
-        const double recapture=was?staticLimit:std::max(kinetic,.50*staticLimit);
-        c.sticking=std::abs(desired)<=recapture*dt_;
+        const double recovery=std::max(.0001,l.frictionRecoveryMs*.001);
+        // Static constraint plus a velocity-weakening sliding branch. The
+        // recovery state heals during slow sliding as well as sticking.
+        c.sticking=std::abs(desired)<=staticLimit*dt_;
         double j=desired;
         if(c.sticking){
             ++ledger_.stickSamples;
-            c.frictionState+=std::min(1.,dt_/std::max(.0001,l.frictionRecoveryMs*.001))*(1.-c.frictionState);
+            c.frictionState+=std::min(1.,dt_/recovery)*(1.-c.frictionState);
         }else{
             ++ledger_.slipSamples;
-            const double weaken=std::exp(-std::abs(rel)*dt_/.00005);
-            c.frictionState*=weaken;
-            const double limit=kinetic+(staticLimit-kinetic)*std::exp(-std::abs(rel)/.015);
+            const double speed=std::abs(rel);
+            const double rate=1./recovery+speed/.00008;
+            const double equilibrium=1./(recovery*rate);
+            c.frictionState=equilibrium+(c.frictionState-equilibrium)*std::exp(-rate*dt_);
+            const double characteristic=.10+.10*(a.roughness+b.roughness)*.5;
+            const double limit=kinetic+(staticLimit-kinetic)/(1.+std::pow(speed/characteristic,2.));
             j=std::copysign(std::min(std::abs(desired),std::max(0.,limit)*dt_),rel);
         }
         if(was!=c.sticking)++ledger_.stickSlipTransitions;
