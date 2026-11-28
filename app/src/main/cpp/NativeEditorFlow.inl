@@ -254,8 +254,8 @@ NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
-    physicalBlueprint_.graph=i==0?physical::dispersiveJetConstruction(physical::acousticStarterGraph()):
-        physical::dispersiveJetConstruction(physical::acousticEmptyGraph());
+    physicalBlueprint_.graph=i==0?physical::integratedConstruction(physical::acousticStarterGraph()):
+        physical::integratedConstruction(physical::acousticEmptyGraph());
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
     pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -357,7 +357,9 @@ int NativeEditor::flowPropertyCount() const noexcept {
         const auto& l=g.links[flowSelectedLink_];
         if(g.objectFlow)return physical::isUniversalSource(g.nodes[l.from])?0:
             physical::isUniversalOutput(g.nodes[l.to])?(g.nodes[l.from].substance.enabled?9:4):
-            (physical::jetEdgeCandidate(g,l)?21:(g.nodes[l.from].substance.enabled||g.nodes[l.to].substance.enabled?19:14));
+            (physical::jetEdgeCandidate(g,l)?(g.integratedMechanics?23:21):
+                (g.integratedMechanics&&!physical::objectIsFluid(g.nodes[l.from])&&!physical::objectIsFluid(g.nodes[l.to])?22:
+                (g.nodes[l.from].substance.enabled||g.nodes[l.to].substance.enabled?19:14)));
         return 6;
     }
     if(flowSelectedNode_>=0&&flowSelectedNode_<g.nodeCount&&
@@ -400,8 +402,16 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
                 return i>=0&&i<9?pickup[i]:"";
             }
             constexpr const char* spatial[]={"SENDER TRANSVERSE","SENDER DEPTH","RECEIVER TRANSVERSE","RECEIVER DEPTH","MOTION ELEVATION"};
-            if(i==19)return "JET TRAVEL (mm; zero = contact)";
-            if(i==20)return "EDGE BEVEL (deg)";
+            if(physical::jetEdgeCandidate(g,l)){
+                if(i==19)return "JET TRAVEL (mm; zero = contact)";
+                if(i==20)return "EDGE BEVEL (deg)";
+                if(i==21)return "REST APERTURE (mm)";
+                if(i==22)return "PRESSURE / OPEN-CLOSE DIRECTION";
+            }else{
+                if(i==19)return "NORMAL LOAD (N)";
+                if(i==20)return "KINETIC / STATIC FRICTION";
+                if(i==21)return "FRICTION RECOVERY (ms)";
+            }
             return i>=14&&i<19?spatial[i-14]:i>=0&&i<14?labels[i]:"";
         }
         constexpr const char* l[]={
@@ -514,7 +524,9 @@ bool NativeEditor::flowAction(int index) noexcept {
     using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
     if((index==3||index==10||index==11)&&g.objectFlow){
-        g=physical::dispersiveJetConstruction(index==3?physical::acousticStringBodyGraph():physical::acousticBellDrumGraph(index==11));
+        bool bowed=false;for(int k=0;k<g.linkCount;++k)bowed|=g.links[k].normalLoadN>0.f;
+        const bool currentString=g.nodeCount>2&&physical::objectContinuum(g.nodes[2])==physical::Continuum::Filament;
+        g=index==3?(currentString&&!bowed?physical::integratedBowedGraph():physical::integratedConstruction(physical::acousticStringBodyGraph())):physical::integratedConstruction(physical::acousticBellDrumGraph(index==11));
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -561,14 +573,15 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
     if(index==8){
-        g=physical::dispersiveJetConstruction(physical::acousticEmptyGraph());
+        g=physical::integratedConstruction(physical::acousticEmptyGraph());
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
-        g=physical::dispersiveJetFluteGraph();
+        bool jet=false;for(int k=0;k<g.linkCount;++k)jet|=g.links[k].jetDistanceMeters>0.f;
+        g=jet?physical::integratedValveGraph():physical::integratedConstruction(physical::jetFluteGraph());
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
@@ -632,8 +645,18 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
             else if(i==14)link.senderY=t;else if(i==15)link.senderZ=t;
             else if(i==16)link.receiverY=t;else if(i==17)link.receiverZ=t;
             else if(i==18)link.elevationDeg=-90.f+180.f*t;
-            else if(i==19)link.jetDistanceMeters=.030f*t;
-            else if(i==20)link.edgeBevelDeg=5.f+85.f*t;
+            else if(i>=19){
+                if(physical::jetEdgeCandidate(g,link)){
+                    if(i==19)link.jetDistanceMeters=.030f*t;
+                    else if(i==20)link.edgeBevelDeg=5.f+85.f*t;
+                    else if(i==21)link.valveGapMeters=.002f*t;
+                    else if(i==22)link.valvePolarity=-1.f+2.f*t;
+                }else{
+                    if(i==19)link.normalLoadN=5.f*t*t;
+                    else if(i==20)link.kineticRatio=t;
+                    else if(i==21)link.frictionRecoveryMs=.1f+49.9f*t*t;
+                }
+            }
         }else if(i==5){
             if(!first)return false;
             link.law=static_cast<physical::ContactLaw>(
@@ -965,8 +988,8 @@ void NativeEditor::drawPhysical() const noexcept {
     ov.addText("Energy > transfer object > interaction > object > output",
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
     constexpr const char* actions[]={
-        "ENERGY","TRANSFER","+OBJECT","GUITAR","+OUTPUT","INTERACT",
-        "UNLINK","DELETE","CLEAR","JET EDGE","BELL","DRUM"
+        "ENERGY","TRANSFER","+OBJECT","STRING","+OUTPUT","INTERACT",
+        "UNLINK","DELETE","CLEAR","WIND","BELL","DRUM"
     };
     for(int i=0;i<12;++i){
         const auto rr=flowActionRect(i);
@@ -1344,8 +1367,18 @@ void NativeEditor::drawPhysical() const noexcept {
                     link.senderY,link.senderZ,link.receiverY,link.receiverZ,(link.elevationDeg+90.f)/180.f};
                 const bool pickup=physical::isUniversalOutput(g.nodes[link.to])&&g.nodes[link.from].substance.enabled;
                 const float pv[]={link.receiverY,link.receiverZ,(link.angleDeg+90.f)/180.f,link.clearance};
-                if(i==19){field.position=link.jetDistanceMeters/.030f;std::snprintf(field.label,sizeof(field.label),"%.2f mm",link.jetDistanceMeters*1000.f);}
-                else if(i==20){field.position=(link.edgeBevelDeg-5.f)/85.f;std::snprintf(field.label,sizeof(field.label),"%.1f deg",link.edgeBevelDeg);}
+                if(i>=19){
+                    if(physical::jetEdgeCandidate(g,link)){
+                        if(i==19){field.position=link.jetDistanceMeters/.030f;std::snprintf(field.label,sizeof(field.label),"%.2f mm",link.jetDistanceMeters*1000.f);}
+                        else if(i==20){field.position=(link.edgeBevelDeg-5.f)/85.f;std::snprintf(field.label,sizeof(field.label),"%.1f deg",link.edgeBevelDeg);}
+                        else if(i==21){field.position=link.valveGapMeters/.002f;std::snprintf(field.label,sizeof(field.label),"%.3f mm",link.valveGapMeters*1000.f);}
+                        else {field.position=(link.valvePolarity+1.f)*.5f;std::snprintf(field.label,sizeof(field.label),"%+.2f",link.valvePolarity);}
+                    }else{
+                        if(i==19){field.position=std::sqrt(std::max(0.f,link.normalLoadN/5.f));std::snprintf(field.label,sizeof(field.label),"%.3f N",link.normalLoadN);}
+                        else if(i==20){field.position=link.kineticRatio;std::snprintf(field.label,sizeof(field.label),"%.0f%%",100.f*link.kineticRatio);}
+                        else {field.position=std::sqrt(std::max(0.f,(link.frictionRecoveryMs-.1f)/49.9f));std::snprintf(field.label,sizeof(field.label),"%.2f ms",link.frictionRecoveryMs);}
+                    }
+                }
                 else {field.position=pickup?pv[i-5]:v[i-5];
                 if(i==7||i==18)std::snprintf(field.label,sizeof(field.label),"%+.0f deg",i==18?link.elevationDeg:link.angleDeg);
                 else std::snprintf(field.label,sizeof(field.label),"%.0f%%",field.position*100.f);}

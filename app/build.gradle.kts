@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".jetv16"
-            versionNameSuffix = "-jet-instability-v16"
+            applicationIdSuffix = ".integratedv17"
+            versionNameSuffix = "-integrated-physics-v17"
         }
     }
 

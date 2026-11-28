@@ -479,6 +479,8 @@ struct FlowLink {
     float clearance{0.f},adhesion{1.f};
     float senderY{.5f},senderZ{.5f},receiverY{.5f},receiverZ{.5f},elevationDeg{0.f};
     float jetDistanceMeters{0.f},edgeBevelDeg{30.f}; // zero distance: ordinary contact
+    float normalLoadN{0.f},kineticRatio{.30f},frictionRecoveryMs{2.f};
+    float valveGapMeters{0.f},valvePolarity{-1.f}; // negative: pressure closes opening
 };
 inline constexpr bool isUniversalSource(const FlowNode& n) noexcept {
     return n.kind==FlowKind::Universal&&n.role==PhysicalRole::Source;
@@ -501,6 +503,7 @@ struct FlowGraph {
     bool acousticSolver{false};
     bool jetSolver{false};
     bool dispersiveJet{false}; // versioned finite-width jet receptivity
+    bool integratedMechanics{false};
 
     int first(FlowKind kind) const noexcept {
         for(int i=0;i<nodeCount;++i)
@@ -983,6 +986,40 @@ inline FlowGraph dispersiveJetConstruction(FlowGraph g) noexcept {
     g=jetConstruction(g);g.dispersiveJet=true;return g;
 }
 inline FlowGraph dispersiveJetFluteGraph() noexcept {return dispersiveJetConstruction(jetFluteGraph());}
+inline FlowGraph integratedConstruction(FlowGraph g) noexcept {
+    g=dispersiveJetConstruction(g);g.integratedMechanics=true;return g;
+}
+inline FlowGraph integratedBowedGraph(bool body=true) noexcept {
+    auto g=body?acousticStringBodyGraph(true):acousticBareGuitarGraph();
+    if(!body){g.disconnect(2,3);g.removeNode(3);}
+    g=integratedConstruction(g);g.spanMs=5.f;
+    auto& src=g.nodes[0];src.sourceFollowNote=true;src.sourceAcceleration=28.f;
+    src.sourcePotential=static_cast<float>(aptCapacitySlider(.3,true));
+    auto& bow=g.nodes[1];bow.form.lengthMeters=.28f;bow.form.widthMeters=.015f;bow.form.depthMeters=.004f;
+    bow.form.rounding=.65f;bow.form.fixing=.8f;bow.tensionNewtons=0.f;bow.damping=2.f;
+    bow.substance.value={.78f,.55f,.9f,.77f,.23f,.45f,.12f,.55f,.65f,.3f,0.f,.95f,.12f};
+    auto& s=g.nodes[2];s.form.lengthMeters=.33f;s.form.widthMeters=.0005f;s.form.depthMeters=.0005f;
+    s.tensionNewtons=50.f;s.damping=.35f;
+    auto& c=g.links[1];c.motion=1.f;c.angleDeg=90.f;c.friction=.85f;c.aperture=.9f;c.engagement=1.f;
+    c.adhesion=0.f;c.normalLoadN=.45f;c.kineticRatio=.20f;c.frictionRecoveryMs=1.5f;
+    c.position=.12f;c.fromPosition=.5f;c.modEnabled=false;
+    return g;
+}
+inline FlowGraph integratedValveGraph(float polarity=-1.f) noexcept {
+    auto g=integratedConstruction(jetFluteGraph());
+    auto& source=g.nodes[0];source.sourceAcceleration=5000.f;
+    source.sourcePotential=static_cast<float>(aptCapacitySlider(1.2,true));
+    auto& stream=g.nodes[1];stream.form.lengthMeters=.32f;
+    stream.form.widthMeters=.012f;stream.form.depthMeters=.003f;
+    auto& reed=g.nodes[2];reed.form.lengthMeters=.026f;reed.form.widthMeters=.010f;reed.form.depthMeters=.00040f;
+    reed.form.edges=4;reed.form.rounding=.05f;reed.form.taper=0.f;reed.form.fixing=1.f;reed.damping=1.4f;
+    reed.substance.value={.72f,.48f,.97f,.80f,.22f,.42f,.12f,.65f,.65f,.2f,0.f,.35f,.12f};
+    auto& tube=g.nodes[3];tube.form.lengthMeters=.36f;tube.form.widthMeters=.014f;tube.form.depthMeters=.014f;
+    tube.form.opening=.35f;tube.form.confinement=1.f;tube.damping=.5f;
+    auto& c=g.links[1];c.jetDistanceMeters=0.f;c.valveGapMeters=.00060f;
+    c.valvePolarity=polarity;c.modEnabled=false;c.position=.5f;c.angleDeg=0.f;
+    return g;
+}
 inline FlowGraph defaultFlowGraph() noexcept {
     return universalStarterGraph();
 }

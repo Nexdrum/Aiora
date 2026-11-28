@@ -13,11 +13,13 @@
 
 namespace aiora::physical {
 inline constexpr double kSiPi=3.14159265358979323846;
-inline constexpr int kSiModes=8; // slot 0 rigid drive; 1..7 elastic modes
+inline constexpr int kSiModes=33; // rigid + up to 32 filament partials; ordinary objects use 7
 inline constexpr double kPressureFullScalePa=2.0;
 struct EnergyLedger {
     double sourceWork{},sourcePositiveWork{},controlWork{};
     double materialLoss{},contactLoss{},radiated{},stored{};
+    uint64_t stickSamples{},slipSamples{},stickSlipTransitions{};
+    double frictionLoss{},valveWork{},valveExhaust{},valveSeatLoss{};
     double jetWork{},jetExhaust{}; // subsets of transfer/contact losses, not additional ledger terms
     double balanceError() const noexcept {
         return sourceWork+controlWork-materialLoss-contactLoss-radiated-stored;
@@ -31,6 +33,7 @@ class EnergyMechanicalVoice {
     struct Object {
         std::array<Mode,kSiModes> modes{};
         double mass{},area{},dimension{},frequency{},modulus{},loss{},softness{},roughness{},recovery{},viscosity{};
+        int modeCount{8};
         bool fluid{},vibrates{};
     };
     using Port=std::array<double,kSiModes>;
@@ -40,12 +43,17 @@ class EnergyMechanicalVoice {
         uint64_t arrival{};
         double spring{},extension{},baseStiffness{},gap{},lastX{-1.};
         double radiationArea{},radiationDamping{};
+        bool sticking{};double frictionState{1.};
         Port pa{},pb{};
     };
     // One driven stream can feed several windows; each keeps its own
     // causal history. The source remains the first transfer object.
     static constexpr int kJetHistory=4096;
     static constexpr int kMaxJets=4;
+    struct Valve {
+        int edgeContact{},windowContact{},tube{},solid{};uint64_t arrival{};
+        double gap{},pressure{},flow{},meanFlow{},speed{},reedHz{};Port port{};
+    };
     struct Jet {
         int edgeContact{},windowContact{},tube{};
         uint64_t arrival{};
@@ -63,7 +71,7 @@ public:
         if(pitchMapCurrent(b))applyMappedPitch(b.pitch,graph_,note_);
         v_=unit(velocity);initialV_=v_;m_=smoothM_=unit(mod);bend_=0.;
         tick_=0;released_=false;active_=true;ledger_={};pressure_=0.;quiet_=0;count_=0;
-        objects_={};contacts_={};jets_={};jetCount_=0;
+        objects_={};contacts_={};jets_={};valves_={};jetCount_=valveCount_=0;
         for(int i=0;i<graph_.nodeCount;++i)configureObject(i,false);
         for(int i=0;i<graph_.linkCount;++i){
             const auto& l=graph_.links[i];
@@ -76,6 +84,7 @@ public:
             configureContact(e,l,false);
         }
         if(graph_.jetSolver)discoverJets();
+        if(graph_.integratedMechanics)discoverValves();
     }
     void stop() noexcept {active_=false;}
     void release() noexcept {released_=true;}
@@ -95,6 +104,7 @@ public:
         for(int i=0;i<graph_.nodeCount;++i)if(dirty[i])configureObject(i,true);
         for(int i=0;i<count_;++i)configureContact(contacts_[i],graph_.links[linkIndices_[i]],true);
         for(int i=0;i<jetCount_;++i)configureJetPort(jets_[i]);
+        for(int i=0;i<valveCount_;++i)configureValve(valves_[i]);
         ledger_.controlWork+=storedEnergy()-before; // external tuning work, not hidden energy
         bend_=semitones;
     }
@@ -110,6 +120,13 @@ public:
     double jetDelay() const noexcept {return jetCount_?jets_[0].delaySeconds:0.;}
     double jetPressure() const noexcept {return jetCount_?jets_[0].lastPressure:0.;}
     double jetDelaySpread() const noexcept {return jetCount_?jets_[0].delaySpreadSeconds:0.;}
+    int valveCount() const noexcept {return valveCount_;}
+    double valveGap() const noexcept {return valveCount_?valves_[0].gap:0.;}
+    double valvePressure() const noexcept {return valveCount_?valves_[0].pressure:0.;}
+    double valveFlow() const noexcept {return valveCount_?valves_[0].flow:0.;}
+    double valveSpeed() const noexcept {return valveCount_?valves_[0].speed:0.;}
+    double valveFrequency() const noexcept {return valveCount_?valves_[0].reedHz:0.;}
+    double localVelocity(int node,double x) const noexcept {return node>=0&&node<graph_.nodeCount?velocity(objects_[node],port(node,x,.5,.5,false,0.)):0.;}
     double displacement(int object,int mode=1) const noexcept {
         return object>=0&&object<graph_.nodeCount&&mode>=0&&mode<kSiModes?objects_[object].modes[mode].q:0.;
     }
@@ -138,6 +155,7 @@ public:
             }
         }
         for(int i=0;i<jetCount_;++i)driveJet(jets_[i]);
+        for(int i=0;i<valveCount_;++i)driveValve(valves_[i]);
         pressure_=0.;
         for(int i=0;i<count_;++i){
             auto& c=contacts_[i];
@@ -204,12 +222,14 @@ private:
         o.area=std::max(1.e-10,double(p.form.widthMeters)*p.form.depthMeters*sectionFactor(p.form));
         o.dimension=std::max(1.e-5,double(std::min(p.form.widthMeters,p.form.depthMeters)));
         o.frequency=physicalFundamental(p);o.modulus=mat.youngModulusPa;
+        o.modeCount=graph_.integratedMechanics&&objectContinuum(p)==Continuum::Filament?33:8;
         o.loss=mat.lossFactor;o.softness=mat.contactSoftness;
         o.roughness=p.substance.enabled?p.substance.value[Roughness]:.5;
         o.recovery=p.substance.enabled?p.substance.value[ElasticRecovery]:1.;
         o.viscosity=p.substance.enabled?constructedViscosity(p.substance):0.;
         for(int h=0;h<kSiModes;++h){
             auto& m=o.modes[h];const double momentum=m.mass*m.v;
+            if(h>=o.modeCount){m={};continue;}
             if(h==0){
                 m.mass=p.role==PhysicalRole::Transfer?o.mass:0.;
                 m.omega=0.;m.retain=std::exp(-42.*dt_); // reduced external drive drag
@@ -217,7 +237,9 @@ private:
                 // Effective mass of a unit-peak sinusoidal generalized mode.
                 // Orthogonal reduced basis; not a set of independent literal chunks.
                 m.mass=.5*o.mass;
-                const double f=std::clamp(modeHz(p,h),25.,sr_*.44);
+                const double natural=modeHz(p,h);
+                if(graph_.integratedMechanics&&h>=8&&natural>=sr_*.44){m={};continue;}
+                const double f=std::clamp(natural,25.,sr_*.44);
                 m.omega=2.*kSiPi*f;m.cosStep=std::cos(m.omega*dt_);m.sinStep=std::sin(m.omega*dt_);
                 double loss=o.loss*std::max(.12,double(p.damping))*(1.+.10*(h-1)*(h-1));
                 if(p.substance.enabled){
@@ -241,7 +263,7 @@ private:
         if(object<0||object>=graph_.nodeCount||!objects_[object].vibrates)return a;
         a[0]=objects_[object].modes[0].mass>0.?1.:0.;
         const double cross=.5+.5*std::abs(std::cos(kSiPi*(y-.5))*std::cos(kSiPi*(z-.5)));
-        for(int h=1;h<kSiModes;++h){
+        for(int h=1;h<objects_[object].modeCount;++h){
             const double k=kSiPi*h;
             const double span=pickup?k*.08*std::sqrt(unit(aperture)):0.;
             const double avg=span>1.e-10?std::sin(span)/span:1.;
@@ -297,7 +319,7 @@ private:
     void discoverJets() noexcept {
         for(int i=0;i<count_&&jetCount_<kMaxJets;++i){
             const auto& l=graph_.links[linkIndices_[i]];
-            if(!jetEdgeCandidate(graph_,l)||l.jetDistanceMeters<=0.)continue;
+            if(!jetEdgeCandidate(graph_,l)||l.jetDistanceMeters<=0.||l.valveGapMeters>0.)continue;
             for(int k=0;k<count_&&jetCount_<kMaxJets;++k){
                 const auto& w=graph_.links[linkIndices_[k]];
                 if(w.from!=l.to||!objects_[w.to].fluid||graph_.nodes[w.to].form.confinement<.7f)continue;
@@ -411,6 +433,131 @@ private:
         impulse(tube,j.port,-lossJ);
         ledger_.contactLoss+=std::max(0.,lossJ*current-.5*inv*lossJ*lossJ);
     }
+    void configureValve(Valve& valve) noexcept {
+        auto& o=objects_[valve.solid];const auto& n=graph_.nodes[valve.solid];
+        const double L=std::max(.001,double(n.form.lengthMeters)),t=std::max(.00005,double(n.form.depthMeters));
+        const double rho=std::max(.05,double(objectMaterial(n).densityKgM3));
+        // First cantilever bending mode, effective tip mass. Higher modes
+        // of the same flexible object are retained but this port uses mode 1.
+        const double omega=1.875104*1.875104/(L*L)*std::sqrt(o.modulus*t*t/(12.*rho));
+        auto& m=o.modes[1];const double momentum=m.mass*m.v;
+        m.mass=.236*o.mass;m.omega=std::clamp(omega,2.*kSiPi*25.,2.*kSiPi*sr_*.44);
+        m.v=momentum/std::max(1.e-12,m.mass);
+        m.cosStep=std::cos(m.omega*dt_);m.sinStep=std::sin(m.omega*dt_);
+        m.retain=std::exp(-m.omega*dt_*std::clamp(o.loss*double(n.damping),.005,.8)/2.);
+        valve.reedHz=m.omega/(2.*kSiPi);
+        // Pressure modes at a closed inlet; normalized participation of
+        // volume displacement, with acoustic compliance from modal energy.
+        valve.port={};
+        const auto& tube=objects_[valve.tube];
+        for(int h=1;h<tube.modeCount;++h)if(tube.modes[h].mass>0.)
+            valve.port[h]=1./std::sqrt(double(h));
+    }
+    void discoverValves() noexcept {
+        for(int i=0;i<count_&&valveCount_<kMaxJets;++i){
+            const auto& l=graph_.links[linkIndices_[i]];
+            if(!jetEdgeCandidate(graph_,l)||l.valveGapMeters<=0.)continue;
+            for(int k=0;k<count_&&valveCount_<kMaxJets;++k){
+                const auto& w=graph_.links[linkIndices_[k]];
+                if(w.from!=l.to||!objects_[w.to].fluid||graph_.nodes[w.to].form.confinement<.7f)continue;
+                auto& valve=valves_[valveCount_++];valve.edgeContact=i;valve.windowContact=k;
+                valve.tube=w.to;valve.solid=l.to;valve.arrival=std::max(contacts_[i].arrival,contacts_[k].arrival);
+                configureValve(valve);contacts_[i].jetManaged=true;contacts_[k].jetManaged=true;
+            }
+        }
+    }
+    static double boundedIncrement(double proposed,double linear,double quadratic,double budget) noexcept {
+        // Exact energy increment linear*d + quadratic*d²/2.
+        if(quadratic<=0.||linear*proposed+.5*quadratic*proposed*proposed<=budget)return proposed;
+        const double sign=std::copysign(1.,proposed),v=sign*linear;
+        const double root=std::sqrt(v*v+2.*quadratic*std::max(0.,budget));
+        const double d=v>=0.?((root+v)>0.?2.*budget/(root+v):0.):(root-v)/quadratic;
+        return sign*std::min(std::abs(proposed),d);
+    }
+    void driveValve(Valve& valve) noexcept {
+        auto& stream=objects_[1];auto& rigid=stream.modes[0];auto& reed=objects_[valve.solid].modes[1];
+        auto& tube=objects_[valve.tube];
+        const auto& l=graph_.links[linkIndices_[valve.edgeContact]];
+        const auto& w=graph_.links[linkIndices_[valve.windowContact]];
+        const auto& form=graph_.nodes[valve.solid].form;
+        const double U=std::max(0.,rigid.v),rho=std::max(.05,double(objectMaterial(graph_.nodes[1]).densityKgM3));
+        valve.speed=U;
+        const double gate=unit(l.engagement)*unit(l.aperture)*unit(w.engagement)*unit(w.aperture);
+        if(tick_<valve.arrival||U<.1||gate<=0.||rigid.mass<=0.||reed.mass<=0.){valve.flow=0.;valve.pressure=0.;return;}
+        const double bore=std::max(1.e-9,tube.area),supply=.5*rho*U*U;
+        double p=0.,stiffness=0.;
+        for(int h=1;h<tube.modeCount;++h){
+            const auto& m=tube.modes[h];const double k=m.mass*m.omega*m.omega;
+            p+=k*m.q*valve.port[h]/bore;stiffness+=k*valve.port[h]*valve.port[h];
+        }
+        valve.pressure=p;
+        const double rest=l.valveGapMeters*(l.modEnabled?(.25+1.5*unit(l.modMin+(l.modMax-l.modMin)*smoothM_)):1.);
+        const double polarity=std::clamp(double(l.valvePolarity),-1.,1.);
+        const double diff=supply-p;
+        const double flux=.5*rho*stream.area*U*U*U*dt_/std::max(1,jetCount_+valveCount_);
+        const double available=std::min(.5*rigid.mass*U*U,flux);
+        const double force=polarity*diff*form.lengthMeters*form.widthMeters*.4*gate;
+        const double j=boundedIncrement(force*dt_,reed.v,1./reed.mass,available);
+        const double reedWork=j*reed.v+.5*j*j/reed.mass;
+        reed.v+=j/reed.mass;
+        // Unilateral seat contact: reflect only inward velocity, and account
+        // for discarded penetration energy as a loss. Never project outward
+        // against the spring if the geometric rest gap was moved by M.
+        if(reed.q < -rest&&reed.v<0.){
+            const double before=reed.energy();
+            reed.q=-rest;reed.v=0.;
+            ledger_.contactLoss+=std::max(0.,before-reed.energy());
+            ledger_.valveSeatLoss+=std::max(0.,before-reed.energy());
+        }
+        const double gap=std::max(0.,rest+reed.q);valve.gap=gap;
+        // Bernoulli orifice with Reynolds-dependent viscous discharge.
+        const double width=std::max(.0001,double(form.widthMeters));
+        const double flowSpeed=std::sqrt(2.*std::abs(diff)/rho);
+        const double Re=rho*flowSpeed*2.*gap/std::max(1.e-8,stream.viscosity);
+        const double discharge=.62*std::sqrt(Re/(Re+40.));
+        const double Q=std::copysign(discharge*width*gap*flowSpeed*gate,diff);
+        valve.flow=Q;
+        valve.meanFlow+=std::min(1.,2.*kSiPi*12.*dt_)*(Q-valve.meanFlow);
+        // Mean through-flow leaves the bore. AC volume compresses modal
+        // acoustic coordinates. p*dV is the conjugate work, measured exactly.
+        const double dq=boundedIncrement((Q-valve.meanFlow)*dt_/bore,p*bore,stiffness,std::max(0.,available-reedWork));
+        const double tubeWork=p*bore*dq+.5*stiffness*dq*dq;
+        for(int h=1;h<tube.modeCount;++h)tube.modes[h].q+=dq*valve.port[h];
+        rigid.v=std::sqrt(std::max(0.,U*U-2.*available/rigid.mass));
+        const double exhaust=std::max(0.,available-reedWork-tubeWork);
+        ledger_.contactLoss+=exhaust;ledger_.valveExhaust+=exhaust;ledger_.valveWork+=tubeWork;
+    }
+    void frictionContact(Contact& c,const FlowLink& l,double scale,double tangent) noexcept {
+        auto& a=objects_[c.a];auto& b=objects_[c.b];
+        const double inv=invMass(a,c.pa)+invMass(b,c.pb);
+        const double rel=velocity(a,c.pa)-velocity(b,c.pb);
+        if(inv<=0.||scale<=0.||l.friction<=0.||l.normalLoadN<=0.){c.sticking=false;return;}
+        const double normal=std::max(0.,double(l.normalLoadN))*scale;
+        const double mu=unit(l.friction)*(.35+.65*(a.roughness+b.roughness)*.5);
+        const double staticLimit=normal*mu*(.35+.65*c.frictionState);
+        const double desired=rel/inv;
+        // Static friction is a velocity constraint, not a fixed friction
+        // force. Sliding weakens the contact and recovery restores it.
+        const bool was=c.sticking;
+        const double kinetic=normal*mu*unit(l.kineticRatio);
+        const double recapture=was?staticLimit:std::max(kinetic,.50*staticLimit);
+        c.sticking=std::abs(desired)<=recapture*dt_;
+        double j=desired;
+        if(c.sticking){
+            ++ledger_.stickSamples;
+            c.frictionState+=std::min(1.,dt_/std::max(.0001,l.frictionRecoveryMs*.001))*(1.-c.frictionState);
+        }else{
+            ++ledger_.slipSamples;
+            const double weaken=std::exp(-std::abs(rel)*dt_/.00005);
+            c.frictionState*=weaken;
+            const double limit=kinetic+(staticLimit-kinetic)*std::exp(-std::abs(rel)/.015);
+            j=std::copysign(std::min(std::abs(desired),std::max(0.,limit)*dt_),rel);
+        }
+        if(was!=c.sticking)++ledger_.stickSlipTransitions;
+        impulse(a,c.pa,-j);impulse(b,c.pb,j);
+        const double loss=std::max(0.,j*rel-.5*inv*j*j);
+        ledger_.contactLoss+=loss;ledger_.frictionLoss+=loss;
+    }
     void drive() noexcept {
         if(!sourceActive()||graph_.nodeCount<2)return;
         const auto& p=graph_.nodes[0];auto& m=objects_[1].modes[0];
@@ -464,6 +611,9 @@ private:
                 (.2+.8*std::abs(std::cos((g.flowAngle-l.angleDeg)*kSiPi/180.)));
         }
         const double scale=area*spatial*coherence;
+        if(graph_.integratedMechanics&&!fluid&&l.normalLoadN>0.f&&motion*tangent>.5){
+            setSpring(c,0.);frictionContact(c,l,scale,tangent);return;
+        }
         const bool stationary=motion<.0001&&adhesion<.0001&&!fluid;
         const bool bilateral=adhesion>0.||fluid;
         // A stationary nonadhesive contact is a dissipative preloaded
@@ -532,7 +682,7 @@ private:
         const double Z=kAmbientDensity*kAmbientSoundSpeed;
         c.radiationDamping=Z*c.radiationArea*unit(l.aperture);
         c.pa[0]=0.; // static transport flow is not sound
-        for(int h=1;h<kSiModes;++h){
+        for(int h=1;h<o.modeCount;++h){
             const double ka=o.modes[h].omega*radius/kAmbientSoundSpeed;
             // Compact dipole for a slender string; reduced baffled surface
             // radiation elsewhere. Shell cancellation grows with ring order.
@@ -575,6 +725,8 @@ private:
     std::array<Object,kMaxFlowNodes> objects_{};
     std::array<Contact,kMaxFlowLinks> contacts_{};
     std::array<Jet,kMaxJets> jets_{};
+    std::array<Valve,kMaxJets> valves_{};
+    int valveCount_{};
     int jetCount_{};
     std::array<int,kMaxFlowLinks> linkIndices_{};
     EnergyLedger ledger_{};
