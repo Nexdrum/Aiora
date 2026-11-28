@@ -52,7 +52,7 @@ class EnergyMechanicalVoice {
         Port port{};
         std::array<float,kJetHistory> history{};
         int head{};
-        double split{},noise{},lastPressure{},speed{},delaySeconds{};
+        double split{},noise{},lastPressure{},speed{},delaySeconds{},delaySpreadSeconds{};
         uint32_t random{0x2e3459abu};
         bool primed{};
     };
@@ -109,6 +109,7 @@ public:
     double jetSpeed() const noexcept {return jetCount_?jets_[0].speed:0.;}
     double jetDelay() const noexcept {return jetCount_?jets_[0].delaySeconds:0.;}
     double jetPressure() const noexcept {return jetCount_?jets_[0].lastPressure:0.;}
+    double jetDelaySpread() const noexcept {return jetCount_?jets_[0].delaySpreadSeconds:0.;}
     double displacement(int object,int mode=1) const noexcept {
         return object>=0&&object<graph_.nodeCount&&mode>=0&&mode<kSiModes?objects_[object].modes[mode].q:0.;
     }
@@ -333,11 +334,31 @@ private:
         j.history[j.head]=static_cast<float>(u);
         const double delay=W/(.4*std::max(.1,U));
         j.delaySeconds=delay;
-        const double delayFrames=std::clamp(delay*sr_,1.,double(kJetHistory-2));
-        const int whole=static_cast<int>(delayFrames);
-        const double frac=delayFrames-whole;
-        const double past=(1.-frac)*j.history[(j.head-whole+kJetHistory)%kJetHistory]+
-            frac*j.history[(j.head-whole-1+kJetHistory)%kJetHistory];
+        auto sampleDelay=[&](double seconds) noexcept {
+            const double frames=std::clamp(seconds*sr_,1.,double(kJetHistory-2));
+            const int whole=static_cast<int>(frames);
+            const double frac=frames-whole;
+            return (1.-frac)*j.history[(j.head-whole+kJetHistory)%kJetHistory]+
+                frac*j.history[(j.head-whole-1+kJetHistory)%kJetHistory];
+        };
+        double past=sampleDelay(delay);
+        if(graph_.dispersiveJet){
+            // Finite-width receptivity approximation: different portions of
+            // the sheared stream sample acoustic deflection at different
+            // convective times. Viscous diffusion increases effective width.
+            // A symmetric binomial quadrature approximates a distributed
+            // positive causal transit-time kernel, not an audio EQ or
+            // a selected resonant note. Coefficients sum exactly to one.
+            const double nu=jet.viscosity/std::max(.05,rho);
+            const double diffusion=std::sqrt(std::max(0.,2.*nu*delay));
+            const double effectiveH=std::sqrt(h*h+4.*diffusion*diffusion);
+            const double relativeSpread=std::clamp(.20+.32*effectiveH/W+.24*unit(g.spread),.20,.36);
+            const double step=std::min(.30*delay,relativeSpread*delay/std::sqrt(1.5));
+            j.delaySpreadSeconds=std::sqrt(1.5)*step;
+            constexpr double weights[]={1.,6.,15.,20.,15.,6.,1.};
+            past=0.;
+            for(int k=0;k<7;++k)past+=weights[k]*sampleDelay(delay+(k-3)*step)/64.;
+        }
         j.head=(j.head+1)%kJetHistory;
         // Kinetic energy flux of the moving stream; capped by reservoir.
         const double available=std::min(.5*rigid.mass*U*U,.5*rho*A*U*U*U*dt_/std::max(1,jetCount_));

@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11", "experiment/physical-universal-construction-v12", "experiment/physical-energy-solver-v13", "experiment/physical-acoustic-radiation-v14", "experiment/physical-fluid-edge-v15" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11", "experiment/physical-universal-construction-v12", "experiment/physical-energy-solver-v13", "experiment/physical-acoustic-radiation-v14", "experiment/physical-fluid-edge-v15", "experiment/physical-jet-instability-v16" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -21,6 +21,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
+      - name: v16 dispersed jet register simulations
+        run: |
+          mkdir -p /tmp/aiora-jet-v16
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp tests/physical_jet_v16_regression.cpp -o /tmp/aiora-jet-v16-test
+          /tmp/aiora-jet-v16-test /tmp/aiora-jet-v16
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aiora-Jet-v16-simulations
+          path: /tmp/aiora-jet-v16
+          if-no-files-found: warn
 
       - uses: actions/setup-java@v5
         with:
@@ -259,6 +271,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-FluidEdge-v15-debug
+          name: Aiora-JetPhysics-v16-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

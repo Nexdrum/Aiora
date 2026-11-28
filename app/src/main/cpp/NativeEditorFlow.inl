@@ -254,8 +254,8 @@ NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
-    physicalBlueprint_.graph=i==0?physical::jetConstruction(physical::acousticStarterGraph()):
-        physical::jetConstruction(physical::acousticEmptyGraph());
+    physicalBlueprint_.graph=i==0?physical::dispersiveJetConstruction(physical::acousticStarterGraph()):
+        physical::dispersiveJetConstruction(physical::acousticEmptyGraph());
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
     pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -514,7 +514,7 @@ bool NativeEditor::flowAction(int index) noexcept {
     using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
     if((index==3||index==10||index==11)&&g.objectFlow){
-        g=physical::jetConstruction(index==3?physical::acousticStringBodyGraph():physical::acousticBellDrumGraph(index==11));
+        g=physical::dispersiveJetConstruction(index==3?physical::acousticStringBodyGraph():physical::acousticBellDrumGraph(index==11));
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -561,14 +561,14 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
     if(index==8){
-        g=physical::jetConstruction(physical::acousticEmptyGraph());
+        g=physical::dispersiveJetConstruction(physical::acousticEmptyGraph());
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
-        g=physical::jetFluteGraph();
+        g=physical::dispersiveJetFluteGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;

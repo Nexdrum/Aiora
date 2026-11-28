@@ -500,6 +500,7 @@ struct FlowGraph {
     bool energySolver{false}; // versioned integrator; legacy tests retain their path
     bool acousticSolver{false};
     bool jetSolver{false};
+    bool dispersiveJet{false}; // versioned finite-width jet receptivity
 
     int first(FlowKind kind) const noexcept {
         for(int i=0;i<nodeCount;++i)
@@ -978,6 +979,10 @@ inline FlowGraph jetFluteGraph() noexcept {
     g.connect(tube,out);auto& pickup=g.links[g.linkCount-1];pickup.position=.98f;pickup.aperture=.9f;pickup.clearance=.15f;
     return g;
 }
+inline FlowGraph dispersiveJetConstruction(FlowGraph g) noexcept {
+    g=jetConstruction(g);g.dispersiveJet=true;return g;
+}
+inline FlowGraph dispersiveJetFluteGraph() noexcept {return dispersiveJetConstruction(jetFluteGraph());}
 inline FlowGraph defaultFlowGraph() noexcept {
     return universalStarterGraph();
 }

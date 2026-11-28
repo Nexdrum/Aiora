@@ -75,7 +75,7 @@ public:
     }
 
 private:
-    NativeEditor() { physicalBlueprint_.graph=physical::jetConstruction(physical::acousticStarterGraph()); }
+    NativeEditor() { physicalBlueprint_.graph=physical::dispersiveJetConstruction(physical::acousticStarterGraph()); }
 
     enum class HitKind : uint8_t {
         None,

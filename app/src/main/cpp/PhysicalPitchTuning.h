@@ -232,7 +232,7 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
     uint32_t h=2166136261u;
     const auto add=[&](uint32_t v){h=(h^v)*16777619u;};
     const auto f=[&](float v){add(std::bit_cast<uint32_t>(v));};
-    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);add(g.energySolver);add(g.acousticSolver);add(g.jetSolver);
+    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);add(g.energySolver);add(g.acousticSolver);add(g.jetSolver);add(g.dispersiveJet);
     for(int i=0;i<g.nodeCount;++i){
         const auto& n=g.nodes[static_cast<size_t>(i)];
         add(static_cast<uint32_t>(n.kind));add(static_cast<uint32_t>(n.role));
