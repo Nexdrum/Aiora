@@ -1,7 +1,7 @@
 #define main v13_regression_main
 #include "physical_energy_v13_regression.cpp"
 #undef main
-struct Outcome {double peak{},held{},tail{},local{},hz{},localHz{},err{},rise{},work{},radiation{},friction{},valveWork{},gapMin{1.},gapMax{},speed{},secs{};uint64_t sticks{},slips{},transitions{};};
+struct Outcome {double peak{},held{},tail{},local{},hz{},localHz{},periodHz{},periodCorr{},fundRatio{},err{},rise{},work{},radiation{},friction{},valveWork{},gapMin{1.},gapMax{},speed{},secs{};uint64_t sticks{},slips{},transitions{};};
 static double dominant(const std::vector<float>& data,int sr){
     int start=sr*3/2,N=4096,dec=2;double best=0.,hz=0.;
     for(int k=1;k<512;++k){double re=0.,im=0.;for(int n=0;n<N;++n){
@@ -9,6 +9,23 @@ static double dominant(const std::vector<float>& data,int sr){
         re+=s*std::cos(a);im+=s*std::sin(a);}
         const double e=re*re+im*im;if(e>best){best=e;hz=double(k)*sr/(N*dec);}
     }return hz;
+}
+static void period(const std::vector<float>& data,int sr,double expected,Outcome& r){
+    if(expected<25.)return;
+    const int start=sr*3/2,end=2*sr;double mean=0.;
+    for(int i=start;i<end;++i)mean+=data[i];mean/=end-start;
+    const int minLag=std::max(1,int(sr/(expected*1.08))),maxLag=int(sr/(expected*.92));
+    double best=-1.;int lag=0;
+    for(int k=minLag;k<=maxLag;++k){double ab=0.,aa=0.,bb=0.;
+        for(int i=start+k;i<end;++i){const double a=data[i]-mean,b=data[i-k]-mean;ab+=a*b;aa+=a*a;bb+=b*b;}
+        const double c=ab/std::max(1.e-30,std::sqrt(aa*bb));if(c>best){best=c;lag=k;}}
+    r.periodCorr=best;r.periodHz=lag?double(sr)/lag:0.;
+    // Fundamental line relative to total AC RMS; excludes a pure higher mode.
+    double re=0.,im=0.,energy=0.,weight=0.;
+    for(int i=start;i<end;++i){const double w=.5-.5*std::cos(2.*kSiPi*(i-start)/(end-start-1));
+        const double x=data[i]-mean,a=2.*kSiPi*r.periodHz*(i-start)/sr;
+        re+=w*x*std::cos(a);im+=w*x*std::sin(a);energy+=w*x*x;weight+=w;}
+    r.fundRatio=2.*(re*re+im*im)/std::max(1.e-30,weight*energy);
 }
 static Outcome check(const std::string& folder,const std::string& name,FlowGraph g,int sr=48000,bool sustained=true){
     Blueprint b;b.graph=g;EnergyMechanicalVoice v;v.prepare(sr);v.start(b,62,.8f,.5f);
@@ -32,6 +49,9 @@ static Outcome check(const std::string& folder,const std::string& name,FlowGraph
     const auto e=v.energyLedger();r.work=e.sourcePositiveWork;r.radiation=e.radiated;r.friction=e.frictionLoss;r.valveWork=e.valveWork;
     r.sticks=e.stickSamples;r.slips=e.slipSamples;r.transitions=e.stickSlipTransitions;
     r.hz=dominant(audio,sr);r.localHz=dominant(local,sr);
+    const bool isBow=g.links[1].normalLoadN>0.f;
+    period(isBow?local:audio,sr,physicalFundamental(g.nodes[isBow?2:3]),r);
+    std::printf("PERIOD %s sr %d Hz %.8g corr %.8g fundamental_fraction %.8g\n",name.c_str(),sr,r.periodHz,r.periodCorr,r.fundRatio);
     if(sr==48000)wav(folder+"/"+name+".wav",audio);
     std::printf("V17 %s sr %d peak %.9g held %.9g tail %.9g local %.9g Hz %.6g localHz %.6g source %.9g radiation %.9g balance %.9g rise %.9g stick %llu slip %llu transitions %llu friction %.9g valve_work %.9g gap %.9g %.9g speed %.6g render %.5g\n",name.c_str(),sr,r.peak,r.held,r.tail,r.local,r.hz,r.localHz,r.work,r.radiation,r.err,r.rise,(unsigned long long)r.sticks,(unsigned long long)r.slips,(unsigned long long)r.transitions,r.friction,r.valveWork,r.gapMin,r.gapMax,r.speed,r.secs);
     assert(r.err<std::max(1.e-12,r.work*1.e-7));assert(r.rise<std::max(1.e-13,r.work*1.e-8));
@@ -55,16 +75,20 @@ int main(int argc,char**argv){
     auto stiff=valve;stiff.nodes[2].form.depthMeters=.0008f;check(folder,"valve_stiff",stiff);
     auto no=valve;no.nodes[0].sourcePotential=0.f;const auto silent=check(folder,"valve_zero",no);assert(silent.peak==0.);
     auto block=valve;block.links[1].engagement=0.f;const auto blocked=check(folder,"valve_blocked",block);assert(blocked.peak==0.);
-    check(folder,"valve_44100",valve,44100);check(folder,"valve_96000",valve,96000);
+    const auto valve44=check(folder,"valve_44100",valve,44100);const auto valve96=check(folder,"valve_96000",valve,96000);
+    const auto bow44=check(folder,"bow_44100",bare,44100);const auto bow96=check(folder,"bow_96000",bare,96000);
     const auto jet=check(folder,"jet_integrated",integratedConstruction(jetFluteGraph()));
     check(folder,"guitar_integrated",integratedConstruction(acousticStringBodyGraph()),48000,false);
-    check(folder,"bell_integrated",integratedConstruction(acousticBellDrumGraph()),48000,false);
-    check(folder,"drum_integrated",integratedConstruction(acousticBellDrumGraph(true)),48000,false);
+    const auto bell=check(folder,"bell_integrated",integratedPercussionGraph(),48000,false);
+    const auto drum=check(folder,"drum_integrated",integratedPercussionGraph(true),48000,false);
+    assert(bell.peak<1.&&drum.peak<1.&&bell.peak>1.e-5&&drum.peak>1.e-5);
     std::printf("FUNCTION bow expected %.6g actual %.6g bare %.6g valve expected %.6g actual %.6g jet %.6g\n",physicalFundamental(bow.nodes[2]),bowed.localHz,bowedBare.localHz,physicalFundamental(valve.nodes[3]),closed.hz,jet.hz);
     assert(bowed.sticks>100&&bowed.slips>100&&bowed.transitions>100&&bowed.held>1.e-12);
     assert(bowedBare.sticks>100&&bowedBare.slips>100&&bowedBare.transitions>100);
+    for(auto r:{bowedBare,bow44,bow96})assert(r.transitions>100&&r.periodCorr>.85&&r.fundRatio>.015);
     assert(closed.held>1.e-12&&closed.gapMax-closed.gapMin>1.e-7&&closed.valveWork>0.);
     assert(closed.tail<closed.held*.3+1.e-12);
+    for(auto r:{closed,valve44,valve96})assert(r.periodCorr>.85&&r.fundRatio>.005);
     assert(jet.held>1.e-12&&jet.tail<jet.held*.3+1.e-12);
     std::printf("PASS integrated balance, stick/slip events, valve modulation, silence, release and acoustic regression\n");
 }

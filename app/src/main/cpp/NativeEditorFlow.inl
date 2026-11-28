@@ -526,7 +526,7 @@ bool NativeEditor::flowAction(int index) noexcept {
     if((index==3||index==10||index==11)&&g.objectFlow){
         bool bowed=false;for(int k=0;k<g.linkCount;++k)bowed|=g.links[k].normalLoadN>0.f;
         const bool currentString=g.nodeCount>2&&physical::objectContinuum(g.nodes[2])==physical::Continuum::Filament;
-        g=index==3?(currentString&&!bowed?physical::integratedBowedGraph():physical::integratedConstruction(physical::acousticStringBodyGraph())):physical::integratedConstruction(physical::acousticBellDrumGraph(index==11));
+        g=index==3?(currentString&&!bowed?physical::integratedBowedGraph():physical::integratedConstruction(physical::acousticStringBodyGraph())):physical::integratedPercussionGraph(index==11);
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -991,11 +991,14 @@ void NativeEditor::drawPhysical() const noexcept {
         "ENERGY","TRANSFER","+OBJECT","STRING","+OUTPUT","INTERACT",
         "UNLINK","DELETE","CLEAR","WIND","BELL","DRUM"
     };
+    bool currentBow=false,currentJet=false;for(int k=0;k<g.linkCount;++k){currentBow|=g.links[k].normalLoadN>0.f;currentJet|=g.links[k].jetDistanceMeters>0.f;}
+    const bool currentString=g.nodeCount>2&&physical::objectContinuum(g.nodes[2])==physical::Continuum::Filament;
     for(int i=0;i<12;++i){
         const auto rr=flowActionRect(i);
         const bool selected=(i==5&&flowLinkMode_==1)||(i==6&&flowLinkMode_==2);
         ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(selected?kCyan:kButton));
-        ov.addTextCentered(actions[i],{rr.x+1,rr.y,rr.w-2,rr.h},.67f,
+        const char* action=i==3?(currentString&&!currentBow?"VIOLIN":"GUITAR"):i==9?(currentJet?"VALVE":"JET EDGE"):actions[i];
+        ov.addTextCentered(action,{rr.x+1,rr.y,rr.w-2,rr.h},.67f,
             overlayColor(selected?kBg:kWhite));
     }
     {

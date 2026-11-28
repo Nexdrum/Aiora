@@ -383,7 +383,7 @@ private:
         }
         j.head=(j.head+1)%kJetHistory;
         // Kinetic energy flux of the moving stream; capped by reservoir.
-        const double available=std::min(.5*rigid.mass*U*U,.5*rho*A*U*U*U*dt_/std::max(1,jetCount_));
+        const double available=std::min(.5*rigid.mass*U*U,.5*rho*A*U*U*U*dt_/std::max(1,jetCount_+(graph_.integratedMechanics?valveCount_:0)));
         if(tick_<j.arrival||U<.1||inv<=0.||available<=0.){
             j.lastPressure=0.;j.primed=false;return;
         }
@@ -405,7 +405,10 @@ private:
         j.random^=j.random<<13;j.random^=j.random>>17;j.random^=j.random<<5;
         const double noise=double(j.random)/2147483648.-1.;
         j.noise+=std::min(1.,4000.*dt_)*(noise-j.noise);
-        const double eta=h/std::max(.1,U)*growth*past+.0005*h*j.noise;
+        // Bounded Reynolds-dependent disturbance; transition proxy, not CFD.
+        const double reynolds=rho*U*h/std::max(1.e-8,jet.viscosity);
+        const double turbulence=graph_.integratedMechanics?.5+.5*std::sqrt(reynolds/(reynolds+500.)):1.;
+        const double eta=h/std::max(.1,U)*growth*past+.0005*h*j.noise*turbulence;
         const double split=std::tanh((eta-offset)/b);
         const double delta=4./kSiPi*std::sqrt(2.*h*W);
         const double pressure=j.primed?gate*rho*delta*U*b/W*(split-j.split)/dt_:0.;

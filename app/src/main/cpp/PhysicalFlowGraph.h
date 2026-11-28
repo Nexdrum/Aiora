@@ -989,6 +989,12 @@ inline FlowGraph dispersiveJetFluteGraph() noexcept {return dispersiveJetConstru
 inline FlowGraph integratedConstruction(FlowGraph g) noexcept {
     g=dispersiveJetConstruction(g);g.integratedMechanics=true;return g;
 }
+inline FlowGraph integratedPercussionGraph(bool drum=false) noexcept {
+    auto g=integratedConstruction(acousticBellDrumGraph(drum));
+    // Gentle default strike with digital headroom; full APT range remains.
+    g.nodes[0].sourcePotential=static_cast<float>(aptCapacitySlider(drum?.00030:.0025,false));
+    return g;
+}
 inline FlowGraph integratedBowedGraph(bool body=true) noexcept {
     auto g=body?acousticStringBodyGraph(true):acousticBareGuitarGraph();
     if(!body){g.disconnect(2,3);g.removeNode(3);}
@@ -1001,7 +1007,7 @@ inline FlowGraph integratedBowedGraph(bool body=true) noexcept {
     auto& s=g.nodes[2];s.form.lengthMeters=.33f;s.form.widthMeters=.0005f;s.form.depthMeters=.0005f;
     s.tensionNewtons=50.f;s.damping=.35f;
     auto& c=g.links[1];c.motion=1.f;c.angleDeg=90.f;c.friction=.85f;c.aperture=.9f;c.engagement=1.f;
-    c.adhesion=0.f;c.normalLoadN=.65f;c.kineticRatio=.12f;c.frictionRecoveryMs=.8f;
+    c.adhesion=0.f;c.normalLoadN=.30f;c.kineticRatio=.12f;c.frictionRecoveryMs=.8f;
     c.position=.12f;c.fromPosition=.5f;c.modEnabled=false;
     return g;
 }
