@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11", "experiment/physical-universal-construction-v12", "experiment/physical-energy-solver-v13" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11", "experiment/physical-universal-construction-v12", "experiment/physical-energy-solver-v13", "experiment/physical-acoustic-radiation-v14" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -146,6 +146,17 @@ jobs:
           path: /tmp/aiora-energy-simulations
           if-no-files-found: error
 
+      - name: v14 acoustic radiation and construction simulations
+        run: |
+          mkdir -p /tmp/aiora-acoustic-simulations
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp tests/physical_acoustic_v14_regression.cpp -o /tmp/aiora-acoustic-v14
+          /tmp/aiora-acoustic-v14 /tmp/aiora-acoustic-simulations
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Aiora-Acoustic-v14-simulations
+          path: /tmp/aiora-acoustic-simulations
+          if-no-files-found: error
+
       - name: Native project-limit regression tests
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
@@ -237,6 +248,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-EnergyPhysics-v13-debug
+          name: Aiora-AcousticPhysics-v14-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

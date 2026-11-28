@@ -2928,7 +2928,7 @@ bool NativeEditor::pointerDown(EditorPage page,float x,float y){
                     return true;
                 }
             }
-            for(int i=0;i<10;++i){
+            for(int i=0;i<12;++i){
                 const Rect rr=flowActionRect(i);
                 if(rr.contains(x,y)){
                     changed_=flowAction(i)||changed_;

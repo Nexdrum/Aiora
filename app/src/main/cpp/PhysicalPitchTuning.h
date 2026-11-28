@@ -16,6 +16,41 @@ inline float noteFrequency12TET(int midi,float a4=440.f) noexcept {
     return std::clamp(a4,400.f,480.f)*
         std::pow(2.f,(std::clamp(midi,0,127)-69.f)/12.f);
 }
+// Reduced ring and plate bases, derived only from editable dimensions.
+inline double acousticShellHz(const FlowNode& p,int circumferential,int axial) noexcept {
+    const auto& g=p.form;const auto mat=objectMaterial(p);
+    const double R=std::max(.0001,.25*double(g.widthMeters+g.depthMeters)*normalizedAverageProfile(g));
+    const double t=std::max(.00005,g.wallMm*.001);
+    const double n=std::max(2,circumferential);
+    const double ring=n*(n*n-1.)/std::sqrt(n*n+1.)/(R*R);
+    const double longitudinal=3.141592653589793*axial/std::max(.025,double(g.lengthMeters));
+    return std::sqrt(mat.youngModulusPa/std::max(.05f,mat.densityKgM3))*t/std::sqrt(12.)*
+        std::sqrt(ring*ring+std::pow(longitudinal,4.))/(2.*3.141592653589793)*
+        (1.+.12*std::abs(g.curvature)+.15*materialUnit(g.fixing));
+}
+inline double acousticSheetHz(const FlowNode& p,int nx,int ny) noexcept {
+    const auto& g=p.form;const auto mat=objectMaterial(p);
+    const double L=std::max(.025,double(g.lengthMeters)),W=std::max(.001,double(g.widthMeters));
+    const double t=std::max(.0001,double(g.depthMeters));
+    const double sigma=std::max(1.e-8,double(occupiedVolume(p))*mat.densityKgM3/(L*W));
+    const double D=mat.youngModulusPa*t*t*t/(12.*(1.-.3*.3));
+    const double tension=std::max(0.f,p.tensionNewtons)/std::min(L,W);
+    const double k2=std::pow(3.141592653589793*nx/L,2)+std::pow(3.141592653589793*ny/W,2);
+    return std::sqrt((D*k2*k2+tension*k2)/sigma)/(2.*3.141592653589793)*
+        (.75+.25*materialUnit(g.fixing));
+}
+inline double acousticHelmholtzHz(const FlowNode& p) noexcept {
+    const auto& g=p.form;
+    if(!p.siAcoustics||!objectIsFluid(p)||g.confinement<.7f)return 0.;
+    double sum=0.;for(const auto& o:g.openings){
+        const double A=openingArea(g,o);
+        if(A>0.)sum+=A/std::max(.0001,g.wallMm*.001+o.neck*g.depthMeters+1.7*std::sqrt(A/3.141592653589793));
+    }
+    if(sum<=0.)return 0.;
+    const auto mat=objectMaterial(p);
+    return std::sqrt(mat.youngModulusPa/std::max(.05f,mat.densityKgM3))/
+        (2.*3.141592653589793)*std::sqrt(sum/std::max(1.e-12,double(occupiedVolume(p))));
+}
 inline float physicalFundamental(const FlowNode& p) noexcept {
     if(p.kind!=FlowKind::Universal||!physicalVibrates(p))return 0.f;
     const auto material=objectMaterial(p);
@@ -27,6 +62,10 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
     const float d=std::clamp(g.depthMeters,.0001f,1.f);
     const float profile=std::clamp(normalizedAverageProfile(g),.1f,3.f);
     const float rootE=std::sqrt(E/rho);
+    if(acousticShell(p))return std::clamp(static_cast<float>(acousticShellHz(p,2,0)),25.f,12000.f);
+    if(p.siAcoustics&&objectContinuum(p)==Continuum::Sheet)return std::clamp(static_cast<float>(acousticSheetHz(p,1,1)),25.f,12000.f);
+    const double helmholtz=acousticHelmholtzHz(p);
+    if(helmholtz>0.)return std::clamp(static_cast<float>(helmholtz),25.f,12000.f);
     if(p.siMechanics&&objectContinuum(p)==Continuum::Filament){
         const float mu=std::max(1.e-12f,rho*occupiedVolume(p)/L);
         const float area=occupiedVolume(p)/L;
@@ -193,11 +232,11 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
     uint32_t h=2166136261u;
     const auto add=[&](uint32_t v){h=(h^v)*16777619u;};
     const auto f=[&](float v){add(std::bit_cast<uint32_t>(v));};
-    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);add(g.energySolver);
+    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);add(g.energySolver);add(g.acousticSolver);
     for(int i=0;i<g.nodeCount;++i){
         const auto& n=g.nodes[static_cast<size_t>(i)];
         add(static_cast<uint32_t>(n.kind));add(static_cast<uint32_t>(n.role));
-        add(n.substance.enabled);add(n.siMechanics);
+        add(n.substance.enabled);add(n.siMechanics);add(n.siAcoustics);
         if(n.substance.enabled){
             for(float v:n.substance.value)f(v);
         }else{

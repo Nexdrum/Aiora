@@ -254,8 +254,8 @@ NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
-    physicalBlueprint_.graph=i==0?physical::energyStarterGraph():
-        physical::energyEmptyGraph();
+    physicalBlueprint_.graph=i==0?physical::acousticStarterGraph():
+        physical::acousticEmptyGraph();
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
     pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -511,8 +511,8 @@ const char* NativeEditor::flowPropertyLabel(int i) const noexcept {
 bool NativeEditor::flowAction(int index) noexcept {
     using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
-    if(index==3&&g.objectFlow){
-        g=physical::energyGuitarGraph();
+    if((index==3||index==10||index==11)&&g.objectFlow){
+        g=index==3?physical::acousticStringBodyGraph():physical::acousticBellDrumGraph(index==11);
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -533,7 +533,7 @@ bool NativeEditor::flowAction(int index) noexcept {
             g.nodes[id].form.continuum=physical::Continuum::Solid;
             g.nodes[id].material=physical::Material::Wood;
             physical::initializeConstruction(g.nodes[id]);
-            g.nodes[id].siMechanics=g.energySolver;
+            g.nodes[id].siMechanics=g.energySolver;g.nodes[id].siAcoustics=g.acousticSolver;
         }
         // New roles can appear anywhere along the causally ordered grid.
         // Linking remains deliberate: no hidden sound-path assignments.
@@ -559,14 +559,14 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
     if(index==8){
-        g=physical::energyEmptyGraph();
+        g=physical::acousticEmptyGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
-        g=physical::energyStarterGraph();
+        g=physical::acousticStarterGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
@@ -643,7 +643,7 @@ bool NativeEditor::editFlowProperty(int i,float x,bool first) noexcept {
         const bool src=n.role==physical::PhysicalRole::Source;
         const bool out=n.role==physical::PhysicalRole::Output;
         if(src){
-            if(i==0)n.sourceAcceleration=.1f+119.9f*t;
+            if(i==0)n.sourceAcceleration=n.siAcoustics?physical::aptAcceleration(t):.1f+119.9f*t;
             else if(i==1)n.sourcePotential=t;
             else if(i==2)n.sourceTimeMs=.4f+1999.6f*t;
             else if(i==3){if(!first)return false;n.sourceFollowNote=!n.sourceFollowNote;}
@@ -798,8 +798,8 @@ static FlowField physicalField(const physical::FlowNode& n,int i,int section=0) 
         const bool source=n.role==physical::PhysicalRole::Source;
         const bool output=n.role==physical::PhysicalRole::Output;
         if(source){
-            if(i==0){f.position=(n.sourceAcceleration-.1f)/119.9f;fmt("%.1f m/s2",n.sourceAcceleration);}
-            else if(i==1){f.position=n.sourcePotential;fmt("%.0f%%",n.sourcePotential*100.f);}
+            if(i==0){f.position=n.siAcoustics?physical::aptAccelerationSlider(n.sourceAcceleration):(n.sourceAcceleration-.1f)/119.9f;fmt("%.1f m/s2",n.sourceAcceleration);}
+            else if(i==1){f.position=n.sourcePotential;if(n.siAcoustics){const float value=static_cast<float>(physical::aptCapacity(n.sourcePotential,n.sourceFollowNote));fmt(n.sourceFollowNote?"%.4g W":"%.4g J",value);}else fmt("%.0f%%",n.sourcePotential*100.f);}
             else if(i==2){f.position=(n.sourceTimeMs-.4f)/1999.6f;fmt("%.1f ms",n.sourceTimeMs);}
             else if(i==3){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.sourceFollowNote?"Follow note":"Manual time");}
             else if(i==4){f.picker=true;std::snprintf(f.label,sizeof(f.label),"%s",n.movingEnabled?"Assigned":"Unassigned");}
@@ -962,9 +962,9 @@ void NativeEditor::drawPhysical() const noexcept {
         b.x+20.f,top+36.f,.73f,overlayColor(kMuted));
     constexpr const char* actions[]={
         "ENERGY","TRANSFER","+OBJECT","GUITAR","+OUTPUT","INTERACT",
-        "UNLINK","DELETE","CLEAR","EXAMPLE"
+        "UNLINK","DELETE","CLEAR","EXAMPLE","BELL","DRUM"
     };
-    for(int i=0;i<10;++i){
+    for(int i=0;i<12;++i){
         const auto rr=flowActionRect(i);
         const bool selected=(i==5&&flowLinkMode_==1)||(i==6&&flowLinkMode_==2);
         ov.addRect({rr.x,rr.y,rr.w,rr.h},overlayColor(selected?kCyan:kButton));

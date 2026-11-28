@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".energyv13"
-            versionNameSuffix = "-energy-solver-v13"
+            applicationIdSuffix = ".acousticv14"
+            versionNameSuffix = "-acoustic-radiation-v14"
         }
     }
 

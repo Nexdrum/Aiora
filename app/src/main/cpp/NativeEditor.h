@@ -75,7 +75,7 @@ public:
     }
 
 private:
-    NativeEditor() { physicalBlueprint_.graph=physical::energyStarterGraph(); }
+    NativeEditor() { physicalBlueprint_.graph=physical::acousticStarterGraph(); }
 
     enum class HitKind : uint8_t {
         None,

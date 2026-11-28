@@ -38,6 +38,7 @@ class EnergyMechanicalVoice {
         bool output{};
         uint64_t arrival{};
         double spring{},extension{},baseStiffness{},gap{},lastX{-1.};
+        double radiationArea{},radiationDamping{};
         Port pa{},pb{};
     };
 public:
@@ -122,7 +123,7 @@ public:
             const double x=l.modEnabled?l.modMin+(l.modMax-l.modMin)*smoothM_:l.position;
             if(std::abs(x-c.lastX)>1.e-7){
                 c.pb=port(c.b,x,l.receiverY,l.receiverZ,false,0.);
-                if(c.output)c.pa=port(c.a,x,l.receiverY,l.receiverZ,true,l.aperture);
+                if(c.output){c.pa=port(c.a,x,l.receiverY,l.receiverZ,true,l.aperture);if(graph_.acousticSolver)radiationPort(c,l);}
                 c.lastX=x;
             }
             if(c.output)radiate(c,l);
@@ -147,6 +148,16 @@ private:
     double modeHz(const FlowNode& p,int h) const noexcept {
         const double f=physicalFundamental(p);
         const auto family=objectContinuum(p);
+        if(acousticShell(p)){
+            constexpr int ns[]={2,2,3,3,4,4,5},ms[]={0,1,0,1,0,1,0};
+            return acousticShellHz(p,ns[h-1],ms[h-1]);
+        }
+        if(p.siAcoustics&&family==Continuum::Sheet){
+            constexpr int xs[]={1,2,1,2,3,1,3},ys[]={1,1,2,2,1,3,2};
+            return acousticSheetHz(p,xs[h-1],ys[h-1]);
+        }
+        if(acousticHelmholtzHz(p)>0.&&h==1)return f;
+        if(acousticHelmholtzHz(p)>0.)return std::sqrt(objectMaterial(p).youngModulusPa/std::max(.05f,objectMaterial(p).densityKgM3))*(h-1)/(2.*std::max(.025f,p.form.lengthMeters));
         if(family==Continuum::Filament){
             const double L=std::max(.025,double(p.form.lengthMeters));
             const auto mat=objectMaterial(p);
@@ -211,7 +222,14 @@ private:
             const double k=kSiPi*h;
             const double span=pickup?k*.08*std::sqrt(unit(aperture)):0.;
             const double avg=span>1.e-10?std::sin(span)/span:1.;
-            a[h]=std::sin(k*std::clamp(x,.001,.999))*cross*avg;
+            const auto& n=graph_.nodes[object];
+            if(acousticShell(n)){
+                constexpr int ns[]={2,2,3,3,4,4,5},ms[]={0,1,0,1,0,1,0};
+                a[h]=std::cos(2.*kSiPi*ns[h-1]*y)*std::cos(kSiPi*ms[h-1]*x)*avg;
+            }else if(n.siAcoustics&&objectContinuum(n)==Continuum::Sheet){
+                constexpr int xs[]={1,2,1,2,3,1,3},ys[]={1,1,2,2,1,3,2};
+                a[h]=std::sin(kSiPi*xs[h-1]*std::clamp(x,.001,.999))*std::sin(kSiPi*ys[h-1]*std::clamp(y,.001,.999))*avg;
+            }else a[h]=std::sin(k*std::clamp(x,.001,.999))*cross*avg;
         }
         return a;
     }
@@ -232,8 +250,16 @@ private:
         if(c.output)return;
         // Contact spring K=effective modulus * contact area / deformation length.
         const double E=2.*a.modulus*b.modulus/std::max(1.,a.modulus+b.modulus);
-        const double A=std::min(a.area,b.area);
-        const double length=std::max(1.e-5,std::min(a.dimension,b.dimension));
+        double A=std::min(a.area,b.area);
+        double length=std::max(1.e-5,std::min(a.dimension,b.dimension));
+        if(graph_.acousticSolver&&(a.fluid||b.fluid)){
+            const auto& solid=a.fluid?graph_.nodes[c.b]:graph_.nodes[c.a];
+            const auto& fluid=a.fluid?graph_.nodes[c.a]:graph_.nodes[c.b];
+            if(!objectIsFluid(solid)&&objectContinuum(solid)==Continuum::Sheet&&fluid.form.confinement>.7f){
+                A=std::min(exposedRadiatingArea(solid),double(fluid.form.lengthMeters)*fluid.form.widthMeters);
+                length=std::max(.001,double(fluid.form.depthMeters));
+            }
+        }
         c.baseStiffness=std::max(1.e-8,E*A/length*(.05+.95*unit(l.elasticity)));
         c.gap=unit(l.clearance)*length;
         if(!preserve){c.extension=-c.gap;c.spring=0.;}
@@ -244,10 +270,12 @@ private:
         if(m.mass<=0.)return;
         const double potential=unit(p.sourcePotential)*v_;
         if(potential<=0.)return;
-        const double budget=p.sourceFollowNote?.006*potential*dt_:
-            std::max(0.,22.e-6*potential-ledger_.sourcePositiveWork);
+        const double capacity=graph_.acousticSolver?aptCapacity(p.sourcePotential,p.sourceFollowNote)*v_:
+            (p.sourceFollowNote?.006:22.e-6)*potential;
+        const double budget=p.sourceFollowNote?capacity*dt_:
+            std::max(0.,capacity-ledger_.sourcePositiveWork);
         if(budget<=0.)return;
-        const double force=m.mass*std::clamp(double(p.sourceAcceleration),.1,120.)*(.88+.12*initialV_);
+        const double force=m.mass*std::clamp(double(p.sourceAcceleration),.1,graph_.acousticSolver?5000.:120.)*(.88+.12*initialV_);
         double j=force*dt_;
         // Exact kinetic work of an impulse; solve the quadratic for the cap.
         const double work=j*m.v+j*j/(2.*m.mass);
@@ -345,10 +373,43 @@ private:
             ledger_.contactLoss+=std::max(0.,jf*rel-.5*inv*jf*jf);
         }
     }
+    void radiationPort(Contact& c,const FlowLink& l) noexcept {
+        const auto& n=graph_.nodes[c.a];const auto& o=objects_[c.a];
+        c.radiationArea=exposedRadiatingArea(n);
+        const auto family=objectContinuum(n);
+        // For a string the acoustic cancellation length is transverse, not
+        // its full length. A broad plate radiates through its broad face.
+        const double radius=family==Continuum::Filament?
+            .5*std::max(.0001,double(n.form.widthMeters+n.form.depthMeters)*.5):
+            std::sqrt(c.radiationArea/kSiPi);
+        const double Z=kAmbientDensity*kAmbientSoundSpeed;
+        c.radiationDamping=Z*c.radiationArea*unit(l.aperture);
+        c.pa[0]=0.; // static transport flow is not sound
+        for(int h=1;h<kSiModes;++h){
+            const double ka=o.modes[h].omega*radius/kAmbientSoundSpeed;
+            // Compact dipole for a slender string; reduced baffled surface
+            // radiation elsewhere. Shell cancellation grows with ring order.
+            double efficiency=ka/std::sqrt(1.+ka*ka);
+            if(family==Continuum::Filament)efficiency*=std::min(1.,ka);
+            if(acousticShell(n))efficiency*=std::min(1.,ka/(2.+(h-1)/2));
+            c.pa[h]*=efficiency;
+        }
+    }
     void radiate(Contact& c,const FlowLink& l) noexcept {
         auto& a=objects_[c.a];const auto& n=graph_.nodes[c.a];
         const double inv=invMass(a,c.pa);
         if(inv<=0.||l.aperture<=0.)return;
+        if(graph_.acousticSolver){
+            const double u=velocity(a,c.pa),b=c.radiationDamping;
+            const double j=dt_*b*u/(1.+.5*dt_*inv*b),mid=u-.5*inv*j;
+            impulse(a,c.pa,-j);ledger_.radiated+=dt_*b*mid*mid;
+            // Far-field equivalent pressure from radiated power. Distance
+            // affects reception only, never mechanical radiation damping.
+            const double distance=.10+1.90*unit(l.clearance);
+            const double orientation=std::abs(std::cos(l.angleDeg*kSiPi/180.));
+            pressure_+=std::sqrt(kAmbientDensity*kAmbientSoundSpeed*b/(4.*kSiPi*distance*distance))*mid*orientation;
+            return;
+        }
         const double u=velocity(a,c.pa);
         const double surface=std::max(a.area,double(n.form.lengthMeters)*std::min(n.form.widthMeters,n.form.depthMeters));
         const double radius=std::sqrt(surface/kSiPi);

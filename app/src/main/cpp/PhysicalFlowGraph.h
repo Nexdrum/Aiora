@@ -284,6 +284,7 @@ struct FlowNode {
     Material material{Material::Steel}; // legacy identity, ignored by constructed objects
     ConstructedMaterial substance{};
     bool siMechanics{false}; // v13 frequency model; not a user sound preset
+    bool siAcoustics{false}; // v14 geometry and dimensional APT
     Geometry geometry{Geometry::Plate};
     Excitation excitation{Excitation::Hammer};
     float x{.5f},y{.5f}; // X = interaction location; Y = first energy arrival
@@ -384,8 +385,47 @@ inline float openingArea(const ParametricGeometry& g,const OpeningFeature& o) no
     const float r=.5f*side*materialUnit(o.size);
     return 3.14159265f*r*r*(.15f+.85f*materialUnit(o.aspect));
 }
+// Geometry-derived shell, not a bell/wood/instrument identifier. A thin
+// hollow envelope with comparable transverse dimensions admits ring modes.
+inline bool acousticShell(const FlowNode& n) noexcept {
+    const auto& g=n.form;
+    return n.siAcoustics&&!objectIsFluid(n)&&g.wallFill<.5f&&
+        g.wallMm*.001f<.18f*std::min(g.widthMeters,g.depthMeters)&&
+        std::min(g.widthMeters,g.depthMeters)>.22f*std::max(g.widthMeters,g.depthMeters);
+}
+inline double shellPerimeter(const ParametricGeometry& g) noexcept {
+    const double a=.5*g.widthMeters,b=.5*g.depthMeters;
+    return 3.141592653589793*(3.*(a+b)-std::sqrt(std::max(0.,(3.*a+b)*(a+3.*b))));
+}
+inline double shellLateralArea(const ParametricGeometry& g) noexcept {
+    const double r=.25*(g.widthMeters+g.depthMeters);
+    const double slope=2.*r*g.taper/std::max(.00001,double(g.lengthMeters));
+    return shellPerimeter(g)*g.lengthMeters*std::max(.1f,normalizedAverageProfile(g))*
+        std::sqrt(1.+slope*slope)*(1.+.15*std::abs(g.curvature));
+}
+inline double exposedRadiatingArea(const FlowNode& n) noexcept {
+    const auto& g=n.form;
+    const auto family=objectContinuum(n);
+    if(acousticShell(n))return shellLateralArea(g);
+    if(family==Continuum::Sheet)return std::max(1.e-10,double(g.lengthMeters)*g.widthMeters*normalizedAverageProfile(g));
+    if(family==Continuum::Filament)return std::max(1.e-10,shellPerimeter(g)*g.lengthMeters);
+    if(objectIsFluid(n)){
+        double area=double(g.widthMeters)*g.depthMeters*sectionFactor(g)*fluidContinuum(family);
+        double holes=0.;for(const auto& h:g.openings)holes+=openingArea(g,h);
+        return std::max(1.e-10,area*materialUnit(g.opening)+holes);
+    }
+    return std::max(1.e-10,double(g.lengthMeters)*std::max(g.widthMeters,g.depthMeters)*normalizedAverageProfile(g));
+}
 inline float occupiedVolume(const FlowNode& n) noexcept {
     const auto& g=n.form;
+    if(acousticShell(n)){
+        const double cap=double(g.widthMeters)*g.depthMeters*sectionFactor(g);
+        const double t=g.wallMm*.001;
+        double shell=(shellLateralArea(g)+cap*(2.-materialUnit(g.opening)))*t;
+        for(const auto& o:g.openings)shell-=openingArea(g,o)*t;
+        const double envelope=envelopeVolume(g);
+        return static_cast<float>(std::clamp(shell+(envelope-shell)*materialUnit(g.wallFill),envelope*.005,envelope));
+    }
     float fraction=1.f-voidFraction(g);
     for(const auto& o:g.openings){
         const float hole=openingArea(g,o)*std::min(g.depthMeters,
@@ -457,6 +497,7 @@ struct FlowGraph {
     float spanMs{48.f}; // full top-bottom travel time, not literal distance
     bool objectFlow{false}; // legacy graphs retain their earlier solver
     bool energySolver{false}; // versioned integrator; legacy tests retain their path
+    bool acousticSolver{false};
 
     int first(FlowKind kind) const noexcept {
         for(int i=0;i<nodeCount;++i)
@@ -795,6 +836,111 @@ inline FlowGraph energyConstruction(FlowGraph g) noexcept {
 inline FlowGraph energyStarterGraph() noexcept {return energyConstruction(constructionStarterGraph());}
 inline FlowGraph energyEmptyGraph() noexcept {return energyConstruction(constructionEmptyGraph());}
 inline FlowGraph energyGuitarGraph() noexcept {return energyConstruction(constructionGuitarGraph());}
+// v14 APT maps editable slider positions to physical capacity; zero is exact.
+inline double aptCapacity(double normalized,bool continuous) noexcept {
+    const double t=std::clamp(normalized,0.,1.);
+    if(t==0.)return 0.;
+    return (continuous?1.e-5:1.e-8)*std::pow(10.,t*(continuous?7.:8.));
+}
+inline double aptCapacitySlider(double capacity,bool continuous) noexcept {
+    if(capacity<=0.)return 0.;
+    return std::clamp(std::log10(capacity/(continuous?1.e-5:1.e-8))/(continuous?7.:8.),0.000001,1.);
+}
+inline float aptAccelerationSlider(float a) noexcept {
+    return std::clamp(std::log10(std::max(.1f,a)/.1f)/std::log10(50000.f),0.f,1.f);
+}
+inline float aptAcceleration(float t) noexcept {return .1f*std::pow(50000.f,materialUnit(t));}
+inline FlowGraph acousticConstruction(FlowGraph g) noexcept {
+    g=energyConstruction(g);g.acousticSolver=true;
+    for(int i=0;i<g.nodeCount;++i)g.nodes[i].siAcoustics=true;
+    return g;
+}
+inline FlowGraph acousticEmptyGraph() noexcept {
+    auto g=acousticConstruction(constructionEmptyGraph());
+    g.nodes[0].sourcePotential=static_cast<float>(aptCapacitySlider(.001,false));return g;
+}
+inline FlowGraph acousticStarterGraph() noexcept {
+    auto g=acousticConstruction(constructionStarterGraph());
+    g.nodes[0].sourcePotential=static_cast<float>(aptCapacitySlider(.001,false));return g;
+}
+inline FlowGraph acousticBareGuitarGraph() noexcept {
+    auto g=acousticConstruction(constructionGuitarGraph());
+    // Match v13 capacity for the controlled comparison, not a new gain.
+    g.nodes[0].sourcePotential=static_cast<float>(aptCapacitySlider(22.e-6*.85,false));
+    return g;
+}
+// All example builders only populate existing editable fields.
+inline FlowGraph acousticStringBodyGraph(bool violin=false) noexcept {
+    auto g=acousticBareGuitarGraph();g.spanMs=6.f;
+    if(violin){g.disconnect(2,3);g.removeNode(3);}
+    const int out=g.nodeCount-1;
+    g.disconnect(2,out);
+    auto& energy=g.nodes[0];
+    energy.sourceAcceleration=violin?180.f:280.f;
+    energy.sourcePotential=static_cast<float>(aptCapacitySlider(violin?.015:.0006,violin));
+    energy.sourceFollowNote=violin;energy.sourceTimeMs=7.f;
+    auto& pick=g.nodes[1];auto& string=g.nodes[2];
+    if(violin){
+        pick.form.lengthMeters=.28f;pick.form.widthMeters=.009f;pick.form.depthMeters=.001f;
+        pick.form.rounding=.7f;pick.substance.value[Roughness]=.9f;pick.substance.value[Hardness]=.45f;
+        string.form.lengthMeters=.33f;string.tensionNewtons=50.f;
+        auto& contact=g.links[1];contact.motion=1.f;contact.angleDeg=89.f;contact.friction=1.f;
+        contact.aperture=.8f;contact.engagement=1.f;contact.elasticity=.5f;contact.restitution=.3f;
+    }
+    string.y=.34f;g.nodes[out].y=.97f;g.nodes[out].x=.72f;
+    const int bridge=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int board=addPhysicalRole(g,PhysicalRole::Resonator);
+    const int air=addPhysicalRole(g,PhysicalRole::Resonator);
+    auto wood=std::array<float,MaterialControlCount>{.69f,.5f,.94f,.79f,.22f,.32f,.1f,.55f,.8f,.4f,.10f,.35f,.12f};
+    auto& b=g.nodes[bridge];initializeConstruction(b);b.substance.value=wood;b.x=.66f;b.y=.48f;
+    b.form.lengthMeters=violin?.04f:.08f;b.form.widthMeters=.018f;b.form.depthMeters=.006f;
+    b.form.rounding=.35f;b.tensionNewtons=0.f;b.damping=.5f;
+    auto& top=g.nodes[board];initializeConstruction(top);top.substance.value=wood;top.x=.66f;top.y=.64f;
+    top.form.lengthMeters=violin?.35f:.47f;top.form.widthMeters=violin?.20f:.35f;
+    top.form.depthMeters=violin?.003f:.0028f;top.form.rounding=.8f;top.form.curvature=violin?.25f:.04f;
+    top.form.fixing=.75f;top.tensionNewtons=0.f;top.damping=.6f;
+    auto& cavity=g.nodes[air];initializeConstruction(cavity);cavity.x=.42f;cavity.y=.82f;
+    cavity.substance.value={.0846f,.02f,.99f,0.f,.856f,.2f,.0256f,.05f,0.f,.1f,0.f,0.f,0.f};
+    cavity.form.lengthMeters=top.form.lengthMeters;cavity.form.widthMeters=top.form.widthMeters;
+    cavity.form.depthMeters=violin?.04f:.095f;cavity.form.rounding=.85f;
+    cavity.form.confinement=1.f;cavity.form.opening=0.f;cavity.form.wallMm=3.f;
+    cavity.form.openings[0].size=violin?.6f:.85f;cavity.form.openings[0].aspect=violin?.18f:1.f;
+    cavity.form.openings[0].position=.55f;cavity.form.openings[0].neck=.02f;
+    if(violin){cavity.form.openings[1]=cavity.form.openings[0];cavity.form.openings[1].position=.45f;}
+    cavity.damping=.7f;
+    auto couple=[&](int a,int b,float x,float y,float area,float elastic){
+        if(!g.connect(a,b))return;
+        auto& l=g.links[g.linkCount-1];l.fromPosition=x;l.position=y;l.aperture=area;
+        l.engagement=1.f;l.adhesion=1.f;l.motion=0.f;l.elasticity=elastic;l.restitution=.8f;
+    };
+    couple(2,bridge,.055f,.5f,.65f,.85f);
+    couple(bridge,board,.5f,.40f,.9f,.85f);
+    couple(board,air,.45f,.5f,.9f,.5f);
+    if(g.connect(board,out)){auto& l=g.links[g.linkCount-1];l.position=.48f;l.aperture=.9f;l.clearance=.15f;}
+    if(g.connect(air,out)){auto& l=g.links[g.linkCount-1];l.position=.50f;l.aperture=.85f;l.clearance=.15f;}
+    return acousticConstruction(g);
+}
+inline FlowGraph acousticBellDrumGraph(bool drum=false) noexcept {
+    auto g=acousticConstruction(constructionStarterGraph());g.spanMs=6.f;
+    auto& e=g.nodes[0];e.sourceAcceleration=drum?300.f:500.f;
+    e.sourcePotential=static_cast<float>(aptCapacitySlider(drum?.006:.025,false));e.sourceTimeMs=10.f;
+    auto& mallet=g.nodes[1];mallet.form.lengthMeters=.045f;mallet.form.widthMeters=.026f;mallet.form.depthMeters=.022f;
+    mallet.form.rounding=1.f;mallet.tensionNewtons=0.f;
+    mallet.substance.value={.78f,.65f,.93f,.74f,.25f,.42f,.18f,.5f,.25f,.2f,0.f,.4f,.12f};
+    auto& n=g.nodes[2];n.form.lengthMeters=drum?.28f:.18f;n.form.widthMeters=drum?.28f:.16f;
+    n.form.depthMeters=drum?.0008f:.16f;n.form.rounding=1.f;n.form.edges=32;
+    n.form.curvature=drum?0.f:.6f;n.form.wallFill=drum?1.f:0.f;
+    n.form.wallMm=drum?.8f:4.f;n.form.opening=drum?0.f:1.f;
+    n.form.stations=drum?std::array<float,4>{1.f,1.f,1.f,1.f}:std::array<float,4>{.52f,.65f,.82f,1.f};
+    n.form.taper=drum?0.f:.55f;n.form.fixing=drum?.9f:.20f;n.tensionNewtons=drum?400.f:0.f;
+    n.damping=drum?.7f:.25f;
+    n.substance.value=drum?std::array<float,MaterialControlCount>{.74f,.35f,.85f,.70f,.24f,.40f,.2f,.35f,.2f,.3f,0.f,.3f,.12f}:
+       std::array<float,MaterialControlCount>{.94f,.9f,.99f,.89f,.12f,.08f,0.f,.9f,.2f,.2f,0.f,.15f,.12f};
+    auto& c=g.links[1];c.motion=.8f;c.angleDeg=0.f;c.engagement=1.f;c.aperture=.9f;
+    c.elasticity=.7f;c.restitution=.75f;c.fromPosition=.8f;c.position=drum?.35f:.82f;
+    g.links[2].position=.32f;g.links[2].aperture=.9f;g.links[2].clearance=.15f;
+    return g;
+}
 inline FlowGraph defaultFlowGraph() noexcept {
     return universalStarterGraph();
 }
