@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".universalv12"
-            versionNameSuffix = "-universal-construction-v12"
+            applicationIdSuffix = ".energyv13"
+            versionNameSuffix = "-energy-solver-v13"
         }
     }
 

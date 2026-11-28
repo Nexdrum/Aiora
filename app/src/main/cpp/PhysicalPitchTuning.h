@@ -27,6 +27,14 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
     const float d=std::clamp(g.depthMeters,.0001f,1.f);
     const float profile=std::clamp(normalizedAverageProfile(g),.1f,3.f);
     const float rootE=std::sqrt(E/rho);
+    if(p.siMechanics&&objectContinuum(p)==Continuum::Filament){
+        const float mu=std::max(1.e-12f,rho*occupiedVolume(p)/L);
+        const float area=occupiedVolume(p)/L;
+        const float I=area*d*d/16.f; // equivalent elliptical section
+        const float k=3.14159265358979323846f/L;
+        const float omega=std::sqrt((std::max(0.f,p.tensionNewtons)*k*k+E*I*k*k*k*k)/mu);
+        return std::clamp(omega/6.28318530718f,25.f,12000.f);
+    }
     float f=110.f;
     switch(objectContinuum(p)){
     case Continuum::Filament:{
@@ -79,7 +87,7 @@ inline float physicalFundamental(const FlowNode& p) noexcept {
         break;
     }
     }
-    if(p.substance.enabled&&!objectIsFluid(p))f*=std::sqrt(sectionFactor(g))*(1.f-.12f*voidFraction(g));
+    if(p.substance.enabled&&!p.siMechanics&&!objectIsFluid(p))f*=std::sqrt(sectionFactor(g))*(1.f-.12f*voidFraction(g));
     f*=std::sqrt(profile)*
         (1.f+.08f*std::clamp(g.curvature,-1.f,1.f));
     return std::clamp(f,25.f,12000.f);
@@ -185,11 +193,11 @@ inline uint32_t physicalGraphStamp(const FlowGraph& g) noexcept {
     uint32_t h=2166136261u;
     const auto add=[&](uint32_t v){h=(h^v)*16777619u;};
     const auto f=[&](float v){add(std::bit_cast<uint32_t>(v));};
-    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);
+    add(g.nodeCount);add(g.linkCount);f(g.spanMs);add(g.objectFlow);add(g.energySolver);
     for(int i=0;i<g.nodeCount;++i){
         const auto& n=g.nodes[static_cast<size_t>(i)];
         add(static_cast<uint32_t>(n.kind));add(static_cast<uint32_t>(n.role));
-        add(n.substance.enabled);
+        add(n.substance.enabled);add(n.siMechanics);
         if(n.substance.enabled){
             for(float v:n.substance.value)f(v);
         }else{

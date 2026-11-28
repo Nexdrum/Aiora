@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11", "experiment/physical-universal-construction-v12" ]
+    branches: [ main, native-android, "experiment/physical-instrument-prototype", "experiment/instrument-flow-v2", "experiment/material-time-flow-v3", "experiment/material-contact-fix-v3", "experiment/universal-physics-flow-v4", "experiment/universal-roles-materials-v5", "experiment/physical-pitch-calibration-v6", "experiment/physical-scan-all-v7", "experiment/physical-pitch-expression-v8", "experiment/physical-apt-interactions-v9", "experiment/physical-geometry-interaction-v10", "experiment/physical-object-flow-v11", "experiment/physical-universal-construction-v12", "experiment/physical-energy-solver-v13" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -135,6 +135,17 @@ jobs:
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp tests/physical_guitar_feedback_regression.cpp -o /tmp/aiora-after
           /tmp/aiora-after
 
+      - name: SI energy solver v13 five-instrument simulations
+        run: |
+          mkdir -p /tmp/aiora-energy-simulations
+          g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp tests/physical_energy_v13_regression.cpp -o /tmp/aiora-energy-v13
+          /tmp/aiora-energy-v13 /tmp/aiora-energy-simulations
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Aiora-Energy-v13-simulations
+          path: /tmp/aiora-energy-simulations
+          if-no-files-found: error
+
       - name: Native project-limit regression tests
         run: |
           g++ -std=c++20 -O2 -pthread -Iapp/src/main/cpp \
@@ -226,6 +237,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Aiora-UniversalConstruction-v12-debug
+          name: Aiora-EnergyPhysics-v13-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

@@ -8,6 +8,7 @@
 // Fixed buffers; render() has no dynamic allocation or graph edits.
 #include "PhysicalInstrumentVoice.h"
 #include "PhysicalPitchTuning.h"
+#include "EnergyMechanicalVoice.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -30,10 +31,13 @@ class MaterialTimeVoice {
 public:
     void prepare(float sr) noexcept {
         sampleRate_=std::clamp(sr,8000.f,192000.f);
-        legacy_.prepare(sr);
+        legacy_.prepare(sr);si_.prepare(sr);
         stop();
     }
     void start(const Blueprint& blueprint,int midi,float velocity,float mod=0.f) noexcept {
+        siMode_=blueprint.graph.energySolver;
+        if(siMode_){legacyMode_=false;legacy_.stop();si_.start(blueprint,midi,velocity,mod);return;}
+        si_.stop();
         blueprint_=blueprint;
         graph_=blueprint.graph;
         baseMidi_=std::clamp(midi,0,127);
@@ -205,6 +209,7 @@ public:
         }
     }
     void setExpression(float v,float m) noexcept {
+        if(siMode_){si_.setExpression(v,m);return;}
         if(legacyMode_){legacy_.setExpression(v,m);return;}
         e1_=safe01(v);e2_=safe01(m);
     }
@@ -214,6 +219,7 @@ public:
     // are deliberately preserved, so an already-ringing note can glide.
     // Call on the audio thread at the same control cadence as V and M.
     void setPitchBend(float semitones) noexcept {
+        if(siMode_){si_.setPitchBend(semitones);return;}
         if(legacyMode_||!pitchBendReady_||!std::isfinite(semitones))return;
         const float bend=std::clamp(semitones,-127.f,127.f);
         if(std::fabs(bend-currentBendSemitones_)<.00002f)return;
@@ -254,21 +260,26 @@ public:
         }
     }
     [[nodiscard]] float currentPhysicalPitchHz() const noexcept {
+        if(siMode_)return si_.pitchHz();
         return trackedFundamental(graph_,blueprint_.pitch.trackedNode);
     }
     [[nodiscard]] float currentPitchPropertyValue(int slot=0) const noexcept {
+        if(siMode_)return si_.pitchValue(slot);
         if(slot<0||slot>=blueprint_.pitch.count)return 0.f;
         return pitchRead(graph_,blueprint_.pitch.assignments[slot]);
     }
     [[nodiscard]] float sourceMotionVelocity(int sourceIndex=0) const noexcept {
+        if(siMode_)return static_cast<float>(si_.sourceVelocity());
         return sourceIndex>=0&&sourceIndex<nodeCount_?
             nodes_[sourceIndex].driveVelocity:0.f;
     }
     [[nodiscard]] float sourceMechanicalWork(int sourceIndex=0) const noexcept {
+        if(siMode_)return static_cast<float>(si_.energyLedger().sourcePositiveWork);
         return sourceIndex>=0&&sourceIndex<nodeCount_?
             nodes_[sourceIndex].driveWorkJ:0.f;
     }
     [[nodiscard]] float sourceDrivenMass(int sourceIndex=0) const noexcept {
+        if(siMode_)return static_cast<float>(si_.sourceMass());
         return sourceIndex>=0&&sourceIndex<nodeCount_?
             nodes_[sourceIndex].driveMassKg:0.f;
     }
@@ -276,7 +287,10 @@ public:
         return nodeIndex>=0&&nodeIndex<nodeCount_?
             nodes_[nodeIndex].contactElastic:0.f;
     }
+    [[nodiscard]] bool usesEnergySolver() const noexcept {return siMode_;}
+    [[nodiscard]] EnergyLedger energyLedger() const noexcept {return siMode_?si_.energyLedger():EnergyLedger{};}
     [[nodiscard]] float storedModalEnergy() const noexcept {
+        if(siMode_)return static_cast<float>(si_.storedEnergy());
         float energy=0.f;
         for(int n=0;n<nodeCount_;++n)
             for(int i=0;i<nodes_[n].modeCount;++i){
@@ -286,17 +300,19 @@ public:
         return energy;
     }
     void release() noexcept {
+        if(siMode_){si_.release();return;}
         if(legacyMode_){legacy_.release();return;}
         if(!released_){released_=true;releasedAt_=tick_;}
     }
     void stop() noexcept {
-        legacy_.stop();
+        si_.stop();legacy_.stop();
         active_=false;
     }
     [[nodiscard]] bool active() const noexcept {
-        return legacyMode_?legacy_.active():active_;
+        return siMode_?si_.active():legacyMode_?legacy_.active():active_;
     }
     float render() noexcept {
+        if(siMode_)return si_.render();
         if(legacyMode_)return legacy_.render();
         if(!active_)return 0.f;
         e2Smooth_+=.002f*(e2_-e2Smooth_);
@@ -1152,6 +1168,8 @@ private:
         }
         return sum*.85f;
     }
+    EnergyMechanicalVoice si_{};
+    bool siMode_{false};
     Blueprint blueprint_{};
     FlowGraph graph_{};
     PhysicalInstrumentVoice legacy_{};

@@ -254,8 +254,8 @@ NativeEditor::Rect NativeEditor::flowPropertyRect(int index) const noexcept {
 }
 bool NativeEditor::flowTemplate(int i) noexcept {
     if(i<0||i>1)return false;
-    physicalBlueprint_.graph=i==0?physical::constructionStarterGraph():
-        physical::constructionEmptyGraph();
+    physicalBlueprint_.graph=i==0?physical::energyStarterGraph():
+        physical::energyEmptyGraph();
     physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
     pitchSpectrumBands_.fill(0.f);
     pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -512,7 +512,7 @@ bool NativeEditor::flowAction(int index) noexcept {
     using physical::PhysicalRole;
     auto& g=physicalBlueprint_.graph;
     if(index==3&&g.objectFlow){
-        g=physical::constructionGuitarGraph();
+        g=physical::energyGuitarGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         pitchScanResults_={};pitchScanStatus_=0;pitchScanSelection_=0;
@@ -533,6 +533,7 @@ bool NativeEditor::flowAction(int index) noexcept {
             g.nodes[id].form.continuum=physical::Continuum::Solid;
             g.nodes[id].material=physical::Material::Wood;
             physical::initializeConstruction(g.nodes[id]);
+            g.nodes[id].siMechanics=g.energySolver;
         }
         // New roles can appear anywhere along the causally ordered grid.
         // Linking remains deliberate: no hidden sound-path assignments.
@@ -558,14 +559,14 @@ bool NativeEditor::flowAction(int index) noexcept {
         flowLinkSource_=-1;flowSelectedLink_=-1;physicalDirty_=true;return true;
     }
     if(index==8){
-        g=physical::constructionEmptyGraph();
+        g=physical::energyEmptyGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;
         flowLinkMode_=0;flowError_=false;physicalDirty_=true;return true;
     }
     if(index==9){
-        g=physical::constructionStarterGraph();
+        g=physical::energyStarterGraph();
         physicalBlueprint_.pitch={};pitchSelectedSlot_=0;pitchTuneStatus_=0;
         pitchSpectrumBands_.fill(0.f);
         flowSelectedNode_=0;flowLinkSource_=-1;flowSelectedLink_=-1;

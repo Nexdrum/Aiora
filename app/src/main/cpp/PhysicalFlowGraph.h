@@ -283,6 +283,7 @@ struct FlowNode {
     FlowKind kind{FlowKind::Plate};
     Material material{Material::Steel}; // legacy identity, ignored by constructed objects
     ConstructedMaterial substance{};
+    bool siMechanics{false}; // v13 frequency model; not a user sound preset
     Geometry geometry{Geometry::Plate};
     Excitation excitation{Excitation::Hammer};
     float x{.5f},y{.5f}; // X = interaction location; Y = first energy arrival
@@ -455,6 +456,7 @@ struct FlowGraph {
     uint8_t nodeCount{0},linkCount{0};
     float spanMs{48.f}; // full top-bottom travel time, not literal distance
     bool objectFlow{false}; // legacy graphs retain their earlier solver
+    bool energySolver{false}; // versioned integrator; legacy tests retain their path
 
     int first(FlowKind kind) const noexcept {
         for(int i=0;i<nodeCount;++i)
@@ -785,6 +787,14 @@ inline FlowGraph constructionGuitarGraph() noexcept {
     auto& pickup=g.links[g.linkCount-1];pickup.position=.23f;pickup.aperture=.8f;
     return g;
 }
+inline FlowGraph energyConstruction(FlowGraph g) noexcept {
+    g.energySolver=true;
+    for(int i=0;i<g.nodeCount;++i)g.nodes[i].siMechanics=g.nodes[i].substance.enabled;
+    return g;
+}
+inline FlowGraph energyStarterGraph() noexcept {return energyConstruction(constructionStarterGraph());}
+inline FlowGraph energyEmptyGraph() noexcept {return energyConstruction(constructionEmptyGraph());}
+inline FlowGraph energyGuitarGraph() noexcept {return energyConstruction(constructionGuitarGraph());}
 inline FlowGraph defaultFlowGraph() noexcept {
     return universalStarterGraph();
 }
