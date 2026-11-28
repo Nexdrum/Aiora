@@ -1028,7 +1028,7 @@ void NativeEditor::drawPhysical() const noexcept {
             const bool highlighted=i==7||
                 (i==8&&pitch.enabled&&current)||
                 (i==10&&pitchScanStatus_==1)||
-                (i==13&&pitchScanStatus_==2);
+                (i==13&&pitchScanStatus_==2&&pitchScanResults_.count>0&&pitchScanResults_.best[pitchScanSelection_].pitch.valid);
             ov.addRect({rr.x,rr.y,rr.w,rr.h},
                 overlayColor(highlighted?kCyan:kButton));
             ov.addTextCentered(actions[i],
@@ -1054,13 +1054,25 @@ void NativeEditor::drawPhysical() const noexcept {
         ov.addText(descriptor,panel.x+9.f,panel.y+177.f,.69f,
             overlayColor(kWhite));
         char scanLabel[180]{};
+        bool scanVerified=false;
         if(pitchScanStatus_==1){
             std::snprintf(scanLabel,sizeof(scanLabel),
                 "SCANNING ALL CONNECTED COMPONENTS... manual tuning unchanged");
         }else if(pitchScanStatus_==2&&pitchScanResults_.count>0){
             const auto& chosen=pitchScanResults_.best[pitchScanSelection_];
             const auto& p=chosen.pitch.assignments[0];
-            std::snprintf(scanLabel,sizeof(scanLabel),
+            scanVerified=chosen.pitch.valid;
+            if(chosen.acousticAttempted){
+                if(scanVerified)std::snprintf(scanLabel,sizeof(scanLabel),
+                    "R%d/%d N%d %s | %d VERIFIED / %d MODEL | %d CONTIG",
+                    pitchScanSelection_+1,pitchScanResults_.count,int(p.objectIndex),
+                    physical::pitchPropertyName(p.property),chosen.verifiedNotes,chosen.modeledNotes,chosen.playableNotes);
+                else std::snprintf(scanLabel,sizeof(scanLabel),
+                    "R%d/%d N%d %s | %d MODEL | %s",
+                    pitchScanSelection_+1,pitchScanResults_.count,int(p.objectIndex),
+                    physical::pitchPropertyName(p.property),chosen.modeledNotes,
+                    chosen.renderChecks?"NO VERIFIED REF":"REF OUT OF RANGE");
+            }else std::snprintf(scanLabel,sizeof(scanLabel),
                 "RESULT %d/%d  NODE %d %s  %d KEYS  AUDIO %d/%d  SCORE %.1f",
                 pitchScanSelection_+1,pitchScanResults_.count,
                 int(p.objectIndex),physical::pitchPropertyName(p.property),
@@ -1077,7 +1089,7 @@ void NativeEditor::drawPhysical() const noexcept {
                 "SCAN ALL searches each connected physical medium and link");
         }
         ov.addText(scanLabel,panel.x+9.f,panel.y+200.f,.66f,
-            overlayColor(pitchScanStatus_==2?kGreen:
+            overlayColor(pitchScanStatus_==2?(scanVerified?kGreen:kOrange):
                 pitchScanStatus_>=3?kOrange:kMuted));
         for(int i=0;i<2;++i){
             const auto rr=flowTuneRangeRect(i);

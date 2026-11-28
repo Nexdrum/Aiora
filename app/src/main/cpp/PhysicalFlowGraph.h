@@ -1069,7 +1069,7 @@ struct PitchAssignment {
     float priority{1.f}; // positive preference; never an audio gain
 };
 struct PitchCalibration {
-    bool enabled{false},valid{false};
+    bool enabled{false},valid{false},acousticRefined{false};
     uint8_t count{0};
     int8_t trackedNode{-1};
     int16_t referenceMidi{60};

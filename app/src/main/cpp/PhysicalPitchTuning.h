@@ -408,7 +408,7 @@ inline bool pitchHasCompleteEnergyPath(const FlowGraph& g,
 }
 inline bool buildPhysicalKeyboard(const FlowGraph& graph,
                                   PitchCalibration& pitch) noexcept {
-    pitch.valid=false;
+    pitch.valid=false;pitch.acousticRefined=false;
     if(pitch.count==0||pitch.count>kPitchSlots||
        trackedFundamental(graph,pitch.trackedNode)<=0.f||
        !pitchHasCompleteEnergyPath(graph,pitch.trackedNode))
@@ -455,6 +455,8 @@ inline uint64_t physicalBendCalibrationKey(const Blueprint& blueprint) noexcept 
     mix(static_cast<uint32_t>(c.trackedNode));
     mix(static_cast<uint32_t>(c.referenceMidi));
     mix(std::bit_cast<uint32_t>(c.a4Hz));
+    mix(c.acousticRefined);
+    if(c.acousticRefined)for(int n=0;n<128;++n){mix(c.playable[n]);if(c.playable[n])for(int k=0;k<c.count&&k<kPitchSlots;++k)mix(std::bit_cast<uint32_t>(c.values[n][k]));}
     for(int i=0;i<c.count&&i<kPitchSlots;++i){
         const auto& a=c.assignments[i];
         mix(static_cast<uint32_t>(a.objectIndex));
@@ -510,6 +512,12 @@ inline bool preparePhysicalBendMap(Blueprint& blueprint) noexcept {
             const float targetMidi=note+static_cast<float>(frac)/steps;
             const float targetHz=std::clamp(c.a4Hz,400.f,480.f)*
                 std::exp2((targetMidi-69.f)/12.f);
+            if(c.acousticRefined){
+                const int pos=note*steps+frac;
+                bend.playable[pos]=1;
+                for(int k=0;k<c.count&&k<kPitchSlots;++k)bend.values[pos][k]=physicalPitchInterpolatedValue(c.assignments[k].property,c.values[note][k],c.values[note+1][k],static_cast<float>(frac)/steps);
+                continue;
+            }
             const auto solved=solvePhysicalPitch(
                 blueprint.graph,c,targetHz);
             if(!solved.reached)continue;

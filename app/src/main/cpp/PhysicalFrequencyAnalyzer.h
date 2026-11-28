@@ -9,6 +9,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <vector>
 
 namespace aiora::physical {
 
@@ -23,10 +24,12 @@ struct PitchSpectrum {
     bool detected{false};
 };
 inline PitchSpectrum analyzePhysicalSpectrum(
-    const Blueprint& blueprint,int midi,bool tuned=false) {
+    const Blueprint& blueprint,int midi,bool tuned=false,float acousticHintHz=0.f) {
     PitchSpectrum out{};
-    constexpr int kN=8192,kRecorded=4096,kDecimate=4,kSampleRate=32000;
-    constexpr float kRate=static_cast<float>(kSampleRate)/kDecimate;
+    const bool si=blueprint.graph.energySolver;
+    const int kN=si?65536:8192,kRecorded=si?24576:4096;
+    const int kDecimate=si?1:4,kSampleRate=si?48000:32000;
+    const float kRate=static_cast<float>(kSampleRate)/kDecimate;
     Blueprint probe=blueprint;
     // When tuning=true, estimate the full sound with the assigned physical
     // note settings. Otherwise analyze the untouched constructed instrument.
@@ -39,10 +42,10 @@ inline PitchSpectrum analyzePhysicalSpectrum(
     MaterialTimeVoice voice;
     voice.prepare(static_cast<float>(kSampleRate));
     voice.start(probe,midi,.90f,.0f);
-    std::array<std::complex<float>,kN> spectrum{};
+    std::vector<std::complex<float>> spectrum(kN);
     // Skip the startup/first transit; for impulses an early window captures
     // the decay, while sustained sources continue providing energy.
-    for(int i=0;i<700;++i)(void)voice.render();
+    for(int i=0;i<kSampleRate*700/32000;++i)(void)voice.render();
     double sumSquares=0.0;
     for(int i=0;i<kRecorded;++i){
         float sample=0.f;
@@ -79,8 +82,8 @@ inline PitchSpectrum analyzePhysicalSpectrum(
             }
         }
     }
-    constexpr float binHz=kRate/kN;
-    std::array<float,kN/2> magnitudes{};
+    const float binHz=kRate/kN;
+    std::vector<float> magnitudes(kN/2);
     float strongest=0.f;
     int strongestBin=0;
     for(int k=1;k<kN/2;++k){
@@ -112,6 +115,17 @@ inline PitchSpectrum analyzePhysicalSpectrum(
     int best=lo;
     for(int k=lo;k<=hi;++k)
         if(magnitudes[k]>magnitudes[best])best=k;
+    if(acousticHintHz>0.f){
+        // Select a genuine local peak near the requested continuation of
+        // the tracked mode, not simply a louder unrelated body resonance.
+        float merit=0.f;
+        for(int k=lo;k<=hi;++k){
+            if(magnitudes[k]<magnitudes[k-1]||magnitudes[k]<magnitudes[k+1]||magnitudes[k]<.015f*strongest)continue;
+            const float cents=1200.f*std::abs(std::log2(k*binHz/acousticHintHz));
+            const float score=std::sqrt(magnitudes[k]/strongest)/(1.f+std::pow(cents/55.f,2.f));
+            if(score>merit){merit=score;best=k;}
+        }
+    }
     // A parabolic interpolation of log spectral amplitude supplies a
     // sub-bin frequency estimate, with a bounded interpolated correction.
     const float l=std::log(magnitudes[best-1]+1.e-12f);
@@ -128,10 +142,48 @@ inline PitchSpectrum analyzePhysicalSpectrum(
         (1.f-std::min(1.f,expectedError/390.f)),0.f,1.f);
     out.cents=1200.f*std::log2(out.fundamentalHz/
         noteFrequency12TET(midi,blueprint.pitch.a4Hz));
-    out.detected=out.confidence>.08f&&
-        std::isfinite(out.fundamentalHz);
+    const float skirt=std::max(magnitudes[std::max(1,best-5)],magnitudes[std::min(kN/2-1,best+5)]);
+    const bool distinctWeak=acousticHintHz>0.f&&relative>=.015f&&magnitudes[best]>1.6f*skirt&&expectedError<350.f;
+    const bool localPeak=magnitudes[best]>=magnitudes[best-1]&&magnitudes[best]>=magnitudes[best+1];
+    out.detected=(out.confidence>.08f||distinctWeak)&&(acousticHintHz<=0.f||localPeak)&&std::isfinite(out.fundamentalHz);
     return out;
 }
+// Rendered-output refinement. Model estimates remain seeds only; the
+// measured pitch belongs to the complete coupled instrument. No DSP shift.
+inline bool refineAcousticNote(const Blueprint& source,PitchCalibration& pitch,
+                               int note,float seedCorrection,PitchSpectrum& best,
+                               float& correction,int& renders) {
+    const float target=noteFrequency12TET(note,pitch.a4Hz);
+    if(pitch.count==0||target<25.f||target>3500.f)return false;
+    float modelTarget=target*std::exp2(seedCorrection/1200.f);
+    float bestError=1.e9f;std::array<float,kPitchSlots> bestValues{};
+    float previousModel=0.f,previousMeasured=0.f;
+    Blueprint probe=source;probe.pitch=pitch;probe.pitch.enabled=true;probe.pitch.valid=true;
+    probe.pitch.graphStamp=physicalGraphStamp(source.graph);
+    for(int iteration=0;iteration<6;++iteration){
+        const auto solved=solvePhysicalPitch(source.graph,pitch,modelTarget);
+        if(!solved.reached)break;
+        probe.pitch.values[note]=solved.values;probe.pitch.playable[note]=1;
+        const auto spectrum=analyzePhysicalSpectrum(probe,note,true,target);++renders;
+        if(!spectrum.detected||!std::isfinite(spectrum.cents)||spectrum.rms<1.e-6f)break;
+        const float error=std::abs(spectrum.cents);
+        if(error<bestError){bestError=error;best=spectrum;bestValues=solved.values;correction=1200.f*std::log2(solved.modeledHz/target);}
+        if(error<=5.f)break;
+        const float model=1200.f*std::log2(solved.modeledHz/target);
+        float slope=1.f;
+        if(iteration>0&&std::abs(model-previousModel)>1.f){
+            const float measuredSlope=(spectrum.cents-previousMeasured)/(model-previousModel);
+            if(measuredSlope>.25f&&measuredSlope<4.f)slope=measuredSlope;
+        }
+        previousModel=model;previousMeasured=spectrum.cents;
+        const float next=model-std::clamp(spectrum.cents/slope,-240.f,240.f);
+        if(std::abs(next)>600.f)break; // do not chase unrelated resonances
+        modelTarget=target*std::exp2(next/1200.f);
+    }
+    if(bestError>10.f)return false;
+    pitch.values[note]=bestValues;pitch.playable[note]=1;return true;
+}
+
 inline bool findPhysicalFrequency(Blueprint& blueprint) {
     auto& calibration=blueprint.pitch;
     calibration.valid=false;

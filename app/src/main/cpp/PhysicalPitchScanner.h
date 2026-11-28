@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <vector>
 
 namespace aiora::physical {
 
@@ -20,7 +21,9 @@ constexpr int kScanResults=8;
 struct PhysicalScanCandidate {
     PitchCalibration pitch{};
     std::array<float,12> spectrum{};
-    int playableNotes{0};  // contiguous model-playable notes at reference
+    int playableNotes{0};  // contiguous playable notes at reference
+    int modeledNotes{0},verifiedNotes{0},renderChecks{0};
+    bool acousticAttempted{false};
     int firstMidi{-1},lastMidi{-1};
     int audibleChecks{0},audibleMatches{0};
     float meanAbsCents{0.f};
@@ -30,7 +33,7 @@ struct PhysicalScanCandidate {
     bool audibleVerified{false};
 };
 struct PhysicalScanResults {
-    std::array<PhysicalScanCandidate,kScanResults> best{};
+    std::vector<PhysicalScanCandidate> best{};
     int count{0};
     int examinedNodes{0},examinedLinks{0},testedProperties{0};
     int modelCandidates{0},auditionedCandidates{0};
@@ -65,10 +68,9 @@ inline void scanRankInsert(PhysicalScanResults& result,
     int at=0;
     while(at<result.count&&result.best[at].score>=entry.score)++at;
     if(at>=kScanResults)return;
-    const int n=std::min(kScanResults-1,result.count);
-    for(int i=n;i>at;--i)result.best[i]=result.best[i-1];
-    result.best[at]=entry;
-    result.count=std::min(kScanResults,result.count+1);
+    result.best.insert(result.best.begin()+at,entry);
+    if(result.best.size()>kScanResults)result.best.pop_back();
+    result.count=static_cast<int>(result.best.size());
 }
 // The quick model test is performed on EACH accessible physical component;
 // it avoids 128-note+FFT analysis of every property that cannot affect that
@@ -143,7 +145,107 @@ inline PhysicalScanCandidate evaluateScanPitch(
     result.score=result.playableNotes*quality;
     return result;
 }
+// Build a real keyboard table: every marked playable note has been rendered
+// and matched, rather than extrapolating three probes across a modeled span.
+inline PhysicalScanCandidate evaluateAcousticScanPitch(const Blueprint& source,PitchCalibration pitch) {
+    PhysicalScanCandidate result{};result.acousticAttempted=true;
+    (void)buildPhysicalKeyboard(source.graph,pitch);
+    result.pitch=pitch;
+    const auto modelPlayable=pitch.playable;
+    for(auto x:modelPlayable)result.modeledNotes+=x!=0;
+    if(result.modeledNotes<2)return result;
+    pitch.playable.fill(0);pitch.valid=false;pitch.enabled=false;pitch.acousticRefined=true;
+    const int ref=std::clamp<int>(pitch.referenceMidi,0,127);
+    float correction=0.f;PitchSpectrum refSpectrum{};
+    auto tryNote=[&](int note,float& seed,PitchSpectrum& z){
+        ++result.audibleChecks;
+        float updated=seed;
+        bool ok=refineAcousticNote(source,pitch,note,seed,z,updated,result.renderChecks);
+        if(!ok&&std::abs(seed)>10.f)ok=refineAcousticNote(source,pitch,note,0.f,z,updated,result.renderChecks);
+        if(!ok&&std::abs(seed)>10.f)for(float shift:{-45.f,45.f,-90.f,90.f}){
+            if(refineAcousticNote(source,pitch,note,seed+shift,z,updated,result.renderChecks)){ok=true;break;}
+        }
+        if(!ok)return false;
+        // A fixed body resonance can coincide with a key, yet not follow
+        // the controlled object. Reject reversals or near-stationary
+        // parameter solutions relative to the nearest confirmed note.
+        for(int distance=1;distance<128;++distance){
+            int other=-1;for(int n:{note-distance,note+distance})if(n>=0&&n<128&&pitch.playable[n]){other=n;break;}
+            if(other<0)continue;
+            const float step=100.f*(note-other);
+            FlowGraph a=source.graph,b=source.graph;
+            for(int k=0;k<pitch.count;++k){pitchWrite(a,pitch.assignments[k],pitch.values[note][k]);pitchWrite(b,pitch.assignments[k],pitch.values[other][k]);}
+            const float movement=1200.f*std::log2(trackedFundamental(a,pitch.trackedNode)/trackedFundamental(b,pitch.trackedNode));
+            const float slope=movement/step;
+            if(slope<.15f||slope>3.f){pitch.playable[note]=0;return false;}
+            break;
+        }
+        seed=updated;++result.audibleMatches;++result.verifiedNotes;
+        result.meanAbsCents+=std::abs(z.cents);result.confidence+=z.confidence;result.meanRms+=z.rms;
+        return true;
+    };
+    // Use a stable middle-C anchor when both it and the chosen reference
+    // lie in the modeled range. Changing the reference should not change
+    // branch continuation throughout an otherwise identical keyboard.
+    int anchor=modelPlayable[60]&&modelPlayable[ref]?60:ref;
+    PitchSpectrum anchorSpectrum{};
+    if(!tryNote(anchor,correction,anchorSpectrum)){
+        if(anchor==ref||!tryNote(ref,correction,anchorSpectrum)){result.pitch=pitch;return result;}
+        anchor=ref;
+    }
+    if(anchor==ref)refSpectrum=anchorSpectrum;
+    // Seek in both directions, using the preceding measured correction as
+    // a seed. A failed note remains a hole; it does not conceal later notes.
+    for(int direction:{-1,1}){
+        float seed=correction;
+        for(int note=anchor+direction;note>=0&&note<128;note+=direction){
+            const float hz=noteFrequency12TET(note,pitch.a4Hz);
+            if(hz<25.f||hz>3500.f)break;
+            if(!modelPlayable[note]){
+                // A coupled shift can extend the isolated boundary; try
+                // within three semitones of any model-reachable note.
+                bool near=false;for(int j=std::max(0,note-3);j<=std::min(127,note+3);++j)near|=modelPlayable[j]!=0;
+                if(!near)continue;
+            }
+            PitchSpectrum z{};if(tryNote(note,seed,z)&&note==ref)refSpectrum=z;
+        }
+    }
+    pitch.valid=pitch.playable[ref]&&result.verifiedNotes>=2;pitch.enabled=pitch.valid;
+    if(pitch.valid){FlowGraph atRef=source.graph;for(int k=0;k<pitch.count;++k)pitchWrite(atRef,pitch.assignments[k],pitch.values[ref][k]);pitch.modelHz=trackedFundamental(atRef,pitch.trackedNode);}
+    pitch.measuredHz=refSpectrum.fundamentalHz;pitch.centsError=refSpectrum.cents;pitch.confidence=refSpectrum.confidence;
+    result.spectrum=refSpectrum.bands;result.pitch=pitch;
+    result.playableNotes=contiguousPitchSpan(pitch,result.firstMidi,result.lastMidi);
+    if(!pitch.valid)return result;
+    result.meanAbsCents/=result.verifiedNotes;result.confidence/=result.verifiedNotes;result.meanRms/=result.verifiedNotes;
+    result.audibleVerified=true; // every playable key was individually verified
+    const float fraction=float(result.verifiedNotes)/std::max(1,result.audibleChecks);
+    const float quality=.45f*result.confidence+.35f*(1.f-std::min(1.f,result.meanAbsCents/10.f))+.20f*std::min(1.f,result.meanRms/.0002f);
+    result.score=(.65f*result.verifiedNotes+.35f*result.playableNotes)*quality*fraction;
+    return result;
+}
+inline PhysicalScanResults scanAcousticPhysicalPitch(const Blueprint& blueprint){
+    PhysicalScanResults result{};const auto& g=blueprint.graph;
+    result.graphStamp=physicalGraphStamp(g);result.referenceMidi=std::clamp<int>(blueprint.pitch.referenceMidi,0,127);result.a4Hz=blueprint.pitch.a4Hz;
+    for(int node=0;node<g.nodeCount;++node){
+        if(g.nodes[node].kind!=FlowKind::Universal||!physicalVibrates(g.nodes[node])||!pitchHasCompleteEnergyPath(g,node))continue;
+        ++result.examinedNodes;
+        for(int k=0;k<=int(PitchProperty::Coupling);++k){
+            ++result.testedProperties;const auto prop=static_cast<PitchProperty>(k);const auto bounds=pitchPropertyBounds(prop);
+            const PitchAssignment a{static_cast<int8_t>(node),prop,bounds[0],bounds[1],1.f};
+            if(!scanParameterResponse(g,node,a))continue;
+            PitchCalibration p{};p.trackedNode=static_cast<int8_t>(node);p.referenceMidi=result.referenceMidi;p.a4Hz=result.a4Hz;p.count=1;p.assignments[0]=a;
+            auto c=evaluateAcousticScanPitch(blueprint,p);
+            if(c.renderChecks>0)++result.auditionedCandidates;
+            if(c.modeledNotes>=2){++result.modelCandidates;result.best.push_back(std::move(c));}
+        }
+    }
+    for(int j=0;j<g.linkCount;++j)if(scanLinkInEnergyPath(g,j)){++result.examinedLinks;result.testedProperties+=2;}
+    std::stable_sort(result.best.begin(),result.best.end(),[](const auto& a,const auto& b){return a.score>b.score;});
+    result.count=static_cast<int>(result.best.size());return result;
+}
+
 inline PhysicalScanResults scanAllPhysicalPitch(const Blueprint& blueprint) {
+    if(blueprint.graph.energySolver)return scanAcousticPhysicalPitch(blueprint);
     PhysicalScanResults results{};
     const auto& graph=blueprint.graph;
     results.graphStamp=physicalGraphStamp(graph);

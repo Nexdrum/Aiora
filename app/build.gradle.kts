@@ -29,8 +29,8 @@ android {
     // This experimental APK installs alongside the stable Aiora app.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".integratedv17"
-            versionNameSuffix = "-integrated-physics-v17"
+            applicationIdSuffix = ".acousticscanv18"
+            versionNameSuffix = "-acoustic-scan-v18"
         }
     }
 
